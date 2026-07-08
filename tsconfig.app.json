@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"]
+  },
+  "include": [
+    "src/vite-env.d.ts",
+    "src/main.ts",
+    "src/content/**/*.ts",
+    "src/render/**/*.ts",
+    "src/ui/**/*.ts",
+    "src/worker/SimulationWorkerClient.ts",
+    "src/worker/protocol.ts"
+  ]
+}

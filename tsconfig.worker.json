@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "WebWorker"],
+    "types": []
+  },
+  "include": [
+    "src/vite-env.d.ts",
+    "src/sim/**/*.ts",
+    "src/worker/protocol.ts",
+    "src/worker/SimulationRunner.ts",
+    "src/worker/simulation.worker.ts"
+  ]
+}
