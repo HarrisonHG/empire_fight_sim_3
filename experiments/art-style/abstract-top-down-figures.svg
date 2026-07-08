@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" role="img" aria-labelledby="title desc">
+  <title id="title">Abstract top-down figure unit-marker exploration</title>
+  <desc id="desc">Simplified top-down figures showing faction shoulders, head-based facing, equipment roles, selection, status, reduced sizes, and overlap.</desc>
+  <defs>
+    <style>
+      .label { fill: #182126; font: 600 18px system-ui, sans-serif; }
+      .small { fill: #596268; font: 14px system-ui, sans-serif; }
+      .panel { fill: #e8e1d2; stroke: #c8bfaa; stroke-width: 2; }
+      .ink { stroke: #182126; stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+    </style>
+    <g id="azure-figure-infantry">
+      <path d="M-20 12 Q-23-8-12-16 H12 Q23-8 20 12 Q10 21 0 21 Q-10 21-20 12 Z" fill="#16697a" class="ink"/>
+      <circle cx="0" cy="-18" r="9" fill="#fff8e7" class="ink"/>
+      <path d="M0-31 L6-23 H-6 Z" fill="#182126"/>
+      <path d="M-25-10 V21 M-30 8 H-20" fill="none" class="ink"/>
+    </g>
+    <g id="azure-figure-ranged">
+      <path d="M-20 12 Q-23-8-12-16 H12 Q23-8 20 12 Q10 21 0 21 Q-10 21-20 12 Z" fill="#16697a" class="ink"/>
+      <circle cx="0" cy="-18" r="9" fill="#fff8e7" class="ink"/>
+      <path d="M0-31 L6-23 H-6 Z" fill="#182126"/>
+      <path d="M22-12 Q35 0 22 15 M26-9 L13 13" fill="none" class="ink"/>
+    </g>
+    <g id="crimson-figure-infantry">
+      <path d="M-24 8 Q-18-14-8-17 H8 Q18-14 24 8 L14 21 H-14 Z" fill="#b23a48" class="ink"/>
+      <circle cx="0" cy="-18" r="9" fill="#182126" class="ink"/>
+      <path d="M0-31 L7-23 H-7 Z" fill="#fff8e7" class="ink"/>
+      <path d="M-27-10 V21 M-32 8 H-22" fill="none" class="ink"/>
+    </g>
+    <g id="crimson-figure-support">
+      <path d="M-24 8 Q-18-14-8-17 H8 Q18-14 24 8 L14 21 H-14 Z" fill="#b23a48" class="ink"/>
+      <circle cx="0" cy="-18" r="9" fill="#182126" class="ink"/>
+      <path d="M0-31 L7-23 H-7 Z" fill="#fff8e7" class="ink"/>
+      <path d="M27-14 V20 M22-7 H32 M22 11 H32" fill="none" class="ink"/>
+    </g>
+  </defs>
+
+  <rect width="960" height="600" fill="#f4f0e6"/>
+  <text x="40" y="48" class="label" style="font-size:28px">Abstract top-down figures</text>
+  <text x="40" y="74" class="small">Proposition: body, head, and equipment imply people without illustrative sprite detail.</text>
+
+  <rect x="40" y="105" width="420" height="205" rx="12" class="panel"/>
+  <text x="60" y="136" class="label">Faction + role language</text>
+  <g transform="translate(115 205) scale(1.2)"><use href="#azure-figure-infantry"/></g>
+  <text x="73" y="266" class="small">Azure infantry</text>
+  <g transform="translate(220 205) scale(1.2)"><use href="#azure-figure-ranged"/></g>
+  <text x="181" y="266" class="small">Azure ranged</text>
+  <g transform="translate(330 205) scale(1.2)"><use href="#crimson-figure-support"/></g>
+  <text x="283" y="266" class="small">Crimson support</text>
+  <text x="60" y="294" class="small">Square versus swept shoulders duplicate faction; equipment sits outside.</text>
+
+  <rect x="485" y="105" width="435" height="205" rx="12" class="panel"/>
+  <text x="505" y="136" class="label">Facing + selected/status</text>
+  <g transform="translate(560 205) rotate(0) scale(1.2)"><use href="#azure-figure-infantry"/></g>
+  <g transform="translate(670 205) rotate(90) scale(1.2)"><use href="#crimson-figure-infantry"/></g>
+  <circle cx="790" cy="205" r="40" fill="none" stroke="#182126" stroke-width="7"/>
+  <circle cx="790" cy="205" r="40" fill="none" stroke="#ffd166" stroke-width="4"/>
+  <g transform="translate(790 205) rotate(-45) scale(1.2)"><use href="#azure-figure-ranged"/></g>
+  <path d="M846 166 L862 166 L854 181 Z" fill="#d95d39" stroke="#182126" stroke-width="2"/>
+  <g transform="translate(854 205) rotate(25)"><use href="#crimson-figure-support"/></g>
+  <text x="512" y="278" class="small">Head/plume facing</text>
+  <text x="742" y="278" class="small">Selection ring</text>
+  <text x="839" y="278" class="small">Warning</text>
+
+  <rect x="40" y="335" width="420" height="220" rx="12" class="panel"/>
+  <text x="60" y="367" class="label">Reduced-size test</text>
+  <g transform="translate(120 440)"><use href="#azure-figure-ranged"/></g>
+  <g transform="translate(220 440) scale(.67)"><use href="#azure-figure-ranged"/></g>
+  <g transform="translate(305 440) scale(.45)"><use href="#azure-figure-ranged"/></g>
+  <g transform="translate(385 440) scale(.34)"><use href="#azure-figure-ranged"/></g>
+  <text x="103" y="495" class="small">54 px</text>
+  <text x="204" y="495" class="small">36 px</text>
+  <text x="291" y="495" class="small">24 px</text>
+  <text x="371" y="495" class="small">18 px</text>
+  <text x="60" y="530" class="small">Body and head survive; equipment and shoulder distinction weaken first.</text>
+
+  <rect x="485" y="335" width="435" height="220" rx="12" class="panel"/>
+  <text x="505" y="367" class="label">Partial-overlap test</text>
+  <g transform="translate(615 450) rotate(-15) scale(1.2)"><use href="#azure-figure-ranged"/></g>
+  <g transform="translate(655 430) rotate(10) scale(1.2)"><use href="#azure-figure-infantry"/></g>
+  <g transform="translate(700 455) rotate(40) scale(1.2)"><use href="#crimson-figure-support"/></g>
+  <g transform="translate(745 430) rotate(70) scale(1.2)"><use href="#crimson-figure-infantry"/></g>
+  <text x="535" y="520" class="small">Human silhouette reads well; projecting equipment tangles under overlap.</text>
+</svg>

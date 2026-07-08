@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" role="img" aria-labelledby="title desc">
+  <title id="title">Heraldic token unit-marker exploration</title>
+  <desc id="desc">Shield and roundel top-down markers showing faction fields, facing pennons, roles, selection, status, reduced sizes, and overlap.</desc>
+  <defs>
+    <style>
+      .label { fill: #182126; font: 600 18px system-ui, sans-serif; }
+      .small { fill: #596268; font: 14px system-ui, sans-serif; }
+      .panel { fill: #e8e1d2; stroke: #c8bfaa; stroke-width: 2; }
+      .ink { stroke: #182126; stroke-width: 3; stroke-linejoin: round; }
+      .role { fill: none; stroke: #182126; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+    <g id="azure-shield-infantry">
+      <circle cx="0" cy="0" r="22" fill="#16697a" class="ink"/>
+      <path d="M-6-20 H6 V20 H-6 Z" fill="#fff8e7"/>
+      <path d="M0-31 L8-21 L-8-21 Z" fill="#fff8e7" class="ink"/>
+      <path d="M-9 3 H9 M0-7 V12" class="role"/>
+    </g>
+    <g id="azure-shield-ranged">
+      <circle cx="0" cy="0" r="22" fill="#16697a" class="ink"/>
+      <path d="M-6-20 H6 V20 H-6 Z" fill="#fff8e7"/>
+      <path d="M0-31 L8-21 L-8-21 Z" fill="#fff8e7" class="ink"/>
+      <path d="M-10 8 Q0-10 10 8 M-7 3 H9" class="role"/>
+    </g>
+    <g id="crimson-shield-infantry">
+      <path d="M-22-18 H22 V2 Q20 20 0 27 Q-20 20-22 2 Z" fill="#b23a48" class="ink"/>
+      <path d="M-18 11 L13-20 H22 V-9 L-8 21 Q-14 18-18 11 Z" fill="#fff8e7"/>
+      <path d="M0-30 L8-20 L-8-20 Z" fill="#182126"/>
+      <path d="M-9 3 H9 M0-7 V12" class="role"/>
+    </g>
+    <g id="crimson-shield-support">
+      <path d="M-22-18 H22 V2 Q20 20 0 27 Q-20 20-22 2 Z" fill="#b23a48" class="ink"/>
+      <path d="M-18 11 L13-20 H22 V-9 L-8 21 Q-14 18-18 11 Z" fill="#fff8e7"/>
+      <path d="M0-30 L8-20 L-8-20 Z" fill="#182126"/>
+      <circle cx="0" cy="3" r="8" fill="#fff8e7" stroke="#182126" stroke-width="3"/>
+      <circle cx="0" cy="3" r="2.5" fill="#182126"/>
+    </g>
+  </defs>
+
+  <rect width="960" height="600" fill="#f4f0e6"/>
+  <text x="40" y="48" class="label" style="font-size:28px">Heraldic tokens</text>
+  <text x="40" y="74" class="small">Proposition: field divisions carry setting character while redundant shapes preserve faction.</text>
+
+  <rect x="40" y="105" width="420" height="205" rx="12" class="panel"/>
+  <text x="60" y="136" class="label">Faction + role language</text>
+  <g transform="translate(115 205) scale(1.2)"><use href="#azure-shield-infantry"/></g>
+  <text x="73" y="266" class="small">Azure infantry</text>
+  <g transform="translate(220 205) scale(1.2)"><use href="#azure-shield-ranged"/></g>
+  <text x="181" y="266" class="small">Azure ranged</text>
+  <g transform="translate(330 202) scale(1.15)"><use href="#crimson-shield-support"/></g>
+  <text x="283" y="266" class="small">Crimson support</text>
+  <text x="60" y="294" class="small">Roundel/pale versus heater shield/bend duplicates faction hue.</text>
+
+  <rect x="485" y="105" width="435" height="205" rx="12" class="panel"/>
+  <text x="505" y="136" class="label">Facing + selected/status</text>
+  <g transform="translate(560 205) rotate(0) scale(1.2)"><use href="#azure-shield-infantry"/></g>
+  <g transform="translate(670 205) rotate(90) scale(1.15)"><use href="#crimson-shield-infantry"/></g>
+  <circle cx="790" cy="205" r="39" fill="none" stroke="#182126" stroke-width="7"/>
+  <circle cx="790" cy="205" r="39" fill="none" stroke="#ffd166" stroke-width="4"/>
+  <g transform="translate(790 205) rotate(-45) scale(1.2)"><use href="#azure-shield-ranged"/></g>
+  <path d="M846 166 L862 166 L854 181 Z" fill="#d95d39" stroke="#182126" stroke-width="2"/>
+  <g transform="translate(854 205) rotate(25)"><use href="#crimson-shield-support"/></g>
+  <text x="512" y="278" class="small">Facing pennon</text>
+  <text x="742" y="278" class="small">Selection ring</text>
+  <text x="839" y="278" class="small">Warning</text>
+
+  <rect x="40" y="335" width="420" height="220" rx="12" class="panel"/>
+  <text x="60" y="367" class="label">Reduced-size test</text>
+  <g transform="translate(120 440)"><use href="#crimson-shield-infantry"/></g>
+  <g transform="translate(220 440) scale(.67)"><use href="#crimson-shield-infantry"/></g>
+  <g transform="translate(305 440) scale(.45)"><use href="#crimson-shield-infantry"/></g>
+  <g transform="translate(385 440) scale(.34)"><use href="#crimson-shield-infantry"/></g>
+  <text x="103" y="495" class="small">48 px</text>
+  <text x="204" y="495" class="small">32 px</text>
+  <text x="291" y="495" class="small">22 px</text>
+  <text x="371" y="495" class="small">16 px</text>
+  <text x="60" y="530" class="small">Shield shape and field division survive longer than the central role emblem.</text>
+
+  <rect x="485" y="335" width="435" height="220" rx="12" class="panel"/>
+  <text x="505" y="367" class="label">Partial-overlap test</text>
+  <g transform="translate(615 450) rotate(-15) scale(1.2)"><use href="#azure-shield-ranged"/></g>
+  <g transform="translate(655 430) rotate(10) scale(1.2)"><use href="#azure-shield-infantry"/></g>
+  <g transform="translate(700 455) rotate(40) scale(1.15)"><use href="#crimson-shield-support"/></g>
+  <g transform="translate(745 430) rotate(70) scale(1.15)"><use href="#crimson-shield-infantry"/></g>
+  <text x="535" y="520" class="small">Distinct shields remain separable; field detail becomes busy in a tight cluster.</text>
+</svg>

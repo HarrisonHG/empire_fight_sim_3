@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en-GB">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Art style exploration</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="page-header">
+      <p class="eyebrow">Static exploration · not production UI</p>
+      <h1>Top-down simulation art directions</h1>
+      <p class="lede">
+        Three marker languages tested against the same priorities: faction, facing,
+        role, state, reduced scale, overlap, terrain competition, and high entity count.
+      </p>
+    </header>
+
+    <main>
+      <section aria-labelledby="directions-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">01 · Unit markers</p>
+            <h2 id="directions-heading">Candidate directions</h2>
+          </div>
+          <p>Each sheet uses the same evidence layout for a fair comparison.</p>
+        </div>
+
+        <div class="gallery gallery--three">
+          <article class="card">
+            <div class="card-copy">
+              <h3>Tactical glyphs</h3>
+              <p>Tests whether hard geometry is the clearest high-density baseline.</p>
+            </div>
+            <a href="tactical-glyphs.svg" aria-label="Open tactical glyphs SVG independently">
+              <img src="tactical-glyphs.svg" alt="Tactical glyph unit-marker comparison sheet">
+            </a>
+          </article>
+
+          <article class="card">
+            <div class="card-copy">
+              <h3>Heraldic tokens</h3>
+              <p>Tests how much setting identity survives without sacrificing scanning.</p>
+            </div>
+            <a href="heraldic-tokens.svg" aria-label="Open heraldic tokens SVG independently">
+              <img src="heraldic-tokens.svg" alt="Heraldic token unit-marker comparison sheet">
+            </a>
+          </article>
+
+          <article class="card">
+            <div class="card-copy">
+              <h3>Abstract top-down figures</h3>
+              <p>Tests whether a human silhouette remains useful at simulation scale.</p>
+            </div>
+            <a href="abstract-top-down-figures.svg" aria-label="Open abstract top-down figures SVG independently">
+              <img src="abstract-top-down-figures.svg" alt="Abstract top-down figure unit-marker comparison sheet">
+            </a>
+          </article>
+        </div>
+      </section>
+
+      <section aria-labelledby="terrain-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">02 · Map language</p>
+            <h2 id="terrain-heading">Terrain markers</h2>
+          </div>
+          <p>Terrain stays quieter than units and uses shape or pattern as well as colour.</p>
+        </div>
+        <figure class="feature">
+          <a href="terrain-markers.svg" aria-label="Open terrain marker SVG independently">
+            <img src="terrain-markers.svg" alt="Terrain concepts for open ground, rough ground, woodland, water, boundaries, and objectives">
+          </a>
+          <figcaption>Six terrain categories shown with a unit sample to expose contrast conflicts.</figcaption>
+        </figure>
+      </section>
+
+      <section aria-labelledby="density-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">03 · Stress test</p>
+            <h2 id="density-heading">Equivalent density scenes</h2>
+          </div>
+          <p>This is visual-readability evidence only. It does not measure runtime performance.</p>
+        </div>
+        <figure class="feature feature--wide">
+          <a href="density-comparison.svg" aria-label="Open density comparison SVG independently">
+            <img src="density-comparison.svg" alt="Three marker directions compared at low, medium, and high density">
+          </a>
+          <figcaption>Identical positions, terrain, scale, faction split, and facing spread in every column.</figcaption>
+        </figure>
+
+        <div class="greyscale-check" aria-labelledby="greyscale-heading">
+          <div>
+            <p class="eyebrow">04 · Value check</p>
+            <h2 id="greyscale-heading">Greyscale preview</h2>
+            <p>Faction must remain legible through silhouette and field structure when hue is removed.</p>
+          </div>
+          <img class="greyscale" src="density-comparison.svg" alt="Greyscale preview of the density comparison">
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>Standalone HTML/CSS/SVG exploration. No scripts, external resources, application imports, or production wiring.</p>
+    </footer>
+  </body>
+</html>

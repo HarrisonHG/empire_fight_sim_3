@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 700" role="img" aria-labelledby="title desc">
+  <title id="title">Terrain marker exploration</title>
+  <desc id="desc">Six restrained terrain concepts for open ground, rough ground, woodland, blocked water, boundaries, and objectives.</desc>
+  <defs>
+    <style>
+      .label { fill: #182126; font: 600 18px system-ui, sans-serif; }
+      .small { fill: #596268; font: 14px system-ui, sans-serif; }
+      .panel { fill: #f4f0e6; stroke: #c8bfaa; stroke-width: 2; }
+      .unit { stroke: #182126; stroke-width: 3; }
+    </style>
+    <pattern id="rough-pattern" width="28" height="24" patternUnits="userSpaceOnUse">
+      <path d="M3 17 L9 11 L15 16 M19 8 L24 4" fill="none" stroke="#806d4e" stroke-width="2" stroke-linecap="round"/>
+    </pattern>
+    <pattern id="wood-pattern" width="48" height="42" patternUnits="userSpaceOnUse">
+      <circle cx="14" cy="15" r="8" fill="#5f7653"/>
+      <circle cx="30" cy="22" r="11" fill="#496344"/>
+      <path d="M22 31 V38" stroke="#354b3b" stroke-width="3"/>
+    </pattern>
+    <pattern id="water-pattern" width="46" height="30" patternUnits="userSpaceOnUse">
+      <path d="M0 10 Q11 4 23 10 T46 10 M8 23 Q19 17 31 23" fill="none" stroke="#a9cad8" stroke-width="3"/>
+    </pattern>
+    <g id="sample-units">
+      <path d="M0-15 L16-5 L12 13 L-12 13 L-16-5 Z" fill="#b23a48" class="unit"/>
+      <path d="M0-23 L7-14 L-7-14 Z" fill="#182126"/>
+    </g>
+  </defs>
+
+  <rect width="960" height="700" fill="#f4f0e6"/>
+  <text x="40" y="48" class="label" style="font-size:28px">Terrain marker concepts</text>
+  <text x="40" y="74" class="small">Terrain is context: lower contrast, larger rhythm, and fewer edges than unit markers.</text>
+
+  <g transform="translate(40 105)">
+    <rect width="275" height="245" rx="12" class="panel"/>
+    <text x="18" y="32" class="label">Open / passable</text>
+    <rect x="18" y="50" width="239" height="150" rx="8" fill="#d8d1b8"/>
+    <path d="M28 165 Q90 130 150 156 T247 142" fill="none" stroke="#c2b99c" stroke-width="3"/>
+    <path d="M48 90 l18-7 M188 104 l23 6 M120 184 l16-5" stroke="#b8ae91" stroke-width="2" stroke-linecap="round"/>
+    <use href="#sample-units" transform="translate(138 125)"/>
+    <text x="18" y="226" class="small">Quiet field; sparse contour cues only.</text>
+  </g>
+
+  <g transform="translate(342 105)">
+    <rect width="275" height="245" rx="12" class="panel"/>
+    <text x="18" y="32" class="label">Rough ground</text>
+    <rect x="18" y="50" width="239" height="150" rx="8" fill="#b29b72"/>
+    <rect x="18" y="50" width="239" height="150" rx="8" fill="url(#rough-pattern)"/>
+    <path d="M18 174 Q62 151 102 169 T181 166 T257 152" fill="none" stroke="#806d4e" stroke-width="4"/>
+    <use href="#sample-units" transform="translate(138 125)"/>
+    <text x="18" y="226" class="small">Angular marks imply friction, not detail.</text>
+  </g>
+
+  <g transform="translate(644 105)">
+    <rect width="275" height="245" rx="12" class="panel"/>
+    <text x="18" y="32" class="label">Woodland</text>
+    <rect x="18" y="50" width="239" height="150" rx="8" fill="#718465"/>
+    <path d="M30 61 Q75 42 113 65 T190 58 T247 73 V190 H30 Z" fill="url(#wood-pattern)" stroke="#354b3b" stroke-width="3"/>
+    <path d="M100 50 Q127 78 104 104 T111 161 T92 200" fill="none" stroke="#d8d1b8" stroke-width="18" opacity=".85"/>
+    <use href="#sample-units" transform="translate(105 126)"/>
+    <text x="18" y="226" class="small">Massed canopy with a broad readable path.</text>
+  </g>
+
+  <g transform="translate(40 382)">
+    <rect width="275" height="245" rx="12" class="panel"/>
+    <text x="18" y="32" class="label">Water / blocked</text>
+    <rect x="18" y="50" width="239" height="150" rx="8" fill="#4c86a8"/>
+    <rect x="18" y="50" width="239" height="150" rx="8" fill="url(#water-pattern)"/>
+    <path d="M18 53 Q60 72 98 57 T177 61 T257 55" fill="none" stroke="#424c50" stroke-width="7"/>
+    <path d="M30 184 L48 172 L67 188 L88 174 L110 187" fill="none" stroke="#424c50" stroke-width="5"/>
+    <use href="#sample-units" transform="translate(138 125)"/>
+    <text x="18" y="226" class="small">Cool field plus hard shore signals blocked.</text>
+  </g>
+
+  <g transform="translate(342 382)">
+    <rect width="275" height="245" rx="12" class="panel"/>
+    <text x="18" y="32" class="label">Boundaries</text>
+    <rect x="18" y="50" width="239" height="150" rx="8" fill="#d8d1b8"/>
+    <path d="M34 177 C70 112 90 147 125 93 S195 102 242 65" fill="none" stroke="#fff8e7" stroke-width="8"/>
+    <path d="M34 177 C70 112 90 147 125 93 S195 102 242 65" fill="none" stroke="#6d5a43" stroke-width="4" stroke-dasharray="12 9"/>
+    <use href="#sample-units" transform="translate(90 110)"/>
+    <use href="#sample-units" transform="translate(188 146) rotate(180)"/>
+    <text x="18" y="226" class="small">Outlined dashes survive colour loss.</text>
+  </g>
+
+  <g transform="translate(644 382)">
+    <rect width="275" height="245" rx="12" class="panel"/>
+    <text x="18" y="32" class="label">Objectives</text>
+    <rect x="18" y="50" width="239" height="150" rx="8" fill="#d8d1b8"/>
+    <circle cx="138" cy="125" r="48" fill="none" stroke="#fff8e7" stroke-width="11"/>
+    <circle cx="138" cy="125" r="48" fill="none" stroke="#c88719" stroke-width="5" stroke-dasharray="8 7"/>
+    <path d="M138 82 L181 125 L138 168 L95 125 Z" fill="#c88719" stroke="#182126" stroke-width="4"/>
+    <circle cx="138" cy="125" r="9" fill="#fff8e7" stroke="#182126" stroke-width="3"/>
+    <text x="18" y="226" class="small">Diamond + dot separates goal from selection.</text>
+  </g>
+
+  <text x="40" y="674" class="small">Unit samples are included only to judge terrain competition; they are not an additional marker direction.</text>
+</svg>

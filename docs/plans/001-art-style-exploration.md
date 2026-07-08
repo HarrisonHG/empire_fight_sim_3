@@ -2,158 +2,137 @@
 
 ## Goal
 
-Create a small, static art-style exploration for the top-down 2D simulation. The exploration will compare three candidate visual directions using simple SVG sketches and, where useful, a standalone HTML/CSS comparison page. It will cover palette suggestions, top-down unit markers, terrain markers, and readability under high entity counts, then document which two or three directions are credible candidates for later review.
+Produce a small, static comparison of three candidate art directions for a top-down 2D simulation. The exploration will use simple SVG sketches, palette notes, and—only if it materially improves comparison—a standalone HTML/CSS page. It will test top-down unit markers, terrain markers, and visual readability at high entity counts, then recommend two or three directions for further review.
 
-This is a docs/experiment milestone only. It does not select or implement a production art system.
-
-## Source and Scope Constraints
-
-- Follow `AGENTS.md`, `docs/codex/architecture.md`, `docs/codex/performance.md`, `docs/codex/review.md`, and `docs/codex/task-planning.md`.
-- `docs/codex/performance.md`, `docs/codex/testing.md`, and `specs/art-style-exploration/spec.md` are currently empty. The explicit scope in the task request is therefore the controlling specification; no additional requirements should be inferred from those files.
-- Apart from this plan, all later exploration output must be created only under `docs/art-style/` and `experiments/art-style/`.
-- No production code, app wiring, dependencies, build configuration, or source-layer changes are permitted.
-
-## Candidate Art Directions
-
-The exploration will compare these three candidates:
-
-1. **Tactical glyphs** — flat geometric markers with strong silhouettes, restrained detail, and status conveyed through shape, outline, and small directional cues. This is the baseline for maximum readability at high density.
-2. **Heraldic tokens** — compact roundel or shield-like markers using faction fields, simple role emblems, and clear facing indicators. This tests whether more setting character can be retained without losing scanability.
-3. **Minimal top-down figures** — abstract head/shoulder/body silhouettes with a single role or equipment cue. This tests a more representational direction while keeping forms simple enough for large formations.
-
-The final comparison will recommend retaining two or three of these for further review. It will not declare a final production style.
+This is an exploration spike. It will not select a final production style or change the application.
 
 ## Non-goals
 
-- Creating final art, polished illustrations, animation, sprite sheets, textures, or production-ready assets.
-- Modifying anything under `src/sim/`, `src/worker/`, `src/render/`, or `src/ui/`.
-- Wiring experiments into the application or importing application code into the experiments.
-- Changing simulation state, snapshots, worker messages, entity data, camera behaviour, or rendering architecture.
-- Adding JavaScript, build steps, packages, fonts, image libraries, or other dependencies.
-- Measuring application rendering performance. Static density mockups can expose visual crowding but cannot establish runtime cost.
-- Designing menus, HUDs, controls, debug overlays, or other general UI.
-- Expanding the work into a complete terrain art system, map editor, faction identity system, or asset pipeline.
+- Production-ready art, sprites, animation, textures, asset pipelines, or rendering systems.
+- Changes to production code or anything under `src/sim/`, `src/worker/`, `src/render/`, or `src/ui/`.
+- App wiring, PixiJS experiments, JavaScript behaviour, build configuration, or new dependencies.
+- Simulation, worker protocol, entity storage, gameplay, or performance-critical changes.
+- UI, HUD, menu, camera, or interaction design.
+- Runtime performance conclusions; static mockups assess visual readability only.
+- A final art-direction decision.
+
+## Candidate Art Directions to Explore
+
+1. **Tactical glyphs**: flat geometric shapes with strong silhouettes, minimal internal detail, and explicit facing cues. This is the high-density readability baseline.
+2. **Heraldic tokens**: compact shield or roundel forms with restrained role emblems, faction fields, and clear outlines. This tests setting character without relying on small illustrative detail.
+3. **Abstract top-down figures**: simplified head/body or equipment silhouettes viewed from above, using one strong role cue and a clear facing direction. This tests a more representational option at simulation scale.
+
+The final recommendation will retain the strongest two or three candidates. It will record trade-offs rather than declare a production choice.
 
 ## Files to Create
 
-Only the following files are planned for the exploration:
+Implementation may create only these exploration files:
 
 ```txt
 docs/art-style/
   palettes.md
-  candidate-directions.md
+  recommendations.md
 
 experiments/art-style/
-  index.html
-  styles.css
   tactical-glyphs.svg
   heraldic-tokens.svg
-  minimal-top-down-figures.svg
+  abstract-top-down-figures.svg
   terrain-markers.svg
   density-comparison.svg
+  index.html       # optional; create only if side-by-side review needs it
+  styles.css       # optional; create only with index.html
 ```
 
-File responsibilities:
+Responsibilities:
 
-- `docs/art-style/palettes.md`: propose a small set of palette roles and exact colour values for faction identity, selection, warning/status, neutral units, terrain, and background. Include colour-vision and greyscale considerations; colour must not be the only distinguishing signal.
-- `docs/art-style/candidate-directions.md`: describe the three directions, record their trade-offs against the review criteria, and recommend the two or three candidates worth carrying forward.
-- `experiments/art-style/index.html`: provide a standalone comparison surface that embeds or links the SVGs at consistent sizes and backgrounds. It must work without the application and without JavaScript.
-- `experiments/art-style/styles.css`: provide only the layout, neutral comparison surfaces, captions, and responsive behaviour needed by `index.html`.
-- The three candidate SVGs: show a small consistent marker set for each direction, including facing, faction distinction, a role distinction, selection, and a reduced-scale example.
-- `experiments/art-style/terrain-markers.svg`: compare simple concepts for passable ground, rough ground, woodland, water or blocked terrain, and boundaries/objectives without attempting a full map style.
-- `experiments/art-style/density-comparison.svg`: place the candidate markers over the same representative terrain and formation layouts at low, medium, and high density. Reuse SVG symbols with `<use>` where practical so the file remains simple and reviewable.
+- `palettes.md`: exact colour suggestions and semantic roles for background, terrain, factions, neutral units, selection, and warnings; include contrast, greyscale, and colour-vision considerations.
+- `recommendations.md`: compare all three directions against the same criteria and recommend two or three for further review.
+- Candidate SVGs: show comparable unit markers with faction, facing, role, selection/status, reduced-size, and partial-overlap examples.
+- `terrain-markers.svg`: show restrained concepts for open/passable ground, rough ground, woodland, water/blocked terrain, boundaries, and objectives.
+- `density-comparison.svg`: place each candidate in equivalent low-, medium-, and high-density scenes over the same terrain treatment.
+- Optional `index.html` and `styles.css`: provide a dependency-free, script-free comparison surface. They must remain standalone and must not import application code.
 
-No additional files should be created without updating and re-accepting this plan.
+No other exploration files may be added without revising and re-accepting this plan. Other than this plan, all output must remain under `docs/art-style/` or `experiments/art-style/`.
 
 ## Architecture Impact
 
-None. The work is isolated static documentation and experiments. It must not import, call, or modify simulation, worker, renderer, or UI code. The HTML/CSS mockup is an inspection aid, not an application prototype.
+None. The work consists only of static documentation and standalone visual experiments. It does not cross the simulation, worker, renderer, or UI boundaries described in `docs/codex/architecture.md`. It makes no runtime-performance claim under `docs/codex/performance.md` and introduces no behaviour requiring the headless test rules in `docs/codex/testing.md`.
 
 ## Implementation Order
 
-1. Create `docs/art-style/palettes.md` with palette roles, candidate colour values, contrast notes, and a check that faction/status distinctions also have shape or outline cues.
-2. Create the three candidate SVGs using a shared comparison brief: identical canvas size, comparable marker footprint, the same example roles/states, and both light and dark or terrain-backed contexts where needed.
-3. Create `terrain-markers.svg` with restrained terrain fills, patterns, edges, and objective/boundary concepts that remain subordinate to units.
-4. Create `density-comparison.svg` using the same formations, scale, terrain, and palette roles for all three candidates. Include representative low-, medium-, and high-count scenes and overlap/clustering cases.
-5. Create the standalone `index.html` and `styles.css` to present every SVG side by side at consistent scales. Keep the page static, responsive, and independent of project production code.
-6. Review the artifacts in a browser and as standalone SVGs at normal size and reduced display size. Check colour and greyscale presentation and record any failures rather than polishing around them.
-7. Create `docs/art-style/candidate-directions.md`, compare the candidates using the same criteria, and recommend the two or three strongest directions for human review. Preserve unresolved trade-offs and avoid selecting a final production style.
-8. Perform a scope self-review against `docs/codex/review.md`, confirm that only the accepted paths changed, and stop for human review.
+1. Create `docs/art-style/palettes.md` with a small set of semantic palette roles and exact values. Establish up front that faction and state distinctions must also use shape, outline, or emblem cues.
+2. Create the three candidate unit-marker SVGs against one comparison brief: identical canvas dimensions, marker footprints, example factions, roles, facing, states, backgrounds, reduced sizes, and overlap cases.
+3. Create `terrain-markers.svg`, keeping terrain contrast and detail subordinate to units.
+4. Create `density-comparison.svg` with equivalent formations and terrain at low, medium, and high entity counts. Include clustering and partial overlap so failure modes are visible.
+5. Create `index.html` and `styles.css` only if reviewing the SVGs independently does not provide a clear side-by-side comparison. If created, use no scripts, external resources, or application imports.
+6. Review the SVGs at normal and reduced display sizes, in colour and greyscale, and on representative terrain. Record failures rather than hiding them through direction-specific presentation changes.
+7. Create `docs/art-style/recommendations.md`, rank the three candidates using the review criteria below, and recommend the strongest two or three for human review.
+8. Perform the scope checks from `docs/codex/review.md`; confirm that no files outside the accepted plan paths changed and stop for human review.
+
+No art files will be created until this plan is accepted.
 
 ## Review Criteria
 
 ### Unit markers
 
-- Faction/allegiance is readable quickly and is not communicated by hue alone.
-- Facing remains identifiable at reduced size.
-- At least one role distinction and selection/status state remains visible without excessive internal detail.
-- Silhouettes remain distinct when units touch or partially overlap.
-- The candidate remains recognisable on both quiet and visually varied terrain samples.
+- Faction is distinguishable quickly and does not depend on hue alone.
+- Facing is clear at reduced size.
+- Role and selection/status cues survive reduction without excessive internal detail.
+- Silhouettes remain distinguishable when markers touch or partially overlap.
+- Markers remain readable on both quiet and patterned terrain.
 
 ### Terrain markers
 
-- Passable, rough, wooded, water/blocked, boundary, and objective concepts are distinguishable.
-- Terrain establishes context without competing with unit markers for the strongest contrast.
-- Patterns and edges do not become noise at reduced scale or under dense formations.
-- Meaning does not depend on texture detail that disappears when zoomed out.
+- Open ground, rough ground, woodland, water/blocked terrain, boundaries, and objectives are distinguishable.
+- Terrain remains visually subordinate to units.
+- Patterns and edges do not become noise at reduced scale or high density.
+- Meanings do not rely on details that disappear when zoomed out.
 
 ### High entity counts
 
-- Each candidate is judged using the same marker footprint, layouts, backgrounds, and density bands.
-- Formation shape, faction grouping, facing, and selected-unit emphasis remain scannable in the high-density panel.
-- Dense scenes do not turn into an indistinguishable field of outlines, emblems, or high-saturation colour.
-- The review explicitly distinguishes visual readability from runtime performance; no performance claim is made from static SVGs.
+- All directions are compared with the same scale, formations, density bands, and backgrounds.
+- Faction grouping, formation shape, facing, and selected-unit emphasis remain scannable in the high-density case.
+- Dense scenes do not collapse into a field of outlines, emblems, or saturated colour.
+- Findings are explicitly described as visual-readability results, not runtime performance measurements.
 
-### Palette and presentation
+### Palettes and recommendation
 
-- Suggested colours have documented semantic roles rather than being decorative swatches only.
-- Critical distinctions survive a greyscale check and a basic colour-vision check.
-- The HTML comparison loads locally with no missing assets, scripts, external fonts, or network requests.
-- Every SVG opens independently and uses a suitable `viewBox` for consistent comparison.
+- Each colour has a documented semantic role.
+- Critical distinctions remain understandable in greyscale and under a basic colour-vision check.
+- Strengths, weaknesses, and failure modes are recorded for every candidate.
+- The recommendation names two or three candidates and explains why they merit further review, weighting high-count readability above decorative detail.
 
-### Recommendation
+## Checks
 
-- The comparison records strengths, weaknesses, and failure modes for every candidate.
-- The recommendation names two or three candidates and explains why they merit further review, with high-count readability weighted above decorative detail.
-- Any recommendation remains provisional until human review; no production implementation is implied.
+- Open each SVG independently and inspect it at normal and reduced size.
+- If the optional HTML/CSS mockup exists, open it locally and confirm all assets load without scripts, network requests, or console errors.
+- Compare all density panels for faction, formation, facing, overlap, and selection readability.
+- Inspect palette samples in colour and greyscale; use a basic colour-vision simulation only if it requires no project dependency.
+- Run `git diff --check` and inspect `git status --short`.
+- Confirm no files under `src/`, dependency manifests, build configuration, or app integration changed.
 
-## Tests and Checks
-
-No production or simulation tests are required because no production behaviour changes. Perform these checks instead:
-
-- Open `experiments/art-style/index.html` locally and verify all comparison artifacts render without console or missing-file errors.
-- Open each SVG independently and inspect normal and reduced display sizes.
-- Inspect the density comparison for formation, allegiance, facing, overlap, and selected-unit readability.
-- Inspect palette samples in colour and greyscale; use a basic colour-vision simulation if available without adding a project dependency.
-- Run `git diff --check` and inspect `git status --short` to verify path and whitespace scope.
-- Confirm no file under `src/` and no dependency or configuration file changed.
-
-Running the project's typecheck, test, build, or performance commands is not necessary for this isolated static-art plan unless later implementation unexpectedly touches executable project files, which this plan forbids.
+Project typecheck, test, build, and performance commands are not required for static documentation and SVG/HTML/CSS artifacts because no executable project files may change.
 
 ## Risks
 
-- **Empty specification:** the spec currently supplies no detail beyond the task request. Mitigation: keep the milestone strictly within the enumerated scope and require human review before creating artifacts.
-- **False performance conclusions:** a static SVG density scene does not model PixiJS sprite count, GPU load, worker messages, or garbage collection. Mitigation: label findings as visual-readability results only.
-- **Over-detailed concepts:** heraldic or figurative detail may disappear at simulation scale. Mitigation: include reduced-size and overlap cases early, and prefer silhouette over internal decoration.
-- **Colour dependence:** attractive faction palettes may fail for colour-vision deficiencies or greyscale viewing. Mitigation: pair colour with shape, border, pattern, or emblem differences and document checks.
-- **Terrain competition:** texture and contrast can obscure units in dense scenes. Mitigation: reserve the highest contrast and saturation for units and selected/status cues.
-- **Unfair comparison:** different marker sizes or scene layouts could bias the result. Mitigation: use consistent canvases, footprints, formation layouts, terrain, and density bands.
-- **Prototype leakage:** an HTML mockup could be mistaken for proposed UI or app architecture. Mitigation: keep it static, dependency-free, clearly labelled as an inspection page, and disconnected from `src/`.
-- **SVG portability:** browser rendering can vary slightly. Mitigation: use basic SVG primitives, local/system fonts only if text is unavoidable, and verify standalone display in the project’s normal browser environment.
+- **Detail loss at simulation scale:** heraldic or figurative details may disappear. Mitigation: test reduced-size and overlap cases from the first sketches.
+- **Colour dependence:** attractive palettes may fail in greyscale or for colour-vision deficiencies. Mitigation: pair colour with silhouette, border, pattern, or emblem differences.
+- **Terrain competition:** terrain texture can obscure units. Mitigation: reserve the strongest contrast and saturation for units and state cues.
+- **Biased comparison:** different scales or layouts can make one direction appear stronger. Mitigation: use identical canvases, marker footprints, formations, terrain, and density bands.
+- **False performance conclusions:** SVG density mockups do not measure rendering CPU, GPU load, sprite count, garbage collection, or worker message size. Mitigation: report only visual-readability findings.
+- **Prototype leakage:** a standalone HTML page could be mistaken for application UI. Mitigation: create it only if useful, label it as a comparison page, and keep it disconnected from production code.
+- **Scope expansion:** exploration can drift into polished art or production architecture. Mitigation: restrict creation to the enumerated files and require a new accepted plan for any expansion.
 
 ## Done Criteria
 
-This exploration milestone is done only when:
-
-- All planned artifacts exist, and no unplanned artifact has been added.
-- All exploration output is confined to `docs/art-style/` and `experiments/art-style/`.
-- The three candidate directions have comparable simple SVG sketches.
-- Palette suggestions include semantic roles, exact values, and accessibility/readability notes.
-- Unit-marker concepts cover faction, facing, role, selection/status, reduced scale, and overlap.
-- Terrain-marker concepts cover the agreed small set without expanding into a full terrain system.
-- A consistent density comparison documents readability at low, medium, and high entity counts.
-- `candidate-directions.md` recommends two or three candidates for human review and explains the trade-offs.
-- The standalone HTML/CSS comparison, if retained, works locally without JavaScript, external resources, application wiring, or dependencies.
-- No production code, source layer, dependency manifest, build configuration, or app integration has changed.
-- The scope self-review and static checks pass.
-- The user has reviewed the artifacts; no further implementation is implied by completion of this plan.
+- All accepted exploration artifacts exist only under `docs/art-style/` and `experiments/art-style/`.
+- Three simple, directly comparable unit-marker directions have been explored in SVG.
+- Terrain-marker concepts cover only the agreed terrain and map-marker categories.
+- Palette suggestions include exact values, semantic roles, and accessibility/readability notes.
+- The density comparison covers low, medium, and high entity counts using equivalent scenes.
+- Unit concepts demonstrate faction, facing, role, selection/status, reduced scale, and overlap.
+- `recommendations.md` recommends two or three candidates and documents the evidence and trade-offs.
+- Any optional HTML/CSS mockup works standalone without JavaScript, external resources, dependencies, or app wiring.
+- No production code, `src/` layer, dependency manifest, build configuration, or application integration has changed.
+- Static visual checks and the scope self-review pass.
+- The user has reviewed the completed exploration; no production implementation is implied.

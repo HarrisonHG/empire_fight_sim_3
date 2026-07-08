@@ -1,0 +1,166 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1020" role="img" aria-labelledby="title desc">
+  <title id="title">Equivalent density comparison for three unit-marker directions</title>
+  <desc id="desc">Tactical glyphs, heraldic tokens, and abstract top-down figures shown in matching low, medium, and high density terrain scenes.</desc>
+  <defs>
+    <style>
+      .heading { fill: #182126; font: 700 26px system-ui, sans-serif; }
+      .label { fill: #182126; font: 600 17px system-ui, sans-serif; }
+      .small { fill: #596268; font: 14px system-ui, sans-serif; }
+      .scene { fill: #d8d1b8; stroke: #b7ad95; stroke-width: 2; }
+      .unit { stroke: #182126; stroke-width: 2; stroke-linejoin: round; }
+    </style>
+    <g id="scene-bg">
+      <rect width="320" height="220" rx="10" class="scene"/>
+      <path d="M0 0 H112 Q138 50 105 91 T128 148 Q96 180 0 164 Z" fill="#718465" opacity=".8"/>
+      <circle cx="28" cy="28" r="13" fill="#496344"/>
+      <circle cx="72" cy="55" r="16" fill="#496344"/>
+      <circle cx="38" cy="115" r="15" fill="#496344"/>
+      <path d="M0 187 Q76 162 145 190 T320 174 V220 H0 Z" fill="#4c86a8"/>
+      <path d="M0 187 Q76 162 145 190 T320 174" fill="none" stroke="#424c50" stroke-width="4"/>
+      <path d="M150 37 Q185 70 217 49 T299 62" fill="none" stroke="#6d5a43" stroke-width="3" stroke-dasharray="9 7" opacity=".7"/>
+    </g>
+
+    <g id="tactical-azure">
+      <path d="M-8-7 L5-7 L9-3 L9 7 L-8 7 Z" fill="#16697a" class="unit"/>
+      <path d="M0-12 L4-7 L-4-7 Z" fill="#fff8e7" stroke="#182126" stroke-width="1.5"/>
+      <path d="M-4 1 H4" stroke="#fff8e7" stroke-width="2"/>
+    </g>
+    <g id="tactical-crimson">
+      <path d="M0-9 L9-3 L7 8 L-7 8 L-9-3 Z" fill="#b23a48" class="unit"/>
+      <path d="M0-13 L4-8 L-4-8 Z" fill="#182126"/>
+      <path d="M-4 1 H4" stroke="#fff8e7" stroke-width="2"/>
+    </g>
+    <g id="heraldic-azure">
+      <circle r="9" fill="#16697a" class="unit"/>
+      <path d="M-2-8 H2 V8 H-2 Z" fill="#fff8e7"/>
+      <path d="M0-13 L4-9 L-4-9 Z" fill="#fff8e7" stroke="#182126" stroke-width="1.5"/>
+    </g>
+    <g id="heraldic-crimson">
+      <path d="M-9-8 H9 V1 Q8 8 0 11 Q-8 8-9 1 Z" fill="#b23a48" class="unit"/>
+      <path d="M-7 5 L5-8 H9 V-4 L-4 8 Z" fill="#fff8e7"/>
+      <path d="M0-12 L4-8 L-4-8 Z" fill="#182126"/>
+    </g>
+    <g id="figure-azure">
+      <path d="M-9 6 Q-10-5-5-7 H5 Q10-5 9 6 Q0 11-9 6 Z" fill="#16697a" class="unit"/>
+      <circle cx="0" cy="-8" r="4" fill="#fff8e7" stroke="#182126" stroke-width="2"/>
+      <path d="M0-14 L3-11 H-3 Z" fill="#182126"/>
+    </g>
+    <g id="figure-crimson">
+      <path d="M-11 5 Q-8-7-4-8 H4 Q8-7 11 5 L6 10 H-6 Z" fill="#b23a48" class="unit"/>
+      <circle cx="0" cy="-8" r="4" fill="#182126" stroke="#182126" stroke-width="2"/>
+      <path d="M0-14 L3-11 H-3 Z" fill="#fff8e7" stroke="#182126" stroke-width="1"/>
+    </g>
+
+    <g id="low-tactical">
+      <use href="#tactical-azure" transform="translate(90 74) rotate(25)"/><use href="#tactical-azure" transform="translate(116 105) rotate(40)"/><use href="#tactical-azure" transform="translate(92 135) rotate(50)"/>
+      <use href="#tactical-crimson" transform="translate(226 70) rotate(-45)"/><use href="#tactical-crimson" transform="translate(252 105) rotate(-70)"/><use href="#tactical-crimson" transform="translate(226 139) rotate(-55)"/>
+    </g>
+    <g id="low-heraldic">
+      <use href="#heraldic-azure" transform="translate(90 74) rotate(25)"/><use href="#heraldic-azure" transform="translate(116 105) rotate(40)"/><use href="#heraldic-azure" transform="translate(92 135) rotate(50)"/>
+      <use href="#heraldic-crimson" transform="translate(226 70) rotate(-45)"/><use href="#heraldic-crimson" transform="translate(252 105) rotate(-70)"/><use href="#heraldic-crimson" transform="translate(226 139) rotate(-55)"/>
+    </g>
+    <g id="low-figure">
+      <use href="#figure-azure" transform="translate(90 74) rotate(25)"/><use href="#figure-azure" transform="translate(116 105) rotate(40)"/><use href="#figure-azure" transform="translate(92 135) rotate(50)"/>
+      <use href="#figure-crimson" transform="translate(226 70) rotate(-45)"/><use href="#figure-crimson" transform="translate(252 105) rotate(-70)"/><use href="#figure-crimson" transform="translate(226 139) rotate(-55)"/>
+    </g>
+
+    <g id="medium-tactical">
+      <use href="#tactical-azure" transform="translate(70 62) rotate(30)"/><use href="#tactical-azure" transform="translate(96 66) rotate(35)"/><use href="#tactical-azure" transform="translate(122 72) rotate(40)"/>
+      <use href="#tactical-azure" transform="translate(66 94) rotate(35)"/><use href="#tactical-azure" transform="translate(94 99) rotate(40)"/><use href="#tactical-azure" transform="translate(124 105) rotate(45)"/>
+      <use href="#tactical-azure" transform="translate(82 132) rotate(40)"/><use href="#tactical-azure" transform="translate(113 139) rotate(45)"/>
+      <use href="#tactical-crimson" transform="translate(208 60) rotate(-35)"/><use href="#tactical-crimson" transform="translate(237 66) rotate(-40)"/><use href="#tactical-crimson" transform="translate(264 74) rotate(-45)"/>
+      <use href="#tactical-crimson" transform="translate(202 94) rotate(-40)"/><use href="#tactical-crimson" transform="translate(234 101) rotate(-45)"/><use href="#tactical-crimson" transform="translate(266 108) rotate(-50)"/>
+      <use href="#tactical-crimson" transform="translate(218 135) rotate(-45)"/><use href="#tactical-crimson" transform="translate(250 142) rotate(-50)"/>
+    </g>
+    <g id="medium-heraldic">
+      <use href="#heraldic-azure" transform="translate(70 62) rotate(30)"/><use href="#heraldic-azure" transform="translate(96 66) rotate(35)"/><use href="#heraldic-azure" transform="translate(122 72) rotate(40)"/>
+      <use href="#heraldic-azure" transform="translate(66 94) rotate(35)"/><use href="#heraldic-azure" transform="translate(94 99) rotate(40)"/><use href="#heraldic-azure" transform="translate(124 105) rotate(45)"/>
+      <use href="#heraldic-azure" transform="translate(82 132) rotate(40)"/><use href="#heraldic-azure" transform="translate(113 139) rotate(45)"/>
+      <use href="#heraldic-crimson" transform="translate(208 60) rotate(-35)"/><use href="#heraldic-crimson" transform="translate(237 66) rotate(-40)"/><use href="#heraldic-crimson" transform="translate(264 74) rotate(-45)"/>
+      <use href="#heraldic-crimson" transform="translate(202 94) rotate(-40)"/><use href="#heraldic-crimson" transform="translate(234 101) rotate(-45)"/><use href="#heraldic-crimson" transform="translate(266 108) rotate(-50)"/>
+      <use href="#heraldic-crimson" transform="translate(218 135) rotate(-45)"/><use href="#heraldic-crimson" transform="translate(250 142) rotate(-50)"/>
+    </g>
+    <g id="medium-figure">
+      <use href="#figure-azure" transform="translate(70 62) rotate(30)"/><use href="#figure-azure" transform="translate(96 66) rotate(35)"/><use href="#figure-azure" transform="translate(122 72) rotate(40)"/>
+      <use href="#figure-azure" transform="translate(66 94) rotate(35)"/><use href="#figure-azure" transform="translate(94 99) rotate(40)"/><use href="#figure-azure" transform="translate(124 105) rotate(45)"/>
+      <use href="#figure-azure" transform="translate(82 132) rotate(40)"/><use href="#figure-azure" transform="translate(113 139) rotate(45)"/>
+      <use href="#figure-crimson" transform="translate(208 60) rotate(-35)"/><use href="#figure-crimson" transform="translate(237 66) rotate(-40)"/><use href="#figure-crimson" transform="translate(264 74) rotate(-45)"/>
+      <use href="#figure-crimson" transform="translate(202 94) rotate(-40)"/><use href="#figure-crimson" transform="translate(234 101) rotate(-45)"/><use href="#figure-crimson" transform="translate(266 108) rotate(-50)"/>
+      <use href="#figure-crimson" transform="translate(218 135) rotate(-45)"/><use href="#figure-crimson" transform="translate(250 142) rotate(-50)"/>
+    </g>
+
+    <g id="high-tactical">
+      <g transform="rotate(18 102 103)">
+        <use href="#tactical-azure" transform="translate(54 55)"/><use href="#tactical-azure" transform="translate(77 55)"/><use href="#tactical-azure" transform="translate(100 55)"/><use href="#tactical-azure" transform="translate(123 55)"/><use href="#tactical-azure" transform="translate(146 55)"/>
+        <use href="#tactical-azure" transform="translate(54 80)"/><use href="#tactical-azure" transform="translate(77 80)"/><use href="#tactical-azure" transform="translate(100 80)"/><use href="#tactical-azure" transform="translate(123 80)"/><use href="#tactical-azure" transform="translate(146 80)"/>
+        <use href="#tactical-azure" transform="translate(54 105)"/><use href="#tactical-azure" transform="translate(77 105)"/><use href="#tactical-azure" transform="translate(100 105)"/><use href="#tactical-azure" transform="translate(123 105)"/><use href="#tactical-azure" transform="translate(146 105)"/>
+      </g>
+      <g transform="rotate(-18 230 112)">
+        <use href="#tactical-crimson" transform="translate(184 64)"/><use href="#tactical-crimson" transform="translate(207 64)"/><use href="#tactical-crimson" transform="translate(230 64)"/><use href="#tactical-crimson" transform="translate(253 64)"/><use href="#tactical-crimson" transform="translate(276 64)"/>
+        <use href="#tactical-crimson" transform="translate(184 89)"/><use href="#tactical-crimson" transform="translate(207 89)"/><use href="#tactical-crimson" transform="translate(230 89)"/><use href="#tactical-crimson" transform="translate(253 89)"/><use href="#tactical-crimson" transform="translate(276 89)"/>
+        <use href="#tactical-crimson" transform="translate(184 114)"/><use href="#tactical-crimson" transform="translate(207 114)"/><use href="#tactical-crimson" transform="translate(230 114)"/><use href="#tactical-crimson" transform="translate(253 114)"/><use href="#tactical-crimson" transform="translate(276 114)"/>
+      </g>
+    </g>
+    <g id="high-heraldic">
+      <g transform="rotate(18 102 103)">
+        <use href="#heraldic-azure" transform="translate(54 55)"/><use href="#heraldic-azure" transform="translate(77 55)"/><use href="#heraldic-azure" transform="translate(100 55)"/><use href="#heraldic-azure" transform="translate(123 55)"/><use href="#heraldic-azure" transform="translate(146 55)"/>
+        <use href="#heraldic-azure" transform="translate(54 80)"/><use href="#heraldic-azure" transform="translate(77 80)"/><use href="#heraldic-azure" transform="translate(100 80)"/><use href="#heraldic-azure" transform="translate(123 80)"/><use href="#heraldic-azure" transform="translate(146 80)"/>
+        <use href="#heraldic-azure" transform="translate(54 105)"/><use href="#heraldic-azure" transform="translate(77 105)"/><use href="#heraldic-azure" transform="translate(100 105)"/><use href="#heraldic-azure" transform="translate(123 105)"/><use href="#heraldic-azure" transform="translate(146 105)"/>
+      </g>
+      <g transform="rotate(-18 230 112)">
+        <use href="#heraldic-crimson" transform="translate(184 64)"/><use href="#heraldic-crimson" transform="translate(207 64)"/><use href="#heraldic-crimson" transform="translate(230 64)"/><use href="#heraldic-crimson" transform="translate(253 64)"/><use href="#heraldic-crimson" transform="translate(276 64)"/>
+        <use href="#heraldic-crimson" transform="translate(184 89)"/><use href="#heraldic-crimson" transform="translate(207 89)"/><use href="#heraldic-crimson" transform="translate(230 89)"/><use href="#heraldic-crimson" transform="translate(253 89)"/><use href="#heraldic-crimson" transform="translate(276 89)"/>
+        <use href="#heraldic-crimson" transform="translate(184 114)"/><use href="#heraldic-crimson" transform="translate(207 114)"/><use href="#heraldic-crimson" transform="translate(230 114)"/><use href="#heraldic-crimson" transform="translate(253 114)"/><use href="#heraldic-crimson" transform="translate(276 114)"/>
+      </g>
+    </g>
+    <g id="high-figure">
+      <g transform="rotate(18 102 103)">
+        <use href="#figure-azure" transform="translate(54 55)"/><use href="#figure-azure" transform="translate(77 55)"/><use href="#figure-azure" transform="translate(100 55)"/><use href="#figure-azure" transform="translate(123 55)"/><use href="#figure-azure" transform="translate(146 55)"/>
+        <use href="#figure-azure" transform="translate(54 80)"/><use href="#figure-azure" transform="translate(77 80)"/><use href="#figure-azure" transform="translate(100 80)"/><use href="#figure-azure" transform="translate(123 80)"/><use href="#figure-azure" transform="translate(146 80)"/>
+        <use href="#figure-azure" transform="translate(54 105)"/><use href="#figure-azure" transform="translate(77 105)"/><use href="#figure-azure" transform="translate(100 105)"/><use href="#figure-azure" transform="translate(123 105)"/><use href="#figure-azure" transform="translate(146 105)"/>
+      </g>
+      <g transform="rotate(-18 230 112)">
+        <use href="#figure-crimson" transform="translate(184 64)"/><use href="#figure-crimson" transform="translate(207 64)"/><use href="#figure-crimson" transform="translate(230 64)"/><use href="#figure-crimson" transform="translate(253 64)"/><use href="#figure-crimson" transform="translate(276 64)"/>
+        <use href="#figure-crimson" transform="translate(184 89)"/><use href="#figure-crimson" transform="translate(207 89)"/><use href="#figure-crimson" transform="translate(230 89)"/><use href="#figure-crimson" transform="translate(253 89)"/><use href="#figure-crimson" transform="translate(276 89)"/>
+        <use href="#figure-crimson" transform="translate(184 114)"/><use href="#figure-crimson" transform="translate(207 114)"/><use href="#figure-crimson" transform="translate(230 114)"/><use href="#figure-crimson" transform="translate(253 114)"/><use href="#figure-crimson" transform="translate(276 114)"/>
+      </g>
+    </g>
+  </defs>
+
+  <rect width="1200" height="1020" fill="#f4f0e6"/>
+  <text x="40" y="46" class="heading">High-count readability comparison</text>
+  <text x="40" y="72" class="small">Same terrain, positions, scale, factions, and facing spread in every column. Static visual evidence only.</text>
+
+  <text x="212" y="116" text-anchor="middle" class="label">Tactical glyphs</text>
+  <text x="552" y="116" text-anchor="middle" class="label">Heraldic tokens</text>
+  <text x="892" y="116" text-anchor="middle" class="label">Abstract figures</text>
+
+  <text x="35" y="252" class="label">Low</text>
+  <g transform="translate(52 135)"><use href="#scene-bg"/><use href="#low-tactical"/></g>
+  <g transform="translate(392 135)"><use href="#scene-bg"/><use href="#low-heraldic"/></g>
+  <g transform="translate(732 135)"><use href="#scene-bg"/><use href="#low-figure"/></g>
+
+  <text x="24" y="532" class="label">Medium</text>
+  <g transform="translate(52 415)"><use href="#scene-bg"/><use href="#medium-tactical"/><circle cx="94" cy="99" r="15" fill="none" stroke="#ffd166" stroke-width="3"/></g>
+  <g transform="translate(392 415)"><use href="#scene-bg"/><use href="#medium-heraldic"/><circle cx="94" cy="99" r="15" fill="none" stroke="#ffd166" stroke-width="3"/></g>
+  <g transform="translate(732 415)"><use href="#scene-bg"/><use href="#medium-figure"/><circle cx="94" cy="99" r="15" fill="none" stroke="#ffd166" stroke-width="3"/></g>
+
+  <text x="31" y="812" class="label">High</text>
+  <g transform="translate(52 695)"><use href="#scene-bg"/><use href="#high-tactical"/><circle cx="100" cy="80" r="14" fill="none" stroke="#ffd166" stroke-width="3"/></g>
+  <g transform="translate(392 695)"><use href="#scene-bg"/><use href="#high-heraldic"/><circle cx="100" cy="80" r="14" fill="none" stroke="#ffd166" stroke-width="3"/></g>
+  <g transform="translate(732 695)"><use href="#scene-bg"/><use href="#high-figure"/><circle cx="100" cy="80" r="14" fill="none" stroke="#ffd166" stroke-width="3"/></g>
+
+  <rect x="1080" y="135" width="88" height="780" rx="10" fill="#e8e1d2" stroke="#c8bfaa" stroke-width="2"/>
+  <text x="1124" y="170" text-anchor="middle" class="label">Key</text>
+  <circle cx="1100" cy="205" r="8" fill="#16697a" stroke="#182126" stroke-width="2"/><text x="1116" y="210" class="small">A</text>
+  <path d="M1100 232 L1109 239 L1104 248 L1096 248 L1091 239 Z" fill="#b23a48" stroke="#182126" stroke-width="2"/><text x="1116" y="245" class="small">C</text>
+  <circle cx="1100" cy="280" r="13" fill="none" stroke="#ffd166" stroke-width="3"/><text x="1116" y="285" class="small">Sel.</text>
+  <text x="1124" y="330" text-anchor="middle" class="small">A = Azure</text>
+  <text x="1124" y="352" text-anchor="middle" class="small">C = Crimson</text>
+  <text x="1124" y="400" text-anchor="middle" class="small">30 units</text>
+  <text x="1124" y="421" text-anchor="middle" class="small">in each</text>
+  <text x="1124" y="442" text-anchor="middle" class="small">high panel</text>
+
+  <text x="52" y="958" class="small">Observation prompt: can you read faction blocks, formation angle, facing, and the selected marker before inspecting individual role detail?</text>
+  <text x="52" y="985" class="small">The comparison does not measure PixiJS, GPU, worker, message-size, or garbage-collection performance.</text>
+</svg>

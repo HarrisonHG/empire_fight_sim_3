@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" role="img" aria-labelledby="title desc">
+  <title id="title">Tactical glyph unit-marker exploration</title>
+  <desc id="desc">Geometric top-down unit markers showing faction, facing, roles, selection, status, reduced sizes, and overlap.</desc>
+  <defs>
+    <style>
+      .label { fill: #182126; font: 600 18px system-ui, sans-serif; }
+      .small { fill: #596268; font: 14px system-ui, sans-serif; }
+      .panel { fill: #e8e1d2; stroke: #c8bfaa; stroke-width: 2; }
+      .ink { stroke: #182126; stroke-width: 3; stroke-linejoin: round; }
+      .role { fill: none; stroke: #fff8e7; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+    <g id="azure-infantry">
+      <path d="M-21-16 L13-16 L21-8 L21 16 L-21 16 Z" fill="#16697a" class="ink"/>
+      <path d="M0-25 L9-14 L-9-14 Z" fill="#fff8e7" class="ink"/>
+      <path d="M-9 0 H9 M0-8 V8" class="role"/>
+    </g>
+    <g id="azure-ranged">
+      <path d="M-21-16 L13-16 L21-8 L21 16 L-21 16 Z" fill="#16697a" class="ink"/>
+      <path d="M0-25 L9-14 L-9-14 Z" fill="#fff8e7" class="ink"/>
+      <path d="M-10 7 Q0-11 10 7 M-7 2 H9" class="role"/>
+    </g>
+    <g id="crimson-infantry">
+      <path d="M0-20 L22-7 L17 17 L-17 17 L-22-7 Z" fill="#b23a48" class="ink"/>
+      <path d="M0-29 L9-17 L-9-17 Z" fill="#182126"/>
+      <path d="M-9 0 H9 M0-8 V8" class="role"/>
+    </g>
+    <g id="crimson-support">
+      <path d="M0-20 L22-7 L17 17 L-17 17 L-22-7 Z" fill="#b23a48" class="ink"/>
+      <path d="M0-29 L9-17 L-9-17 Z" fill="#182126"/>
+      <circle cx="0" cy="0" r="8" fill="none" stroke="#fff8e7" stroke-width="4"/>
+      <circle cx="0" cy="0" r="2.5" fill="#fff8e7"/>
+    </g>
+  </defs>
+
+  <rect width="960" height="600" fill="#f4f0e6"/>
+  <text x="40" y="48" class="label" style="font-size:28px">Tactical glyphs</text>
+  <text x="40" y="74" class="small">Proposition: geometry-first markers preserve formation and facing at high density.</text>
+
+  <rect x="40" y="105" width="420" height="205" rx="12" class="panel"/>
+  <text x="60" y="136" class="label">Faction + role language</text>
+  <g transform="translate(115 205) scale(1.25)"><use href="#azure-infantry"/></g>
+  <text x="74" y="266" class="small">Azure infantry</text>
+  <g transform="translate(220 205) scale(1.25)"><use href="#azure-ranged"/></g>
+  <text x="181" y="266" class="small">Azure ranged</text>
+  <g transform="translate(330 205) scale(1.25)"><use href="#crimson-support"/></g>
+  <text x="283" y="266" class="small">Crimson support</text>
+  <text x="60" y="294" class="small">Clipped square vs pentagonal silhouette duplicates faction colour.</text>
+
+  <rect x="485" y="105" width="435" height="205" rx="12" class="panel"/>
+  <text x="505" y="136" class="label">Facing + selected/status</text>
+  <g transform="translate(560 205) rotate(0) scale(1.25)"><use href="#azure-infantry"/></g>
+  <g transform="translate(670 205) rotate(90) scale(1.25)"><use href="#crimson-infantry"/></g>
+  <circle cx="790" cy="205" r="39" fill="none" stroke="#182126" stroke-width="7"/>
+  <circle cx="790" cy="205" r="39" fill="none" stroke="#ffd166" stroke-width="4"/>
+  <g transform="translate(790 205) rotate(-45) scale(1.25)"><use href="#azure-ranged"/></g>
+  <path d="M846 166 L862 166 L854 181 Z" fill="#d95d39" stroke="#182126" stroke-width="2"/>
+  <g transform="translate(854 205) rotate(25)"><use href="#crimson-support"/></g>
+  <text x="512" y="278" class="small">Facing nose</text>
+  <text x="742" y="278" class="small">Selection ring</text>
+  <text x="839" y="278" class="small">Warning</text>
+
+  <rect x="40" y="335" width="420" height="220" rx="12" class="panel"/>
+  <text x="60" y="367" class="label">Reduced-size test</text>
+  <g transform="translate(120 440)"><use href="#azure-infantry"/></g>
+  <g transform="translate(220 440) scale(.67)"><use href="#azure-infantry"/></g>
+  <g transform="translate(305 440) scale(.45)"><use href="#azure-infantry"/></g>
+  <g transform="translate(385 440) scale(.34)"><use href="#azure-infantry"/></g>
+  <text x="103" y="495" class="small">44 px</text>
+  <text x="204" y="495" class="small">30 px</text>
+  <text x="291" y="495" class="small">20 px</text>
+  <text x="371" y="495" class="small">15 px</text>
+  <text x="60" y="530" class="small">At the smallest size: faction silhouette and facing survive; role does not.</text>
+
+  <rect x="485" y="335" width="435" height="220" rx="12" class="panel"/>
+  <text x="505" y="367" class="label">Partial-overlap test</text>
+  <g transform="translate(615 450) rotate(-15) scale(1.25)"><use href="#azure-ranged"/></g>
+  <g transform="translate(655 430) rotate(10) scale(1.25)"><use href="#azure-infantry"/></g>
+  <g transform="translate(700 455) rotate(40) scale(1.25)"><use href="#crimson-support"/></g>
+  <g transform="translate(745 430) rotate(70) scale(1.25)"><use href="#crimson-infantry"/></g>
+  <text x="540" y="520" class="small">Hard outlines and asymmetric noses retain ownership and facing.</text>
+</svg>
