@@ -100,6 +100,8 @@ interface InternalFormationBehaviourStore extends FormationBehaviourStore {
   readonly unitMovementStyle: UnitMovementStyle[];
   readonly styleCommitmentTicksRemaining: Int32Array;
   readonly blockerReleaseTicksRemaining: Int32Array;
+  readonly activeBlockerDistance: Int32Array;
+  readonly activeBlockerLateralOffset: Int32Array;
 
   readonly roles: IndividualRole[];
   readonly slotRow: Int32Array;
@@ -132,6 +134,8 @@ const FORMED_COHESION_THRESHOLD = 700;
 const PUSH_THROUGH_COHESION_THRESHOLD = 500;
 const BLOCKER_STYLE_COMMITMENT_TICKS = 3;
 const BLOCKER_STYLE_RELEASE_TICKS = 2;
+const NO_ACTIVE_BLOCKER_DISTANCE = -1;
+const FRONT_CONTACT_GAP = 1;
 
 export function createFormationBehaviourStore(
   identityStore: UnitIdentityStore,
@@ -181,6 +185,8 @@ export function createFormationBehaviourStore(
     ),
     styleCommitmentTicksRemaining: new Int32Array(unitCount),
     blockerReleaseTicksRemaining: new Int32Array(unitCount),
+    activeBlockerDistance: new Int32Array(unitCount),
+    activeBlockerLateralOffset: new Int32Array(unitCount),
     roles: new Array<IndividualRole>(config.entityCount).fill("regular"),
     slotRow: new Int32Array(config.entityCount),
     slotCol: new Int32Array(config.entityCount),
@@ -203,6 +209,7 @@ export function createFormationBehaviourStore(
     scratchCandidateUnitIds: [],
     rng: new SeededRng(config.rngSeed),
   };
+  store.activeBlockerDistance.fill(NO_ACTIVE_BLOCKER_DISTANCE);
 
   for (let index = 0; index < unitCount; index += 1) {
     const unitId = unitIdList[index]!;
@@ -433,6 +440,16 @@ function processUnit(
       store.anchorX[unitIndex]! + headingX * unitSpeed;
     store.anchorY[unitIndex] =
       store.anchorY[unitIndex]! + headingY * unitSpeed;
+  } else if (isAdvancing && style === "formedDetour") {
+    sidestepFormedDetourAnchor(
+      world,
+      store,
+      unitId,
+      unitIndex,
+      unitSpeed,
+      headingX,
+      headingY,
+    );
   }
 
   const anchorX = store.anchorX[unitIndex]!;
@@ -464,6 +481,11 @@ function processUnit(
   const perpX = -headingY;
   const perpY = headingX;
   const halfSpacing = Math.floor(spacing / 2);
+  const blockerForwardLimit = getActiveBlockerForwardLimit(
+    store,
+    unitIndex,
+    style,
+  );
 
   for (let index = 0; index < members.length; index += 1) {
     const entityId = members[index]!;
@@ -475,9 +497,17 @@ function processUnit(
 
     const backward = slotRow * spacing;
     const lateral = (slotCol - centerCol) * spacing;
+    let memberForwardLimit = blockerForwardLimit;
+    if (style === "haltAndWait" && blockerForwardLimit >= 0) {
+      memberForwardLimit = Math.min(blockerForwardLimit, -backward);
+    }
 
     let slotX = anchorX - headingX * backward + perpX * lateral;
     let slotY = anchorY - headingY * backward + perpY * lateral;
+    if (style === "engageFront" && slotRow === 0 && blockerForwardLimit >= 0) {
+      slotX += headingX * blockerForwardLimit;
+      slotY += headingY * blockerForwardLimit;
+    }
 
     const jitterMag = computePressureJitter(role, pressure);
     if (jitterMag > 0) {
@@ -511,6 +541,27 @@ function processUnit(
       const forwardStep = stepX * headingX + stepY * headingY;
       if (forwardStep > allowedForward) {
         const reduction = forwardStep - Math.max(0, allowedForward);
+        stepX -= headingX * reduction;
+        stepY -= headingY * reduction;
+        if (stepX === 0 && stepY === 0) {
+          mode = "holdPosition";
+        }
+      }
+    }
+
+    if (blockerForwardLimit >= 0) {
+      const currentFp = forwardProgress(
+        posX,
+        posY,
+        anchorX,
+        anchorY,
+        headingX,
+        headingY,
+      );
+      const allowedForward = Math.max(0, memberForwardLimit - currentFp);
+      const forwardStep = stepX * headingX + stepY * headingY;
+      if (forwardStep > allowedForward) {
+        const reduction = forwardStep - allowedForward;
         stepX -= headingX * reduction;
         stepY -= headingY * reduction;
         if (stepX === 0 && stepY === 0) {
@@ -589,7 +640,113 @@ function shouldAdvanceUnitAnchor(
   isAdvancing: boolean,
   style: UnitMovementStyle,
 ): boolean {
-  return isAdvancing && style !== "haltAndWait" && style !== "engageFront";
+  return (
+    isAdvancing &&
+    style !== "formedDetour" &&
+    style !== "haltAndWait" &&
+    style !== "engageFront"
+  );
+}
+
+function sidestepFormedDetourAnchor(
+  world: WorldState,
+  store: InternalFormationBehaviourStore,
+  unitId: UnitId,
+  unitIndex: number,
+  unitSpeed: number,
+  headingX: number,
+  headingY: number,
+): void {
+  if (
+    unitSpeed <= 0 ||
+    store.activeBlockerDistance[unitIndex]! < 0
+  ) {
+    return;
+  }
+
+  const perpX = -headingY;
+  const perpY = headingX;
+  const preferredSide = choosePreferredDetourSide(store, unitIndex, unitId);
+  if (
+    tryMoveAnchorLateral(
+      world,
+      store,
+      unitIndex,
+      perpX,
+      perpY,
+      unitSpeed,
+      preferredSide,
+    )
+  ) {
+    return;
+  }
+
+  const alternateSide: -1 | 1 = preferredSide === 1 ? -1 : 1;
+  tryMoveAnchorLateral(
+    world,
+    store,
+    unitIndex,
+    perpX,
+    perpY,
+    unitSpeed,
+    alternateSide,
+  );
+}
+
+function choosePreferredDetourSide(
+  store: InternalFormationBehaviourStore,
+  unitIndex: number,
+  unitId: UnitId,
+): -1 | 1 {
+  const lateralOffset = store.activeBlockerLateralOffset[unitIndex]!;
+  if (lateralOffset > 0) return -1;
+  if (lateralOffset < 0) return 1;
+  return unitId % 2 === 0 ? 1 : -1;
+}
+
+function tryMoveAnchorLateral(
+  world: WorldState,
+  store: InternalFormationBehaviourStore,
+  unitIndex: number,
+  perpX: number,
+  perpY: number,
+  unitSpeed: number,
+  side: -1 | 1,
+): boolean {
+  const nextAnchorX = store.anchorX[unitIndex]! + perpX * unitSpeed * side;
+  const nextAnchorY = store.anchorY[unitIndex]! + perpY * unitSpeed * side;
+  if (!isInsideWorldBounds(world, nextAnchorX, nextAnchorY)) {
+    return false;
+  }
+
+  store.anchorX[unitIndex] = nextAnchorX;
+  store.anchorY[unitIndex] = nextAnchorY;
+  return true;
+}
+
+function isInsideWorldBounds(
+  world: WorldState,
+  x: number,
+  y: number,
+): boolean {
+  return x >= 0 && y >= 0 && x <= world.bounds.width && y <= world.bounds.height;
+}
+
+function getActiveBlockerForwardLimit(
+  store: InternalFormationBehaviourStore,
+  unitIndex: number,
+  style: UnitMovementStyle,
+): number {
+  if (style !== "haltAndWait" && style !== "engageFront") {
+    return NO_ACTIVE_BLOCKER_DISTANCE;
+  }
+
+  const blockerDistance = store.activeBlockerDistance[unitIndex]!;
+  if (blockerDistance < 0) {
+    return NO_ACTIVE_BLOCKER_DISTANCE;
+  }
+
+  return Math.max(0, blockerDistance - FRONT_CONTACT_GAP);
 }
 
 function prepareBlockerGrid(
@@ -626,10 +783,12 @@ function chooseUnitMovementStyle(
   if (!isAdvancing) {
     store.styleCommitmentTicksRemaining[unitIndex] = 0;
     store.blockerReleaseTicksRemaining[unitIndex] = 0;
+    clearActiveBlocker(store, unitIndex);
     return "orderedHalt";
   }
 
   if (blockerGrid === undefined) {
+    clearActiveBlocker(store, unitIndex);
     return applyStyleCommitment(store, unitIndex, "formedMarch");
   }
 
@@ -641,8 +800,11 @@ function chooseUnitMovementStyle(
     unitIndex,
   );
   if (blocker === undefined) {
+    clearActiveBlocker(store, unitIndex);
     return applyStyleCommitment(store, unitIndex, "formedMarch");
   }
+  store.activeBlockerDistance[unitIndex] = blocker.distance;
+  store.activeBlockerLateralOffset[unitIndex] = blocker.lateralOffset;
 
   let candidateStyle: UnitMovementStyle;
   if (blocker.relationship === "hostile") {
@@ -659,10 +821,24 @@ function chooseUnitMovementStyle(
   return applyStyleCommitment(store, unitIndex, candidateStyle);
 }
 
+function clearActiveBlocker(
+  store: InternalFormationBehaviourStore,
+  unitIndex: number,
+): void {
+  store.activeBlockerDistance[unitIndex] = NO_ACTIVE_BLOCKER_DISTANCE;
+  store.activeBlockerLateralOffset[unitIndex] = 0;
+}
+
 interface ForwardBlocker {
   readonly unitId: UnitId;
   readonly relationship: "allied" | "hostile";
   readonly distance: number;
+  readonly lateralOffset: number;
+}
+
+interface ForwardPathBlock {
+  readonly distance: number;
+  readonly lateralOffset: number;
 }
 
 function detectForwardBlocker(
@@ -704,7 +880,7 @@ function detectForwardBlocker(
   for (let index = 0; index < candidateUnitIds.length; index += 1) {
     const candidateUnitId = candidateUnitIds[index]!;
     const candidateUnitIndex = requireUnitIndex(store, candidateUnitId);
-    const distance = getForwardPathBlockDistance(
+    const block = getForwardPathBlock(
       store,
       candidateUnitIndex,
       anchorX,
@@ -714,7 +890,7 @@ function detectForwardBlocker(
       sourceHalfWidth,
       searchDepth,
     );
-    if (distance < 0) {
+    if (block === undefined) {
       continue;
     }
 
@@ -725,7 +901,8 @@ function detectForwardBlocker(
     const candidateBlocker: ForwardBlocker = {
       unitId: candidateUnitId,
       relationship,
-      distance,
+      distance: block.distance,
+      lateralOffset: block.lateralOffset,
     };
     if (isBetterBlocker(candidateBlocker, selectedBlocker)) {
       selectedBlocker = candidateBlocker;
@@ -765,7 +942,7 @@ function collectCandidateUnitIds(
   return out;
 }
 
-function getForwardPathBlockDistance(
+function getForwardPathBlock(
   store: InternalFormationBehaviourStore,
   candidateUnitIndex: number,
   sourceAnchorX: number,
@@ -774,7 +951,7 @@ function getForwardPathBlockDistance(
   sourceHeadingY: number,
   sourceHalfWidth: number,
   searchDepth: number,
-): number {
+): ForwardPathBlock | undefined {
   const candidateAnchorX = store.anchorX[candidateUnitIndex]!;
   const candidateAnchorY = store.anchorY[candidateUnitIndex]!;
   const candidateHeadingX = store.headingX[candidateUnitIndex]!;
@@ -824,14 +1001,17 @@ function getForwardPathBlockDistance(
   maxLateral += padding;
 
   if (maxForward < 0 || minForward > searchDepth) {
-    return -1;
+    return undefined;
   }
 
   if (maxLateral < -sourceHalfWidth || minLateral > sourceHalfWidth) {
-    return -1;
+    return undefined;
   }
 
-  return Math.max(0, minForward);
+  return {
+    distance: Math.max(0, minForward),
+    lateralOffset: Math.trunc((minLateral + maxLateral) / 2),
+  };
 }
 
 function isBetterBlocker(

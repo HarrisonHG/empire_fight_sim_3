@@ -66,6 +66,7 @@ interface BlockerHarnessOptions {
   readonly sourceCohesion?: number;
   readonly sourceConfidence?: number;
   readonly sourcePressure?: number;
+  readonly rngSeed?: number;
 }
 
 function createBlockerHarness(options: BlockerHarnessOptions = {}) {
@@ -86,7 +87,7 @@ function createBlockerHarness(options: BlockerHarnessOptions = {}) {
     },
     formation: {
       entityCount: 2,
-      rngSeed: 0x2b01,
+      rngSeed: options.rngSeed ?? 0x2b01,
       units: [
         {
           unitId: 1,
@@ -140,6 +141,110 @@ function createBlockerHarness(options: BlockerHarnessOptions = {}) {
     initialPositions: [
       { entityId: 0, x: 100, y: 100 },
       { entityId: 1, x: 116, y: 100 },
+    ],
+  });
+}
+
+interface FormedDetourHarnessOptions {
+  readonly bounds?: { readonly width: number; readonly height: number };
+  readonly sourceUnitId?: number;
+  readonly sourceAnchorX?: number;
+  readonly sourceAnchorY?: number;
+  readonly blockerAnchorX?: number;
+  readonly blockerAnchorY?: number;
+  readonly sourceCols?: number;
+  readonly unitSpeed?: number;
+}
+
+function createFormedDetourHarness(options: FormedDetourHarnessOptions = {}) {
+  const sourceUnitId = options.sourceUnitId ?? 1;
+  const blockerUnitId = sourceUnitId === 2 ? 3 : 2;
+  const sourceAnchorX = options.sourceAnchorX ?? 100;
+  const sourceAnchorY = options.sourceAnchorY ?? 100;
+  const blockerAnchorX = options.blockerAnchorX ?? 116;
+  const blockerAnchorY = options.blockerAnchorY ?? 100;
+  const sourceCols = options.sourceCols ?? 1;
+  const spacing = 10;
+  const centerCol = Math.floor(sourceCols / 2);
+  const sourceMemberEntityIds = Array.from(
+    { length: sourceCols },
+    (_, index) => index,
+  );
+  const blockerEntityId = sourceCols;
+
+  return createTestHarness({
+    ...(options.bounds !== undefined ? { bounds: options.bounds } : {}),
+    entityCount: sourceCols + 1,
+    identity: {
+      entityCount: sourceCols + 1,
+      units: [
+        {
+          unitId: sourceUnitId,
+          factionId: 1,
+          memberEntityIds: sourceMemberEntityIds,
+        },
+        {
+          unitId: blockerUnitId,
+          factionId: 1,
+          memberEntityIds: [blockerEntityId],
+        },
+      ],
+    },
+    formation: {
+      entityCount: sourceCols + 1,
+      rngSeed: 0x2c02,
+      units: [
+        {
+          unitId: sourceUnitId,
+          anchorX: sourceAnchorX,
+          anchorY: sourceAnchorY,
+          headingX: 1,
+          headingY: 0,
+          spacing,
+          rows: 1,
+          cols: sourceCols,
+          unitSpeed: options.unitSpeed ?? 1,
+          order: "advance",
+          cohesion: 900,
+        },
+        {
+          unitId: blockerUnitId,
+          anchorX: blockerAnchorX,
+          anchorY: blockerAnchorY,
+          headingX: -1,
+          headingY: 0,
+          spacing,
+          rows: 1,
+          cols: 1,
+          unitSpeed: 0,
+          order: "hold",
+        },
+      ],
+      individuals: [
+        ...sourceMemberEntityIds.map((entityId, slotCol) => ({
+          entityId,
+          role: "regular" as const,
+          slotRow: 0,
+          slotCol,
+          memberMaxStep: 2,
+          confidence: 500,
+        })),
+        {
+          entityId: blockerEntityId,
+          role: "regular",
+          slotRow: 0,
+          slotCol: 0,
+          memberMaxStep: 0,
+        },
+      ],
+    },
+    initialPositions: [
+      ...sourceMemberEntityIds.map((entityId, slotCol) => ({
+        entityId,
+        x: sourceAnchorX,
+        y: sourceAnchorY + (slotCol - centerCol) * spacing,
+      })),
+      { entityId: blockerEntityId, x: blockerAnchorX, y: blockerAnchorY },
     ],
   });
 }
@@ -771,6 +876,42 @@ describe("formation behaviour: unit blocker arbitration", () => {
     expect(getUnitAnchor(store, 1)).toEqual(beforeAnchor);
   });
 
+  it("keeps haltAndWait anchor stopped while the allied blocker remains", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "allied",
+      sourceConfidence: 100,
+    });
+    const beforeAnchor = getUnitAnchor(store, 1);
+
+    for (let tick = 0; tick < 5; tick += 1) {
+      advanceFormationOneTick(world, identity, store);
+
+      expect(getUnitMovementStyle(store, 1)).toBe("haltAndWait");
+      expect(getUnitAnchor(store, 1)).toEqual(beforeAnchor);
+    }
+  });
+
+  it("keeps haltAndWait members from drifting through the allied blocker", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "allied",
+      sourceConfidence: 100,
+      sourcePressure: 4_000,
+      rngSeed: 98,
+    });
+    world.positionsX[0] = 109;
+    const blockerX = world.positionsX[1]!;
+
+    for (let tick = 0; tick < 6; tick += 1) {
+      advanceFormationOneTick(world, identity, store);
+
+      expect(getUnitMovementStyle(store, 1)).toBe("haltAndWait");
+      expect(world.positionsX[0]).toBeLessThan(blockerX);
+      expect(world.positionsX[0]).toBeLessThanOrEqual(109);
+    }
+
+    expect(world.positionsX[0]).toBeLessThan(109);
+  });
+
   it("can choose formedDetour for a cohesive allied blocker case", () => {
     const { world, identity, store } = createBlockerHarness({
       relationship: "allied",
@@ -819,6 +960,37 @@ describe("formation behaviour: unit blocker arbitration", () => {
     expect(getUnitAnchor(store, 1)).toEqual(beforeAnchor);
   });
 
+  it("keeps engageFront anchor stopped while the hostile blocker remains", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "hostile",
+    });
+    const beforeAnchor = getUnitAnchor(store, 1);
+
+    for (let tick = 0; tick < 5; tick += 1) {
+      advanceFormationOneTick(world, identity, store);
+
+      expect(getUnitMovementStyle(store, 1)).toBe("engageFront");
+      expect(getUnitAnchor(store, 1)).toEqual(beforeAnchor);
+    }
+  });
+
+  it("settles engageFront front members to contact without passing the hostile blocker", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "hostile",
+    });
+    const blockerX = world.positionsX[1]!;
+
+    for (let tick = 0; tick < 5; tick += 1) {
+      advanceFormationOneTick(world, identity, store);
+
+      expect(getUnitMovementStyle(store, 1)).toBe("engageFront");
+      expect(world.positionsX[0]).toBeLessThan(blockerX);
+      expect(world.positionsX[0]).toBeLessThanOrEqual(110);
+    }
+
+    expect(world.positionsX[0]).toBe(110);
+  });
+
   it("lets pushThrough advance the anchor without displacing the blocker", () => {
     const { world, identity, store } = createBlockerHarness({
       relationship: "allied",
@@ -842,7 +1014,7 @@ describe("formation behaviour: unit blocker arbitration", () => {
     expect(world.positionsY[1]).toBe(blockerYBefore);
   });
 
-  it("keeps formedDetour style-selected without a real detour route", () => {
+  it("sidesteps formedDetour laterally without a waypoint route", () => {
     const { world, identity, store } = createBlockerHarness({
       relationship: "allied",
       sourceCohesion: 900,
@@ -856,11 +1028,155 @@ describe("formation behaviour: unit blocker arbitration", () => {
 
     expect(getUnitMovementStyle(store, 1)).toBe("formedDetour");
     expect(getUnitAnchor(store, 1)).toEqual({
-      x: sourceAnchorBefore.x + 1,
-      y: sourceAnchorBefore.y,
+      x: sourceAnchorBefore.x,
+      y: sourceAnchorBefore.y - 1,
     });
     expect(world.positionsX[1]).toBe(blockerXBefore);
     expect(world.positionsY[1]).toBe(blockerYBefore);
+  });
+
+  it("does not advance formedDetour straight into a centred allied blocker", () => {
+    const { world, identity, store } = createFormedDetourHarness();
+    const sourceAnchorBefore = getUnitAnchor(store, 1);
+
+    for (let tick = 0; tick < 4; tick += 1) {
+      advanceFormationOneTick(world, identity, store);
+
+      const sourceAnchor = getUnitAnchor(store, 1);
+      expect(getUnitMovementStyle(store, 1)).toBe("formedDetour");
+      expect(sourceAnchor.x).toBe(sourceAnchorBefore.x);
+      expect(sourceAnchor.y).toBeLessThan(sourceAnchorBefore.y);
+    }
+  });
+
+  it("does not displace the blocker during formedDetour", () => {
+    const { world, identity, store } = createFormedDetourHarness();
+    const blockerAnchorBefore = getUnitAnchor(store, 2);
+    const blockerXBefore = world.positionsX[1]!;
+    const blockerYBefore = world.positionsY[1]!;
+
+    for (let tick = 0; tick < 4; tick += 1) {
+      advanceFormationOneTick(world, identity, store);
+    }
+
+    expect(getUnitAnchor(store, 2)).toEqual(blockerAnchorBefore);
+    expect(world.positionsX[1]).toBe(blockerXBefore);
+    expect(world.positionsY[1]).toBe(blockerYBefore);
+  });
+
+  it("chooses a deterministic formedDetour side for a centred blocker", () => {
+    const run = () => {
+      const { world, identity, store } = createFormedDetourHarness();
+      advanceFormationOneTick(world, identity, store);
+      return getUnitAnchor(store, 1);
+    };
+
+    expect(run()).toEqual({ x: 100, y: 99 });
+    expect(run()).toEqual(run());
+  });
+
+  it("sidesteps formedDetour away from an off-centre blocker", () => {
+    const highBlocker = createFormedDetourHarness({ blockerAnchorY: 106 });
+    advanceFormationOneTick(
+      highBlocker.world,
+      highBlocker.identity,
+      highBlocker.store,
+    );
+    expect(getUnitAnchor(highBlocker.store, 1)).toEqual({ x: 100, y: 99 });
+
+    const lowBlocker = createFormedDetourHarness({ blockerAnchorY: 94 });
+    advanceFormationOneTick(
+      lowBlocker.world,
+      lowBlocker.identity,
+      lowBlocker.store,
+    );
+    expect(getUnitAnchor(lowBlocker.store, 1)).toEqual({ x: 100, y: 101 });
+  });
+
+  it("chooses the valid formedDetour side near a world edge", () => {
+    const { world, identity, store } = createFormedDetourHarness({
+      bounds: { width: 200, height: 200 },
+      sourceAnchorY: 0,
+      blockerAnchorY: 0,
+    });
+
+    advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("formedDetour");
+    expect(getUnitAnchor(store, 1)).toEqual({ x: 100, y: 1 });
+  });
+
+  it("keeps formedDetour members following shifted formation slots", () => {
+    const { world, identity, store } = createFormedDetourHarness({
+      sourceCols: 3,
+    });
+
+    advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("formedDetour");
+    expect(world.positionsX[0]).toBe(100);
+    expect(world.positionsY[0]).toBe(89);
+    expect(world.positionsX[1]).toBe(100);
+    expect(world.positionsY[1]).toBe(99);
+    expect(world.positionsX[2]).toBe(100);
+    expect(world.positionsY[2]).toBe(109);
+  });
+
+  it("returns formedDetour to formedMarch after sidestepping clear", () => {
+    const { world, identity, store } = createFormedDetourHarness();
+    const styles: UnitMovementStyle[] = [];
+
+    for (let tick = 0; tick < 20; tick += 1) {
+      advanceFormationOneTick(world, identity, store);
+      styles.push(getUnitMovementStyle(store, 1));
+    }
+
+    expect(styles).toContain("formedMarch");
+    expect(getUnitMovementStyle(store, 1)).toBe("formedMarch");
+    expect(getUnitAnchor(store, 1).x).toBeGreaterThan(100);
+  });
+
+  it("keeps formedDetour transition events transition-only", () => {
+    const { world, identity, store } = createFormedDetourHarness();
+    const sourceStyleEvents: UnitMovementStyle[] = [];
+
+    for (let tick = 0; tick < 5; tick += 1) {
+      const result = advanceFormationOneTick(world, identity, store);
+      for (const event of getUnitStyleEvents(result.events, 1)) {
+        sourceStyleEvents.push(event.style);
+      }
+    }
+
+    expect(sourceStyleEvents).toEqual(["formedDetour"]);
+  });
+
+  it("replays identical formedDetour positions, anchors, styles, and events", () => {
+    const runReplay = () => {
+      const { world, identity, store } = createFormedDetourHarness();
+      const styles: UnitMovementStyle[] = [];
+      const sourceAnchors: string[] = [];
+      const styleEvents: string[] = [];
+
+      for (let tick = 0; tick < 20; tick += 1) {
+        const result = advanceFormationOneTick(world, identity, store);
+        const sourceAnchor = getUnitAnchor(store, 1);
+        styles.push(getUnitMovementStyle(store, 1));
+        sourceAnchors.push(`${sourceAnchor.x},${sourceAnchor.y}`);
+        for (const event of getUnitStyleEvents(result.events, 1)) {
+          styleEvents.push(`${tick}:${event.style}`);
+        }
+      }
+
+      return {
+        positionsX: Array.from(world.positionsX),
+        positionsY: Array.from(world.positionsY),
+        sourceAnchors,
+        styles,
+        styleEvents,
+      };
+    };
+
+    expect(runReplay()).toEqual(runReplay());
   });
 
   it("keeps looseFlow style-selected without loose-flow bypass", () => {
