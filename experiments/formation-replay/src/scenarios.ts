@@ -2,6 +2,7 @@ import {
   createFormationBehaviourStore,
   type FormationBehaviourConfig,
   type IndividualBehaviourConfig,
+  type UnitBehaviourProfile,
   type UnitFormationConfig,
 } from "../../../src/sim/formationBehaviour";
 import type { WorldState } from "../../../src/sim/types";
@@ -104,9 +105,13 @@ export const FORMATION_REPLAY_SCENARIOS: readonly FormationReplayScenario[] = [
   {
     id: "formedDetour-centred-blocker",
     name: "formedDetour centred blocker",
-    description: "Cohesive source sidesteps laterally as one unit.",
+    description: "Heavy formed source sidesteps laterally as one unit.",
     tickCount: 20,
-    setup: () => createLateralBlockerScenario({ sourceCols: 3 }),
+    setup: () =>
+      createLateralBlockerScenario({
+        sourceBehaviourProfile: "formedHeavy",
+        sourceCols: 3,
+      }),
   },
   {
     id: "formedDetour-edge-fallback",
@@ -129,6 +134,7 @@ export const FORMATION_REPLAY_SCENARIOS: readonly FormationReplayScenario[] = [
     setup: () =>
       createLateralBlockerScenario({
         sourceCols: 3,
+        sourceBehaviourProfile: "looseSkirmisher",
         sourceCohesion: 200,
         sourceConfidence: 500,
       }),
@@ -141,8 +147,10 @@ export const FORMATION_REPLAY_SCENARIOS: readonly FormationReplayScenario[] = [
     setup: () =>
       createBlockerScenario({
         relationship: "allied",
+        sourceBehaviourProfile: "routing",
         sourceCohesion: 600,
-        sourceConfidence: 950,
+        sourceConfidence: 100,
+        sourcePressure: 1_000,
         blockerCohesion: 700,
       }),
   },
@@ -191,6 +199,7 @@ interface BlockerScenarioOptions {
   readonly sourcePressure?: number;
   readonly blockerCohesion?: number;
   readonly sourceStartX?: number;
+  readonly sourceBehaviourProfile?: UnitBehaviourProfile;
 }
 
 function createBlockerScenario(
@@ -227,6 +236,9 @@ function createBlockerScenario(
           unitSpeed: 1,
           order: "advance",
           cohesion: options.sourceCohesion ?? 1_000,
+          ...(options.sourceBehaviourProfile !== undefined
+            ? { behaviourProfile: options.sourceBehaviourProfile }
+            : {}),
         },
         {
           unitId: 2,
@@ -275,6 +287,7 @@ interface LateralBlockerScenarioOptions {
   readonly sourceCols: number;
   readonly sourceCohesion?: number;
   readonly sourceConfidence?: number;
+  readonly sourceBehaviourProfile?: UnitBehaviourProfile;
 }
 
 function createLateralBlockerScenario(
@@ -319,6 +332,9 @@ function createLateralBlockerScenario(
           unitSpeed: 1,
           order: "advance",
           cohesion: options.sourceCohesion ?? 900,
+          ...(options.sourceBehaviourProfile !== undefined
+            ? { behaviourProfile: options.sourceBehaviourProfile }
+            : {}),
         },
         {
           unitId: 2,
@@ -437,6 +453,9 @@ function stripReplayUnitFields(
     unitSpeed: unit.unitSpeed,
     order: unit.order,
     ...(unit.cohesion !== undefined ? { cohesion: unit.cohesion } : {}),
+    ...(unit.behaviourProfile !== undefined
+      ? { behaviourProfile: unit.behaviourProfile }
+      : {}),
   };
 }
 
