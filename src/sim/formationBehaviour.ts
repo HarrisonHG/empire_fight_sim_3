@@ -13,9 +13,19 @@ import {
   type UnitId,
   type UnitIdentityStore,
 } from "./unitIdentity";
+import {
+  getUnitWeaponReachBand,
+  type UnitLoadoutStore,
+} from "./unitLoadout";
+import { getContactDistanceForReachBand } from "./threatGeometry";
 import type { WorldState } from "./types";
 
 export type UnitOrder = "hold" | "advance" | "advanceCautious";
+export type UnitBehaviourProfile =
+  | "formedRegular"
+  | "formedHeavy"
+  | "looseSkirmisher"
+  | "routing";
 export type IndividualRole = "recruit" | "regular" | "veteran";
 export type MovementMode =
   | "holdPosition"
@@ -43,6 +53,7 @@ export interface UnitFormationConfig {
   readonly unitSpeed: number;
   readonly order: UnitOrder;
   readonly cohesion?: number;
+  readonly behaviourProfile?: UnitBehaviourProfile;
 }
 
 export interface IndividualBehaviourConfig {
@@ -85,6 +96,10 @@ export interface FormationTickResult {
   readonly events: readonly FormationEvent[];
 }
 
+export interface FormationTickOptions {
+  readonly loadoutStore?: UnitLoadoutStore;
+}
+
 interface InternalFormationBehaviourStore extends FormationBehaviourStore {
   readonly unitIndexById: ReadonlyMap<UnitId, number>;
   readonly anchorX: Int32Array;
@@ -96,6 +111,7 @@ interface InternalFormationBehaviourStore extends FormationBehaviourStore {
   readonly cols: Int32Array;
   readonly unitSpeed: Int32Array;
   readonly orders: UnitOrder[];
+  readonly behaviourProfiles: UnitBehaviourProfile[];
   readonly cohesion: Int32Array;
   readonly unitMovementStyle: UnitMovementStyle[];
   readonly styleCommitmentTicksRemaining: Int32Array;
@@ -125,6 +141,7 @@ interface InternalFormationBehaviourStore extends FormationBehaviourStore {
 
 const DEFAULT_COHESION = 1000;
 const DEFAULT_CONFIDENCE = 500;
+const DEFAULT_UNIT_BEHAVIOUR_PROFILE: UnitBehaviourProfile = "formedRegular";
 const STUCK_TICK_THRESHOLD = 5;
 const BLOCKER_GRID_CELL_SIZE = 32;
 const LOW_CONFIDENCE_THRESHOLD = 250;
@@ -186,6 +203,9 @@ export function createFormationBehaviourStore(
     cols: new Int32Array(unitCount),
     unitSpeed: new Int32Array(unitCount),
     orders: new Array<UnitOrder>(unitCount).fill("hold"),
+    behaviourProfiles: new Array<UnitBehaviourProfile>(unitCount).fill(
+      DEFAULT_UNIT_BEHAVIOUR_PROFILE,
+    ),
     cohesion: new Int32Array(unitCount),
     unitMovementStyle: new Array<UnitMovementStyle>(unitCount).fill(
       "orderedHalt",
@@ -244,6 +264,8 @@ export function createFormationBehaviourStore(
     store.cols[index] = unitConfig.cols;
     store.unitSpeed[index] = unitConfig.unitSpeed;
     store.orders[index] = unitConfig.order;
+    store.behaviourProfiles[index] =
+      unitConfig.behaviourProfile ?? DEFAULT_UNIT_BEHAVIOUR_PROFILE;
     store.cohesion[index] = clampIntegerState(
       unitConfig.cohesion ?? DEFAULT_COHESION,
     );
@@ -302,6 +324,15 @@ export function getUnitOrder(
   const internal = asInternal(store);
   const index = requireUnitIndex(internal, unitId);
   return internal.orders[index]!;
+}
+
+export function getUnitBehaviourProfile(
+  store: FormationBehaviourStore,
+  unitId: UnitId,
+): UnitBehaviourProfile {
+  const internal = asInternal(store);
+  const index = requireUnitIndex(internal, unitId);
+  return internal.behaviourProfiles[index]!;
 }
 
 export function getUnitMovementStyle(
@@ -399,9 +430,15 @@ export function advanceFormationOneTick(
   world: WorldState,
   identityStore: UnitIdentityStore,
   store: FormationBehaviourStore,
+  options: FormationTickOptions = {},
 ): FormationTickResult {
   const internal = asInternal(store);
-  validateWorldForBehaviour(world, internal, identityStore);
+  validateWorldForBehaviour(
+    world,
+    internal,
+    identityStore,
+    options.loadoutStore,
+  );
 
   const events: FormationEvent[] = [];
   const unitIds = getUnitIds(identityStore);
@@ -418,6 +455,7 @@ export function advanceFormationOneTick(
       blockerGrid,
       unitId,
       storeUnitIndex,
+      options.loadoutStore,
       events,
     );
   }
@@ -432,6 +470,7 @@ function processUnit(
   blockerGrid: SpatialGrid | undefined,
   unitId: UnitId,
   unitIndex: number,
+  loadoutStore: UnitLoadoutStore | undefined,
   events: FormationEvent[],
 ): void {
   const order = store.orders[unitIndex]!;
@@ -510,7 +549,9 @@ function processUnit(
   const blockerForwardLimit = getActiveBlockerForwardLimit(
     store,
     unitIndex,
+    unitId,
     style,
+    loadoutStore,
   );
 
   for (let index = 0; index < members.length; index += 1) {
@@ -841,7 +882,9 @@ function isInsideWorldBounds(
 function getActiveBlockerForwardLimit(
   store: InternalFormationBehaviourStore,
   unitIndex: number,
+  unitId: UnitId,
   style: UnitMovementStyle,
+  loadoutStore: UnitLoadoutStore | undefined,
 ): number {
   if (style !== "haltAndWait" && style !== "engageFront") {
     return NO_ACTIVE_BLOCKER_DISTANCE;
@@ -852,7 +895,14 @@ function getActiveBlockerForwardLimit(
     return NO_ACTIVE_BLOCKER_DISTANCE;
   }
 
-  return Math.max(0, blockerDistance - FRONT_CONTACT_GAP);
+  let contactDistance = FRONT_CONTACT_GAP;
+  if (style === "engageFront" && loadoutStore !== undefined) {
+    contactDistance = getContactDistanceForReachBand(
+      getUnitWeaponReachBand(loadoutStore, unitId),
+    );
+  }
+
+  return Math.max(0, blockerDistance - contactDistance);
 }
 
 function prepareBlockerGrid(
@@ -1204,10 +1254,29 @@ function chooseAlliedBlockerStyle(
   unitId: UnitId,
   unitIndex: number,
 ): UnitMovementStyle {
+  const profile = store.behaviourProfiles[unitIndex]!;
+  if (profile === "routing") {
+    return "pushThrough";
+  }
+  if (profile === "looseSkirmisher") {
+    return "looseFlow";
+  }
+
   const members = getUnitMembers(identityStore, unitId);
   const averageConfidence = computeAverageConfidence(store, members);
   const averagePressure = computeAveragePressure(store, members);
   const cohesion = store.cohesion[unitIndex]!;
+
+  if (profile === "formedHeavy") {
+    if (
+      averageConfidence <= LOW_CONFIDENCE_THRESHOLD ||
+      averagePressure >= HIGH_PRESSURE_THRESHOLD ||
+      cohesion <= LOW_COHESION_THRESHOLD
+    ) {
+      return "haltAndWait";
+    }
+    return "formedDetour";
+  }
 
   if (
     averageConfidence <= LOW_CONFIDENCE_THRESHOLD ||
@@ -1423,6 +1492,7 @@ function validateWorldForBehaviour(
   world: WorldState,
   store: InternalFormationBehaviourStore,
   identityStore: UnitIdentityStore,
+  loadoutStore: UnitLoadoutStore | undefined,
 ): void {
   if (world.entityCount !== store.entityCount) {
     throw new RangeError(
@@ -1432,6 +1502,14 @@ function validateWorldForBehaviour(
   if (identityStore.entityCount !== store.entityCount) {
     throw new RangeError(
       "Identity store entity count must match formation behaviour entity count.",
+    );
+  }
+  if (
+    loadoutStore !== undefined &&
+    loadoutStore.entityCount !== store.entityCount
+  ) {
+    throw new RangeError(
+      "Loadout store entity count must match formation behaviour entity count.",
     );
   }
 }

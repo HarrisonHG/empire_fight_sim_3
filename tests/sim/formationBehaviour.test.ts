@@ -4,6 +4,7 @@ import {
   advanceFormationOneTick,
   computeSlotWorldPosition,
   createFormationBehaviourStore,
+  getUnitBehaviourProfile,
   getIndividualPressure,
   getIndividualMovementMode,
   getIndividualStuckTicks,
@@ -13,6 +14,7 @@ import {
   getUnitOrder,
   setIndividualPressure,
   setUnitOrder,
+  type UnitBehaviourProfile,
   type FormationBehaviourConfig,
   type FormationEvent,
   type IndividualBehaviourConfig,
@@ -25,6 +27,11 @@ import {
   getUnitIdForEntity,
   type UnitIdentityConfig,
 } from "../../src/sim/unitIdentity";
+import {
+  createUnitLoadoutStore,
+  type UnitLoadoutStore,
+  type WeaponReachBand,
+} from "../../src/sim/unitLoadout";
 import type { WorldState } from "../../src/sim/types";
 
 interface HarnessConfig {
@@ -69,6 +76,7 @@ interface BlockerHarnessOptions {
   readonly sourceCohesion?: number;
   readonly sourceConfidence?: number;
   readonly sourcePressure?: number;
+  readonly sourceBehaviourProfile?: UnitBehaviourProfile;
   readonly blockerCohesion?: number;
   readonly blockerPressure?: number;
   readonly rngSeed?: number;
@@ -106,6 +114,9 @@ function createBlockerHarness(options: BlockerHarnessOptions = {}) {
           unitSpeed: 1,
           order: sourceOrder,
           cohesion: options.sourceCohesion ?? 1000,
+          ...(options.sourceBehaviourProfile !== undefined
+            ? { behaviourProfile: options.sourceBehaviourProfile }
+            : {}),
         },
         {
           unitId: 2,
@@ -152,6 +163,78 @@ function createBlockerHarness(options: BlockerHarnessOptions = {}) {
       { entityId: 1, x: 116, y: 100 },
     ],
   });
+}
+
+function createReachAwareEngageHarness(reachBand?: WeaponReachBand) {
+  const harness = createTestHarness({
+    entityCount: 2,
+    identity: {
+      entityCount: 2,
+      units: [
+        { unitId: 1, factionId: 1, memberEntityIds: [0] },
+        { unitId: 2, factionId: 2, memberEntityIds: [1] },
+      ],
+    },
+    formation: {
+      entityCount: 2,
+      rngSeed: 0x3b01,
+      units: [
+        {
+          unitId: 1,
+          anchorX: 100,
+          anchorY: 100,
+          headingX: 1,
+          headingY: 0,
+          spacing: 40,
+          rows: 1,
+          cols: 1,
+          unitSpeed: 0,
+          order: "advance",
+        },
+        {
+          unitId: 2,
+          anchorX: 160,
+          anchorY: 100,
+          headingX: -1,
+          headingY: 0,
+          spacing: 40,
+          rows: 1,
+          cols: 1,
+          unitSpeed: 0,
+          order: "hold",
+        },
+      ],
+      individuals: [
+        {
+          entityId: 0,
+          role: "regular",
+          slotRow: 0,
+          slotCol: 0,
+          memberMaxStep: 100,
+        },
+        {
+          entityId: 1,
+          role: "regular",
+          slotRow: 0,
+          slotCol: 0,
+          memberMaxStep: 0,
+        },
+      ],
+    },
+    initialPositions: [
+      { entityId: 0, x: 100, y: 100 },
+      { entityId: 1, x: 160, y: 100 },
+    ],
+  });
+  const loadout = createUnitLoadoutStore(harness.identity, {
+    entityCount: 2,
+    units:
+      reachBand === undefined
+        ? []
+        : [{ unitId: 1, weaponReachBand: reachBand }],
+  });
+
+  return { ...harness, loadout };
 }
 
 interface FormedDetourHarnessOptions {
@@ -959,6 +1042,230 @@ describe("formation behaviour: unit blocker arbitration", () => {
     expect(getUnitMovementStyle(store, 1)).toBe("pushThrough");
   });
 
+  it("defaults to formedRegular and preserves core allied blocker arbitration", () => {
+    const cases: ReadonlyArray<{
+      readonly options: BlockerHarnessOptions;
+      readonly expectedStyle: UnitMovementStyle;
+    }> = [
+      {
+        options: { relationship: "allied", sourceConfidence: 100 },
+        expectedStyle: "haltAndWait",
+      },
+      {
+        options: {
+          relationship: "allied",
+          sourceCohesion: 200,
+          sourceConfidence: 500,
+        },
+        expectedStyle: "looseFlow",
+      },
+      {
+        options: {
+          relationship: "allied",
+          sourceCohesion: 600,
+          sourceConfidence: 950,
+        },
+        expectedStyle: "pushThrough",
+      },
+      {
+        options: {
+          relationship: "allied",
+          sourceCohesion: 900,
+          sourceConfidence: 500,
+        },
+        expectedStyle: "formedDetour",
+      },
+    ];
+
+    for (const { options, expectedStyle } of cases) {
+      const { world, identity, store } = createBlockerHarness(options);
+
+      advanceFormationOneTick(world, identity, store);
+
+      expect(getUnitBehaviourProfile(store, 1)).toBe("formedRegular");
+      expect(getUnitMovementStyle(store, 1)).toBe(expectedStyle);
+    }
+  });
+
+  it("keeps formedHeavy from choosing looseFlow or high-confidence pushThrough", () => {
+    const highConfidenceHarness = createBlockerHarness({
+      relationship: "allied",
+      sourceBehaviourProfile: "formedHeavy",
+      sourceCohesion: 600,
+      sourceConfidence: 950,
+    });
+    const lowCohesionHarness = createBlockerHarness({
+      relationship: "allied",
+      sourceBehaviourProfile: "formedHeavy",
+      sourceCohesion: 200,
+      sourceConfidence: 500,
+    });
+
+    advanceFormationOneTick(
+      highConfidenceHarness.world,
+      highConfidenceHarness.identity,
+      highConfidenceHarness.store,
+    );
+    advanceFormationOneTick(
+      lowCohesionHarness.world,
+      lowCohesionHarness.identity,
+      lowCohesionHarness.store,
+    );
+
+    expect(getUnitBehaviourProfile(highConfidenceHarness.store, 1)).toBe(
+      "formedHeavy",
+    );
+    expect(getUnitMovementStyle(highConfidenceHarness.store, 1)).toBe(
+      "formedDetour",
+    );
+    expect(getUnitMovementStyle(lowCohesionHarness.store, 1)).toBe(
+      "haltAndWait",
+    );
+    expect(getUnitMovementStyle(highConfidenceHarness.store, 1)).not.toBe(
+      "pushThrough",
+    );
+    expect(getUnitMovementStyle(lowCohesionHarness.store, 1)).not.toBe(
+      "looseFlow",
+    );
+  });
+
+  it("lets looseSkirmisher choose looseFlow and avoid pushThrough", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "allied",
+      sourceBehaviourProfile: "looseSkirmisher",
+      sourceCohesion: 600,
+      sourceConfidence: 950,
+    });
+
+    advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitBehaviourProfile(store, 1)).toBe("looseSkirmisher");
+    expect(getUnitMovementStyle(store, 1)).toBe("looseFlow");
+    expect(getUnitMovementStyle(store, 1)).not.toBe("pushThrough");
+  });
+
+  it("lets routing choose pushThrough and receive existing disruption", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "allied",
+      sourceBehaviourProfile: "routing",
+      sourceCohesion: 600,
+      sourceConfidence: 100,
+      blockerCohesion: 700,
+    });
+    const sourcePressureBefore = getIndividualPressure(store, 0);
+    const blockerPressureBefore = getIndividualPressure(store, 1);
+
+    advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitBehaviourProfile(store, 1)).toBe("routing");
+    expect(getUnitMovementStyle(store, 1)).toBe("pushThrough");
+    expect(getUnitCohesion(store, 1)).toBe(595);
+    expect(getUnitCohesion(store, 2)).toBe(697);
+    expect(getIndividualPressure(store, 0)).toBe(
+      sourcePressureBefore + 20,
+    );
+    expect(getIndividualPressure(store, 1)).toBe(
+      blockerPressureBefore + 10,
+    );
+  });
+
+  it("lets explicit hold override routing profile behaviour", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "allied",
+      sourceOrder: "hold",
+      sourceBehaviourProfile: "routing",
+      sourceCohesion: 600,
+      sourceConfidence: 100,
+      blockerCohesion: 700,
+    });
+
+    const result = advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitBehaviourProfile(store, 1)).toBe("routing");
+    expect(getUnitMovementStyle(store, 1)).toBe("orderedHalt");
+    expect(getUnitCohesion(store, 1)).toBe(600);
+    expect(getUnitCohesion(store, 2)).toBe(700);
+    expect(getUnitStyleEvents(result.events, 1).map((event) => event.style))
+      .toEqual(["orderedHalt"]);
+  });
+
+  it("keeps hostile blockers on engageFront regardless of profile", () => {
+    const profiles: readonly UnitBehaviourProfile[] = [
+      "formedRegular",
+      "formedHeavy",
+      "looseSkirmisher",
+      "routing",
+    ];
+
+    for (const profile of profiles) {
+      const { world, identity, store } = createBlockerHarness({
+        relationship: "hostile",
+        sourceBehaviourProfile: profile,
+        sourceCohesion: 200,
+        sourceConfidence: 950,
+      });
+
+      advanceFormationOneTick(world, identity, store);
+
+      expect(getUnitBehaviourProfile(store, 1)).toBe(profile);
+      expect(getUnitMovementStyle(store, 1)).toBe("engageFront");
+    }
+  });
+
+  it("keeps profile-biased style events transition-only", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "allied",
+      sourceBehaviourProfile: "looseSkirmisher",
+      sourceCohesion: 600,
+      sourceConfidence: 950,
+    });
+    const sourceStyleEvents: UnitMovementStyle[] = [];
+
+    for (let tick = 0; tick < 4; tick += 1) {
+      const result = advanceFormationOneTick(world, identity, store);
+      for (const event of getUnitStyleEvents(result.events, 1)) {
+        sourceStyleEvents.push(event.style);
+      }
+    }
+
+    expect(sourceStyleEvents).toEqual(["looseFlow"]);
+  });
+
+  it("replays identical profile-biased arbitration and disruption", () => {
+    const runReplay = () => {
+      const { world, identity, store } = createBlockerHarness({
+        relationship: "allied",
+        sourceBehaviourProfile: "routing",
+        sourceCohesion: 600,
+        sourceConfidence: 100,
+        blockerCohesion: 700,
+      });
+      const styles: UnitMovementStyle[] = [];
+      const styleEvents: string[] = [];
+
+      for (let tick = 0; tick < 4; tick += 1) {
+        const result = advanceFormationOneTick(world, identity, store);
+        styles.push(getUnitMovementStyle(store, 1));
+        for (const event of getUnitStyleEvents(result.events, 1)) {
+          styleEvents.push(`${tick}:${event.style}`);
+        }
+      }
+
+      return {
+        positionsX: Array.from(world.positionsX),
+        positionsY: Array.from(world.positionsY),
+        styles,
+        sourceCohesion: getUnitCohesion(store, 1),
+        blockerCohesion: getUnitCohesion(store, 2),
+        sourcePressure: getIndividualPressure(store, 0),
+        blockerPressure: getIndividualPressure(store, 1),
+        styleEvents,
+      };
+    };
+
+    expect(runReplay()).toEqual(runReplay());
+  });
+
   it("keeps engageFront from advancing the anchor", () => {
     const { world, identity, store } = createBlockerHarness({
       relationship: "hostile",
@@ -1000,6 +1307,234 @@ describe("formation behaviour: unit blocker arbitration", () => {
     }
 
     expect(world.positionsX[0]).toBe(110);
+  });
+
+  it("preserves existing engageFront contact positioning when no loadout store is supplied", () => {
+    const { world, identity, store } = createReachAwareEngageHarness("ranged");
+
+    advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("engageFront");
+    expect(world.positionsX[0]).toBe(139);
+    expect(world.positionsX[1]).toBe(160);
+  });
+
+  it("lets close and short reach engageFront members settle close to the hostile blocker", () => {
+    const closeHarness = createReachAwareEngageHarness("close");
+    const shortHarness = createReachAwareEngageHarness("short");
+
+    advanceFormationOneTick(
+      closeHarness.world,
+      closeHarness.identity,
+      closeHarness.store,
+      { loadoutStore: closeHarness.loadout },
+    );
+    advanceFormationOneTick(
+      shortHarness.world,
+      shortHarness.identity,
+      shortHarness.store,
+      { loadoutStore: shortHarness.loadout },
+    );
+
+    expect(getUnitMovementStyle(closeHarness.store, 1)).toBe("engageFront");
+    expect(getUnitMovementStyle(shortHarness.store, 1)).toBe("engageFront");
+    expect(closeHarness.world.positionsX[0]).toBe(138);
+    expect(shortHarness.world.positionsX[0]).toBe(136);
+    expect(closeHarness.world.positionsX[0]).toBeGreaterThan(
+      shortHarness.world.positionsX[0]!,
+    );
+  });
+
+  it("stops long and veryLong engageFront members farther away than short reach", () => {
+    const shortHarness = createReachAwareEngageHarness("short");
+    const longHarness = createReachAwareEngageHarness("long");
+    const veryLongHarness = createReachAwareEngageHarness("veryLong");
+
+    advanceFormationOneTick(
+      shortHarness.world,
+      shortHarness.identity,
+      shortHarness.store,
+      { loadoutStore: shortHarness.loadout },
+    );
+    advanceFormationOneTick(
+      longHarness.world,
+      longHarness.identity,
+      longHarness.store,
+      { loadoutStore: longHarness.loadout },
+    );
+    advanceFormationOneTick(
+      veryLongHarness.world,
+      veryLongHarness.identity,
+      veryLongHarness.store,
+      { loadoutStore: veryLongHarness.loadout },
+    );
+
+    expect(shortHarness.world.positionsX[0]).toBe(136);
+    expect(longHarness.world.positionsX[0]).toBe(130);
+    expect(veryLongHarness.world.positionsX[0]).toBe(126);
+    expect(longHarness.world.positionsX[0]).toBeLessThan(
+      shortHarness.world.positionsX[0]!,
+    );
+    expect(veryLongHarness.world.positionsX[0]).toBeLessThan(
+      shortHarness.world.positionsX[0]!,
+    );
+  });
+
+  it("stops ranged engageFront members farther away than long and veryLong reach", () => {
+    const longHarness = createReachAwareEngageHarness("long");
+    const veryLongHarness = createReachAwareEngageHarness("veryLong");
+    const rangedHarness = createReachAwareEngageHarness("ranged");
+
+    advanceFormationOneTick(
+      longHarness.world,
+      longHarness.identity,
+      longHarness.store,
+      { loadoutStore: longHarness.loadout },
+    );
+    advanceFormationOneTick(
+      veryLongHarness.world,
+      veryLongHarness.identity,
+      veryLongHarness.store,
+      { loadoutStore: veryLongHarness.loadout },
+    );
+    advanceFormationOneTick(
+      rangedHarness.world,
+      rangedHarness.identity,
+      rangedHarness.store,
+      { loadoutStore: rangedHarness.loadout },
+    );
+
+    expect(longHarness.world.positionsX[0]).toBe(130);
+    expect(veryLongHarness.world.positionsX[0]).toBe(126);
+    expect(rangedHarness.world.positionsX[0]).toBe(116);
+    expect(rangedHarness.world.positionsX[0]).toBeLessThan(
+      longHarness.world.positionsX[0]!,
+    );
+    expect(rangedHarness.world.positionsX[0]).toBeLessThan(
+      veryLongHarness.world.positionsX[0]!,
+    );
+  });
+
+  it("does not displace the hostile blocker during reach-aware engageFront", () => {
+    const { world, identity, store, loadout } =
+      createReachAwareEngageHarness("veryLong");
+    const blockerAnchorBefore = getUnitAnchor(store, 2);
+    const blockerXBefore = world.positionsX[1]!;
+    const blockerYBefore = world.positionsY[1]!;
+
+    advanceFormationOneTick(world, identity, store, { loadoutStore: loadout });
+
+    expect(getUnitMovementStyle(store, 1)).toBe("engageFront");
+    expect(getUnitAnchor(store, 2)).toEqual(blockerAnchorBefore);
+    expect(world.positionsX[1]).toBe(blockerXBefore);
+    expect(world.positionsY[1]).toBe(blockerYBefore);
+  });
+
+  it("keeps reach-aware engageFront from emitting combat or damage events", () => {
+    const { world, identity, store, loadout } =
+      createReachAwareEngageHarness("long");
+
+    const result = advanceFormationOneTick(world, identity, store, {
+      loadoutStore: loadout,
+    });
+    const eventKinds = result.events.map((event) => event.kind as string);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("engageFront");
+    expect(eventKinds).not.toContain("combat");
+    expect(eventKinds).not.toContain("damage");
+  });
+
+  it("lets explicit hold override reach-aware engageFront and choose orderedHalt", () => {
+    const { world, identity, store, loadout } =
+      createReachAwareEngageHarness("long");
+
+    advanceFormationOneTick(world, identity, store, { loadoutStore: loadout });
+    expect(getUnitMovementStyle(store, 1)).toBe("engageFront");
+
+    setUnitOrder(store, 1, "hold");
+    const result = advanceFormationOneTick(world, identity, store, {
+      loadoutStore: loadout,
+    });
+
+    expect(getUnitMovementStyle(store, 1)).toBe("orderedHalt");
+    expect(getUnitStyleEvents(result.events, 1).map((event) => event.style))
+      .toEqual(["orderedHalt"]);
+  });
+
+  it("throws when reach-aware tick loadout entity count does not match", () => {
+    const { world, identity, store } = createReachAwareEngageHarness("short");
+    const mismatchedIdentity = createUnitIdentityStore({
+      entityCount: 3,
+      units: [{ unitId: 1, factionId: 1, memberEntityIds: [0, 1, 2] }],
+    });
+    const mismatchedLoadout: UnitLoadoutStore = createUnitLoadoutStore(
+      mismatchedIdentity,
+      {
+        entityCount: 3,
+        units: [{ unitId: 1, weaponReachBand: "short" }],
+      },
+    );
+
+    expect(() =>
+      advanceFormationOneTick(world, identity, store, {
+        loadoutStore: mismatchedLoadout,
+      }),
+    ).toThrow(RangeError);
+  });
+
+  it("uses omitted loadout config defaults safely for engageFront positioning", () => {
+    const noLoadoutHarness = createReachAwareEngageHarness("ranged");
+    const defaultLoadoutHarness = createReachAwareEngageHarness();
+
+    advanceFormationOneTick(
+      noLoadoutHarness.world,
+      noLoadoutHarness.identity,
+      noLoadoutHarness.store,
+    );
+    advanceFormationOneTick(
+      defaultLoadoutHarness.world,
+      defaultLoadoutHarness.identity,
+      defaultLoadoutHarness.store,
+      { loadoutStore: defaultLoadoutHarness.loadout },
+    );
+
+    expect(defaultLoadoutHarness.world.positionsX[0]).toBe(
+      noLoadoutHarness.world.positionsX[0],
+    );
+    expect(defaultLoadoutHarness.world.positionsX[0]).toBe(139);
+  });
+
+  it("replays identical reach-aware engageFront positions, styles, and events", () => {
+    const runReplay = () => {
+      const { world, identity, store, loadout } =
+        createReachAwareEngageHarness("veryLong");
+      const styles: UnitMovementStyle[] = [];
+      const sourcePositions: string[] = [];
+      const styleEvents: string[] = [];
+
+      for (let tick = 0; tick < 5; tick += 1) {
+        const result = advanceFormationOneTick(world, identity, store, {
+          loadoutStore: loadout,
+        });
+        styles.push(getUnitMovementStyle(store, 1));
+        sourcePositions.push(
+          `${world.positionsX[0] ?? 0},${world.positionsY[0] ?? 0}`,
+        );
+        for (const event of getUnitStyleEvents(result.events, 1)) {
+          styleEvents.push(`${tick}:${event.style}`);
+        }
+      }
+
+      return {
+        positionsX: Array.from(world.positionsX),
+        positionsY: Array.from(world.positionsY),
+        styles,
+        sourcePositions,
+        styleEvents,
+      };
+    };
+
+    expect(runReplay()).toEqual(runReplay());
   });
 
   it("lets pushThrough advance the anchor without displacing the blocker", () => {
