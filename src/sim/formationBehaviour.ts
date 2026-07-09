@@ -1,5 +1,13 @@
 import { SeededRng } from "./rng";
 import {
+  buildSpatialGrid,
+  createSpatialGrid,
+  queryEntitiesWithinRadiusInto,
+  type SpatialGrid,
+} from "./spatialGrid";
+import {
+  getFactionIdForUnit,
+  getUnitIdForEntity,
   getUnitIds,
   getUnitMembers,
   type UnitId,
@@ -14,17 +22,14 @@ export type MovementMode =
   | "moveToFormationSlot"
   | "advanceWithUnit";
 
-// Milestone 2A emits only the pre-arbitration styles below. The remaining
-// styles are reserved for Milestone 2B blocker arbitration so downstream code
-// can pattern-match on the full union without further type churn.
 export type UnitMovementStyle =
-  | "formedMarch" // 2A: formation advancing with no blocker arbitration yet.
-  | "orderedHalt" // 2A: unit holding on captain order (distinct from 2B haltAndWait).
-  | "formedDetour" // 2B: reserved, not yet emitted.
-  | "looseFlow" // 2B: reserved, not yet emitted.
-  | "pushThrough" // 2B: reserved, not yet emitted.
-  | "haltAndWait" // 2B: reserved, not yet emitted.
-  | "engageFront"; // 2B: reserved, not yet emitted.
+  | "formedMarch" // Normal advancing style when no blocker changes movement.
+  | "orderedHalt" // Explicit hold-order style, distinct from blocker haltAndWait.
+  | "formedDetour" // Emitted by Milestone 2B blocker arbitration.
+  | "looseFlow" // Emitted by Milestone 2B blocker arbitration.
+  | "pushThrough" // Emitted by Milestone 2B blocker arbitration.
+  | "haltAndWait" // Emitted by Milestone 2B blocker arbitration.
+  | "engageFront"; // 2B style selection only; does not implement combat.
 
 export interface UnitFormationConfig {
   readonly unitId: UnitId;
@@ -92,6 +97,9 @@ interface InternalFormationBehaviourStore extends FormationBehaviourStore {
   readonly unitSpeed: Int32Array;
   readonly orders: UnitOrder[];
   readonly cohesion: Int32Array;
+  readonly unitMovementStyle: UnitMovementStyle[];
+  readonly styleCommitmentTicksRemaining: Int32Array;
+  readonly blockerReleaseTicksRemaining: Int32Array;
 
   readonly roles: IndividualRole[];
   readonly slotRow: Int32Array;
@@ -105,11 +113,25 @@ interface InternalFormationBehaviourStore extends FormationBehaviourStore {
   readonly lastEmittedMovementMode: (MovementMode | null)[];
   readonly lastEmittedUnitStyle: (UnitMovementStyle | null)[];
 
+  blockerGrid: SpatialGrid | undefined;
+  readonly scratchNearbyEntityIds: number[];
+  readonly scratchCandidateUnitIds: UnitId[];
+
   readonly rng: SeededRng;
 }
 
 const DEFAULT_COHESION = 1000;
+const DEFAULT_CONFIDENCE = 500;
 const STUCK_TICK_THRESHOLD = 5;
+const BLOCKER_GRID_CELL_SIZE = 32;
+const LOW_CONFIDENCE_THRESHOLD = 250;
+const HIGH_CONFIDENCE_THRESHOLD = 900;
+const HIGH_PRESSURE_THRESHOLD = 800;
+const LOW_COHESION_THRESHOLD = 350;
+const FORMED_COHESION_THRESHOLD = 700;
+const PUSH_THROUGH_COHESION_THRESHOLD = 500;
+const BLOCKER_STYLE_COMMITMENT_TICKS = 3;
+const BLOCKER_STYLE_RELEASE_TICKS = 2;
 
 export function createFormationBehaviourStore(
   identityStore: UnitIdentityStore,
@@ -154,6 +176,11 @@ export function createFormationBehaviourStore(
     unitSpeed: new Int32Array(unitCount),
     orders: new Array<UnitOrder>(unitCount).fill("hold"),
     cohesion: new Int32Array(unitCount),
+    unitMovementStyle: new Array<UnitMovementStyle>(unitCount).fill(
+      "orderedHalt",
+    ),
+    styleCommitmentTicksRemaining: new Int32Array(unitCount),
+    blockerReleaseTicksRemaining: new Int32Array(unitCount),
     roles: new Array<IndividualRole>(config.entityCount).fill("regular"),
     slotRow: new Int32Array(config.entityCount),
     slotCol: new Int32Array(config.entityCount),
@@ -171,6 +198,9 @@ export function createFormationBehaviourStore(
     lastEmittedUnitStyle: new Array<UnitMovementStyle | null>(unitCount).fill(
       null,
     ),
+    blockerGrid: undefined,
+    scratchNearbyEntityIds: [],
+    scratchCandidateUnitIds: [],
     rng: new SeededRng(config.rngSeed),
   };
 
@@ -220,7 +250,8 @@ export function createFormationBehaviourStore(
     store.slotCol[individual.entityId] = individual.slotCol;
     store.memberMaxStep[individual.entityId] = individual.memberMaxStep;
     store.pressure[individual.entityId] = individual.pressure ?? 0;
-    store.confidence[individual.entityId] = individual.confidence ?? 500;
+    store.confidence[individual.entityId] =
+      individual.confidence ?? DEFAULT_CONFIDENCE;
   }
 
   return store;
@@ -251,6 +282,15 @@ export function getUnitOrder(
   const internal = asInternal(store);
   const index = requireUnitIndex(internal, unitId);
   return internal.orders[index]!;
+}
+
+export function getUnitMovementStyle(
+  store: FormationBehaviourStore,
+  unitId: UnitId,
+): UnitMovementStyle {
+  const internal = asInternal(store);
+  const index = requireUnitIndex(internal, unitId);
+  return internal.unitMovementStyle[index]!;
 }
 
 export function setUnitOrder(
@@ -336,11 +376,21 @@ export function advanceFormationOneTick(
 
   const events: FormationEvent[] = [];
   const unitIds = getUnitIds(identityStore);
+  const blockerGrid =
+    unitIds.length > 1 ? prepareBlockerGrid(internal, world) : undefined;
 
   for (let unitIndex = 0; unitIndex < unitIds.length; unitIndex += 1) {
     const unitId = unitIds[unitIndex]!;
     const storeUnitIndex = requireUnitIndex(internal, unitId);
-    processUnit(world, identityStore, internal, unitId, storeUnitIndex, events);
+    processUnit(
+      world,
+      identityStore,
+      internal,
+      blockerGrid,
+      unitId,
+      storeUnitIndex,
+      events,
+    );
   }
 
   return { events };
@@ -350,6 +400,7 @@ function processUnit(
   world: WorldState,
   identityStore: UnitIdentityStore,
   store: InternalFormationBehaviourStore,
+  blockerGrid: SpatialGrid | undefined,
   unitId: UnitId,
   unitIndex: number,
   events: FormationEvent[],
@@ -363,7 +414,21 @@ function processUnit(
   const centerCol = Math.floor(cols / 2);
   const isAdvancing = order === "advance" || order === "advanceCautious";
 
-  if (isAdvancing) {
+  const style = chooseUnitMovementStyle(
+    identityStore,
+    store,
+    blockerGrid,
+    unitId,
+    unitIndex,
+    isAdvancing,
+  );
+  store.unitMovementStyle[unitIndex] = style;
+  if (store.lastEmittedUnitStyle[unitIndex] !== style) {
+    store.lastEmittedUnitStyle[unitIndex] = style;
+    events.push({ kind: "unit_movement_choice", unitId, style });
+  }
+
+  if (shouldAdvanceUnitAnchor(isAdvancing, style)) {
     store.anchorX[unitIndex] =
       store.anchorX[unitIndex]! + headingX * unitSpeed;
     store.anchorY[unitIndex] =
@@ -372,12 +437,6 @@ function processUnit(
 
   const anchorX = store.anchorX[unitIndex]!;
   const anchorY = store.anchorY[unitIndex]!;
-
-  const style: UnitMovementStyle = isAdvancing ? "formedMarch" : "orderedHalt";
-  if (store.lastEmittedUnitStyle[unitIndex] !== style) {
-    store.lastEmittedUnitStyle[unitIndex] = style;
-    events.push({ kind: "unit_movement_choice", unitId, style });
-  }
 
   const members = getUnitMembers(identityStore, unitId);
   if (members.length === 0) {
@@ -524,6 +583,420 @@ function processUnit(
       }
     }
   }
+}
+
+function shouldAdvanceUnitAnchor(
+  isAdvancing: boolean,
+  style: UnitMovementStyle,
+): boolean {
+  return isAdvancing && style !== "haltAndWait" && style !== "engageFront";
+}
+
+function prepareBlockerGrid(
+  store: InternalFormationBehaviourStore,
+  world: WorldState,
+): SpatialGrid {
+  let grid = store.blockerGrid;
+  if (
+    grid === undefined ||
+    grid.bounds.width !== world.bounds.width ||
+    grid.bounds.height !== world.bounds.height ||
+    grid.capacity < world.entityCount
+  ) {
+    grid = createSpatialGrid({
+      bounds: world.bounds,
+      cellSize: BLOCKER_GRID_CELL_SIZE,
+      capacity: world.entityCount,
+    });
+    store.blockerGrid = grid;
+  }
+
+  buildSpatialGrid(grid, world);
+  return grid;
+}
+
+function chooseUnitMovementStyle(
+  identityStore: UnitIdentityStore,
+  store: InternalFormationBehaviourStore,
+  blockerGrid: SpatialGrid | undefined,
+  unitId: UnitId,
+  unitIndex: number,
+  isAdvancing: boolean,
+): UnitMovementStyle {
+  if (!isAdvancing) {
+    store.styleCommitmentTicksRemaining[unitIndex] = 0;
+    store.blockerReleaseTicksRemaining[unitIndex] = 0;
+    return "orderedHalt";
+  }
+
+  if (blockerGrid === undefined) {
+    return applyStyleCommitment(store, unitIndex, "formedMarch");
+  }
+
+  const blocker = detectForwardBlocker(
+    identityStore,
+    store,
+    blockerGrid,
+    unitId,
+    unitIndex,
+  );
+  if (blocker === undefined) {
+    return applyStyleCommitment(store, unitIndex, "formedMarch");
+  }
+
+  let candidateStyle: UnitMovementStyle;
+  if (blocker.relationship === "hostile") {
+    candidateStyle = "engageFront";
+  } else {
+    candidateStyle = chooseAlliedBlockerStyle(
+      identityStore,
+      store,
+      unitId,
+      unitIndex,
+    );
+  }
+
+  return applyStyleCommitment(store, unitIndex, candidateStyle);
+}
+
+interface ForwardBlocker {
+  readonly unitId: UnitId;
+  readonly relationship: "allied" | "hostile";
+  readonly distance: number;
+}
+
+function detectForwardBlocker(
+  identityStore: UnitIdentityStore,
+  store: InternalFormationBehaviourStore,
+  blockerGrid: SpatialGrid,
+  unitId: UnitId,
+  unitIndex: number,
+): ForwardBlocker | undefined {
+  const anchorX = store.anchorX[unitIndex]!;
+  const anchorY = store.anchorY[unitIndex]!;
+  const headingX = store.headingX[unitIndex]!;
+  const headingY = store.headingY[unitIndex]!;
+  const spacing = store.spacing[unitIndex]!;
+  const rows = store.rows[unitIndex]!;
+  const cols = store.cols[unitIndex]!;
+  const unitSpeed = store.unitSpeed[unitIndex]!;
+  const searchDepth = computeForwardSearchDepth(spacing, rows, unitSpeed);
+  const sourceHalfWidth = computeFormationHalfWidth(spacing, cols);
+  const queryX = anchorX + headingX * Math.floor(searchDepth / 2);
+  const queryY = anchorY + headingY * Math.floor(searchDepth / 2);
+  const queryRadius = searchDepth + sourceHalfWidth + spacing * 2;
+  const nearbyEntityIds = queryEntitiesWithinRadiusInto(
+    blockerGrid,
+    queryX,
+    queryY,
+    queryRadius,
+    store.scratchNearbyEntityIds,
+  );
+  const candidateUnitIds = collectCandidateUnitIds(
+    identityStore,
+    unitId,
+    nearbyEntityIds,
+    store.scratchCandidateUnitIds,
+  );
+  const sourceFactionId = getFactionIdForUnit(identityStore, unitId);
+  let selectedBlocker: ForwardBlocker | undefined;
+
+  for (let index = 0; index < candidateUnitIds.length; index += 1) {
+    const candidateUnitId = candidateUnitIds[index]!;
+    const candidateUnitIndex = requireUnitIndex(store, candidateUnitId);
+    const distance = getForwardPathBlockDistance(
+      store,
+      candidateUnitIndex,
+      anchorX,
+      anchorY,
+      headingX,
+      headingY,
+      sourceHalfWidth,
+      searchDepth,
+    );
+    if (distance < 0) {
+      continue;
+    }
+
+    const relationship =
+      getFactionIdForUnit(identityStore, candidateUnitId) === sourceFactionId
+        ? "allied"
+        : "hostile";
+    const candidateBlocker: ForwardBlocker = {
+      unitId: candidateUnitId,
+      relationship,
+      distance,
+    };
+    if (isBetterBlocker(candidateBlocker, selectedBlocker)) {
+      selectedBlocker = candidateBlocker;
+    }
+  }
+
+  return selectedBlocker;
+}
+
+function collectCandidateUnitIds(
+  identityStore: UnitIdentityStore,
+  sourceUnitId: UnitId,
+  entityIds: readonly number[],
+  out: UnitId[],
+): UnitId[] {
+  out.length = 0;
+
+  for (let index = 0; index < entityIds.length; index += 1) {
+    const candidateUnitId = getUnitIdForEntity(identityStore, entityIds[index]!);
+    if (candidateUnitId === sourceUnitId) {
+      continue;
+    }
+
+    let alreadyCollected = false;
+    for (let outIndex = 0; outIndex < out.length; outIndex += 1) {
+      if (out[outIndex] === candidateUnitId) {
+        alreadyCollected = true;
+        break;
+      }
+    }
+
+    if (!alreadyCollected) {
+      out.push(candidateUnitId);
+    }
+  }
+
+  return out;
+}
+
+function getForwardPathBlockDistance(
+  store: InternalFormationBehaviourStore,
+  candidateUnitIndex: number,
+  sourceAnchorX: number,
+  sourceAnchorY: number,
+  sourceHeadingX: number,
+  sourceHeadingY: number,
+  sourceHalfWidth: number,
+  searchDepth: number,
+): number {
+  const candidateAnchorX = store.anchorX[candidateUnitIndex]!;
+  const candidateAnchorY = store.anchorY[candidateUnitIndex]!;
+  const candidateHeadingX = store.headingX[candidateUnitIndex]!;
+  const candidateHeadingY = store.headingY[candidateUnitIndex]!;
+  const candidateSpacing = store.spacing[candidateUnitIndex]!;
+  const lastRow = store.rows[candidateUnitIndex]! - 1;
+  const lastCol = store.cols[candidateUnitIndex]! - 1;
+  const centerCol = Math.floor(store.cols[candidateUnitIndex]! / 2);
+  const candidatePerpX = -candidateHeadingY;
+  const candidatePerpY = candidateHeadingX;
+  const sourcePerpX = -sourceHeadingY;
+  const sourcePerpY = sourceHeadingX;
+  let minForward = Number.MAX_SAFE_INTEGER;
+  let maxForward = Number.MIN_SAFE_INTEGER;
+  let minLateral = Number.MAX_SAFE_INTEGER;
+  let maxLateral = Number.MIN_SAFE_INTEGER;
+
+  for (let corner = 0; corner < 4; corner += 1) {
+    const row = corner < 2 ? 0 : lastRow;
+    const col = corner % 2 === 0 ? 0 : lastCol;
+    const backward = row * candidateSpacing;
+    const lateral = (col - centerCol) * candidateSpacing;
+    const slotX =
+      candidateAnchorX -
+      candidateHeadingX * backward +
+      candidatePerpX * lateral;
+    const slotY =
+      candidateAnchorY -
+      candidateHeadingY * backward +
+      candidatePerpY * lateral;
+    const relativeX = slotX - sourceAnchorX;
+    const relativeY = slotY - sourceAnchorY;
+    const forward = relativeX * sourceHeadingX + relativeY * sourceHeadingY;
+    const lateralProjection =
+      relativeX * sourcePerpX + relativeY * sourcePerpY;
+
+    if (forward < minForward) minForward = forward;
+    if (forward > maxForward) maxForward = forward;
+    if (lateralProjection < minLateral) minLateral = lateralProjection;
+    if (lateralProjection > maxLateral) maxLateral = lateralProjection;
+  }
+
+  const padding = Math.floor(candidateSpacing / 2);
+  minForward -= padding;
+  maxForward += padding;
+  minLateral -= padding;
+  maxLateral += padding;
+
+  if (maxForward < 0 || minForward > searchDepth) {
+    return -1;
+  }
+
+  if (maxLateral < -sourceHalfWidth || minLateral > sourceHalfWidth) {
+    return -1;
+  }
+
+  return Math.max(0, minForward);
+}
+
+function isBetterBlocker(
+  candidate: ForwardBlocker,
+  selected: ForwardBlocker | undefined,
+): boolean {
+  if (selected === undefined) {
+    return true;
+  }
+
+  if (candidate.relationship !== selected.relationship) {
+    return candidate.relationship === "hostile";
+  }
+
+  if (candidate.distance !== selected.distance) {
+    return candidate.distance < selected.distance;
+  }
+
+  return candidate.unitId < selected.unitId;
+}
+
+function chooseAlliedBlockerStyle(
+  identityStore: UnitIdentityStore,
+  store: InternalFormationBehaviourStore,
+  unitId: UnitId,
+  unitIndex: number,
+): UnitMovementStyle {
+  const members = getUnitMembers(identityStore, unitId);
+  const averageConfidence = computeAverageConfidence(store, members);
+  const averagePressure = computeAveragePressure(store, members);
+  const cohesion = store.cohesion[unitIndex]!;
+
+  if (
+    averageConfidence <= LOW_CONFIDENCE_THRESHOLD ||
+    averagePressure >= HIGH_PRESSURE_THRESHOLD
+  ) {
+    return "haltAndWait";
+  }
+
+  if (
+    averageConfidence >= HIGH_CONFIDENCE_THRESHOLD &&
+    cohesion >= PUSH_THROUGH_COHESION_THRESHOLD
+  ) {
+    return "pushThrough";
+  }
+
+  if (cohesion <= LOW_COHESION_THRESHOLD) {
+    return "looseFlow";
+  }
+
+  if (cohesion >= FORMED_COHESION_THRESHOLD) {
+    return "formedDetour";
+  }
+
+  return "haltAndWait";
+}
+
+function applyStyleCommitment(
+  store: InternalFormationBehaviourStore,
+  unitIndex: number,
+  candidateStyle: UnitMovementStyle,
+): UnitMovementStyle {
+  const currentStyle = store.unitMovementStyle[unitIndex]!;
+
+  if (!isBlockerArbitrationStyle(candidateStyle)) {
+    store.styleCommitmentTicksRemaining[unitIndex] = 0;
+    return releaseBlockerStyleIfReady(store, unitIndex, currentStyle);
+  }
+
+  store.blockerReleaseTicksRemaining[unitIndex] = BLOCKER_STYLE_RELEASE_TICKS;
+
+  if (!isBlockerArbitrationStyle(currentStyle)) {
+    store.styleCommitmentTicksRemaining[unitIndex] =
+      BLOCKER_STYLE_COMMITMENT_TICKS;
+    return candidateStyle;
+  }
+
+  if (
+    currentStyle !== candidateStyle &&
+    getBlockerStyleRelationship(currentStyle) ===
+      getBlockerStyleRelationship(candidateStyle)
+  ) {
+    const commitmentTicks = store.styleCommitmentTicksRemaining[unitIndex]!;
+    if (commitmentTicks > 0) {
+      store.styleCommitmentTicksRemaining[unitIndex] = commitmentTicks - 1;
+      return currentStyle;
+    }
+  }
+
+  if (currentStyle !== candidateStyle) {
+    store.styleCommitmentTicksRemaining[unitIndex] =
+      BLOCKER_STYLE_COMMITMENT_TICKS;
+    return candidateStyle;
+  }
+
+  const commitmentTicks = store.styleCommitmentTicksRemaining[unitIndex]!;
+  if (commitmentTicks > 0) {
+    store.styleCommitmentTicksRemaining[unitIndex] = commitmentTicks - 1;
+  }
+  return currentStyle;
+}
+
+function releaseBlockerStyleIfReady(
+  store: InternalFormationBehaviourStore,
+  unitIndex: number,
+  currentStyle: UnitMovementStyle,
+): UnitMovementStyle {
+  if (!isBlockerArbitrationStyle(currentStyle)) {
+    store.blockerReleaseTicksRemaining[unitIndex] = 0;
+    return "formedMarch";
+  }
+
+  const releaseTicks = store.blockerReleaseTicksRemaining[unitIndex]!;
+  if (releaseTicks > 0) {
+    store.blockerReleaseTicksRemaining[unitIndex] = releaseTicks - 1;
+    return currentStyle;
+  }
+
+  return "formedMarch";
+}
+
+function isBlockerArbitrationStyle(style: UnitMovementStyle): boolean {
+  return style !== "formedMarch" && style !== "orderedHalt";
+}
+
+function getBlockerStyleRelationship(
+  style: UnitMovementStyle,
+): "allied" | "hostile" {
+  return style === "engageFront" ? "hostile" : "allied";
+}
+
+function computeAverageConfidence(
+  store: InternalFormationBehaviourStore,
+  members: readonly number[],
+): number {
+  let total = 0;
+  for (let index = 0; index < members.length; index += 1) {
+    total += store.confidence[members[index]!]!;
+  }
+  return Math.trunc(total / members.length);
+}
+
+function computeAveragePressure(
+  store: InternalFormationBehaviourStore,
+  members: readonly number[],
+): number {
+  let total = 0;
+  for (let index = 0; index < members.length; index += 1) {
+    total += store.pressure[members[index]!]!;
+  }
+  return Math.trunc(total / members.length);
+}
+
+function computeForwardSearchDepth(
+  spacing: number,
+  rows: number,
+  unitSpeed: number,
+): number {
+  const ownDepth = rows * spacing;
+  const movementLookahead = unitSpeed + spacing * 2;
+  return Math.max(ownDepth, movementLookahead);
+}
+
+function computeFormationHalfWidth(spacing: number, cols: number): number {
+  return Math.floor(((cols - 1) * spacing) / 2) + Math.floor(spacing / 2);
 }
 
 function decideMode(

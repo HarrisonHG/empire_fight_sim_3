@@ -7,12 +7,16 @@ import {
   getIndividualMovementMode,
   getIndividualStuckTicks,
   getUnitAnchor,
+  getUnitMovementStyle,
   getUnitOrder,
+  setIndividualPressure,
   setUnitOrder,
   type FormationBehaviourConfig,
   type FormationEvent,
   type IndividualBehaviourConfig,
+  type UnitMovementStyle,
   type UnitFormationConfig,
+  type UnitOrder,
 } from "../../src/sim/formationBehaviour";
 import {
   createUnitIdentityStore,
@@ -54,6 +58,107 @@ function createTestHarness(config: HarnessConfig) {
   const identity = createUnitIdentityStore(config.identity);
   const store = createFormationBehaviourStore(identity, config.formation);
   return { world, identity, store };
+}
+
+interface BlockerHarnessOptions {
+  readonly relationship?: "allied" | "hostile";
+  readonly sourceOrder?: UnitOrder;
+  readonly sourceCohesion?: number;
+  readonly sourceConfidence?: number;
+  readonly sourcePressure?: number;
+}
+
+function createBlockerHarness(options: BlockerHarnessOptions = {}) {
+  const sourceOrder = options.sourceOrder ?? "advance";
+  const relationship = options.relationship ?? "allied";
+  return createTestHarness({
+    entityCount: 2,
+    identity: {
+      entityCount: 2,
+      units: [
+        { unitId: 1, factionId: 1, memberEntityIds: [0] },
+        {
+          unitId: 2,
+          factionId: relationship === "allied" ? 1 : 2,
+          memberEntityIds: [1],
+        },
+      ],
+    },
+    formation: {
+      entityCount: 2,
+      rngSeed: 0x2b01,
+      units: [
+        {
+          unitId: 1,
+          anchorX: 100,
+          anchorY: 100,
+          headingX: 1,
+          headingY: 0,
+          spacing: 10,
+          rows: 1,
+          cols: 1,
+          unitSpeed: 1,
+          order: sourceOrder,
+          cohesion: options.sourceCohesion ?? 1000,
+        },
+        {
+          unitId: 2,
+          anchorX: 116,
+          anchorY: 100,
+          headingX: -1,
+          headingY: 0,
+          spacing: 10,
+          rows: 1,
+          cols: 1,
+          unitSpeed: 0,
+          order: "hold",
+        },
+      ],
+      individuals: [
+        {
+          entityId: 0,
+          role: "regular",
+          slotRow: 0,
+          slotCol: 0,
+          memberMaxStep: 2,
+          ...(options.sourceConfidence !== undefined
+            ? { confidence: options.sourceConfidence }
+            : {}),
+          ...(options.sourcePressure !== undefined
+            ? { pressure: options.sourcePressure }
+            : {}),
+        },
+        {
+          entityId: 1,
+          role: "regular",
+          slotRow: 0,
+          slotCol: 0,
+          memberMaxStep: 0,
+        },
+      ],
+    },
+    initialPositions: [
+      { entityId: 0, x: 100, y: 100 },
+      { entityId: 1, x: 116, y: 100 },
+    ],
+  });
+}
+
+function getUnitStyleEvents(
+  events: readonly FormationEvent[],
+  unitId: number,
+): Extract<FormationEvent, { kind: "unit_movement_choice" }>[] {
+  return events.filter(
+    (
+      event,
+    ): event is Extract<FormationEvent, { kind: "unit_movement_choice" }> =>
+      event.kind === "unit_movement_choice" && event.unitId === unitId,
+  );
+}
+
+function moveBlockerOutOfForwardPath(world: WorldState): void {
+  world.positionsX[1] = 500;
+  world.positionsY[1] = 500;
 }
 
 describe("formation behaviour: slot following", () => {
@@ -509,6 +614,491 @@ describe("formation behaviour: hold order", () => {
       (event) => event.kind === "unit_movement_choice",
     );
     expect(styleEventsSecondTick).toHaveLength(0);
+  });
+});
+
+describe("formation behaviour: unit blocker arbitration", () => {
+  it("chooses formedMarch when no blocker is in the forward path", () => {
+    const { world, identity, store } = createTestHarness({
+      entityCount: 1,
+      identity: {
+        entityCount: 1,
+        units: [{ unitId: 1, factionId: 1, memberEntityIds: [0] }],
+      },
+      formation: {
+        entityCount: 1,
+        rngSeed: 0x2b01,
+        units: [
+          {
+            unitId: 1,
+            anchorX: 100,
+            anchorY: 100,
+            headingX: 1,
+            headingY: 0,
+            spacing: 10,
+            rows: 1,
+            cols: 1,
+            unitSpeed: 1,
+            order: "advance",
+          },
+        ],
+        individuals: [
+          {
+            entityId: 0,
+            role: "regular",
+            slotRow: 0,
+            slotCol: 0,
+            memberMaxStep: 2,
+          },
+        ],
+      },
+      initialPositions: [{ entityId: 0, x: 100, y: 100 }],
+    });
+
+    const result = advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("formedMarch");
+    expect(getUnitStyleEvents(result.events, 1).map((event) => event.style))
+      .toEqual(["formedMarch"]);
+  });
+
+  it("keeps formedMarch anchor advancement unchanged", () => {
+    const { world, identity, store } = createTestHarness({
+      entityCount: 1,
+      identity: {
+        entityCount: 1,
+        units: [{ unitId: 1, factionId: 1, memberEntityIds: [0] }],
+      },
+      formation: {
+        entityCount: 1,
+        rngSeed: 0x2b03,
+        units: [
+          {
+            unitId: 1,
+            anchorX: 100,
+            anchorY: 100,
+            headingX: 1,
+            headingY: 0,
+            spacing: 10,
+            rows: 1,
+            cols: 1,
+            unitSpeed: 2,
+            order: "advance",
+          },
+        ],
+        individuals: [
+          {
+            entityId: 0,
+            role: "regular",
+            slotRow: 0,
+            slotCol: 0,
+            memberMaxStep: 2,
+          },
+        ],
+      },
+      initialPositions: [{ entityId: 0, x: 100, y: 100 }],
+    });
+
+    const beforeAnchor = getUnitAnchor(store, 1);
+    advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("formedMarch");
+    expect(getUnitAnchor(store, 1)).toEqual({
+      x: beforeAnchor.x + 2,
+      y: beforeAnchor.y,
+    });
+  });
+
+  it("chooses orderedHalt for an explicit hold order even with a blocker", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "hostile",
+      sourceOrder: "hold",
+    });
+
+    const result = advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("orderedHalt");
+    expect(getUnitStyleEvents(result.events, 1).map((event) => event.style))
+      .toEqual(["orderedHalt"]);
+  });
+
+  it("keeps orderedHalt from advancing the anchor", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "hostile",
+      sourceOrder: "hold",
+    });
+    const beforeAnchor = getUnitAnchor(store, 1);
+
+    advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("orderedHalt");
+    expect(getUnitAnchor(store, 1)).toEqual(beforeAnchor);
+  });
+
+  it("chooses engageFront for a hostile forward blocker", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "hostile",
+    });
+
+    const result = advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("engageFront");
+    expect(getUnitStyleEvents(result.events, 1).map((event) => event.style))
+      .toEqual(["engageFront"]);
+  });
+
+  it("can choose haltAndWait for a low-confidence allied blocker case", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "allied",
+      sourceConfidence: 100,
+    });
+
+    advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("haltAndWait");
+  });
+
+  it("keeps haltAndWait from advancing the anchor", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "allied",
+      sourceConfidence: 100,
+    });
+    const beforeAnchor = getUnitAnchor(store, 1);
+
+    advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("haltAndWait");
+    expect(getUnitAnchor(store, 1)).toEqual(beforeAnchor);
+  });
+
+  it("can choose formedDetour for a cohesive allied blocker case", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "allied",
+      sourceCohesion: 900,
+      sourceConfidence: 500,
+    });
+
+    advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("formedDetour");
+  });
+
+  it("can choose looseFlow for a low-cohesion allied blocker case", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "allied",
+      sourceCohesion: 200,
+      sourceConfidence: 500,
+    });
+
+    advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("looseFlow");
+  });
+
+  it("can choose pushThrough for a high-confidence allied blocker case", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "allied",
+      sourceCohesion: 600,
+      sourceConfidence: 950,
+    });
+
+    advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("pushThrough");
+  });
+
+  it("keeps engageFront from advancing the anchor", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "hostile",
+    });
+    const beforeAnchor = getUnitAnchor(store, 1);
+
+    advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("engageFront");
+    expect(getUnitAnchor(store, 1)).toEqual(beforeAnchor);
+  });
+
+  it("lets pushThrough advance the anchor without displacing the blocker", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "allied",
+      sourceCohesion: 600,
+      sourceConfidence: 950,
+    });
+    const sourceAnchorBefore = getUnitAnchor(store, 1);
+    const blockerAnchorBefore = getUnitAnchor(store, 2);
+    const blockerXBefore = world.positionsX[1]!;
+    const blockerYBefore = world.positionsY[1]!;
+
+    advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("pushThrough");
+    expect(getUnitAnchor(store, 1)).toEqual({
+      x: sourceAnchorBefore.x + 1,
+      y: sourceAnchorBefore.y,
+    });
+    expect(getUnitAnchor(store, 2)).toEqual(blockerAnchorBefore);
+    expect(world.positionsX[1]).toBe(blockerXBefore);
+    expect(world.positionsY[1]).toBe(blockerYBefore);
+  });
+
+  it("keeps formedDetour style-selected without a real detour route", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "allied",
+      sourceCohesion: 900,
+      sourceConfidence: 500,
+    });
+    const sourceAnchorBefore = getUnitAnchor(store, 1);
+    const blockerXBefore = world.positionsX[1]!;
+    const blockerYBefore = world.positionsY[1]!;
+
+    advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("formedDetour");
+    expect(getUnitAnchor(store, 1)).toEqual({
+      x: sourceAnchorBefore.x + 1,
+      y: sourceAnchorBefore.y,
+    });
+    expect(world.positionsX[1]).toBe(blockerXBefore);
+    expect(world.positionsY[1]).toBe(blockerYBefore);
+  });
+
+  it("keeps looseFlow style-selected without loose-flow bypass", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "allied",
+      sourceCohesion: 200,
+      sourceConfidence: 500,
+    });
+    const sourceAnchorBefore = getUnitAnchor(store, 1);
+    const blockerXBefore = world.positionsX[1]!;
+    const blockerYBefore = world.positionsY[1]!;
+
+    advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("looseFlow");
+    expect(getUnitAnchor(store, 1)).toEqual({
+      x: sourceAnchorBefore.x + 1,
+      y: sourceAnchorBefore.y,
+    });
+    expect(world.positionsX[1]).toBe(blockerXBefore);
+    expect(world.positionsY[1]).toBe(blockerYBefore);
+  });
+
+  it("chooses exactly one movement style for the source unit", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "hostile",
+    });
+
+    const result = advanceFormationOneTick(world, identity, store);
+    const sourceStyleEvents = getUnitStyleEvents(result.events, 1);
+
+    expect(sourceStyleEvents).toHaveLength(1);
+    expect(sourceStyleEvents[0]?.style).toBe(getUnitMovementStyle(store, 1));
+  });
+
+  it("does not produce combat or damage output for engageFront", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "hostile",
+    });
+
+    const result = advanceFormationOneTick(world, identity, store);
+    const eventKinds = result.events.map((event) => event.kind as string);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("engageFront");
+    expect(eventKinds).not.toContain("combat");
+    expect(eventKinds).not.toContain("damage");
+    expect(world.entityCount).toBe(2);
+    expect(Array.from(world.ids)).toEqual([0, 1]);
+  });
+
+  it("replays identical style choices and events with identical inputs", () => {
+    const runReplay = () => {
+      const { world, identity, store } = createBlockerHarness({
+        relationship: "hostile",
+      });
+      const styles: UnitMovementStyle[] = [];
+      const styleEvents: string[] = [];
+
+      for (let tick = 0; tick < 20; tick += 1) {
+        const result = advanceFormationOneTick(world, identity, store);
+        styles.push(getUnitMovementStyle(store, 1));
+        for (const event of getUnitStyleEvents(result.events, 1)) {
+          styleEvents.push(`${tick}:${event.style}`);
+        }
+      }
+
+      return { styles, styleEvents };
+    };
+
+    expect(runReplay()).toEqual(runReplay());
+  });
+
+  it("does not oscillate blocker style every tick while the blocker remains", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "allied",
+      sourceCohesion: 900,
+      sourceConfidence: 500,
+    });
+    const styles: UnitMovementStyle[] = [];
+
+    for (let tick = 0; tick < 4; tick += 1) {
+      setIndividualPressure(store, 0, tick % 2 === 0 ? 0 : 1_000);
+      advanceFormationOneTick(world, identity, store);
+      styles.push(getUnitMovementStyle(store, 1));
+    }
+
+    expect(styles).toEqual([
+      "formedDetour",
+      "formedDetour",
+      "formedDetour",
+      "formedDetour",
+    ]);
+  });
+
+  it("does not emit the same blocker style every tick", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "hostile",
+    });
+    const sourceStyleEvents: UnitMovementStyle[] = [];
+
+    for (let tick = 0; tick < 5; tick += 1) {
+      const result = advanceFormationOneTick(world, identity, store);
+      for (const event of getUnitStyleEvents(result.events, 1)) {
+        sourceStyleEvents.push(event.style);
+      }
+    }
+
+    expect(sourceStyleEvents).toEqual(["engageFront"]);
+  });
+
+  it("keeps transition events transition-only for haltAndWait", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "allied",
+      sourceConfidence: 100,
+    });
+    const sourceStyleEvents: UnitMovementStyle[] = [];
+
+    for (let tick = 0; tick < 4; tick += 1) {
+      const result = advanceFormationOneTick(world, identity, store);
+      for (const event of getUnitStyleEvents(result.events, 1)) {
+        sourceStyleEvents.push(event.style);
+      }
+    }
+
+    expect(sourceStyleEvents).toEqual(["haltAndWait"]);
+  });
+
+  it("lets explicit hold override a committed blocker style and emit orderedHalt once", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "hostile",
+    });
+
+    advanceFormationOneTick(world, identity, store);
+    expect(getUnitMovementStyle(store, 1)).toBe("engageFront");
+
+    setUnitOrder(store, 1, "hold");
+    const holdResult = advanceFormationOneTick(world, identity, store);
+    const secondHoldResult = advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("orderedHalt");
+    expect(getUnitStyleEvents(holdResult.events, 1).map((event) => event.style))
+      .toEqual(["orderedHalt"]);
+    expect(getUnitStyleEvents(secondHoldResult.events, 1)).toHaveLength(0);
+  });
+
+  it("releases a blocker style after the blocker disappears", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "hostile",
+    });
+
+    advanceFormationOneTick(world, identity, store);
+    expect(getUnitMovementStyle(store, 1)).toBe("engageFront");
+
+    moveBlockerOutOfForwardPath(world);
+
+    const styles: UnitMovementStyle[] = [];
+    for (let tick = 0; tick < 6; tick += 1) {
+      advanceFormationOneTick(world, identity, store);
+      styles.push(getUnitMovementStyle(store, 1));
+    }
+
+    expect(styles).toContain("formedMarch");
+  });
+
+  it("returns to formedMarch after release when no blocker remains", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "hostile",
+    });
+
+    advanceFormationOneTick(world, identity, store);
+    moveBlockerOutOfForwardPath(world);
+
+    for (let tick = 0; tick < 6; tick += 1) {
+      advanceFormationOneTick(world, identity, store);
+    }
+
+    expect(getUnitMovementStyle(store, 1)).toBe("formedMarch");
+  });
+
+  it("replays identical committed style choices and events with blocker release", () => {
+    const runReplay = () => {
+      const { world, identity, store } = createBlockerHarness({
+        relationship: "hostile",
+      });
+      const styles: UnitMovementStyle[] = [];
+      const styleEvents: string[] = [];
+
+      for (let tick = 0; tick < 10; tick += 1) {
+        if (tick === 2) {
+          moveBlockerOutOfForwardPath(world);
+        }
+
+        const result = advanceFormationOneTick(world, identity, store);
+        styles.push(getUnitMovementStyle(store, 1));
+        for (const event of getUnitStyleEvents(result.events, 1)) {
+          styleEvents.push(`${tick}:${event.style}`);
+        }
+      }
+
+      return { styles, styleEvents };
+    };
+
+    expect(runReplay()).toEqual(runReplay());
+  });
+
+  it("replays identical positions, styles, and events with anchor consequences", () => {
+    const runReplay = () => {
+      const { world, identity, store } = createBlockerHarness({
+        relationship: "hostile",
+      });
+      const styles: UnitMovementStyle[] = [];
+      const sourceAnchors: string[] = [];
+      const styleEvents: string[] = [];
+
+      for (let tick = 0; tick < 10; tick += 1) {
+        if (tick === 2) {
+          moveBlockerOutOfForwardPath(world);
+        }
+
+        const result = advanceFormationOneTick(world, identity, store);
+        const sourceAnchor = getUnitAnchor(store, 1);
+        styles.push(getUnitMovementStyle(store, 1));
+        sourceAnchors.push(`${sourceAnchor.x},${sourceAnchor.y}`);
+        for (const event of getUnitStyleEvents(result.events, 1)) {
+          styleEvents.push(`${tick}:${event.style}`);
+        }
+      }
+
+      return {
+        positionsX: Array.from(world.positionsX),
+        positionsY: Array.from(world.positionsY),
+        sourceAnchors,
+        styles,
+        styleEvents,
+      };
+    };
+
+    expect(runReplay()).toEqual(runReplay());
   });
 });
 
