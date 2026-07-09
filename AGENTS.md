@@ -69,6 +69,7 @@ Before implementing unit movement, formation behaviour, collision, spacing, or s
 * `docs/design/combat-behaviour.md`
 * `docs/design/morale-pressure-and-cohesion.md`
 * `docs/plans/milestone-2-unit-movement-and-behaviour.md`
+* `docs/design/behaviour-priorities-and-battlefield-feel.md`
 
 Before implementing combat exchanges, pressure, defence, parrying, attack timing, or role behaviour, read:
 
@@ -76,6 +77,7 @@ Before implementing combat exchanges, pressure, defence, parrying, attack timing
 * `docs/design/combat-tempo-and-defence.md`
 * `docs/design/roles-and-loadouts.md`
 * `docs/design/morale-pressure-and-cohesion.md`
+* `docs/design/behaviour-priorities-and-battlefield-feel.md`
 
 Before implementing captains, unit orders, command behaviour, or battlefield decision-making, read:
 
@@ -83,17 +85,23 @@ Before implementing captains, unit orders, command behaviour, or battlefield dec
 * `docs/design/perception-and-knowledge.md`
 * `docs/design/objectives-and-victory.md`
 * `docs/design/morale-pressure-and-cohesion.md`
+* `docs/design/behaviour-priorities-and-battlefield-feel.md`
 
 Before implementing objectives, victory conditions, scenario data, or configurable content, read:
 
 * `docs/design/objectives-and-victory.md`
 * `docs/design/scenario-and-content-schema.md`
+* `docs/design/behaviour-priorities-and-battlefield-feel.md`
 
 Before implementing replay, debug tooling, event logs, metrics, or after-action reports, read:
 
 * `docs/design/debug-replay-and-after-action.md`
 * `docs/codex/testing.md`
 * `docs/codex/performance.md`
+
+Before implementing simulation behaviour, troop archetypes, morale, combat, objectives, after-action reporting, or role logic, read:
+
+* `docs/design/behaviour-priorities-and-battlefield-feel.md`
 
 ## Architecture Rules
 

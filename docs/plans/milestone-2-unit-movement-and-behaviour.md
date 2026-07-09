@@ -1,12 +1,21 @@
-# Milestone 2: Unit Movement and Recognisable Individual Behaviour
+# Milestone 2: Unit Movement, Footprints, and Behaviour Arbitration
 
 ## Goal
 
-Create the first simulation slice where individuals move in a way that feels believable inside a unit.
+Create the first simulation slice where units move like units while individuals still show recognisable differences.
 
-The purpose is not full tactical combat. The purpose is to prove that units can move, maintain loose formation, avoid other unit footprints, and show simple individual differences without freezing, jittering, or relying on all-to-all pathfinding.
+The purpose is not full tactical combat. The purpose is to prove that units can move, maintain or lose loose formation, respond to other unit footprints, and resolve competing movement pressures without freezing, jittering, or relying on all-to-all pathfinding.
 
-This milestone should create visible behaviour that earns buy-in: a recruit should look like a recruit, a veteran should look steadier, and a unit should move like a group rather than a swarm of unrelated dots.
+This milestone should create visible behaviour that earns buy-in:
+
+- a recruit avoids being first forward
+- a veteran holds formation better
+- heavy infantry preserve formation more strongly
+- skirmishers blob, spread, and route around rather than pushing through
+- routing fighters disrupt allies
+- units choose one clear movement response when blocked
+
+The main design risk is arbitration: when several movement behaviours are plausible, the simulation must choose one clear answer and stick with it long enough to avoid oscillation.
 
 ## Core Principles
 
@@ -20,6 +29,87 @@ This milestone should create visible behaviour that earns buy-in: a recruit shou
 - Collision and spacing resolution are separate from intent selection.
 - Stuckness is a visible state, not an invisible bug.
 - Unit behaviour should emerge from simple individual decisions shaped by group influence.
+
+## Behaviour Arbitration Rules
+
+When several movement behaviours are possible, choose based on:
+
+1. current unit order
+2. blocker allegiance
+3. troop category
+4. unit role or formation type
+5. unit discipline
+6. captain aggression or caution
+7. unit cohesion
+8. individual confidence
+9. individual pressure
+10. local ally movement
+
+Do not blend multiple high-level movement styles together.
+
+A unit must choose one current movement style:
+
+* formedDetour
+* looseFlow
+* pushThrough
+* haltAndWait
+* engageFront
+
+A unit should not change movement style every tick. Use a short commitment period or other hysteresis so that a unit does not oscillate between detouring, waiting, and flowing.
+
+Individuals must also choose one primary movement mode at a time. Local avoidance may adjust that movement, but it must not replace the selected mode’s goal.
+
+## Troop Behaviour Defaults
+
+### Heavy Infantry
+
+Heavy infantry should prefer:
+
+* formed lines
+* disciplined marches
+* holding contact
+* preserving front/rear structure
+* avoiding unnecessary flow movement
+
+Heavy infantry may detour as a formed unit or halt and wait if blocked by allies.
+
+### Skirmishers
+
+Skirmishers should prefer:
+
+* loose blobs
+* spreading out
+* routing around blockers
+* flanking movement
+* avoiding push-through behaviour
+
+Skirmishers should almost never push through friendly units.
+
+### Recruits
+
+Recruits should:
+
+* avoid being first forward
+* copy nearby allies more than veterans
+* overreact to pressure
+* degrade when isolated
+* give way to more confident or higher-ranking allies
+
+### Veterans
+
+Veterans should:
+
+* hold formation under pressure better
+* recover from pressure faster
+* step into gaps when appropriate
+* exploit movement opportunities more readily
+* depend less on copying nearby allies
+
+### Routing Fighters
+
+Routing fighters may disrupt allied units while escaping.
+
+Routing movement has high disruption priority but should damage cohesion and increase confusion or pressure in affected units.
 
 ## Required Unit Concepts
 
@@ -73,6 +163,8 @@ Implement the smallest useful set first:
 Each entity must have only one primary movement mode at a time.
 
 Do not blend unlimited competing movement desires together. Movement should be selected as a mode, then modified by local avoidance and spacing.
+
+For this milestone, `closeToAttack` and `maintainReach` are movement/range-positioning behaviours only. They must not introduce full attack resolution, parry modelling, damage systems, or combat tempo.
 
 ## Required Unit Movement Styles
 
@@ -208,6 +300,11 @@ Create headless tests for:
 - A recruit does not step forward first when the unit is holding.
 - A veteran maintains formation under pressure better than a recruit.
 - Stuck entities enter a visible stuck state and recover or change mode.
+- A skirmisher unit blocked by an allied unit flows/routes around rather than pushing through.
+- A heavy infantry unit blocked by an allied unit prefers formed detour or halt over loose flow.
+- A unit does not oscillate between detour, flow, halt, and push every tick.
+- A routing fighter can disrupt allied spacing without causing permanent deadlock.
+- A less confident fighter yields to a more confident or higher-ranking ally.
 
 ## Non-Goals
 
@@ -222,6 +319,10 @@ Do not implement:
 - individual A* pathing around living entities
 - global battlefield awareness
 - complex terrain effects
+- full attack/parry/damage resolution
+- detailed citizen vs barbarian morale modelling
+- full role/loadout system
+- tactical captain decision-making beyond simple existing orders
 
 ## Definition of Done
 
