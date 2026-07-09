@@ -4,9 +4,11 @@ import {
   advanceFormationOneTick,
   computeSlotWorldPosition,
   createFormationBehaviourStore,
+  getIndividualPressure,
   getIndividualMovementMode,
   getIndividualStuckTicks,
   getUnitAnchor,
+  getUnitCohesion,
   getUnitMovementStyle,
   getUnitOrder,
   setIndividualPressure,
@@ -20,6 +22,7 @@ import {
 } from "../../src/sim/formationBehaviour";
 import {
   createUnitIdentityStore,
+  getUnitIdForEntity,
   type UnitIdentityConfig,
 } from "../../src/sim/unitIdentity";
 import type { WorldState } from "../../src/sim/types";
@@ -66,6 +69,8 @@ interface BlockerHarnessOptions {
   readonly sourceCohesion?: number;
   readonly sourceConfidence?: number;
   readonly sourcePressure?: number;
+  readonly blockerCohesion?: number;
+  readonly blockerPressure?: number;
   readonly rngSeed?: number;
 }
 
@@ -113,6 +118,7 @@ function createBlockerHarness(options: BlockerHarnessOptions = {}) {
           cols: 1,
           unitSpeed: 0,
           order: "hold",
+          cohesion: options.blockerCohesion ?? 1000,
         },
       ],
       individuals: [
@@ -135,6 +141,9 @@ function createBlockerHarness(options: BlockerHarnessOptions = {}) {
           slotRow: 0,
           slotCol: 0,
           memberMaxStep: 0,
+          ...(options.blockerPressure !== undefined
+            ? { pressure: options.blockerPressure }
+            : {}),
         },
       ],
     },
@@ -154,6 +163,8 @@ interface FormedDetourHarnessOptions {
   readonly blockerAnchorY?: number;
   readonly sourceCols?: number;
   readonly unitSpeed?: number;
+  readonly sourceCohesion?: number;
+  readonly sourceConfidence?: number;
 }
 
 function createFormedDetourHarness(options: FormedDetourHarnessOptions = {}) {
@@ -205,7 +216,7 @@ function createFormedDetourHarness(options: FormedDetourHarnessOptions = {}) {
           cols: sourceCols,
           unitSpeed: options.unitSpeed ?? 1,
           order: "advance",
-          cohesion: 900,
+          cohesion: options.sourceCohesion ?? 900,
         },
         {
           unitId: blockerUnitId,
@@ -227,7 +238,7 @@ function createFormedDetourHarness(options: FormedDetourHarnessOptions = {}) {
           slotRow: 0,
           slotCol,
           memberMaxStep: 2,
-          confidence: 500,
+          confidence: options.sourceConfidence ?? 500,
         })),
         {
           entityId: blockerEntityId,
@@ -1014,6 +1025,113 @@ describe("formation behaviour: unit blocker arbitration", () => {
     expect(world.positionsY[1]).toBe(blockerYBefore);
   });
 
+  it("applies minimal pushThrough disruption without displacing either unit", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "allied",
+      sourceCohesion: 600,
+      sourceConfidence: 950,
+      blockerCohesion: 700,
+    });
+    const sourceCohesionBefore = getUnitCohesion(store, 1);
+    const blockerCohesionBefore = getUnitCohesion(store, 2);
+    const sourcePressureBefore = getIndividualPressure(store, 0);
+    const blockerPressureBefore = getIndividualPressure(store, 1);
+    const blockerAnchorBefore = getUnitAnchor(store, 2);
+    const blockerXBefore = world.positionsX[1]!;
+    const blockerYBefore = world.positionsY[1]!;
+
+    advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("pushThrough");
+    expect(getUnitCohesion(store, 1)).toBeLessThan(sourceCohesionBefore);
+    expect(getUnitCohesion(store, 2)).toBeLessThan(blockerCohesionBefore);
+    expect(getIndividualPressure(store, 0)).toBeGreaterThan(
+      sourcePressureBefore,
+    );
+    expect(getIndividualPressure(store, 1)).toBeGreaterThan(
+      blockerPressureBefore,
+    );
+    expect(getUnitAnchor(store, 2)).toEqual(blockerAnchorBefore);
+    expect(world.positionsX[1]).toBe(blockerXBefore);
+    expect(world.positionsY[1]).toBe(blockerYBefore);
+  });
+
+  it("replays identical pushThrough cohesion and pressure changes", () => {
+    const runReplay = () => {
+      const { world, identity, store } = createBlockerHarness({
+        relationship: "allied",
+        sourceCohesion: 600,
+        sourceConfidence: 950,
+        blockerCohesion: 700,
+      });
+      const styles: UnitMovementStyle[] = [];
+      const sourceCohesion: number[] = [];
+      const blockerCohesion: number[] = [];
+      const sourcePressure: number[] = [];
+      const blockerPressure: number[] = [];
+      const sourceAnchors: string[] = [];
+
+      for (let tick = 0; tick < 5; tick += 1) {
+        advanceFormationOneTick(world, identity, store);
+        const sourceAnchor = getUnitAnchor(store, 1);
+        styles.push(getUnitMovementStyle(store, 1));
+        sourceCohesion.push(getUnitCohesion(store, 1));
+        blockerCohesion.push(getUnitCohesion(store, 2));
+        sourcePressure.push(getIndividualPressure(store, 0));
+        blockerPressure.push(getIndividualPressure(store, 1));
+        sourceAnchors.push(`${sourceAnchor.x},${sourceAnchor.y}`);
+      }
+
+      return {
+        positionsX: Array.from(world.positionsX),
+        positionsY: Array.from(world.positionsY),
+        styles,
+        sourceCohesion,
+        blockerCohesion,
+        sourcePressure,
+        blockerPressure,
+        sourceAnchors,
+      };
+    };
+
+    expect(runReplay()).toEqual(runReplay());
+  });
+
+  it("clamps pushThrough pressure and cohesion disruption to safe non-negative integers", () => {
+    const maxIntegerStateValue = 2_147_483_647;
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "allied",
+      sourceCohesion: 600,
+      sourceConfidence: 950,
+      sourcePressure: 790,
+      blockerCohesion: 2,
+      blockerPressure: maxIntegerStateValue - 5,
+    });
+
+    advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("pushThrough");
+    expect(getUnitCohesion(store, 1)).toBeGreaterThanOrEqual(0);
+    expect(getUnitCohesion(store, 2)).toBe(0);
+    expect(getIndividualPressure(store, 0)).toBeGreaterThanOrEqual(0);
+    expect(getIndividualPressure(store, 1)).toBe(maxIntegerStateValue);
+  });
+
+  it("does not produce combat or damage output for pushThrough", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "allied",
+      sourceCohesion: 600,
+      sourceConfidence: 950,
+    });
+
+    const result = advanceFormationOneTick(world, identity, store);
+    const eventKinds = result.events.map((event) => event.kind as string);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("pushThrough");
+    expect(eventKinds).not.toContain("combat");
+    expect(eventKinds).not.toContain("damage");
+  });
+
   it("sidesteps formedDetour laterally without a waypoint route", () => {
     const { world, identity, store } = createBlockerHarness({
       relationship: "allied",
@@ -1179,7 +1297,7 @@ describe("formation behaviour: unit blocker arbitration", () => {
     expect(runReplay()).toEqual(runReplay());
   });
 
-  it("keeps looseFlow style-selected without loose-flow bypass", () => {
+  it("lets looseFlow advance the anchor while a member moves laterally around the blocker", () => {
     const { world, identity, store } = createBlockerHarness({
       relationship: "allied",
       sourceCohesion: 200,
@@ -1196,8 +1314,135 @@ describe("formation behaviour: unit blocker arbitration", () => {
       x: sourceAnchorBefore.x + 1,
       y: sourceAnchorBefore.y,
     });
+    expect(world.positionsY[0]).not.toBe(sourceAnchorBefore.y);
     expect(world.positionsX[1]).toBe(blockerXBefore);
     expect(world.positionsY[1]).toBe(blockerYBefore);
+  });
+
+  it("keeps looseFlow members from all remaining locked to strict formation slots", () => {
+    const { world, identity, store } = createFormedDetourHarness({
+      sourceCols: 3,
+      sourceCohesion: 200,
+      sourceConfidence: 500,
+    });
+
+    advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("looseFlow");
+    const strictSlots = [
+      computeSlotWorldPosition(store, 1, 0, 0),
+      computeSlotWorldPosition(store, 1, 0, 1),
+      computeSlotWorldPosition(store, 1, 0, 2),
+    ];
+    expect(
+      strictSlots.every(
+        (slot, entityId) =>
+          world.positionsX[entityId] === slot.x &&
+          world.positionsY[entityId] === slot.y,
+      ),
+    ).toBe(false);
+    expect(world.positionsY[0]).toBe(88);
+    expect(world.positionsY[1]).toBe(102);
+    expect(world.positionsY[2]).toBe(112);
+  });
+
+  it("does not displace the blocker unit or blocker entity during looseFlow", () => {
+    const { world, identity, store } = createFormedDetourHarness({
+      sourceCohesion: 200,
+      sourceConfidence: 500,
+    });
+    const blockerAnchorBefore = getUnitAnchor(store, 2);
+    const blockerXBefore = world.positionsX[1]!;
+    const blockerYBefore = world.positionsY[1]!;
+
+    for (let tick = 0; tick < 4; tick += 1) {
+      advanceFormationOneTick(world, identity, store);
+    }
+
+    expect(getUnitAnchor(store, 2)).toEqual(blockerAnchorBefore);
+    expect(world.positionsX[1]).toBe(blockerXBefore);
+    expect(world.positionsY[1]).toBe(blockerYBefore);
+  });
+
+  it("does not produce combat or damage output for looseFlow", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "allied",
+      sourceCohesion: 200,
+      sourceConfidence: 500,
+    });
+
+    const result = advanceFormationOneTick(world, identity, store);
+    const eventKinds = result.events.map((event) => event.kind as string);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("looseFlow");
+    expect(eventKinds).not.toContain("combat");
+    expect(eventKinds).not.toContain("damage");
+  });
+
+  it("keeps looseFlow unit identity unchanged", () => {
+    const { world, identity, store } = createFormedDetourHarness({
+      sourceCols: 3,
+      sourceCohesion: 200,
+      sourceConfidence: 500,
+    });
+
+    advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("looseFlow");
+    expect(getUnitIdForEntity(identity, 0)).toBe(1);
+    expect(getUnitIdForEntity(identity, 1)).toBe(1);
+    expect(getUnitIdForEntity(identity, 2)).toBe(1);
+    expect(getUnitIdForEntity(identity, 3)).toBe(2);
+  });
+
+  it("replays identical looseFlow movement", () => {
+    const runReplay = () => {
+      const { world, identity, store } = createFormedDetourHarness({
+        sourceCols: 3,
+        sourceCohesion: 200,
+        sourceConfidence: 500,
+      });
+      const styles: UnitMovementStyle[] = [];
+      const sourceAnchors: string[] = [];
+      const styleEvents: string[] = [];
+
+      for (let tick = 0; tick < 10; tick += 1) {
+        const result = advanceFormationOneTick(world, identity, store);
+        const sourceAnchor = getUnitAnchor(store, 1);
+        styles.push(getUnitMovementStyle(store, 1));
+        sourceAnchors.push(`${sourceAnchor.x},${sourceAnchor.y}`);
+        for (const event of getUnitStyleEvents(result.events, 1)) {
+          styleEvents.push(`${tick}:${event.style}`);
+        }
+      }
+
+      return {
+        positionsX: Array.from(world.positionsX),
+        positionsY: Array.from(world.positionsY),
+        sourceAnchors,
+        styles,
+        styleEvents,
+      };
+    };
+
+    expect(runReplay()).toEqual(runReplay());
+  });
+
+  it("keeps looseFlow members inside world bounds near an edge", () => {
+    const { world, identity, store } = createFormedDetourHarness({
+      bounds: { width: 200, height: 200 },
+      sourceAnchorY: 0,
+      blockerAnchorY: 0,
+      sourceCohesion: 200,
+      sourceConfidence: 500,
+    });
+
+    for (let tick = 0; tick < 4; tick += 1) {
+      advanceFormationOneTick(world, identity, store);
+      expect(getUnitMovementStyle(store, 1)).toBe("looseFlow");
+      expect(world.positionsY[0]).toBeGreaterThanOrEqual(0);
+      expect(world.positionsY[0]).toBeLessThanOrEqual(world.bounds.height);
+    }
   });
 
   it("chooses exactly one movement style for the source unit", () => {

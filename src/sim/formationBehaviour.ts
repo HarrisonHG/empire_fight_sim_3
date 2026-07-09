@@ -100,6 +100,7 @@ interface InternalFormationBehaviourStore extends FormationBehaviourStore {
   readonly unitMovementStyle: UnitMovementStyle[];
   readonly styleCommitmentTicksRemaining: Int32Array;
   readonly blockerReleaseTicksRemaining: Int32Array;
+  readonly activeBlockerUnitId: Int32Array;
   readonly activeBlockerDistance: Int32Array;
   readonly activeBlockerLateralOffset: Int32Array;
 
@@ -134,8 +135,14 @@ const FORMED_COHESION_THRESHOLD = 700;
 const PUSH_THROUGH_COHESION_THRESHOLD = 500;
 const BLOCKER_STYLE_COMMITMENT_TICKS = 3;
 const BLOCKER_STYLE_RELEASE_TICKS = 2;
+const NO_ACTIVE_BLOCKER_UNIT_ID = -1;
 const NO_ACTIVE_BLOCKER_DISTANCE = -1;
 const FRONT_CONTACT_GAP = 1;
+const MAX_INTEGER_STATE_VALUE = 0x7fff_ffff;
+const PUSH_THROUGH_SOURCE_COHESION_LOSS = 5;
+const PUSH_THROUGH_BLOCKER_COHESION_LOSS = 3;
+const PUSH_THROUGH_SOURCE_PRESSURE_GAIN = 20;
+const PUSH_THROUGH_BLOCKER_PRESSURE_GAIN = 10;
 
 export function createFormationBehaviourStore(
   identityStore: UnitIdentityStore,
@@ -185,6 +192,7 @@ export function createFormationBehaviourStore(
     ),
     styleCommitmentTicksRemaining: new Int32Array(unitCount),
     blockerReleaseTicksRemaining: new Int32Array(unitCount),
+    activeBlockerUnitId: new Int32Array(unitCount),
     activeBlockerDistance: new Int32Array(unitCount),
     activeBlockerLateralOffset: new Int32Array(unitCount),
     roles: new Array<IndividualRole>(config.entityCount).fill("regular"),
@@ -209,6 +217,7 @@ export function createFormationBehaviourStore(
     scratchCandidateUnitIds: [],
     rng: new SeededRng(config.rngSeed),
   };
+  store.activeBlockerUnitId.fill(NO_ACTIVE_BLOCKER_UNIT_ID);
   store.activeBlockerDistance.fill(NO_ACTIVE_BLOCKER_DISTANCE);
 
   for (let index = 0; index < unitCount; index += 1) {
@@ -235,7 +244,9 @@ export function createFormationBehaviourStore(
     store.cols[index] = unitConfig.cols;
     store.unitSpeed[index] = unitConfig.unitSpeed;
     store.orders[index] = unitConfig.order;
-    store.cohesion[index] = unitConfig.cohesion ?? DEFAULT_COHESION;
+    store.cohesion[index] = clampIntegerState(
+      unitConfig.cohesion ?? DEFAULT_COHESION,
+    );
   }
 
   const seenIndividualEntities = new Set<number>();
@@ -256,7 +267,9 @@ export function createFormationBehaviourStore(
     store.slotRow[individual.entityId] = individual.slotRow;
     store.slotCol[individual.entityId] = individual.slotCol;
     store.memberMaxStep[individual.entityId] = individual.memberMaxStep;
-    store.pressure[individual.entityId] = individual.pressure ?? 0;
+    store.pressure[individual.entityId] = clampIntegerState(
+      individual.pressure ?? 0,
+    );
     store.confidence[individual.entityId] =
       individual.confidence ?? DEFAULT_CONFIDENCE;
   }
@@ -300,6 +313,15 @@ export function getUnitMovementStyle(
   return internal.unitMovementStyle[index]!;
 }
 
+export function getUnitCohesion(
+  store: FormationBehaviourStore,
+  unitId: UnitId,
+): number {
+  const internal = asInternal(store);
+  const index = requireUnitIndex(internal, unitId);
+  return internal.cohesion[index]!;
+}
+
 export function setUnitOrder(
   store: FormationBehaviourStore,
   unitId: UnitId,
@@ -336,7 +358,7 @@ export function setIndividualPressure(
   const internal = asInternal(store);
   assertEntityIdInRange(entityId, internal.entityCount);
   assertNonNegativeInteger(pressure, "pressure");
-  internal.pressure[entityId] = pressure;
+  internal.pressure[entityId] = clampIntegerState(pressure);
 }
 
 export function getIndividualStuckTicks(
@@ -435,6 +457,10 @@ function processUnit(
     events.push({ kind: "unit_movement_choice", unitId, style });
   }
 
+  if (style === "pushThrough") {
+    applyPushThroughDisruption(identityStore, store, unitId, unitIndex);
+  }
+
   if (shouldAdvanceUnitAnchor(isAdvancing, style)) {
     store.anchorX[unitIndex] =
       store.anchorX[unitIndex]! + headingX * unitSpeed;
@@ -507,6 +533,22 @@ function processUnit(
     if (style === "engageFront" && slotRow === 0 && blockerForwardLimit >= 0) {
       slotX += headingX * blockerForwardLimit;
       slotY += headingY * blockerForwardLimit;
+    } else if (style === "looseFlow") {
+      const looseLateralOffset = computeLooseFlowLateralOffset(
+        world,
+        store,
+        unitIndex,
+        entityId,
+        slotCol,
+        centerCol,
+        spacing,
+        slotX,
+        slotY,
+        perpX,
+        perpY,
+      );
+      slotX += perpX * looseLateralOffset;
+      slotY += perpY * looseLateralOffset;
     }
 
     const jitterMag = computePressureJitter(role, pressure);
@@ -636,6 +678,70 @@ function processUnit(
   }
 }
 
+function computeLooseFlowLateralOffset(
+  world: WorldState,
+  store: InternalFormationBehaviourStore,
+  unitIndex: number,
+  entityId: number,
+  slotCol: number,
+  centerCol: number,
+  spacing: number,
+  slotX: number,
+  slotY: number,
+  perpX: number,
+  perpY: number,
+): number {
+  if (store.activeBlockerDistance[unitIndex]! < 0) {
+    return 0;
+  }
+
+  const preferredSide = choosePreferredLooseFlowSide(
+    store,
+    unitIndex,
+    entityId,
+    slotCol,
+    centerCol,
+  );
+  const preferredOffset = spacing * preferredSide;
+  if (
+    isInsideWorldBounds(
+      world,
+      slotX + perpX * preferredOffset,
+      slotY + perpY * preferredOffset,
+    )
+  ) {
+    return preferredOffset;
+  }
+
+  const alternateSide: -1 | 1 = preferredSide === 1 ? -1 : 1;
+  const alternateOffset = spacing * alternateSide;
+  if (
+    isInsideWorldBounds(
+      world,
+      slotX + perpX * alternateOffset,
+      slotY + perpY * alternateOffset,
+    )
+  ) {
+    return alternateOffset;
+  }
+
+  return 0;
+}
+
+function choosePreferredLooseFlowSide(
+  store: InternalFormationBehaviourStore,
+  unitIndex: number,
+  entityId: number,
+  slotCol: number,
+  centerCol: number,
+): -1 | 1 {
+  const lateralOffset = store.activeBlockerLateralOffset[unitIndex]!;
+  if (lateralOffset > 0) return -1;
+  if (lateralOffset < 0) return 1;
+  if (slotCol < centerCol) return -1;
+  if (slotCol > centerCol) return 1;
+  return entityId % 2 === 0 ? -1 : 1;
+}
 function shouldAdvanceUnitAnchor(
   isAdvancing: boolean,
   style: UnitMovementStyle,
@@ -803,6 +909,7 @@ function chooseUnitMovementStyle(
     clearActiveBlocker(store, unitIndex);
     return applyStyleCommitment(store, unitIndex, "formedMarch");
   }
+  store.activeBlockerUnitId[unitIndex] = blocker.unitId;
   store.activeBlockerDistance[unitIndex] = blocker.distance;
   store.activeBlockerLateralOffset[unitIndex] = blocker.lateralOffset;
 
@@ -825,8 +932,66 @@ function clearActiveBlocker(
   store: InternalFormationBehaviourStore,
   unitIndex: number,
 ): void {
+  store.activeBlockerUnitId[unitIndex] = NO_ACTIVE_BLOCKER_UNIT_ID;
   store.activeBlockerDistance[unitIndex] = NO_ACTIVE_BLOCKER_DISTANCE;
   store.activeBlockerLateralOffset[unitIndex] = 0;
+}
+
+function applyPushThroughDisruption(
+  identityStore: UnitIdentityStore,
+  store: InternalFormationBehaviourStore,
+  sourceUnitId: UnitId,
+  sourceUnitIndex: number,
+): void {
+  const blockerUnitId = store.activeBlockerUnitId[sourceUnitIndex]!;
+  if (blockerUnitId === NO_ACTIVE_BLOCKER_UNIT_ID) {
+    return;
+  }
+
+  const blockerUnitIndex = requireUnitIndex(store, blockerUnitId);
+  reduceUnitCohesion(
+    store,
+    sourceUnitIndex,
+    PUSH_THROUGH_SOURCE_COHESION_LOSS,
+  );
+  reduceUnitCohesion(
+    store,
+    blockerUnitIndex,
+    PUSH_THROUGH_BLOCKER_COHESION_LOSS,
+  );
+  increaseMemberPressure(
+    store,
+    getUnitMembers(identityStore, sourceUnitId),
+    PUSH_THROUGH_SOURCE_PRESSURE_GAIN,
+  );
+  increaseMemberPressure(
+    store,
+    getUnitMembers(identityStore, blockerUnitId),
+    PUSH_THROUGH_BLOCKER_PRESSURE_GAIN,
+  );
+}
+
+function reduceUnitCohesion(
+  store: InternalFormationBehaviourStore,
+  unitIndex: number,
+  amount: number,
+): void {
+  const cohesion = store.cohesion[unitIndex]!;
+  store.cohesion[unitIndex] = cohesion > amount ? cohesion - amount : 0;
+}
+
+function increaseMemberPressure(
+  store: InternalFormationBehaviourStore,
+  members: readonly number[],
+  amount: number,
+): void {
+  for (let index = 0; index < members.length; index += 1) {
+    const entityId = members[index]!;
+    store.pressure[entityId] = increaseIntegerState(
+      store.pressure[entityId]!,
+      amount,
+    );
+  }
 }
 
 interface ForwardBlocker {
@@ -1205,6 +1370,26 @@ function clampComponent(delta: number, maxStep: number): number {
   if (delta > maxStep) return maxStep;
   if (delta < -maxStep) return -maxStep;
   return delta;
+}
+
+function clampIntegerState(value: number): number {
+  if (!Number.isSafeInteger(value)) {
+    throw new RangeError("Integer state values must be safe integers.");
+  }
+  if (value < 0) return 0;
+  if (value > MAX_INTEGER_STATE_VALUE) return MAX_INTEGER_STATE_VALUE;
+  return value;
+}
+
+function increaseIntegerState(current: number, amount: number): number {
+  const clampedCurrent = clampIntegerState(current);
+  if (amount <= 0) {
+    return clampedCurrent;
+  }
+  if (clampedCurrent > MAX_INTEGER_STATE_VALUE - amount) {
+    return MAX_INTEGER_STATE_VALUE;
+  }
+  return clampedCurrent + amount;
 }
 
 function computePressureJitter(
