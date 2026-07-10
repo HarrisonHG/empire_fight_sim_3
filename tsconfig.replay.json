@@ -7,6 +7,7 @@
   "include": [
     "src/vite-env.d.ts",
     "src/sim/**/*.ts",
-    "experiments/formation-replay/**/*.ts"
+    "experiments/formation-replay/**/*.ts",
+    "experiments/combat-replay/**/*.ts"
   ]
 }

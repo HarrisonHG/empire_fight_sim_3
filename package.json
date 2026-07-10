@@ -14,7 +14,9 @@
     "test": "vitest run --passWithNoTests --exclude=tests/performance/**",
     "perf": "vitest run tests/performance --passWithNoTests",
     "replay:formation": "vite experiments/formation-replay --host 127.0.0.1 --port 5174",
-    "replay:formation:build": "vite build experiments/formation-replay --outDir ../../dist/formation-replay"
+    "replay:formation:build": "vite build experiments/formation-replay --outDir ../../dist/formation-replay",
+    "replay:combat": "vite experiments/combat-replay --host 127.0.0.1 --port 5175",
+    "replay:combat:build": "vite build experiments/combat-replay --outDir ../../dist/combat-replay"
   },
   "dependencies": {
     "pixi.js": "8.19.0"
