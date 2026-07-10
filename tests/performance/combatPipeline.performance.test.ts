@@ -65,6 +65,17 @@ describe("combat pipeline performance", () => {
     writeCombatPipelineReport(report);
   });
 
+  it(
+    "reports integrated pipeline timing for 2000 entities",
+    () => {
+      const report = runCombatPipelinePerformanceScenario(2_000);
+
+      assertPerformanceReport(report, 2_000);
+      writeCombatPipelineReport(report);
+    },
+    30_000,
+  );
+
   it("repeats identical structural summaries at a representative size", () => {
     const first = runCombatPipelinePerformanceScenario(500);
     const second = runCombatPipelinePerformanceScenario(500);
