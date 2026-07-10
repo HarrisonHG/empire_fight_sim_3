@@ -89,13 +89,13 @@ describe("SimulationRunner", () => {
     expect(snapshots[0]?.snapshot).toMatchObject({
       kind: "positions",
       tick: 1,
-      entityCount: 1_000,
+      entityCount: 2_000,
     });
     expect(metrics[0]).toMatchObject({
       tick: 1,
       tickTimeMs: 0.25,
       lagMs: 0,
-      snapshotBytes: 8_000,
+      snapshotBytes: 16_000,
     });
     expect(findMessage(messages, "state")).toMatchObject({
       status: "paused",

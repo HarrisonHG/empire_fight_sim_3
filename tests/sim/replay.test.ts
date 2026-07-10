@@ -35,11 +35,11 @@ describe("deterministic replay", () => {
     );
   });
 
-  it("initializes 1,000 stable IDs with non-zero integer velocities", () => {
+  it("initializes 2,000 stable IDs with non-zero integer velocities", () => {
     const simulation = createSimulation(FOUNDATION_SCENARIO);
     const { world } = simulation;
 
-    expect(world.entityCount).toBe(1_000);
+    expect(world.entityCount).toBe(2_000);
 
     for (let index = 0; index < world.entityCount; index += 1) {
       expect(world.ids[index]).toBe(index);
@@ -57,10 +57,10 @@ describe("deterministic replay", () => {
 
     expect(snapshot.kind).toBe("initial");
     expect(snapshot.tick).toBe(0);
-    expect(snapshot.entityCount).toBe(1_000);
+    expect(snapshot.entityCount).toBe(2_000);
     expect(snapshot.bounds).toEqual(FOUNDATION_SCENARIO.bounds);
-    expect(snapshot.ids).toHaveLength(1_000);
-    expect(snapshot.positions).toHaveLength(2_000);
+    expect(snapshot.ids).toHaveLength(2_000);
+    expect(snapshot.positions).toHaveLength(4_000);
 
     for (let index = 0; index < snapshot.entityCount; index += 1) {
       const positionOffset = index * 2;
@@ -81,8 +81,8 @@ describe("deterministic replay", () => {
 
     expect(beforeSnapshot.kind).toBe("positions");
     expect(beforeSnapshot.tick).toBe(0);
-    expect(beforeSnapshot.entityCount).toBe(1_000);
-    expect(beforeSnapshot.positions).toHaveLength(2_000);
+    expect(beforeSnapshot.entityCount).toBe(2_000);
+    expect(beforeSnapshot.positions).toHaveLength(4_000);
     expect("ids" in beforeSnapshot).toBe(false);
 
     advanceSimulationOneTick(simulation);

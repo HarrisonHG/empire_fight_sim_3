@@ -14,7 +14,7 @@ const ABSOLUTE_RED_FLAG_MS = 50;
 const LOCAL_REFERENCE_TARGET_MS = 10;
 
 describe("foundation simulation performance", () => {
-  it("reports tick timing for 1,000 moving entities", () => {
+  it("reports tick timing for 2,000 moving entities", () => {
     const simulation = createSimulation(FOUNDATION_SCENARIO);
 
     for (let tick = 0; tick < WARM_UP_TICKS; tick += 1) {
@@ -69,7 +69,7 @@ describe("foundation simulation performance", () => {
         "\n",
     );
 
-    expect(simulation.world.entityCount).toBe(1_000);
+    expect(simulation.world.entityCount).toBe(2_000);
     expect(samples).toHaveLength(MEASURED_TICKS);
 
     for (const sample of samples) {
