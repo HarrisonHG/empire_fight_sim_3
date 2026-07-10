@@ -1,12 +1,12 @@
 # Milestone 3: Combat Foundation
 
-Status: proposed.
+Status: accepted / implemented through 3K.
 
 ## Purpose
 
 Milestone 3 introduces combat-adjacent systems in controlled slices.
 
-The goal is to move from movement and contact behaviour into deterministic combat foundations without jumping straight to damage, armour, or special-call resolution.
+The goal is to move from movement and contact behaviour into deterministic combat foundations without jumping into full routing, death/removal, calls/shouts, or Empire-specific special effects.
 
 Milestone 3 should answer, in order:
 
@@ -16,9 +16,13 @@ Milestone 3 should answer, in order:
 - when a unit has an attack opportunity
 - how basic damage is represented
 - how armour changes damage outcomes
-- how special calls/effects can be represented without hard-coded spaghetti
+- how combat resolution can flow through a reusable pipeline
+- how combat consequences can feed pressure/cohesion records
+- how morale/routing-risk hooks can be assessed without changing movement
 
 The governing rule is: combat must emerge from existing movement, identity, loadout, reach, pressure, and cohesion systems. It must not become a separate arcade layer bolted onto the side.
+
+Milestone 3 ends with combat foundation records and hooks. It does not implement full routing movement, death/removal, healing, calls/shouts, or special-effect resolution.
 
 ## Existing Foundation
 
@@ -96,6 +100,9 @@ Do not add:
 - renderer/UI rewrites
 - worker protocol rewrites unless explicitly scheduled
 - visual screenshot tests
+- calls/shouts before equipment/loadout expansion
+- visual replay before there are more visible systems to inspect
+- full routing/death/calls as part of Milestone 3 closeout
 
 ## Milestone 3 Slices
 
@@ -148,7 +155,7 @@ This slice uses reach/contact distance only. It does not decide whether an attac
 
 ## 3C: Combat Engagement Detection
 
-Status: next proposed slice.
+Status: accepted / implemented.
 
 Purpose:
 
@@ -217,7 +224,7 @@ Do not add attacks, damage, wounds, death, armour mitigation, healing, special-c
 
 ## 3D: Attack Opportunity / Combat Tempo
 
-Status: future.
+Status: accepted / implemented.
 
 Purpose:
 
@@ -246,7 +253,7 @@ If damage is introduced here, the slice is too large and should be split.
 
 ## 3E: Basic Strike Resolution and Damage
 
-Status: future.
+Status: accepted / implemented.
 
 Purpose:
 
@@ -272,7 +279,7 @@ Do not add full death/routing cascades unless explicitly scoped.
 
 ## 3F: Armour and Survivability
 
-Status: future.
+Status: accepted / implemented.
 
 Purpose:
 
@@ -291,53 +298,65 @@ Do not implement every Empire armour rule at once.
 
 Start with a deterministic abstraction.
 
-## 3G: Special Call / Effect Pipeline
+## 3G: Integrated Combat Pipeline
 
-Status: future.
-
-Purpose:
-
-Create a generic effect pipeline for calls such as repel, strikedown, entangle, weakness, heal, restore, venom, cleave, impale, and fixWeapon.
-
-This must be a generic mechanism, not a pile of call-specific hard-coded exceptions.
-
-Possible concepts:
-
-- `CombatEffect`
-- `EffectSource`
-- `EffectTarget`
-- `EffectDuration`
-- `EffectTag`
-- deterministic effect application
-- resistance/immunity hooks later
-
-Boundary:
-
-Do not implement all call effects in one pass.
-
-First pass should prove the pipeline with one or two simple non-destructive effects.
-
-## 3H: Combat Consequences For Morale, Pressure, and Cohesion
-
-Status: future.
+Status: accepted / implemented.
 
 Purpose:
 
-Connect combat outcomes back into pressure, cohesion, morale-like behaviour, and eventual routing.
-
-Possible concepts:
-
-- pressure from being threatened
-- pressure from taking hits
-- cohesion loss from sustained contact
-- confidence effects from advantage/disadvantage
-- routing trigger hooks
+Connect engagement, tempo, strike resolution, and survivability into one deterministic headless combat pipeline.
 
 Boundary:
 
-Do not create a complex morale engine in one slice.
+No consequences, morale/routing movement, death/removal, calls/shouts, healing, or special-effect handling.
 
-This should be incremental and heavily tested.
+## 3H: Performance Coverage
+
+Status: accepted / implemented.
+
+Purpose:
+
+Extend combat performance coverage, including the 2000-entity case as the current largest-battlefield scale reference for Empire.
+
+Boundary:
+
+This slice adds coverage rather than optimisation. The 2000-entity combat case is intentionally recorded as a known future optimisation risk.
+
+## 3I: Combat Pressure and Cohesion Consequence Records
+
+Status: accepted / implemented.
+
+Purpose:
+
+Convert survivability applications into deterministic consequence records and apply accepted pressure changes to target unit members.
+
+Boundary:
+
+Cohesion remains record-only. No death/removal, wounds, healing, routing movement, calls/shouts, or special-effect pipeline.
+
+## 3J: Combat Morale / Routing Transition Hooks
+
+Status: accepted / implemented.
+
+Purpose:
+
+Read pressure/cohesion state plus recent consequence records and produce deterministic per-unit morale/routing-risk assessment records.
+
+Boundary:
+
+Assessment only. No routing movement, order changes, displacement, death/removal, healing, calls/shouts, or special-effect pipeline.
+
+## 3K: Combat Foundation Consolidation and Hardening
+
+Status: accepted / implemented.
+
+Purpose:
+
+Close Milestone 3 with integration coverage for the accepted chain and document hardening boundaries.
+
+Boundary:
+
+No new mechanics. Calls/shouts are deferred until after equipment/loadout expansion, visual replay is postponed until more visible systems exist, and Milestone 3 closes on records/hooks rather than full routing/death/calls.
 
 ## Preferred Implementation Order
 
@@ -346,21 +365,18 @@ Recommended order:
 ```txt
 3A: threat/contact geometry ✅
 3B: reach-aware engageFront positioning ✅
-3C: combat engagement detection
-3D: attack opportunity / combat tempo
-3E: basic strike resolution and damage
-3F: armour and survivability
-3G: special call / effect pipeline
-3H: combat consequences for pressure/cohesion/morale
+3C: combat engagement detection ✅
+3D: attack opportunity / combat tempo ✅
+3E: basic strike resolution and damage ✅
+3F: armour and survivability ✅
+3G: integrated combat pipeline ✅
+3H: performance coverage, including 2000 entities ✅
+3I: pressure/cohesion consequence records ✅
+3J: morale/routing-risk assessment hooks ✅
+3K: foundation consolidation and hardening ✅
 ```
 
-If the code becomes awkward before 3D, insert a consolidation slice:
-
-```txt
-3C.5: combat foundation consolidation
-```
-
-Use that only to refactor and clarify boundaries. It must not add new behaviour.
+Special calls/effects were intentionally removed from Milestone 3 and deferred until after equipment/loadout expansion.
 
 ## Testing Expectations
 
@@ -384,7 +400,7 @@ npm run perf
 npm run build
 ```
 
-Visual replay may be used for human inspection, but visual validation is not part of the normal robot pipeline unless explicitly scoped.
+Visual replay is postponed until more visible systems exist. Visual validation is not part of the Milestone 3 robot pipeline.
 
 ## Performance Expectations
 
@@ -399,6 +415,8 @@ Early small-scope tests may use simple scans, but hot-path systems should move t
 
 No benchmark thresholds are required yet unless a performance milestone explicitly adds them.
 
+The 2000-entity combat performance case is the current scale reference. It is expensive enough to remain a known future optimisation risk, but optimisation is outside the 3K consolidation slice.
+
 ## Done Criteria For Milestone 3 Overall
 
 Milestone 3 is done when the simulation can:
@@ -409,7 +427,9 @@ Milestone 3 is done when the simulation can:
 - create deterministic attack opportunities
 - resolve basic damage/consequence outputs
 - apply basic armour/survivability logic
-- represent special-call effects through a generic pipeline
-- feed combat consequences back into pressure/cohesion/morale-like systems
+- run the accepted engagement-to-survivability pipeline deterministically
+- cover the 2000-entity combat performance reference case
+- feed combat consequences into pressure/cohesion records
+- produce morale/routing-risk assessment hooks
 
-All of that must remain deterministic, headless, and testable without renderer/UI/worker involvement.
+All of that must remain deterministic, headless, and testable without renderer/UI/worker involvement. Milestone 3 is complete when those foundations are covered; full routing movement, death/removal, healing, calls/shouts, visual replay, and special-effect resolution remain future work.
