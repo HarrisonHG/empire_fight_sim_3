@@ -453,7 +453,7 @@ function createCombatPipelinePerformanceHarness(
     })),
   });
 
-  advanceFormationOneTick(world, identity, formation, { loadoutStore: loadout });
+  advanceFormationOneTick(world, identity, formation);
   for (let index = 0; index < sourceUnitIds.length; index += 1) {
     expect(getUnitMovementStyle(formation, sourceUnitIds[index]!)).toBe(
       "engageFront",

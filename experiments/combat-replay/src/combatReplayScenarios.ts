@@ -464,9 +464,6 @@ function stripReplayUnitFields(
     unitSpeed: unit.unitSpeed,
     order: unit.order,
     ...(unit.cohesion !== undefined ? { cohesion: unit.cohesion } : {}),
-    ...(unit.behaviourProfile !== undefined
-      ? { behaviourProfile: unit.behaviourProfile }
-      : {}),
   };
 }
 

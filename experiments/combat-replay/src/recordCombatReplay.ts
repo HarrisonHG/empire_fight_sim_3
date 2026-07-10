@@ -46,7 +46,6 @@ export function recordCombatReplayScenario(
       setup.world,
       setup.identity,
       setup.formation,
-      { loadoutStore: setup.loadout },
     );
     const pipelineResult = advanceCombatPipelineOneTick(
       setup.world,

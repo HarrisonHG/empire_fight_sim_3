@@ -156,9 +156,7 @@ describe("combat engagement detection", () => {
       ],
     });
 
-    advanceFormationOneTick(world, identity, formation, {
-      loadoutStore: loadout,
-    });
+    advanceFormationOneTick(world, identity, formation);
     const target = computeUnitEngagementTarget(
       world,
       identity,

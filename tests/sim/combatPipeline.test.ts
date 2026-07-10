@@ -230,9 +230,7 @@ describe("combat pipeline", () => {
         { unitId: 30, initialCooldownTicks: 1 },
       ],
     });
-    advanceFormationOneTick(harness.world, harness.identity, harness.formation, {
-      loadoutStore: harness.loadout,
-    });
+    advanceFormationOneTick(harness.world, harness.identity, harness.formation);
 
     const result = runPipeline(harness);
 
@@ -690,9 +688,7 @@ function createEngagedPipelineHarness(
       : {}),
   });
 
-  advanceFormationOneTick(harness.world, harness.identity, harness.formation, {
-    loadoutStore: harness.loadout,
-  });
+  advanceFormationOneTick(harness.world, harness.identity, harness.formation);
   expect(getUnitMovementStyle(harness.formation, 10)).toBe("engageFront");
 
   return harness;

@@ -324,9 +324,7 @@ describe("combat tempo", () => {
         { unitId: 20, factionId: 1, memberEntityIds: [1] },
       ],
     });
-    advanceFormationOneTick(world, identity, formation, {
-      loadoutStore: loadout,
-    });
+    advanceFormationOneTick(world, identity, formation);
     const tempo = createCombatTempoStore(identity, {
       entityCount: 2,
       units: [{ unitId: 10, initialCooldownTicks: 1 }],
@@ -362,9 +360,7 @@ describe("combat tempo", () => {
         { unitId: 30, factionId: 3, memberEntityIds: [2] },
       ],
     });
-    advanceFormationOneTick(world, identity, formation, {
-      loadoutStore: loadout,
-    });
+    advanceFormationOneTick(world, identity, formation);
     const tempo = createCombatTempoStore(identity, {
       entityCount: 3,
       units: [{ unitId: 10, initialCooldownTicks: 1 }],
@@ -616,9 +612,7 @@ function createEngagedTempoHarness() {
   });
 
   // 3D reads the current formation style; callers run movement first.
-  advanceFormationOneTick(harness.world, harness.identity, harness.formation, {
-    loadoutStore: harness.loadout,
-  });
+  advanceFormationOneTick(harness.world, harness.identity, harness.formation);
   expect(getUnitMovementStyle(harness.formation, 10)).toBe("engageFront");
 
   return harness;
