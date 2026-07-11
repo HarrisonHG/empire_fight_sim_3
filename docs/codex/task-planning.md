@@ -34,10 +34,16 @@ Plans should be written to:
 docs/plans/
 ```
 
+Completed plans should be moved to:
+
+```txt
+docs/completed-plans/
+```
+
 Use descriptive filenames:
 
 ```txt
-docs/plans/000-foundation.md
+docs/plans/milestone-4-morale-pressure-and-routing.md
 docs/plans/001-spatial-grid.md
 docs/plans/002-basic-combat.md
 ```
@@ -81,15 +87,15 @@ summarise what changed
 summarise what remains
 ```
 
-## First Plan
+## Initial Project Plan
 
-The first plan should be:
+The project's first plan is archived at:
 
 ```txt
-docs/plans/000-foundation.md
+docs/completed-plans/000-foundation.md
 ```
 
-It should cover only:
+It covered only:
 
 ```txt
 Vite + TypeScript setup
@@ -105,7 +111,7 @@ headless tests
 performance scenario
 ```
 
-It must not include:
+It did not include:
 
 ```txt
 combat

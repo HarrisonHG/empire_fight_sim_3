@@ -86,7 +86,7 @@ Before implementing unit movement, formation behaviour, collision, spacing, or s
 * `docs/design/unit-movement.md`
 * `docs/design/combat-behaviour.md`
 * `docs/design/morale-pressure-and-cohesion.md`
-* `docs/plans/milestone-2-unit-movement-and-behaviour.md`
+* `docs/completed-plans/milestone-2-unit-movement-and-behaviour.md`
 * `docs/design/behaviour-priorities-and-battlefield-feel.md`
 
 Before implementing combat exchanges, pressure, defence, parrying, attack timing, or role behaviour, read:

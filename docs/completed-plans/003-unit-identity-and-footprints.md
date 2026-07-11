@@ -4,7 +4,7 @@ Status: proposed; implementation must not start until this plan is accepted.
 
 This plan follows `AGENTS.md`, all `src/*/AGENTS.md` files, `docs/codex/*`,
 `specs/simulation-platform/spec.md`, `specs/spatial-grid/spec.md`, and
-`docs/plans/002-spatial-grid.md`.
+`docs/completed-plans/002-spatial-grid.md`.
 
 `docs/design/unit-movement.md`, `docs/design/combat-behaviour.md`, and
 `docs/design/captains-and-orders.md` are design doctrine for future movement,
@@ -372,4 +372,3 @@ Milestone 002 is complete only when all of the following are true:
 - Review confirms no forbidden APIs or imports were introduced in `src/sim/`.
 - Review confirms no production rendering, UI, worker protocol, or gameplay
   behaviour changed.
-

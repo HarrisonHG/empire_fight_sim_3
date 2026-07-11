@@ -57,7 +57,7 @@ It must also avoid adding production dependencies.
 
 This planning task changes only:
 
-- `docs/plans/002-spatial-grid.md`
+- `docs/completed-plans/002-spatial-grid.md`
 
 After this plan is reviewed and accepted, the implementation is expected to touch
 only simulation and test files:
@@ -364,4 +364,3 @@ The milestone implementation is done only when all of the following are true:
   perception rules, healing, area effects, unit anchors, unit footprints,
   captains, orders, individual behaviour traits, or gameplay behaviour were
   implemented.
-
