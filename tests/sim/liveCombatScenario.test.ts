@@ -11,6 +11,7 @@ import {
   createPositionSnapshot,
   createSimulation,
 } from "../../src/sim/simulation";
+import { getPersistentUnitMorale } from "../../src/sim/persistentMorale";
 import type { SimulationState } from "../../src/sim/types";
 import {
   getFactionIdForUnit,
@@ -162,6 +163,40 @@ describe("live combat scenario", () => {
     expect(Array.from(simulation.world.ids)).toEqual(
       Array.from({ length: 35 }, (_, index) => index),
     );
+  });
+
+  it("updates persistent morale from the completed combat assessment without changing movement ownership", () => {
+    const simulation = createSimulation(LIVE_COMBAT_SCENARIO);
+
+    for (let tick = 0; tick < CONTACT_RUN_TICKS; tick += 1) {
+      advanceSimulationOneTick(simulation);
+      const combat = requireCombatSandbox(simulation);
+      const assessment = combat.moraleAssessments.find(
+        (candidate) => candidate.moraleState !== "steady",
+      );
+      if (assessment === undefined) {
+        continue;
+      }
+
+      const morale = getPersistentUnitMorale(
+        combat.persistentMoraleStore,
+        assessment.unitId,
+      );
+      expect(morale.pressure).toBe(assessment.pressureAverage);
+      expect(morale.cohesion).toBe(assessment.cohesion);
+      expect(morale.state).not.toBe("steady");
+      expect(combat.moraleEvents).toContainEqual(
+        expect.objectContaining({
+          kind: "unit_morale_changed",
+          unitId: assessment.unitId,
+          previousState: "steady",
+          state: "strained",
+        }),
+      );
+      return;
+    }
+
+    throw new Error("Live combat never produced a non-steady morale assessment.");
   });
 
   it("replays the live scene deterministically without deferred outcome fields", () => {

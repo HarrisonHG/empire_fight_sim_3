@@ -4,6 +4,10 @@ import type { CombatPipelineOutput } from "./combatPipeline";
 import type { CombatSurvivabilityStore } from "./combatSurvivability";
 import type { CombatTempoStore } from "./combatTempo";
 import type {
+  PersistentMoraleEvent,
+  PersistentMoraleStore,
+} from "./persistentMorale";
+import type {
   FormationBehaviourStore,
   IndividualRole,
   UnitMovementStyle,
@@ -146,9 +150,11 @@ export interface CombatSandboxSimulationState {
   readonly formationStore: FormationBehaviourStore;
   readonly tempoStore: CombatTempoStore;
   readonly survivabilityStore: CombatSurvivabilityStore;
+  readonly persistentMoraleStore: PersistentMoraleStore;
   readonly pipelineOutput: CombatPipelineOutput;
   readonly consequenceApplications: CombatConsequenceApplication[];
   readonly moraleAssessments: CombatMoraleAssessment[];
+  readonly moraleEvents: PersistentMoraleEvent[];
   readonly appliedDamagePressureScale: number;
   opportunityCount: number;
   strikeCount: number;

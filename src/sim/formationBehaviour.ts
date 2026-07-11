@@ -356,6 +356,15 @@ export function getIndividualPressure(
   return internal.pressure[entityId]!;
 }
 
+export function getIndividualConfidence(
+  store: FormationBehaviourStore,
+  entityId: number,
+): number {
+  const internal = asInternal(store);
+  assertEntityIdInRange(entityId, internal.entityCount);
+  return internal.confidence[entityId]!;
+}
+
 export function setIndividualPressure(
   store: FormationBehaviourStore,
   entityId: number,

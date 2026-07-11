@@ -95,6 +95,16 @@ cohesion_threshold_crossed
 
 Do not change movement behaviour in 4A.
 
+### Implementation record (2026-07-11)
+
+- [x] Added a persistent, unit-level morale store after the existing combat
+  consequence and morale-assessment stages.
+- [x] Added deterministic state-transition events and headless coverage for
+  persistence, risk accumulation, hysteresis, deterministic replay, and the
+  no-movement/no-removal boundary.
+- [ ] Pressure decay, movement responses, routing movement, contagion, and
+  recovery transitions remain outside 4A.
+
 ---
 
 ## 4B — Pressure sources and decay

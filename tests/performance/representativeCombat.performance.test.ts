@@ -11,6 +11,11 @@ import {
   type CombatMoraleAssessment,
 } from "../../src/sim/combatMorale";
 import {
+  advancePersistentMoraleOneTick,
+  createPersistentMoraleStore,
+  type PersistentMoraleEvent,
+} from "../../src/sim/persistentMorale";
+import {
   advanceCombatPipelineOneTick,
   createCombatPipelineOutput,
 } from "../../src/sim/combatPipeline";
@@ -153,6 +158,7 @@ function runRepresentativeCombatPerformanceScenario(): RepresentativeCombatPerfo
   const pipelineOutput = createCombatPipelineOutput();
   const consequenceOutput: CombatConsequenceApplication[] = [];
   const moraleOutput: CombatMoraleAssessment[] = [];
+  const moraleEvents: PersistentMoraleEvent[] = [];
 
   for (let tick = 0; tick < WARM_UP_TICKS; tick += 1) {
     advanceFormationOneTick(
@@ -169,6 +175,17 @@ function runRepresentativeCombatPerformanceScenario(): RepresentativeCombatPerfo
       getUnitMovementStyle(harness.formation, harness.targetUnitIds[index]!),
     ).toBe("engageFront");
   }
+  collectCombatMoraleAssessments(
+    harness.identity,
+    harness.formation,
+    [],
+    moraleOutput,
+  );
+  const persistentMoraleStore = createPersistentMoraleStore(
+    harness.identity,
+    harness.formation,
+    moraleOutput,
+  );
 
   const tickSamples = new Float64Array(MEASURED_TICKS);
   let totalTickMilliseconds = 0;
@@ -209,6 +226,13 @@ function runRepresentativeCombatPerformanceScenario(): RepresentativeCombatPerfo
       harness.formation,
       consequenceResult.applications,
       moraleOutput,
+    );
+    advancePersistentMoraleOneTick(
+      harness.identity,
+      harness.formation,
+      moraleResult.assessments,
+      persistentMoraleStore,
+      moraleEvents,
     );
     const elapsedMilliseconds = performance.now() - startedAt;
 

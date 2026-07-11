@@ -1,5 +1,8 @@
 import { applyCombatConsequences } from "./combatConsequences";
-import { collectCombatMoraleAssessments } from "./combatMorale";
+import {
+  collectCombatMoraleAssessments,
+  type CombatMoraleAssessment,
+} from "./combatMorale";
 import {
   advanceCombatPipelineOneTick,
   createCombatPipelineOutput,
@@ -15,6 +18,10 @@ import {
   getUnitMovementStyle,
 } from "./formationBehaviour";
 import { moveWorldOneTick } from "./movement";
+import {
+  advancePersistentMoraleOneTick,
+  createPersistentMoraleStore,
+} from "./persistentMorale";
 import { SeededRng } from "./rng";
 import {
   createUnitIdentityStore,
@@ -127,6 +134,13 @@ export function advanceSimulationOneTick(simulation: SimulationState): void {
       combatSandbox.formationStore,
       combatSandbox.consequenceApplications,
       combatSandbox.moraleAssessments,
+    );
+    advancePersistentMoraleOneTick(
+      combatSandbox.identityStore,
+      combatSandbox.formationStore,
+      combatSandbox.moraleAssessments,
+      combatSandbox.persistentMoraleStore,
+      combatSandbox.moraleEvents,
     );
     updateCombatCounters(combatSandbox);
     combatSandbox.debugSnapshot = createCombatDebugSnapshot(combatSandbox);
@@ -290,15 +304,28 @@ function createCombatSandbox(
       maxDamageCapacity: unit.maxDamageCapacity,
     })),
   });
+  const moraleAssessments: CombatMoraleAssessment[] = [];
+  collectCombatMoraleAssessments(
+    identityStore,
+    formationStore,
+    [],
+    moraleAssessments,
+  );
   const combatSandbox: CombatSandboxSimulationState = {
     identityStore,
     loadoutStore,
     formationStore,
     tempoStore,
     survivabilityStore,
+    persistentMoraleStore: createPersistentMoraleStore(
+      identityStore,
+      formationStore,
+      moraleAssessments,
+    ),
     pipelineOutput: createCombatPipelineOutput(),
     consequenceApplications: [],
-    moraleAssessments: [],
+    moraleAssessments,
+    moraleEvents: [],
     appliedDamagePressureScale: scenario.appliedDamagePressureScale,
     opportunityCount: 0,
     strikeCount: 0,
@@ -310,12 +337,6 @@ function createCombatSandbox(
     totalConsequenceCount: 0,
     debugSnapshot: createEmptyCombatDebugSnapshot(),
   };
-  collectCombatMoraleAssessments(
-    identityStore,
-    formationStore,
-    combatSandbox.consequenceApplications,
-    combatSandbox.moraleAssessments,
-  );
   combatSandbox.debugSnapshot = createCombatDebugSnapshot(combatSandbox);
 
   return { state: combatSandbox, rngState: deploymentRng.state };
