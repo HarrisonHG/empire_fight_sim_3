@@ -21,6 +21,11 @@ import {
   type UnitPressureUpdate,
 } from "../../src/sim/combatPressure";
 import {
+  advanceRoutingContagionOneTick,
+  createRoutingContagionStore,
+  type UnitRoutingContagionSummary,
+} from "../../src/sim/routingContagion";
+import {
   advanceCombatPipelineOneTick,
   createCombatPipelineOutput,
 } from "../../src/sim/combatPipeline";
@@ -100,6 +105,10 @@ describe("representative multi-person combat performance", () => {
       expect(report.totalMoraleAssessments).toBe(UNIT_COUNT * MEASURED_TICKS);
       expect(report.totalNonSteadyMoraleAssessments).toBeGreaterThan(0);
       expect(report.totalPressureUpdateMilliseconds).toBeGreaterThanOrEqual(0);
+      expect(report.totalRoutingContagionMilliseconds).toBeGreaterThanOrEqual(0);
+      expect(report.totalRoutingContagionSummaries).toBe(
+        UNIT_COUNT * MEASURED_TICKS,
+      );
       expect(report.finalSourceDamageTotal).toBe(0);
       expect(report.finalTargetDamageTotal).toBe(report.totalAppliedDamage);
       expect(report.capacityReachedCount).toBe(0);
@@ -154,6 +163,9 @@ interface RepresentativeCombatPerformanceReport {
   readonly totalNonSteadyMoraleAssessments: number;
   readonly totalPressureUpdateMilliseconds: number;
   readonly meanPressureUpdateMilliseconds: number;
+  readonly totalRoutingContagionMilliseconds: number;
+  readonly meanRoutingContagionMilliseconds: number;
+  readonly totalRoutingContagionSummaries: number;
   readonly totalConfidenceSamplingMilliseconds: number;
   readonly meanConfidenceSamplingMilliseconds: number;
   readonly confidenceSamples: number;
@@ -180,6 +192,12 @@ function runRepresentativeCombatPerformanceScenario(): RepresentativeCombatPerfo
   const moraleOutput: CombatMoraleAssessment[] = [];
   const moraleEvents: PersistentMoraleEvent[] = [];
   const pressureUpdates: UnitPressureUpdate[] = [];
+  const routingContagionSummaries: UnitRoutingContagionSummary[] = [];
+  const routingContagionStore = createRoutingContagionStore(harness.identity);
+  const contagionRoutingStates = new Map<UnitId, "routing">();
+  for (let index = 0; index < harness.sourceUnitIds.length; index += 1) {
+    contagionRoutingStates.set(harness.sourceUnitIds[index]!, "routing");
+  }
 
   for (let tick = 0; tick < WARM_UP_TICKS; tick += 1) {
     advanceFormationOneTick(
@@ -223,6 +241,8 @@ function runRepresentativeCombatPerformanceScenario(): RepresentativeCombatPerfo
   let totalMoraleAssessments = 0;
   let totalNonSteadyMoraleAssessments = 0;
   let totalPressureUpdateMilliseconds = 0;
+  let totalRoutingContagionMilliseconds = 0;
+  let totalRoutingContagionSummaries = 0;
   let totalAppliedDamage = 0;
 
   for (let tick = 0; tick < MEASURED_TICKS; tick += 1) {
@@ -257,6 +277,16 @@ function runRepresentativeCombatPerformanceScenario(): RepresentativeCombatPerfo
       pressureUpdates,
     );
     totalPressureUpdateMilliseconds += performance.now() - pressureStartedAt;
+    const contagionStartedAt = performance.now();
+    const contagionResult = advanceRoutingContagionOneTick(
+      harness.world,
+      harness.identity,
+      harness.formation,
+      contagionRoutingStates,
+      routingContagionStore,
+      routingContagionSummaries,
+    );
+    totalRoutingContagionMilliseconds += performance.now() - contagionStartedAt;
     const moraleResult = collectCombatMoraleAssessments(
       harness.identity,
       harness.formation,
@@ -272,6 +302,7 @@ function runRepresentativeCombatPerformanceScenario(): RepresentativeCombatPerfo
       {
         survivabilityStore: harness.survivability,
         pressureUpdates,
+        routingContagionSummaries: contagionResult.summaries,
       },
     );
     const elapsedMilliseconds = performance.now() - startedAt;
@@ -291,6 +322,7 @@ function runRepresentativeCombatPerformanceScenario(): RepresentativeCombatPerfo
       moraleResult.assessments,
     );
     totalAppliedDamage += sumAppliedDamage(pipelineResult.applications);
+    totalRoutingContagionSummaries += contagionResult.summaries.length;
   }
 
   const sortedSamples = Array.from(tickSamples).sort(
@@ -319,6 +351,10 @@ function runRepresentativeCombatPerformanceScenario(): RepresentativeCombatPerfo
     totalPressureUpdateMilliseconds,
     meanPressureUpdateMilliseconds:
       totalPressureUpdateMilliseconds / MEASURED_TICKS,
+    totalRoutingContagionMilliseconds,
+    meanRoutingContagionMilliseconds:
+      totalRoutingContagionMilliseconds / MEASURED_TICKS,
+    totalRoutingContagionSummaries,
     totalConfidenceSamplingMilliseconds:
       confidenceSampling.totalMilliseconds,
     meanConfidenceSamplingMilliseconds:
@@ -630,6 +666,14 @@ function writeRepresentativeCombatReport(
           meanPressureUpdateMilliseconds: roundForReport(
             report.meanPressureUpdateMilliseconds,
           ),
+          totalRoutingContagionMilliseconds: roundForReport(
+            report.totalRoutingContagionMilliseconds,
+          ),
+          meanRoutingContagionMilliseconds: roundForReport(
+            report.meanRoutingContagionMilliseconds,
+          ),
+          totalRoutingContagionSummaries:
+            report.totalRoutingContagionSummaries,
           totalConfidenceSamplingMilliseconds: roundForReport(
             report.totalConfidenceSamplingMilliseconds,
           ),

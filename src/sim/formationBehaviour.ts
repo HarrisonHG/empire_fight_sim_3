@@ -356,6 +356,20 @@ export function getUnitCohesion(
   return internal.cohesion[index]!;
 }
 
+/** Applies a bounded cohesion loss while formation retains cohesion ownership. */
+export function applyUnitCohesionLoss(
+  store: FormationBehaviourStore,
+  unitId: UnitId,
+  amount: number,
+): number {
+  const internal = asInternal(store);
+  const unitIndex = requireUnitIndex(internal, unitId);
+  assertNonNegativeInteger(amount, "cohesion loss amount");
+  const before = internal.cohesion[unitIndex]!;
+  reduceUnitCohesion(internal, unitIndex, amount);
+  return before - internal.cohesion[unitIndex]!;
+}
+
 export function setUnitOrder(
   store: FormationBehaviourStore,
   unitId: UnitId,

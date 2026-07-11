@@ -1,5 +1,6 @@
 import type { CombatMoraleAssessment } from "./combatMorale";
 import type { UnitPressureUpdate } from "./combatPressure";
+import type { UnitRoutingContagionSummary } from "./routingContagion";
 import type { MoraleMovementState } from "./moraleMovement";
 import {
   getUnitAccumulatedDamage,
@@ -56,6 +57,8 @@ export interface PersistentMoraleContext {
   readonly survivabilityStore?: CombatSurvivabilityStore;
   /** Latest 4B source summaries in deterministic unit order. */
   readonly pressureUpdates?: readonly UnitPressureUpdate[];
+  /** Latest 4F effects, used only to preserve fresh-pressure recovery gates. */
+  readonly routingContagionSummaries?: readonly UnitRoutingContagionSummary[];
 }
 
 interface InternalPersistentMoraleStore extends PersistentMoraleStore {
@@ -170,9 +173,10 @@ export function advancePersistentMoraleOneTick(
     );
     const pressureUpdate = context.pressureUpdates?.[unitIndex];
     const hasFreshPressure =
-      pressureUpdate !== undefined && pressureUpdate.unitId === unitId
+      (pressureUpdate !== undefined && pressureUpdate.unitId === unitId
         ? pressureUpdate.hasFreshPressure
-        : inferFreshPressure(assessment);
+        : inferFreshPressure(assessment)) ||
+      hasFreshContagion(context.routingContagionSummaries?.[unitIndex], unitId);
     const previousState = internal.states[unitIndex]!;
     const candidateState = determineCandidateState(profile.stressScore);
     internal.routingRisk[unitIndex] = updateRoutingRisk(
@@ -531,6 +535,17 @@ function inferFreshPressure(assessment: CombatMoraleAssessment): boolean {
   );
 }
 
+function hasFreshContagion(
+  summary: UnitRoutingContagionSummary | undefined,
+  unitId: UnitId,
+): boolean {
+  return (
+    summary !== undefined &&
+    summary.unitId === unitId &&
+    summary.pressureAppliedPerMember > 0
+  );
+}
+
 function validateStores(
   identityStore: UnitIdentityStore,
   formationStore: FormationBehaviourStore,
@@ -589,6 +604,27 @@ function validateContext(
       if (context.pressureUpdates[unitIndex]?.unitId !== unitIds[unitIndex]) {
         throw new RangeError(
           "Persistent morale pressure updates must be in deterministic unit order.",
+        );
+      }
+    }
+  }
+  if (
+    context.routingContagionSummaries !== undefined &&
+    context.routingContagionSummaries.length !== identityStore.unitCount
+  ) {
+    throw new RangeError(
+      "Persistent morale requires one routing contagion summary per unit when provided.",
+    );
+  }
+  if (context.routingContagionSummaries !== undefined) {
+    const unitIds = getUnitIds(identityStore);
+    for (let unitIndex = 0; unitIndex < unitIds.length; unitIndex += 1) {
+      if (
+        context.routingContagionSummaries[unitIndex]?.unitId !==
+        unitIds[unitIndex]
+      ) {
+        throw new RangeError(
+          "Persistent morale routing contagion summaries must be in deterministic unit order.",
         );
       }
     }

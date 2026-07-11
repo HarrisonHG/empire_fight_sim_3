@@ -461,11 +461,12 @@ Add explicit limits:
 Recommended ordering:
 
 ```text
-1. Snapshot routing states at tick start
-2. Collect local routing pressure
-3. Apply pressure
-4. Evaluate morale transitions
-5. Apply movement next tick
+1. Movement consumes the previous tick's projected morale state
+2. Snapshot that same tick-start routing projection for contagion eligibility
+3. Resolve combat consequences and ordinary pressure
+4. Collect and apply local routing contagion
+5. Assess morale and evaluate persistent transitions
+6. Project those transitions for movement on the following tick
 ```
 
 ### Tests
@@ -475,6 +476,24 @@ Recommended ordering:
 - Multiple routers produce capped accumulation.
 - No same-tick recursive explosion.
 - Results are independent of unit iteration order.
+
+### Implementation record (2026-07-11)
+
+- [x] Added a dedicated local-grid contagion stage after movement/combat
+  pressure and before morale assessment/arbitration. Only the previous tick's
+  projected `routing` states can contribute, preventing same-tick cascades.
+- [x] Added capped, per-target integer contributions: nearby routing allies
+  apply pressure; physical pass-through replaces that nearby contribution and
+  also applies cohesion loss. Confidence and cohesion reduce, but never erase,
+  a valid contribution.
+- [x] Added compact deterministic per-unit summaries for router IDs,
+  pass-through router IDs, applied pressure/cohesion, and cap use.
+- [x] Added headless coverage for local range, pass-through replacement,
+  deduplication, caps, resistance, no recursive cascade, ordering,
+  deterministic replay, and entity membership; representative performance now
+  exercises the stage without machine-dependent thresholds.
+- [ ] Rallying, captains, battlefield removal, UI, and rendering remain
+  outside 4F.
 
 ---
 
