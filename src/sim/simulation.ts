@@ -31,6 +31,10 @@ import {
   advanceRoutingContagionOneTick,
   createRoutingContagionStore,
 } from "./routingContagion";
+import {
+  collectRecoveryThreatSummaries,
+  createRecoveryThreatStore,
+} from "./recoveryThreat";
 import type { MoraleMovementState } from "./moraleMovement";
 import { SeededRng } from "./rng";
 import {
@@ -158,6 +162,13 @@ export function advanceSimulationOneTick(simulation: SimulationState): void {
       combatSandbox.routingContagionStore,
       combatSandbox.routingContagionSummaries,
     );
+    collectRecoveryThreatSummaries(
+      simulation.world,
+      combatSandbox.identityStore,
+      combatSandbox.formationStore,
+      combatSandbox.recoveryThreatStore,
+      combatSandbox.recoveryThreatSummaries,
+    );
     collectCombatMoraleAssessments(
       combatSandbox.identityStore,
       combatSandbox.formationStore,
@@ -174,6 +185,7 @@ export function advanceSimulationOneTick(simulation: SimulationState): void {
         survivabilityStore: combatSandbox.survivabilityStore,
         pressureUpdates: combatSandbox.pressureUpdates,
         routingContagionSummaries: combatSandbox.routingContagionSummaries,
+        recoveryThreatSummaries: combatSandbox.recoveryThreatSummaries,
       },
     );
     syncMoraleMovementStates(combatSandbox);
@@ -365,12 +377,14 @@ function createCombatSandbox(
     survivabilityStore,
     pressureStore: createCombatPressureStore(identityStore, formationStore),
     routingContagionStore: createRoutingContagionStore(identityStore),
+    recoveryThreatStore: createRecoveryThreatStore(identityStore, world),
     persistentMoraleStore,
     moraleMovementStates,
     pipelineOutput: createCombatPipelineOutput(),
     consequenceApplications: [],
     pressureUpdates: [],
     routingContagionSummaries: [],
+    recoveryThreatSummaries: [],
     moraleAssessments,
     moraleEvents: [],
     appliedDamagePressureScale: scenario.appliedDamagePressureScale,

@@ -529,7 +529,7 @@ During recovery:
 - Normal orders remain suspended
 - Contact can interrupt recovery
 
-Captain-based rally bonuses belong to Milestone 5.
+Captain-assisted rallying and command bonuses are deferred to Milestone 7.
 
 ### Tests
 
@@ -539,6 +539,24 @@ Captain-based rally bonuses belong to Milestone 5.
 - Renewed contact interrupts recovery.
 - High-confidence units recover faster than low-confidence units.
 - No captain assumptions are embedded.
+
+### Implementation record (2026-07-11)
+
+- [x] Completed the existing `routing → recovering → steady` transition path
+  with named integer gates: six routing ticks, no hostile in the shared local
+  threat range, no fresh combat/contagion pressure, pressure below 60, and
+  cohesion at least 550.
+- [x] Added deterministic multi-tick recovery progress (target 12), with
+  confidence and troop experience affecting progress and formation-owned
+  cohesion restoration. Recovery suspends the stored order without mutating
+  it; the following tick uses the existing loose-slot formation correction.
+- [x] Added a bounded local-grid hostile summary before persistent morale
+  arbitration, plus focused headless coverage for gates, recovery, relapse,
+  cohesion bounds, damage preservation, determinism, and membership.
+- [x] Extended the 40×50 representative path with one bounded recovering-unit
+  projection and separately reported recovery-threat collection cost.
+- [ ] Captain-assisted rallying, command effects, recovery UI, and 4H
+  consolidation remain deferred.
 
 ---
 
@@ -584,18 +602,14 @@ A safe initial integration model is:
 
 ```text
 1. Command ingestion
-2. Existing formation/order intent
-3. Threat and engagement collection
-4. Combat opportunity and strike pipeline
-5. Survivability applications
-6. Combat consequences
-7. Pressure source collection
-8. Pressure application and decay
-9. Morale transition arbitration
-10. Routing contagion snapshot/application
-11. Movement behaviour selection
-12. Formation/routing movement
-13. Events and debug snapshot
+2. Formation/routing movement from the previous tick's projected morale state
+3. Combat opportunity and strike pipeline
+4. Survivability applications and combat consequences
+5. Pressure application and decay
+6. Routing contagion from tick-start routing states
+7. Local recovery-threat collection
+8. Morale assessment and persistent transition arbitration
+9. Events and debug snapshot
 ```
 
 Movement currently occurs before combat in the live simulation.

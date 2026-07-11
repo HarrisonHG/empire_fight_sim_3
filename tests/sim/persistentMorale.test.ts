@@ -8,12 +8,18 @@ import {
   collectCombatMoraleAssessments,
   type CombatMoraleAssessment,
 } from "../../src/sim/combatMorale";
-import type { CombatSurvivabilityApplication } from "../../src/sim/combatSurvivability";
+import {
+  createCombatSurvivabilityStore,
+  getUnitAccumulatedDamage,
+  type CombatSurvivabilityApplication,
+} from "../../src/sim/combatSurvivability";
 import {
   createFormationBehaviourStore,
   getIndividualPressure,
   getUnitAnchor,
+  getUnitCohesion,
   getUnitMovementStyle,
+  restoreUnitCohesion,
   setIndividualPressure,
   type FormationBehaviourStore,
 } from "../../src/sim/formationBehaviour";
@@ -169,13 +175,16 @@ describe("persistent unit morale", () => {
 
     setTargetPressure(harness, 0);
     for (let tick = 0; tick < 6; tick += 1) {
-      advance(harness);
+      advance(harness, [], { recoveryThreatSummaries: recoveryThreats(false) });
     }
     expect(getPersistentUnitMorale(harness.store, TARGET_UNIT_ID).state).toBe(
       "recovering",
     );
 
-    expect(advance(harness, [], { pressureUpdates: renewedContactUpdates() })).toEqual([
+    expect(advance(harness, [], {
+      pressureUpdates: renewedContactUpdates(),
+      recoveryThreatSummaries: recoveryThreats(false),
+    })).toEqual([
       {
         kind: "unit_morale_changed",
         unitId: TARGET_UNIT_ID,
@@ -185,30 +194,113 @@ describe("persistent unit morale", () => {
     ]);
   });
 
-  it("returns from recovering to steady only after the recovery duration", () => {
-    const harness = createHarness();
-    setTargetPressure(harness, 150);
-    for (let tick = 0; tick < 15; tick += 1) {
-      advance(harness);
+  it("does not leave routing while a hostile remains in the local threat range", () => {
+    const harness = routeHarness();
+    setTargetPressure(harness, 0);
+
+    for (let tick = 0; tick < 12; tick += 1) {
+      advance(harness, [], { recoveryThreatSummaries: recoveryThreats(true) });
     }
+
+    expect(getPersistentUnitMorale(harness.store, TARGET_UNIT_ID).state).toBe(
+      "routing",
+    );
+  });
+
+  it("returns from recovering to steady only after multiple recovery ticks", () => {
+    const harness = routeHarness();
     setTargetPressure(harness, 0);
     for (let tick = 0; tick < 6; tick += 1) {
-      advance(harness);
+      advance(harness, [], { recoveryThreatSummaries: recoveryThreats(false) });
     }
-    for (let tick = 0; tick < 5; tick += 1) {
-      advance(harness);
+    for (let tick = 0; tick < 11; tick += 1) {
+      advance(harness, [], { recoveryThreatSummaries: recoveryThreats(false) });
     }
     expect(getPersistentUnitMorale(harness.store, TARGET_UNIT_ID).state).toBe(
       "recovering",
     );
-    advance(harness);
+    advance(harness, [], { recoveryThreatSummaries: recoveryThreats(false) });
     expect(getPersistentUnitMorale(harness.store, TARGET_UNIT_ID).state).toBe(
       "steady",
     );
   });
 
-  it("is deterministic for identical consequence sequences", () => {
-    expect(runDeterministicSequence()).toEqual(runDeterministicSequence());
+  it("rebuilds recovering cohesion gradually through the formation store", () => {
+    const harness = routeHarness({ targetCohesion: 600 });
+    setTargetPressure(harness, 0);
+    for (let tick = 0; tick < 6; tick += 1) {
+      advance(harness, [], {
+        pressureUpdates: calmPressureUpdates(),
+        recoveryThreatSummaries: recoveryThreats(false),
+      });
+    }
+    expect(getPersistentUnitMorale(harness.store, TARGET_UNIT_ID).state).toBe(
+      "recovering",
+    );
+    const before = getUnitCohesion(harness.formation, TARGET_UNIT_ID);
+    for (let tick = 0; tick < 3; tick += 1) {
+      advance(harness, [], {
+        pressureUpdates: calmPressureUpdates(),
+        recoveryThreatSummaries: recoveryThreats(false),
+      });
+    }
+    expect(getUnitCohesion(harness.formation, TARGET_UNIT_ID)).toBe(before + 6);
+    restoreUnitCohesion(
+      harness.formation,
+      TARGET_UNIT_ID,
+      Number.MAX_SAFE_INTEGER,
+    );
+    expect(getUnitCohesion(harness.formation, TARGET_UNIT_ID)).toBeLessThan(
+      3_000_000_000,
+    );
+  });
+
+  it("uses confidence and troop profile to recover faster without restoring damage", () => {
+    const high = routeHarness({ targetRole: "veteran", targetConfidence: 800 });
+    const low = routeHarness({ targetRole: "recruit", targetConfidence: 200 });
+    for (const harness of [high, low]) {
+      setTargetPressure(harness, 0);
+      for (let tick = 0; tick < 6; tick += 1) {
+        advance(harness, [], { recoveryThreatSummaries: recoveryThreats(false) });
+      }
+    }
+    for (let tick = 0; tick < 4; tick += 1) {
+      advance(high, [], { recoveryThreatSummaries: recoveryThreats(false) });
+      advance(low, [], { recoveryThreatSummaries: recoveryThreats(false) });
+    }
+    expect(getPersistentUnitMorale(high.store, TARGET_UNIT_ID).state).toBe("steady");
+    expect(getPersistentUnitMorale(low.store, TARGET_UNIT_ID).state).toBe("recovering");
+  });
+
+  it("is deterministic for identical recovery sequences", () => {
+    expect(runRecoverySequence()).toEqual(runRecoverySequence());
+  });
+
+  it("does not restore accumulated damage or remove members during recovery", () => {
+    const harness = routeHarness();
+    const survivability = createCombatSurvivabilityStore(harness.identity, {
+      entityCount: harness.identity.entityCount,
+      units: [{ unitId: TARGET_UNIT_ID, initialAccumulatedDamage: 7 }],
+    });
+    const memberIds = getUnitIds(harness.identity).flatMap((unitId) =>
+      getUnitMembers(harness.identity, unitId),
+    );
+    setTargetPressure(harness, 0);
+
+    for (let tick = 0; tick < 10; tick += 1) {
+      advance(harness, [], {
+        survivabilityStore: survivability,
+        recoveryThreatSummaries: recoveryThreats(false),
+      });
+    }
+
+    expect(getPersistentUnitMorale(harness.store, TARGET_UNIT_ID).state).toBe(
+      "recovering",
+    );
+    expect(getUnitAccumulatedDamage(survivability, TARGET_UNIT_ID)).toBe(7);
+    expect(getUnitIds(harness.identity).flatMap((unitId) =>
+      getUnitMembers(harness.identity, unitId),
+    )).toEqual(memberIds);
   });
 
   it("does not remove entities or change formation movement data", () => {
@@ -251,6 +343,8 @@ interface MoraleHarness {
 
 interface MoraleHarnessOptions {
   readonly targetRole?: "recruit" | "regular" | "veteran";
+  readonly targetConfidence?: number;
+  readonly targetCohesion?: number;
 }
 
 function createHarness(options: MoraleHarnessOptions = {}): MoraleHarness {
@@ -266,7 +360,7 @@ function createHarness(options: MoraleHarnessOptions = {}): MoraleHarness {
     rngSeed: 0x4a,
     units: [
       formationUnit(SOURCE_UNIT_ID, 100),
-      formationUnit(TARGET_UNIT_ID, 200),
+      formationUnit(TARGET_UNIT_ID, 200, options.targetCohesion),
     ],
     individuals: [0, 1, 2, 3].map((entityId) => ({
       entityId,
@@ -277,6 +371,10 @@ function createHarness(options: MoraleHarnessOptions = {}): MoraleHarness {
       slotRow: 0,
       slotCol: entityId % 2,
       memberMaxStep: 1,
+      ...((entityId === 2 || entityId === 3) &&
+      options.targetConfidence !== undefined
+        ? { confidence: options.targetConfidence }
+        : {}),
     })),
   });
   const assessments: CombatMoraleAssessment[] = [];
@@ -349,7 +447,7 @@ function pressureUpdate(
   };
 }
 
-function formationUnit(unitId: number, anchorX: number) {
+function formationUnit(unitId: number, anchorX: number, cohesion?: number) {
   return {
     unitId,
     anchorX,
@@ -361,7 +459,34 @@ function formationUnit(unitId: number, anchorX: number) {
     cols: 2,
     unitSpeed: 0,
     order: "hold" as const,
+    ...(cohesion === undefined ? {} : { cohesion }),
   };
+}
+
+function routeHarness(options: MoraleHarnessOptions = {}): MoraleHarness {
+  const harness = createHarness(options);
+  setTargetPressure(harness, 150);
+  for (let tick = 0; tick < 30; tick += 1) {
+    advance(harness);
+    if (getPersistentUnitMorale(harness.store, TARGET_UNIT_ID).state === "routing") {
+      break;
+    }
+  }
+  expect(getPersistentUnitMorale(harness.store, TARGET_UNIT_ID).state).toBe(
+    "routing",
+  );
+  return harness;
+}
+
+function recoveryThreats(hostileNearby: boolean) {
+  return [
+    { unitId: SOURCE_UNIT_ID, hostileNearby: false },
+    { unitId: TARGET_UNIT_ID, hostileNearby },
+  ];
+}
+
+function calmPressureUpdates(): readonly UnitPressureUpdate[] {
+  return [pressureUpdate(SOURCE_UNIT_ID, false), pressureUpdate(TARGET_UNIT_ID, false)];
 }
 
 function weakSurvivabilityApplication(
@@ -392,12 +517,15 @@ function targetPressures(harness: MoraleHarness): readonly number[] {
   );
 }
 
-function runDeterministicSequence(): unknown {
-  const harness = createHarness();
+function runRecoverySequence(): unknown {
+  const harness = routeHarness();
   const timeline: unknown[] = [];
 
-  for (let tick = 0; tick < 15; tick += 1) {
-    const events = advance(harness, [weakSurvivabilityApplication(tick)]);
+  setTargetPressure(harness, 0);
+  for (let tick = 0; tick < 20; tick += 1) {
+    const events = advance(harness, [], {
+      recoveryThreatSummaries: recoveryThreats(tick === 8),
+    });
     timeline.push({
       events,
       morale: getPersistentUnitMorale(harness.store, TARGET_UNIT_ID),

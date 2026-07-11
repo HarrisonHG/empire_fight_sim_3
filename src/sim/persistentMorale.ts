@@ -9,8 +9,11 @@ import {
 import {
   getIndividualConfidence,
   getIndividualRole,
+  getUnitCohesion,
+  restoreUnitCohesion,
   type FormationBehaviourStore,
 } from "./formationBehaviour";
+import type { UnitRecoveryThreatSummary } from "./recoveryThreat";
 import {
   getUnitIds,
   getUnitMembers,
@@ -23,7 +26,8 @@ export type PersistentUnitMoraleState = MoraleMovementState;
 /**
  * A read model of a unit's current morale inputs plus its persistent
  * transition history. Pressure, confidence, and cohesion are sampled from
- * their existing owners; this store never mutates those authoritative values.
+ * their existing owners; recovery requests cohesion restoration through the
+ * formation API without taking cohesion ownership.
  */
 export interface PersistentUnitMorale {
   readonly unitId: UnitId;
@@ -59,6 +63,8 @@ export interface PersistentMoraleContext {
   readonly pressureUpdates?: readonly UnitPressureUpdate[];
   /** Latest 4F effects, used only to preserve fresh-pressure recovery gates. */
   readonly routingContagionSummaries?: readonly UnitRoutingContagionSummary[];
+  /** Compact 4G local hostile safety summaries in deterministic unit order. */
+  readonly recoveryThreatSummaries?: readonly UnitRecoveryThreatSummary[];
 }
 
 interface InternalPersistentMoraleStore extends PersistentMoraleStore {
@@ -70,7 +76,6 @@ interface InternalPersistentMoraleStore extends PersistentMoraleStore {
   readonly stateTicks: Int32Array;
   readonly upwardTicks: Int32Array;
   readonly downwardTicks: Int32Array;
-  readonly safeTicks: Int32Array;
   readonly routingRisk: Int32Array;
   readonly recoveryProgress: Int32Array;
 }
@@ -82,8 +87,16 @@ const WAVERING_STRESS_THRESHOLD = 90;
 const ROUTING_STRESS_THRESHOLD = 120;
 const ROUTING_RISK_THRESHOLD = 40;
 const DOWNWARD_TRANSITION_TICKS = 4;
-const ROUTING_SAFE_TICKS = 6;
-const RECOVERY_STEADY_TICKS = 6;
+export const RECOVERY_CONSTANTS = {
+  minimumRoutingTicks: 6,
+  maximumPressure: 60,
+  minimumCohesion: 550,
+  progressRequired: 12,
+  baseProgressPerTick: 1,
+  highConfidenceProgressBonus: 1,
+  baseCohesionRestorePerTick: 2,
+  highConfidenceCohesionRestoreBonus: 1,
+} as const;
 
 export function createPersistentMoraleStore(
   identityStore: UnitIdentityStore,
@@ -107,7 +120,6 @@ export function createPersistentMoraleStore(
     stateTicks: new Int32Array(unitIds.length),
     upwardTicks: new Int32Array(unitIds.length),
     downwardTicks: new Int32Array(unitIds.length),
-    safeTicks: new Int32Array(unitIds.length),
     routingRisk: new Int32Array(unitIds.length),
     recoveryProgress: new Int32Array(unitIds.length),
   };
@@ -177,6 +189,9 @@ export function advancePersistentMoraleOneTick(
         ? pressureUpdate.hasFreshPressure
         : inferFreshPressure(assessment)) ||
       hasFreshContagion(context.routingContagionSummaries?.[unitIndex], unitId);
+    const hostileNearby =
+      context.recoveryThreatSummaries?.[unitIndex]?.unitId === unitId &&
+      context.recoveryThreatSummaries[unitIndex]!.hostileNearby;
     const previousState = internal.states[unitIndex]!;
     const candidateState = determineCandidateState(profile.stressScore);
     internal.routingRisk[unitIndex] = updateRoutingRisk(
@@ -190,8 +205,20 @@ export function advancePersistentMoraleOneTick(
       previousState,
       candidateState,
       hasFreshPressure,
+      hostileNearby,
       profile,
     );
+
+    if (previousState === "recovering" && nextState === "recovering") {
+      restoreUnitCohesion(
+        formationStore,
+        unitId,
+        recoveryCohesionRestorePerTick(profile),
+      );
+      // Keep this tick's compact persistent read model aligned with the
+      // formation-owned value that the recovery action just changed.
+      internal.cohesion[unitIndex] = getUnitCohesion(formationStore, unitId);
+    }
 
     if (nextState === previousState) {
       internal.stateTicks[unitIndex] = increaseBounded(
@@ -207,9 +234,6 @@ export function advancePersistentMoraleOneTick(
     internal.downwardTicks[unitIndex] = 0;
     if (nextState !== "recovering") {
       internal.recoveryProgress[unitIndex] = 0;
-    }
-    if (nextState !== "routing") {
-      internal.safeTicks[unitIndex] = 0;
     }
     out.push({
       kind: "unit_morale_changed",
@@ -280,6 +304,7 @@ function determineNextState(
   currentState: PersistentUnitMoraleState,
   candidateState: PersistentUnitMoraleState,
   hasFreshPressure: boolean,
+  hostileNearby: boolean,
   profile: UnitMoraleProfile,
 ): PersistentUnitMoraleState {
   if (currentState === "routing") {
@@ -288,6 +313,8 @@ function determineNextState(
       unitIndex,
       candidateState,
       hasFreshPressure,
+      hostileNearby,
+      profile,
     );
   }
   if (currentState === "recovering") {
@@ -296,6 +323,8 @@ function determineNextState(
       unitIndex,
       candidateState,
       hasFreshPressure,
+      hostileNearby,
+      profile,
     );
   }
 
@@ -350,6 +379,7 @@ function moraleStateRank(state: PersistentUnitMoraleState): number {
 
 interface UnitMoraleProfile {
   readonly stressScore: number;
+  readonly pressure: number;
   readonly experienceAdjustment: number;
   readonly confidence: number;
   readonly cohesion: number;
@@ -385,6 +415,7 @@ function collectUnitMoraleProfile(
 
   return {
     stressScore: stressScore > 0 ? stressScore : 0,
+    pressure: assessment.pressureAverage,
     experienceAdjustment,
     confidence,
     cohesion: assessment.cohesion,
@@ -416,16 +447,19 @@ function determineRoutingTransition(
   unitIndex: number,
   candidateState: PersistentUnitMoraleState,
   hasFreshPressure: boolean,
+  hostileNearby: boolean,
+  profile: UnitMoraleProfile,
 ): PersistentUnitMoraleState {
-  if (hasFreshPressure || moraleStateRank(candidateState) > 1) {
-    store.safeTicks[unitIndex] = 0;
+  if (
+    hasFreshPressure ||
+    hostileNearby ||
+    profile.pressure >= RECOVERY_CONSTANTS.maximumPressure ||
+    profile.cohesion < RECOVERY_CONSTANTS.minimumCohesion ||
+    moraleStateRank(candidateState) > 1
+  ) {
     return "routing";
   }
-  store.safeTicks[unitIndex] = increaseBounded(
-    store.safeTicks[unitIndex]!,
-    1,
-  );
-  return store.safeTicks[unitIndex]! >= ROUTING_SAFE_TICKS
+  return store.stateTicks[unitIndex]! >= RECOVERY_CONSTANTS.minimumRoutingTicks
     ? "recovering"
     : "routing";
 }
@@ -435,8 +469,16 @@ function determineRecoveryTransition(
   unitIndex: number,
   candidateState: PersistentUnitMoraleState,
   hasFreshPressure: boolean,
+  hostileNearby: boolean,
+  profile: UnitMoraleProfile,
 ): PersistentUnitMoraleState {
-  if (hasFreshPressure || moraleStateRank(candidateState) >= 2) {
+  if (
+    hasFreshPressure ||
+    hostileNearby ||
+    profile.pressure >= RECOVERY_CONSTANTS.maximumPressure ||
+    profile.cohesion < RECOVERY_CONSTANTS.minimumCohesion ||
+    moraleStateRank(candidateState) >= 2
+  ) {
     store.recoveryProgress[unitIndex] = 0;
     return "wavering";
   }
@@ -446,11 +488,37 @@ function determineRecoveryTransition(
   }
   store.recoveryProgress[unitIndex] = increaseBounded(
     store.recoveryProgress[unitIndex]!,
-    1,
+    recoveryProgressPerTick(profile),
   );
-  return store.recoveryProgress[unitIndex]! >= RECOVERY_STEADY_TICKS
+  return store.recoveryProgress[unitIndex]! >= RECOVERY_CONSTANTS.progressRequired
     ? "steady"
     : "recovering";
+}
+
+function recoveryProgressPerTick(profile: UnitMoraleProfile): number {
+  const confidenceBonus =
+    profile.confidence >= 750
+      ? RECOVERY_CONSTANTS.highConfidenceProgressBonus
+      : 0;
+  return Math.max(
+    1,
+    RECOVERY_CONSTANTS.baseProgressPerTick +
+      confidenceBonus +
+      profile.experienceAdjustment,
+  );
+}
+
+function recoveryCohesionRestorePerTick(profile: UnitMoraleProfile): number {
+  const confidenceBonus =
+    profile.confidence >= 750
+      ? RECOVERY_CONSTANTS.highConfidenceCohesionRestoreBonus
+      : 0;
+  return Math.max(
+    1,
+    RECOVERY_CONSTANTS.baseCohesionRestorePerTick +
+      confidenceBonus +
+      profile.experienceAdjustment,
+  );
 }
 
 function requiredUpwardTicks(
@@ -625,6 +693,27 @@ function validateContext(
       ) {
         throw new RangeError(
           "Persistent morale routing contagion summaries must be in deterministic unit order.",
+        );
+      }
+    }
+  }
+  if (
+    context.recoveryThreatSummaries !== undefined &&
+    context.recoveryThreatSummaries.length !== identityStore.unitCount
+  ) {
+    throw new RangeError(
+      "Persistent morale requires one recovery threat summary per unit when provided.",
+    );
+  }
+  if (context.recoveryThreatSummaries !== undefined) {
+    const unitIds = getUnitIds(identityStore);
+    for (let unitIndex = 0; unitIndex < unitIds.length; unitIndex += 1) {
+      if (
+        context.recoveryThreatSummaries[unitIndex]?.unitId !==
+        unitIds[unitIndex]
+      ) {
+        throw new RangeError(
+          "Persistent morale recovery threat summaries must be in deterministic unit order.",
         );
       }
     }

@@ -14,6 +14,7 @@ import {
   type UnitIdentityStore,
 } from "./unitIdentity";
 import {
+  LOCAL_HOSTILE_THREAT_RADIUS,
   ROUTING_PASS_THROUGH_PROXIMITY_DISTANCE,
 } from "./moraleMovement";
 import type {
@@ -114,6 +115,8 @@ interface InternalFormationBehaviourStore extends FormationBehaviourStore {
   readonly anchorMovementRemainder: Int32Array;
   readonly orders: UnitOrder[];
   readonly cohesion: Int32Array;
+  /** Semantic ceiling set from the unit's configured initial cohesion. */
+  readonly maximumCohesion: Int32Array;
   readonly unitMovementStyle: UnitMovementStyle[];
   readonly styleCommitmentTicksRemaining: Int32Array;
   readonly blockerReleaseTicksRemaining: Int32Array;
@@ -180,7 +183,6 @@ const STRAINED_MOVEMENT_SCALE = 850;
 const SHAKEN_MOVEMENT_SCALE = 650;
 const WAVERING_CORRECTION_SCALE = 500;
 const RECOVERING_CORRECTION_SCALE = 700;
-const ROUTING_PRIMARY_HOSTILE_QUERY_RADIUS = 192;
 const ROUTING_LATERAL_CORRECTION_MAX_STEP = 1;
 const MAX_ROUTING_PASS_THROUGH_INTERACTIONS_PER_TICK = 256;
 const NO_ROUTING_PASS_THROUGH_INTERACTIONS: readonly RoutingPassThroughInteraction[] =
@@ -230,6 +232,7 @@ export function createFormationBehaviourStore(
     anchorMovementRemainder: new Int32Array(unitCount),
     orders: new Array<UnitOrder>(unitCount).fill("hold"),
     cohesion: new Int32Array(unitCount),
+    maximumCohesion: new Int32Array(unitCount),
     unitMovementStyle: new Array<UnitMovementStyle>(unitCount).fill(
       "orderedHalt",
     ),
@@ -301,9 +304,11 @@ export function createFormationBehaviourStore(
     store.cols[index] = unitConfig.cols;
     store.unitSpeed[index] = unitConfig.unitSpeed;
     store.orders[index] = unitConfig.order;
-    store.cohesion[index] = clampIntegerState(
+    const configuredCohesion = clampIntegerState(
       unitConfig.cohesion ?? DEFAULT_COHESION,
     );
+    store.cohesion[index] = configuredCohesion;
+    store.maximumCohesion[index] = configuredCohesion;
   }
 
   const seenIndividualEntities = new Set<number>();
@@ -379,6 +384,16 @@ export function getUnitCohesion(
   return internal.cohesion[index]!;
 }
 
+/** The configured initial cohesion is the semantic recovery ceiling. */
+export function getUnitMaximumCohesion(
+  store: FormationBehaviourStore,
+  unitId: UnitId,
+): number {
+  const internal = asInternal(store);
+  const index = requireUnitIndex(internal, unitId);
+  return internal.maximumCohesion[index]!;
+}
+
 /** Applies a bounded cohesion loss while formation retains cohesion ownership. */
 export function applyUnitCohesionLoss(
   store: FormationBehaviourStore,
@@ -391,6 +406,24 @@ export function applyUnitCohesionLoss(
   const before = internal.cohesion[unitIndex]!;
   reduceUnitCohesion(internal, unitIndex, amount);
   return before - internal.cohesion[unitIndex]!;
+}
+
+/** Restores bounded cohesion while the formation store remains authoritative. */
+export function restoreUnitCohesion(
+  store: FormationBehaviourStore,
+  unitId: UnitId,
+  amount: number,
+): number {
+  const internal = asInternal(store);
+  const unitIndex = requireUnitIndex(internal, unitId);
+  assertNonNegativeInteger(amount, "cohesion restoration amount");
+  const before = internal.cohesion[unitIndex]!;
+  const maximum = internal.maximumCohesion[unitIndex]!;
+  internal.cohesion[unitIndex] = Math.min(
+    maximum,
+    increaseIntegerState(before, amount),
+  );
+  return internal.cohesion[unitIndex]! - before;
 }
 
 export function setUnitOrder(
@@ -573,11 +606,20 @@ function processUnit(
   moraleMovementState: MoraleMovementState,
   events: FormationEvent[],
 ): void {
-  const order = store.orders[unitIndex]!;
+  const storedOrder = store.orders[unitIndex]!;
+  // 4G recovery preserves but temporarily suspends the configured order.
+  const order: UnitOrder =
+    moraleMovementState === "recovering" ? "hold" : storedOrder;
   const headingX = store.headingX[unitIndex]!;
   const headingY = store.headingY[unitIndex]!;
   const unitSpeed = store.unitSpeed[unitIndex]!;
-  const spacing = store.spacing[unitIndex]!;
+  const configuredSpacing = store.spacing[unitIndex]!;
+  // Keep the existing slot-following path but use a wider, transient recovery
+  // footprint. Configuration remains immutable.
+  const spacing =
+    moraleMovementState === "recovering"
+      ? configuredSpacing + Math.floor(configuredSpacing / 2)
+      : configuredSpacing;
   const cols = store.cols[unitIndex]!;
   const centerCol = Math.floor(cols / 2);
   const isAdvancing = order === "advance" || order === "advanceCautious";
@@ -965,7 +1007,7 @@ function findPrimaryRoutingHostileUnit(
     blockerGrid,
     store.anchorSnapshotX[unitIndex]!,
     store.anchorSnapshotY[unitIndex]!,
-    ROUTING_PRIMARY_HOSTILE_QUERY_RADIUS,
+    LOCAL_HOSTILE_THREAT_RADIUS,
     store.scratchNearbyEntityIds,
   );
   const candidateUnitIds = collectCandidateUnitIds(

@@ -6,6 +6,8 @@ import {
   getIndividualConfiguredMaxStep,
   getUnitAnchor,
   getUnitConfiguredSpeed,
+  getUnitMovementStyle,
+  getUnitOrder,
 } from "../../src/sim/formationBehaviour";
 import type { MoraleMovementState } from "../../src/sim/moraleMovement";
 import {
@@ -100,6 +102,19 @@ describe("morale movement modifiers", () => {
       expect(harness.world.positionsX[0]).toBeLessThan(100);
     },
   );
+
+  it("suspends an advancing order while recovering but continues reforming", () => {
+    const harness = createMoraleMovementHarness({ initialMemberX: 80 });
+    const states = moraleStates("recovering");
+    const anchor = getUnitAnchor(harness.store, UNIT_ID);
+
+    advanceTicks(harness, 8, states);
+
+    expect(getUnitOrder(harness.store, UNIT_ID)).toBe("advance");
+    expect(getUnitMovementStyle(harness.store, UNIT_ID)).toBe("orderedHalt");
+    expect(getUnitAnchor(harness.store, UNIT_ID)).toEqual(anchor);
+    expect(harness.world.positionsX[0]).toBeGreaterThan(80);
+  });
 
   it("does not mutate configured movement rates", () => {
     const harness = createMoraleMovementHarness({ initialMemberX: 80 });

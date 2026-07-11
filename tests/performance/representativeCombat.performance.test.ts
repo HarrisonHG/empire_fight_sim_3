@@ -26,6 +26,11 @@ import {
   type UnitRoutingContagionSummary,
 } from "../../src/sim/routingContagion";
 import {
+  collectRecoveryThreatSummaries,
+  createRecoveryThreatStore,
+  type UnitRecoveryThreatSummary,
+} from "../../src/sim/recoveryThreat";
+import {
   advanceCombatPipelineOneTick,
   createCombatPipelineOutput,
 } from "../../src/sim/combatPipeline";
@@ -106,6 +111,8 @@ describe("representative multi-person combat performance", () => {
       expect(report.totalNonSteadyMoraleAssessments).toBeGreaterThan(0);
       expect(report.totalPressureUpdateMilliseconds).toBeGreaterThanOrEqual(0);
       expect(report.totalRoutingContagionMilliseconds).toBeGreaterThanOrEqual(0);
+      expect(report.totalRecoveryThreatMilliseconds).toBeGreaterThanOrEqual(0);
+      expect(report.recoveringUnitCount).toBe(1);
       expect(report.totalRoutingContagionSummaries).toBe(
         UNIT_COUNT * MEASURED_TICKS,
       );
@@ -166,6 +173,9 @@ interface RepresentativeCombatPerformanceReport {
   readonly totalRoutingContagionMilliseconds: number;
   readonly meanRoutingContagionMilliseconds: number;
   readonly totalRoutingContagionSummaries: number;
+  readonly totalRecoveryThreatMilliseconds: number;
+  readonly meanRecoveryThreatMilliseconds: number;
+  readonly recoveringUnitCount: number;
   readonly totalConfidenceSamplingMilliseconds: number;
   readonly meanConfidenceSamplingMilliseconds: number;
   readonly confidenceSamples: number;
@@ -193,7 +203,16 @@ function runRepresentativeCombatPerformanceScenario(): RepresentativeCombatPerfo
   const moraleEvents: PersistentMoraleEvent[] = [];
   const pressureUpdates: UnitPressureUpdate[] = [];
   const routingContagionSummaries: UnitRoutingContagionSummary[] = [];
+  const recoveryThreatSummaries: UnitRecoveryThreatSummary[] = [];
   const routingContagionStore = createRoutingContagionStore(harness.identity);
+  const recoveryThreatStore = createRecoveryThreatStore(
+    harness.identity,
+    harness.world,
+  );
+  // One projected recovering unit exercises the bounded 4G formation path.
+  const recoveryMovementStates = new Map<UnitId, "recovering">([
+    [harness.targetUnitIds[0]!, "recovering"],
+  ]);
   const contagionRoutingStates = new Map<UnitId, "routing">();
   for (let index = 0; index < harness.sourceUnitIds.length; index += 1) {
     contagionRoutingStates.set(harness.sourceUnitIds[index]!, "routing");
@@ -242,6 +261,7 @@ function runRepresentativeCombatPerformanceScenario(): RepresentativeCombatPerfo
   let totalNonSteadyMoraleAssessments = 0;
   let totalPressureUpdateMilliseconds = 0;
   let totalRoutingContagionMilliseconds = 0;
+  let totalRecoveryThreatMilliseconds = 0;
   let totalRoutingContagionSummaries = 0;
   let totalAppliedDamage = 0;
 
@@ -251,6 +271,7 @@ function runRepresentativeCombatPerformanceScenario(): RepresentativeCombatPerfo
       harness.world,
       harness.identity,
       harness.formation,
+      recoveryMovementStates,
     );
     const pipelineResult = advanceCombatPipelineOneTick(
       harness.world,
@@ -288,6 +309,16 @@ function runRepresentativeCombatPerformanceScenario(): RepresentativeCombatPerfo
       routingContagionSummaries,
     );
     totalRoutingContagionMilliseconds += performance.now() - contagionStartedAt;
+    const recoveryThreatStartedAt = performance.now();
+    collectRecoveryThreatSummaries(
+      harness.world,
+      harness.identity,
+      harness.formation,
+      recoveryThreatStore,
+      recoveryThreatSummaries,
+    );
+    totalRecoveryThreatMilliseconds +=
+      performance.now() - recoveryThreatStartedAt;
     const moraleResult = collectCombatMoraleAssessments(
       harness.identity,
       harness.formation,
@@ -304,6 +335,7 @@ function runRepresentativeCombatPerformanceScenario(): RepresentativeCombatPerfo
         survivabilityStore: harness.survivability,
         pressureUpdates,
         routingContagionSummaries: contagionResult.summaries,
+        recoveryThreatSummaries,
       },
     );
     const elapsedMilliseconds = performance.now() - startedAt;
@@ -356,6 +388,10 @@ function runRepresentativeCombatPerformanceScenario(): RepresentativeCombatPerfo
     meanRoutingContagionMilliseconds:
       totalRoutingContagionMilliseconds / MEASURED_TICKS,
     totalRoutingContagionSummaries,
+    totalRecoveryThreatMilliseconds,
+    meanRecoveryThreatMilliseconds:
+      totalRecoveryThreatMilliseconds / MEASURED_TICKS,
+    recoveringUnitCount: recoveryMovementStates.size,
     totalConfidenceSamplingMilliseconds:
       confidenceSampling.totalMilliseconds,
     meanConfidenceSamplingMilliseconds:
@@ -675,6 +711,13 @@ function writeRepresentativeCombatReport(
           ),
           totalRoutingContagionSummaries:
             report.totalRoutingContagionSummaries,
+          totalRecoveryThreatMilliseconds: roundForReport(
+            report.totalRecoveryThreatMilliseconds,
+          ),
+          meanRecoveryThreatMilliseconds: roundForReport(
+            report.meanRecoveryThreatMilliseconds,
+          ),
+          recoveringUnitCount: report.recoveringUnitCount,
           totalConfidenceSamplingMilliseconds: roundForReport(
             report.totalConfidenceSamplingMilliseconds,
           ),

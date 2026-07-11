@@ -13,6 +13,10 @@ import type {
 } from "./persistentMorale";
 import type { MoraleMovementState } from "./moraleMovement";
 import type {
+  RecoveryThreatStore,
+  UnitRecoveryThreatSummary,
+} from "./recoveryThreat";
+import type {
   RoutingContagionStore,
   UnitRoutingContagionSummary,
 } from "./routingContagion";
@@ -161,6 +165,7 @@ export interface CombatSandboxSimulationState {
   readonly survivabilityStore: CombatSurvivabilityStore;
   readonly pressureStore: CombatPressureStore;
   readonly routingContagionStore: RoutingContagionStore;
+  readonly recoveryThreatStore: RecoveryThreatStore;
   readonly persistentMoraleStore: PersistentMoraleStore;
   /** Tick-start read model consumed by formation; persistent morale owns it. */
   readonly moraleMovementStates: Map<UnitId, MoraleMovementState>;
@@ -168,6 +173,7 @@ export interface CombatSandboxSimulationState {
   readonly consequenceApplications: CombatConsequenceApplication[];
   readonly pressureUpdates: UnitPressureUpdate[];
   readonly routingContagionSummaries: UnitRoutingContagionSummary[];
+  readonly recoveryThreatSummaries: UnitRecoveryThreatSummary[];
   readonly moraleAssessments: CombatMoraleAssessment[];
   readonly moraleEvents: PersistentMoraleEvent[];
   readonly appliedDamagePressureScale: number;
