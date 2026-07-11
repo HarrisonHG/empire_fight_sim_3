@@ -14,10 +14,12 @@ import {
   type CombatSurvivabilityApplication,
 } from "../../src/sim/combatSurvivability";
 import {
+  applyUnitCohesionLoss,
   createFormationBehaviourStore,
   getIndividualPressure,
   getUnitAnchor,
   getUnitCohesion,
+  getUnitMaximumCohesion,
   getUnitMovementStyle,
   restoreUnitCohesion,
   setIndividualPressure,
@@ -225,8 +227,9 @@ describe("persistent unit morale", () => {
     );
   });
 
-  it("rebuilds recovering cohesion gradually through the formation store", () => {
+  it("rebuilds recovering cohesion gradually through the formation store without exceeding its configured maximum", () => {
     const harness = routeHarness({ targetCohesion: 600 });
+    applyUnitCohesionLoss(harness.formation, TARGET_UNIT_ID, 30);
     setTargetPressure(harness, 0);
     for (let tick = 0; tick < 6; tick += 1) {
       advance(harness, [], {
@@ -252,6 +255,25 @@ describe("persistent unit morale", () => {
     );
     expect(getUnitCohesion(harness.formation, TARGET_UNIT_ID)).toBeLessThan(
       3_000_000_000,
+    );
+    expect(getUnitCohesion(harness.formation, TARGET_UNIT_ID)).toBe(
+      getUnitMaximumCohesion(harness.formation, TARGET_UNIT_ID),
+    );
+  });
+
+  it("keeps persistent cohesion aligned after same-tick recovery restoration", () => {
+    const harness = routeHarness({ targetCohesion: 600 });
+    applyUnitCohesionLoss(harness.formation, TARGET_UNIT_ID, 30);
+    setTargetPressure(harness, 0);
+    for (let tick = 0; tick < 7; tick += 1) {
+      advance(harness, [], {
+        pressureUpdates: calmPressureUpdates(),
+        recoveryThreatSummaries: recoveryThreats(false),
+      });
+    }
+
+    expect(getPersistentUnitMorale(harness.store, TARGET_UNIT_ID).cohesion).toBe(
+      getUnitCohesion(harness.formation, TARGET_UNIT_ID),
     );
   });
 

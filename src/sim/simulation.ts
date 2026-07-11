@@ -25,6 +25,7 @@ import {
 import {
   advancePersistentMoraleOneTick,
   createPersistentMoraleStore,
+  getPersistentUnitMorale,
   getPersistentUnitMoraleState,
 } from "./persistentMorale";
 import {
@@ -576,6 +577,10 @@ function createCombatDebugSnapshot(
       throw new Error("Live combat morale assessments are out of sync.");
     }
 
+    const persistentMorale = getPersistentUnitMorale(
+      combatSandbox.persistentMoraleStore,
+      unitId,
+    );
     units.push({
       unitId,
       factionId: getFactionIdForUnit(combatSandbox.identityStore, unitId),
@@ -585,8 +590,13 @@ function createCombatDebugSnapshot(
         combatSandbox.survivabilityStore,
         unitId,
       ),
-      pressureAverage: moraleAssessment.pressureAverage,
-      moraleState: moraleAssessment.moraleState,
+      assessmentPressureAverage: moraleAssessment.pressureAverage,
+      assessmentMoraleState: moraleAssessment.moraleState,
+      persistentMoraleState: persistentMorale.state,
+      routingRisk: persistentMorale.routingRisk,
+      recoveryProgress: persistentMorale.recoveryProgress,
+      persistentPressure: persistentMorale.pressure,
+      currentCohesion: persistentMorale.cohesion,
     });
   }
 

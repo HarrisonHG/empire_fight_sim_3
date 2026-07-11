@@ -28,6 +28,13 @@ describe("SimulationRunner", () => {
     }
     expect(initialSnapshot.factionIds).toHaveLength(35);
     expect(initialSnapshot.combatDebug?.units).toHaveLength(2);
+    expect(initialSnapshot.combatDebug?.units[0]).toMatchObject({
+      persistentMoraleState: "steady",
+      routingRisk: 0,
+      recoveryProgress: 0,
+      persistentPressure: 0,
+      currentCohesion: expect.any(Number),
+    });
 
     let lastMessages: readonly WorkerMessage[] = [];
     for (let tick = 0; tick < 320; tick += 1) {
@@ -50,6 +57,13 @@ describe("SimulationRunner", () => {
       finalSnapshot.combatDebug?.totalSurvivabilityApplicationCount,
     ).toBeGreaterThan(0);
     expect(finalSnapshot.combatDebug?.totalConsequenceCount).toBeGreaterThan(0);
+    expect(finalSnapshot.combatDebug?.units[0]).toMatchObject({
+      persistentMoraleState: expect.any(String),
+      routingRisk: expect.any(Number),
+      recoveryProgress: expect.any(Number),
+      persistentPressure: expect.any(Number),
+      currentCohesion: expect.any(Number),
+    });
     expect(findMessage(lastMessages, "metrics").snapshotBytes).toBeGreaterThan(
       35 * 2 * Int32Array.BYTES_PER_ELEMENT,
     );

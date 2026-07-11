@@ -108,7 +108,7 @@ describe("live combat scenario", () => {
       sawSurvivabilityApplication ||= debug.survivabilityApplicationCount > 0;
       sawConsequence ||= debug.consequenceCount > 0;
       sawNonSteadyMorale ||= debug.units.some(
-        (unit) => unit.moraleState !== "steady",
+        (unit) => unit.assessmentMoraleState !== "steady",
       );
       const bothEngageFront =
         getUnitMovementStyle(combat.formationStore, 1) === "engageFront" &&
@@ -159,6 +159,15 @@ describe("live combat scenario", () => {
     expect(debug.totalSurvivabilityApplicationCount).toBeGreaterThan(0);
     expect(debug.totalConsequenceCount).toBeGreaterThan(0);
     expect(debug.units.some((unit) => unit.accumulatedDamage > 0)).toBe(true);
+    for (const unit of debug.units) {
+      expect(unit).toMatchObject({
+        persistentMoraleState: expect.any(String),
+        routingRisk: expect.any(Number),
+        recoveryProgress: expect.any(Number),
+        persistentPressure: expect.any(Number),
+        currentCohesion: expect.any(Number),
+      });
+    }
     expect(simulation.world.entityCount).toBe(35);
     expect(Array.from(simulation.world.ids)).toEqual(
       Array.from({ length: 35 }, (_, index) => index),
@@ -220,7 +229,7 @@ describe("live combat scenario", () => {
 
     expect(firstSummary).toEqual(secondSummary);
     expect(JSON.stringify(firstSummary)).not.toMatch(
-      /death|dead|removal|removed|routing|routed|healing|heal|call|shout|special.?effect/i,
+      /death|dead|removal|removed|healing|heal|call|shout|special.?effect/i,
     );
   });
 });

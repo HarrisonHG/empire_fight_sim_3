@@ -46,7 +46,7 @@ wont-fix
 ## DC-001 — Representative unit sizes
 
 **Area:** Performance scenarios / content assumptions  
-**Status:** noted
+**Status:** resolved
 
 **Observation**
 
@@ -70,9 +70,11 @@ A more representative 2,000-person army would likely contain more units, for exa
 
 These cases increase unit-level work while keeping individuals grouped, so they may produce meaningfully different performance characteristics.
 
-**Why deferred**
+**Resolution (Milestone 4H-1, 2026-07-11)**
 
-The current benchmark still proves that grouped individuals are far cheaper than 2,000 one-person units. Exact content-scale validation can wait until unit/captain behaviour is more complete.
+Added a separately reported 2,000-entity formation benchmark with 100 units of
+20 people. The existing 40×50 multi-person path and 2,000 one-person-unit
+stress path remain in place for comparison.
 
 **Revisit trigger**
 
@@ -392,7 +394,7 @@ Milestone 15.
 ## DC-012 — Milestone numbering references may drift
 
 **Area:** Documentation  
-**Status:** noted
+**Status:** resolved
 
 **Observation**
 
@@ -407,9 +409,10 @@ Milestone 7: Captains and command
 
 Cross-document references should be checked during consolidation.
 
-**Why deferred**
+**Resolution (Milestone 4H-1, 2026-07-11)**
 
-The active implementation boundary is understood and no simulation code depends on the numbering.
+The active Milestone 4 plan now consistently defers captain-assisted rallying
+and command bonuses to Milestone 7.
 
 **Revisit trigger**
 
@@ -418,6 +421,88 @@ Milestone 4H documentation consolidation.
 **Likely milestone**
 
 Milestone 4H.
+
+---
+
+
+## DC-013 — Recovery cohesion lacks a semantic maximum
+
+**Area:** Morale recovery / formation state
+**Status:** resolved
+
+**Observation**
+
+`restoreUnitCohesion` currently clamps to the signed 32-bit integer state limit rather than to a unit's intended cohesion ceiling.
+
+A unit that routes because of pressure while retaining cohesion near its configured starting value can therefore recover above that value. The existing bound test proves storage safety, not model correctness.
+
+A likely correction is to store an explicit maximum or baseline cohesion per unit and cap recovery at that value.
+
+**Resolution (Milestone 4H-1, 2026-07-11)**
+
+Formation now stores each unit's configured-initial cohesion as its semantic
+maximum, and recovery restoration is capped at that value.
+
+**Revisit trigger**
+
+Milestone 4H consolidation.
+
+**Likely milestone**
+
+Milestone 4H.
+
+---
+
+## DC-014 — Persistent morale cohesion sample can be stale after recovery restoration
+
+**Area:** State ownership / debugging
+**Status:** resolved
+
+**Observation**
+
+Persistent morale samples formation-owned cohesion before applying same-tick recovery restoration.
+
+After restoration, the persistent read model can report the pre-restoration cohesion value until the next tick, even though the formation store has already changed.
+
+**Resolution (Milestone 4H-1, 2026-07-11)**
+
+Persistent morale now refreshes its sampled cohesion from the formation store
+immediately after requesting recovery restoration.
+
+**Revisit trigger**
+
+Persistent morale state is exposed in the Milestone 4H debug snapshot.
+
+**Likely milestone**
+
+Milestone 4H.
+
+---
+
+## DC-015 — Recovery safety is queried from the unit anchor
+
+**Area:** Recovery threat geometry
+**Status:** watching
+
+**Observation**
+
+Recovery safety currently queries for hostile entities within the shared radius around the unit anchor rather than around the full unit footprint or each member.
+
+For normal Empire units of approximately 5–30 people this is probably adequate, but unusually wide or deep formations could have a hostile near one edge while the anchor remains outside the recovery radius.
+
+**Why deferred**
+
+No representative unit currently reproduces a false-safe recovery decision, and a footprint-aware query would add complexity without evidence.
+
+**Revisit trigger**
+
+- A standard 5–30-person scenario reproduces the issue.
+- Formation footprints become authoritative for threat queries.
+- Very large or unusually shaped units are introduced.
+
+**Likely milestone**
+
+Milestone 8, 10, or 15.
 
 ---
 

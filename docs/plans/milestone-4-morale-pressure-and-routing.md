@@ -594,6 +594,21 @@ routing recruits disrupt the reserve
 some units recover if pressure disappears
 ```
 
+### 4H-1 consolidation record (2026-07-11)
+
+- [x] Formation owns both current cohesion and its configured-initial maximum;
+  recovery restoration cannot exceed that maximum.
+- [x] Persistent morale refreshes its sampled cohesion immediately after a
+  formation-owned recovery restoration. It owns transition history only.
+- [x] The live tick remains: prior projected morale movement, combat,
+  consequence/pressure, tick-start routing contagion, local recovery threat,
+  assessment, persistent arbitration, then projection for the following tick.
+- [x] The existing debug snapshot/panel distinguishes stateless assessment
+  inputs from persistent morale state, routing risk, recovery progress,
+  pressure, and current cohesion.
+- [x] Retained 40×50 and 2,000 one-person stress coverage; added a separately
+  reported 2,000-entity / 100×20 ordinary-unit formation benchmark.
+
 ---
 
 ## Suggested tick order

@@ -136,8 +136,16 @@ export interface LiveCombatDebugUnitSnapshot {
   readonly memberCount: number;
   readonly movementStyle: UnitMovementStyle;
   readonly accumulatedDamage: number;
-  readonly pressureAverage: number;
-  readonly moraleState: CombatMoraleState;
+  /** Stateless Milestone 3 assessment, retained for diagnostic comparison. */
+  readonly assessmentPressureAverage: number;
+  /** Stateless Milestone 3 assessment, retained for diagnostic comparison. */
+  readonly assessmentMoraleState: CombatMoraleState;
+  /** Persistent Milestone 4 interpretation consumed by next tick's movement. */
+  readonly persistentMoraleState: MoraleMovementState;
+  readonly routingRisk: number;
+  readonly recoveryProgress: number;
+  readonly persistentPressure: number;
+  readonly currentCohesion: number;
 }
 
 /** Compact, render-safe inspection state for the production combat sandbox. */

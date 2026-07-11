@@ -57,6 +57,18 @@ describe("formation behaviour performance", () => {
     assertPerformanceReport(report, 1_000);
     writeFormationReport(report);
   });
+
+  it(
+    "reports tick timing for 2000 entities in 100 ordinary 20-person units",
+    () => {
+      const report = runFormationPerformanceScenario(2_000);
+      assertPerformanceReport(report, 2_000);
+      expect(report.unitCount).toBe(100);
+      expect(report.membersPerUnit).toBe(20);
+      writeFormationReport(report);
+    },
+    30_000,
+  );
 });
 
 interface FormationPerformanceReport {

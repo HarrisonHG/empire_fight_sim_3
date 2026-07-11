@@ -69,7 +69,10 @@ export class MetricsPanel {
         (unit) =>
           `U${unit.unitId}/F${unit.factionId} (${unit.memberCount}): ` +
           `${unit.movementStyle}, D ${formatCombatNumber(unit.accumulatedDamage)}, ` +
-          `P ${formatCombatNumber(unit.pressureAverage)}, ${unit.moraleState}`,
+          `M ${unit.persistentMoraleState}, R ${unit.routingRisk}, ` +
+          `Rec ${unit.recoveryProgress}, P ${formatCombatNumber(unit.persistentPressure)}, ` +
+          `C ${unit.currentCohesion} ` +
+          `(assessment ${unit.assessmentMoraleState}/P ${formatCombatNumber(unit.assessmentPressureAverage)})`,
       )
       .join(" | ");
   }
