@@ -5,9 +5,13 @@ import {
   getUnitAnchor,
   getUnitCohesion,
   setIndividualPressure,
+  type RoutingPassThroughInteraction,
   type FormationBehaviourStore,
 } from "./formationBehaviour";
-import type { UnitMoraleMovementStateSource } from "./moraleMovement";
+import {
+  ROUTING_PASS_THROUGH_PROXIMITY_DISTANCE,
+  type UnitMoraleMovementStateSource,
+} from "./moraleMovement";
 import {
   buildSpatialGrid,
   createSpatialGrid,
@@ -27,7 +31,7 @@ import type { WorldState } from "./types";
 /** All 4F values are integer, bounded, and resolved once per target per tick. */
 export const ROUTING_CONTAGION_CONSTANTS = {
   localRadius: 96,
-  passThroughDistance: 12,
+  passThroughDistance: ROUTING_PASS_THROUGH_PROXIMITY_DISTANCE,
   nearbyPressurePerMember: 6,
   passThroughPressurePerMember: 18,
   passThroughCohesionLoss: 8,
@@ -103,6 +107,7 @@ export function advanceRoutingContagionOneTick(
   identityStore: UnitIdentityStore,
   formationStore: FormationBehaviourStore,
   tickStartMoraleStates: UnitMoraleMovementStateSource,
+  routingPassThroughInteractions: readonly RoutingPassThroughInteraction[],
   store: RoutingContagionStore,
   out: UnitRoutingContagionSummary[] = [],
 ): RoutingContagionTickResult {
@@ -118,12 +123,12 @@ export function advanceRoutingContagionOneTick(
       continue;
     }
     collectRouterContributions(
-      world,
       identityStore,
       formationStore,
       internal,
       grid,
       routerUnitId,
+      routingPassThroughInteractions,
     );
   }
 
@@ -159,12 +164,12 @@ export function advanceRoutingContagionOneTick(
 }
 
 function collectRouterContributions(
-  world: WorldState,
   identityStore: UnitIdentityStore,
   formationStore: FormationBehaviourStore,
   store: InternalRoutingContagionStore,
   grid: SpatialGrid,
   routerUnitId: UnitId,
+  routingPassThroughInteractions: readonly RoutingPassThroughInteraction[],
 ): void {
   const routerAnchor = getUnitAnchor(formationStore, routerUnitId);
   const nearbyEntityIds = queryEntitiesWithinRadiusInto(
@@ -201,9 +206,8 @@ function collectRouterContributions(
     }
 
     const targetUnitIndex = requireUnitIndex(store, targetUnitId);
-    const passThrough = isRoutingUnitPassingThroughTarget(
-      world,
-      identityStore,
+    const passThrough = hasRoutingPassThroughInteraction(
+      routingPassThroughInteractions,
       routerUnitId,
       targetUnitId,
     );
@@ -323,28 +327,18 @@ function calculateResistance(
   return { pressure, cohesion };
 }
 
-function isRoutingUnitPassingThroughTarget(
-  world: WorldState,
-  identityStore: UnitIdentityStore,
+function hasRoutingPassThroughInteraction(
+  interactions: readonly RoutingPassThroughInteraction[],
   routerUnitId: UnitId,
   targetUnitId: UnitId,
 ): boolean {
-  const routerMembers = getUnitMembers(identityStore, routerUnitId);
-  const targetMembers = getUnitMembers(identityStore, targetUnitId);
-  const distance = ROUTING_CONTAGION_CONSTANTS.passThroughDistance;
-  const distanceSquared = distance * distance;
-
-  for (let routerIndex = 0; routerIndex < routerMembers.length; routerIndex += 1) {
-    const routerEntityId = routerMembers[routerIndex]!;
-    for (let targetIndex = 0; targetIndex < targetMembers.length; targetIndex += 1) {
-      const targetEntityId = targetMembers[targetIndex]!;
-      const deltaX =
-        world.positionsX[routerEntityId]! - world.positionsX[targetEntityId]!;
-      const deltaY =
-        world.positionsY[routerEntityId]! - world.positionsY[targetEntityId]!;
-      if (deltaX * deltaX + deltaY * deltaY <= distanceSquared) {
-        return true;
-      }
+  for (let index = 0; index < interactions.length; index += 1) {
+    const interaction = interactions[index]!;
+    if (
+      interaction.routerUnitId === routerUnitId &&
+      interaction.targetUnitId === targetUnitId
+    ) {
+      return true;
     }
   }
   return false;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  advanceFormationOneTick,
   createFormationBehaviourStore,
   getIndividualPressure,
   getUnitCohesion,
@@ -47,16 +48,56 @@ describe("local routing contagion", () => {
     });
   });
 
-  it("uses stronger pass-through pressure and cohesion loss instead of nearby pressure", () => {
+  it("treats stationary routing overlap as nearby pressure only", () => {
     const harness = createHarness([router(1, 0, 100, 100), ally(2, 1, 106, 100)]);
 
     const summaries = advance(harness, [1]);
 
     expect(summaryFor(summaries, 2)).toMatchObject({
-      nearbyRouterUnitIds: [],
+      nearbyRouterUnitIds: [1],
+      passThroughRouterUnitIds: [],
+      pressureAppliedPerMember: 5,
+      cohesionLossApplied: 0,
+    });
+    expect(getUnitCohesion(harness.formation, 2)).toBe(1_000);
+  });
+
+  it("uses an actual routing movement segment for pass-through, then does not repeat it without a new movement interaction", () => {
+    const harness = createRoutingMovementHarness();
+    const routingStates = new Map<UnitId, MoraleMovementState>([[1, "routing"]]);
+
+    const firstMovement = advanceFormationOneTick(
+      harness.world,
+      harness.identity,
+      harness.formation,
+      routingStates,
+    );
+    const firstSummaries = advance(
+      harness,
+      [1],
+      firstMovement.routingPassThroughInteractions,
+    );
+
+    expect(firstMovement.routingPassThroughInteractions).toEqual([
+      { routerUnitId: 1, targetUnitId: 2 },
+    ]);
+    expect(summaryFor(firstSummaries, 2)).toMatchObject({
       passThroughRouterUnitIds: [1],
       pressureAppliedPerMember: 17,
       cohesionLossApplied: 7,
+    });
+
+    const stoppedSummaries = advance(
+      harness,
+      [1],
+      [],
+    );
+
+    expect(summaryFor(stoppedSummaries, 2)).toMatchObject({
+      nearbyRouterUnitIds: [1],
+      passThroughRouterUnitIds: [],
+      pressureAppliedPerMember: 5,
+      cohesionLossApplied: 0,
     });
     expect(getUnitCohesion(harness.formation, 2)).toBe(993);
   });
@@ -67,7 +108,10 @@ describe("local routing contagion", () => {
       ally(2, 2, 106, 100),
     ]);
 
-    const summaries = advance(harness, [1]);
+    const summaries = advance(harness, [1], [
+      { routerUnitId: 1, targetUnitId: 2 },
+      { routerUnitId: 1, targetUnitId: 2 },
+    ]);
 
     expect(summaryFor(summaries, 2).passThroughRouterUnitIds).toEqual([1]);
     expect(summaryFor(summaries, 2).pressureAppliedPerMember).toBe(17);
@@ -80,7 +124,14 @@ describe("local routing contagion", () => {
     }
     const harness = createHarness(definitions);
 
-    const summaries = advance(harness, [1, 2, 3, 4, 5, 6, 7]);
+    const summaries = advance(
+      harness,
+      [1, 2, 3, 4, 5, 6, 7],
+      [1, 2, 3, 4, 5, 6, 7].map((routerUnitId) => ({
+        routerUnitId,
+        targetUnitId: 10,
+      })),
+    );
     const target = summaryFor(summaries, 10);
 
     expect(target.passThroughRouterUnitIds).toEqual([1, 2, 3, 4, 5, 6, 7]);
@@ -108,18 +159,48 @@ describe("local routing contagion", () => {
     expect(summaryFor(summaries, 3).pressureAppliedPerMember).toBeGreaterThan(0);
   });
 
-  it("does not recursively treat a newly affected ally as a router this tick", () => {
+  it("does not cascade through a newly routed unit until the following tick", () => {
     const harness = createHarness([
       router(1, 0, 100, 100),
       ally(2, 1, 150, 100),
       ally(3, 2, 200, 100),
     ]);
 
-    const summaries = advance(harness, [1]);
+    const tickOneStates = new Map<UnitId, MoraleMovementState>([[1, "routing"]]);
+    const tickOneMovement = advanceFormationOneTick(
+      harness.world,
+      harness.identity,
+      harness.formation,
+      tickOneStates,
+    );
+    const tickOneSummaries = advance(
+      harness,
+      [1],
+      tickOneMovement.routingPassThroughInteractions,
+    );
 
-    expect(summaryFor(summaries, 2).nearbyRouterUnitIds).toEqual([1]);
-    expect(summaryFor(summaries, 3).nearbyRouterUnitIds).toEqual([]);
+    expect(summaryFor(tickOneSummaries, 2).nearbyRouterUnitIds).toEqual([1]);
+    expect(summaryFor(tickOneSummaries, 3).nearbyRouterUnitIds).toEqual([]);
     expect(getIndividualPressure(harness.formation, 2)).toBe(0);
+
+    // This is the projection produced by the end-of-tick morale transition.
+    const tickTwoStates = new Map<UnitId, MoraleMovementState>([
+      [1, "routing"],
+      [2, "routing"],
+    ]);
+    const tickTwoMovement = advanceFormationOneTick(
+      harness.world,
+      harness.identity,
+      harness.formation,
+      tickTwoStates,
+    );
+    const tickTwoSummaries = advance(
+      harness,
+      [1, 2],
+      tickTwoMovement.routingPassThroughInteractions,
+    );
+
+    expect(summaryFor(tickTwoSummaries, 3).nearbyRouterUnitIds).toEqual([2]);
   });
 
   it("is independent of unit-definition processing order", () => {
@@ -215,6 +296,77 @@ function ally(
   };
 }
 
+function createRoutingMovementHarness() {
+  const world: WorldState = {
+    entityCount: 2,
+    bounds: { width: 116, height: 200 },
+    ids: Uint32Array.from([0, 1]),
+    positionsX: Int32Array.from([100, 110]),
+    positionsY: Int32Array.from([100, 100]),
+    velocitiesX: new Int32Array(2),
+    velocitiesY: new Int32Array(2),
+  };
+  const identity = createUnitIdentityStore({
+    entityCount: 2,
+    units: [
+      { unitId: 1, factionId: 1, memberEntityIds: [0] },
+      { unitId: 2, factionId: 1, memberEntityIds: [1] },
+    ],
+  });
+  const formation = createFormationBehaviourStore(identity, {
+    entityCount: 2,
+    rngSeed: 0x46_43,
+    units: [
+      {
+        unitId: 1,
+        anchorX: 100,
+        anchorY: 100,
+        headingX: -1,
+        headingY: 0,
+        spacing: 10,
+        rows: 1,
+        cols: 1,
+        unitSpeed: 15,
+        order: "advance",
+      },
+      {
+        unitId: 2,
+        anchorX: 110,
+        anchorY: 100,
+        headingX: 1,
+        headingY: 0,
+        spacing: 10,
+        rows: 1,
+        cols: 1,
+        unitSpeed: 0,
+        order: "hold",
+      },
+    ],
+    individuals: [
+      {
+        entityId: 0,
+        role: "regular",
+        slotRow: 0,
+        slotCol: 0,
+        memberMaxStep: 15,
+      },
+      {
+        entityId: 1,
+        role: "regular",
+        slotRow: 0,
+        slotCol: 0,
+        memberMaxStep: 0,
+      },
+    ],
+  });
+  return {
+    world,
+    identity,
+    formation,
+    store: createRoutingContagionStore(identity),
+  };
+}
+
 function createHarness(definitions: readonly UnitDefinition[]) {
   const entityCount = definitions.reduce(
     (maximum, definition) =>
@@ -280,6 +432,10 @@ function createHarness(definitions: readonly UnitDefinition[]) {
 function advance(
   harness: ReturnType<typeof createHarness>,
   routingUnitIds: readonly UnitId[],
+  routingPassThroughInteractions: ReadonlyArray<{
+    readonly routerUnitId: UnitId;
+    readonly targetUnitId: UnitId;
+  }> = [],
 ) {
   const states = new Map<UnitId, MoraleMovementState>();
   for (const unitId of routingUnitIds) states.set(unitId, "routing");
@@ -288,6 +444,7 @@ function advance(
     harness.identity,
     harness.formation,
     states,
+    routingPassThroughInteractions,
     harness.store,
   ).summaries;
 }

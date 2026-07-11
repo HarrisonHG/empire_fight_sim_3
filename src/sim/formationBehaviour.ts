@@ -13,6 +13,9 @@ import {
   type UnitId,
   type UnitIdentityStore,
 } from "./unitIdentity";
+import {
+  ROUTING_PASS_THROUGH_PROXIMITY_DISTANCE,
+} from "./moraleMovement";
 import type {
   MoraleMovementState,
   UnitMoraleMovementStateSource,
@@ -86,8 +89,15 @@ export type FormationEvent =
   | { readonly kind: "stuck_entered"; readonly entityId: number }
   | { readonly kind: "stuck_recovered"; readonly entityId: number };
 
+/** Tick-local movement evidence for 4F; formation never applies morale effects. */
+export interface RoutingPassThroughInteraction {
+  readonly routerUnitId: UnitId;
+  readonly targetUnitId: UnitId;
+}
+
 export interface FormationTickResult {
   readonly events: readonly FormationEvent[];
+  readonly routingPassThroughInteractions: readonly RoutingPassThroughInteraction[];
 }
 
 interface InternalFormationBehaviourStore extends FormationBehaviourStore {
@@ -137,6 +147,9 @@ interface InternalFormationBehaviourStore extends FormationBehaviourStore {
   /** Tick-start anchors used for order-independent 4E retreat choices. */
   readonly anchorSnapshotX: Int32Array;
   readonly anchorSnapshotY: Int32Array;
+  readonly routingPassThroughRouterUnitIds: Int32Array;
+  readonly routingPassThroughTargetUnitIds: Int32Array;
+  routingPassThroughCount: number;
 
   readonly rng: SeededRng;
 }
@@ -169,6 +182,9 @@ const WAVERING_CORRECTION_SCALE = 500;
 const RECOVERING_CORRECTION_SCALE = 700;
 const ROUTING_PRIMARY_HOSTILE_QUERY_RADIUS = 192;
 const ROUTING_LATERAL_CORRECTION_MAX_STEP = 1;
+const MAX_ROUTING_PASS_THROUGH_INTERACTIONS_PER_TICK = 256;
+const NO_ROUTING_PASS_THROUGH_INTERACTIONS: readonly RoutingPassThroughInteraction[] =
+  Object.freeze([]);
 
 export function createFormationBehaviourStore(
   identityStore: UnitIdentityStore,
@@ -249,6 +265,13 @@ export function createFormationBehaviourStore(
     contactSnapshotPositionsY: new Int32Array(config.entityCount),
     anchorSnapshotX: new Int32Array(unitCount),
     anchorSnapshotY: new Int32Array(unitCount),
+    routingPassThroughRouterUnitIds: new Int32Array(
+      MAX_ROUTING_PASS_THROUGH_INTERACTIONS_PER_TICK,
+    ),
+    routingPassThroughTargetUnitIds: new Int32Array(
+      MAX_ROUTING_PASS_THROUGH_INTERACTIONS_PER_TICK,
+    ),
+    routingPassThroughCount: 0,
     rng: new SeededRng(config.rngSeed),
   };
   store.activeBlockerUnitId.fill(NO_ACTIVE_BLOCKER_UNIT_ID);
@@ -501,6 +524,7 @@ export function advanceFormationOneTick(
   validateWorldForBehaviour(world, internal, identityStore);
 
   const events: FormationEvent[] = [];
+  internal.routingPassThroughCount = 0;
   const unitIds = getUnitIds(identityStore);
   const blockerGrid =
     unitIds.length > 1 ? prepareBlockerGrid(internal, world) : undefined;
@@ -531,7 +555,12 @@ export function advanceFormationOneTick(
     );
   }
 
-  return { events };
+  return {
+    events,
+    routingPassThroughInteractions: collectRoutingPassThroughInteractions(
+      internal,
+    ),
+  };
 }
 
 function processUnit(
@@ -1120,6 +1149,19 @@ function processRoutingUnit(
     );
     const moved = nextX !== currentX || nextY !== currentY;
 
+    if (moved) {
+      recordRoutingMemberPassThroughInteractions(
+        identityStore,
+        store,
+        blockerGrid,
+        unitId,
+        sourceFactionId,
+        entityId,
+        nextX,
+        nextY,
+      );
+    }
+
     world.positionsX[entityId] = nextX;
     world.positionsY[entityId] = nextY;
     store.movementMode[entityId] = moved
@@ -1213,6 +1255,141 @@ function clampWorldCoordinate(coordinate: number, extent: number): number {
   if (coordinate < 0) return 0;
   const maximum = extent - 1;
   return coordinate > maximum ? maximum : coordinate;
+}
+
+function recordRoutingMemberPassThroughInteractions(
+  identityStore: UnitIdentityStore,
+  store: InternalFormationBehaviourStore,
+  blockerGrid: SpatialGrid | undefined,
+  routerUnitId: UnitId,
+  routerFactionId: number,
+  routerEntityId: number,
+  endX: number,
+  endY: number,
+): void {
+  if (blockerGrid === undefined) {
+    return;
+  }
+  const startX = store.contactSnapshotPositionsX[routerEntityId]!;
+  const startY = store.contactSnapshotPositionsY[routerEntityId]!;
+  const queryRadius = Math.ceil(
+    Math.hypot(endX - startX, endY - startY) +
+      ROUTING_PASS_THROUGH_PROXIMITY_DISTANCE,
+  );
+  const nearbyEntityIds = queryEntitiesWithinRadiusInto(
+    blockerGrid,
+    startX,
+    startY,
+    queryRadius,
+    store.scratchNearbyEntityIds,
+  );
+
+  for (let index = 0; index < nearbyEntityIds.length; index += 1) {
+    const targetEntityId = nearbyEntityIds[index]!;
+    if (targetEntityId === routerEntityId) continue;
+    const targetUnitId = getUnitIdForEntity(identityStore, targetEntityId);
+    if (
+      targetUnitId === routerUnitId ||
+      getFactionIdForUnit(identityStore, targetUnitId) !== routerFactionId
+    ) {
+      continue;
+    }
+    if (
+      !segmentEntersRoutingProximity(
+        startX,
+        startY,
+        endX,
+        endY,
+        store.contactSnapshotPositionsX[targetEntityId]!,
+        store.contactSnapshotPositionsY[targetEntityId]!,
+      )
+    ) {
+      continue;
+    }
+    recordRoutingPassThroughPair(store, routerUnitId, targetUnitId);
+  }
+}
+
+function segmentEntersRoutingProximity(
+  startX: number,
+  startY: number,
+  endX: number,
+  endY: number,
+  pointX: number,
+  pointY: number,
+): boolean {
+  const segmentX = endX - startX;
+  const segmentY = endY - startY;
+  const segmentLengthSquared = segmentX * segmentX + segmentY * segmentY;
+  if (segmentLengthSquared === 0) return false;
+
+  const pointXFromStart = pointX - startX;
+  const pointYFromStart = pointY - startY;
+  const projection =
+    pointXFromStart * segmentX + pointYFromStart * segmentY;
+  const radiusSquared =
+    ROUTING_PASS_THROUGH_PROXIMITY_DISTANCE *
+    ROUTING_PASS_THROUGH_PROXIMITY_DISTANCE;
+
+  if (projection <= 0) {
+    return (
+      pointXFromStart * pointXFromStart +
+        pointYFromStart * pointYFromStart <=
+      radiusSquared
+    );
+  }
+  if (projection >= segmentLengthSquared) {
+    const pointXFromEnd = pointX - endX;
+    const pointYFromEnd = pointY - endY;
+    return (
+      pointXFromEnd * pointXFromEnd + pointYFromEnd * pointYFromEnd <=
+      radiusSquared
+    );
+  }
+
+  const cross = pointXFromStart * segmentY - pointYFromStart * segmentX;
+  return cross * cross <= radiusSquared * segmentLengthSquared;
+}
+
+function recordRoutingPassThroughPair(
+  store: InternalFormationBehaviourStore,
+  routerUnitId: UnitId,
+  targetUnitId: UnitId,
+): void {
+  for (let index = 0; index < store.routingPassThroughCount; index += 1) {
+    if (
+      store.routingPassThroughRouterUnitIds[index]! === routerUnitId &&
+      store.routingPassThroughTargetUnitIds[index]! === targetUnitId
+    ) {
+      return;
+    }
+  }
+  if (
+    store.routingPassThroughCount >=
+    MAX_ROUTING_PASS_THROUGH_INTERACTIONS_PER_TICK
+  ) {
+    return;
+  }
+  const index = store.routingPassThroughCount;
+  store.routingPassThroughRouterUnitIds[index] = routerUnitId;
+  store.routingPassThroughTargetUnitIds[index] = targetUnitId;
+  store.routingPassThroughCount = index + 1;
+}
+
+function collectRoutingPassThroughInteractions(
+  store: InternalFormationBehaviourStore,
+): readonly RoutingPassThroughInteraction[] {
+  if (store.routingPassThroughCount === 0) {
+    return NO_ROUTING_PASS_THROUGH_INTERACTIONS;
+  }
+  const interactions: RoutingPassThroughInteraction[] = [];
+  for (let index = 0; index < store.routingPassThroughCount; index += 1) {
+    interactions.push({
+      routerUnitId: store.routingPassThroughRouterUnitIds[index]!,
+      targetUnitId: store.routingPassThroughTargetUnitIds[index]!,
+    });
+  }
+  return interactions;
 }
 
 function computeLooseFlowLateralOffset(

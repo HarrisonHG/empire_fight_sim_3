@@ -283,6 +283,7 @@ function runRepresentativeCombatPerformanceScenario(): RepresentativeCombatPerfo
       harness.identity,
       harness.formation,
       contagionRoutingStates,
+      formationResult.routingPassThroughInteractions,
       routingContagionStore,
       routingContagionSummaries,
     );

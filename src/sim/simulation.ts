@@ -117,7 +117,7 @@ export function advanceSimulationOneTick(simulation: SimulationState): void {
     // Preserve the Foundation baseline for its standalone movement/perf tests.
     moveWorldOneTick(simulation.world);
   } else {
-    advanceFormationOneTick(
+    const formationResult = advanceFormationOneTick(
       simulation.world,
       combatSandbox.identityStore,
       combatSandbox.formationStore,
@@ -154,6 +154,7 @@ export function advanceSimulationOneTick(simulation: SimulationState): void {
       combatSandbox.identityStore,
       combatSandbox.formationStore,
       combatSandbox.moraleMovementStates,
+      formationResult.routingPassThroughInteractions,
       combatSandbox.routingContagionStore,
       combatSandbox.routingContagionSummaries,
     );
