@@ -182,8 +182,17 @@ describe("live combat scenario", () => {
         combat.persistentMoraleStore,
         assessment.unitId,
       );
+      const pressureUpdate = combat.pressureUpdates.find(
+        (candidate) => candidate.unitId === assessment.unitId,
+      );
+      if (pressureUpdate === undefined) {
+        throw new Error("Live combat is missing its pressure update.");
+      }
       expect(morale.pressure).toBe(assessment.pressureAverage);
       expect(morale.cohesion).toBe(assessment.cohesion);
+      expect(pressureUpdate.pressureAfterAverage).toBe(
+        assessment.pressureAverage,
+      );
       expect(morale.state).not.toBe("steady");
       expect(combat.moraleEvents).toContainEqual(
         expect.objectContaining({

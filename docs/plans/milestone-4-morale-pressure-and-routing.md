@@ -119,7 +119,6 @@ Pressure may come from:
 - Being in contact
 - Being engaged
 - Taking applied damage
-- Nearby allies routing
 - Being locally outnumbered
 - Loss of cohesion
 - Flank pressure later, once geometry supports it
@@ -159,9 +158,18 @@ Pressure is an input. Morale state is a filtered interpretation of pressure, coh
 - Pressure accumulates under sustained engagement.
 - Pressure decays out of contact.
 - Veterans or high-confidence units resist equivalent pressure better.
-- Routing allies add local pressure.
-- Distant routing allies do not.
 - No global all-unit scan is introduced.
+
+### Implementation record (2026-07-11)
+
+- [x] Added a deterministic post-consequence pressure stage before morale
+  assessment, using existing contact/engagement data, consequence records, and
+  observed cohesion loss.
+- [x] Added bounded pressure decay outside fresh pressure sources and a simple
+  high-confidence engagement/decay modifier.
+- [ ] Revised morale arbitration, downward transitions, movement effects,
+  routing movement, and recovery remain outside 4B. Routing-ally contagion is
+  deferred specifically to 4F.
 
 ---
 
@@ -360,6 +368,9 @@ Routing off the world edge:
 ## 4F — Local morale contagion
 
 ### Purpose
+
+Routing-ally pressure and its local distance rules belong to this slice, not
+to 4B pressure accumulation and decay.
 
 Make nearby unit behaviour matter without creating global cascades.
 

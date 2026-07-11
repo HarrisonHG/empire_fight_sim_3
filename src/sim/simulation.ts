@@ -19,6 +19,10 @@ import {
 } from "./formationBehaviour";
 import { moveWorldOneTick } from "./movement";
 import {
+  advanceCombatPressureOneTick,
+  createCombatPressureStore,
+} from "./combatPressure";
+import {
   advancePersistentMoraleOneTick,
   createPersistentMoraleStore,
 } from "./persistentMorale";
@@ -128,6 +132,14 @@ export function advanceSimulationOneTick(simulation: SimulationState): void {
       {
         appliedDamagePressureScale: combatSandbox.appliedDamagePressureScale,
       },
+    );
+    advanceCombatPressureOneTick(
+      combatSandbox.identityStore,
+      combatSandbox.formationStore,
+      combatSandbox.pipelineOutput.opportunities,
+      combatSandbox.consequenceApplications,
+      combatSandbox.pressureStore,
+      combatSandbox.pressureUpdates,
     );
     collectCombatMoraleAssessments(
       combatSandbox.identityStore,
@@ -317,6 +329,7 @@ function createCombatSandbox(
     formationStore,
     tempoStore,
     survivabilityStore,
+    pressureStore: createCombatPressureStore(identityStore, formationStore),
     persistentMoraleStore: createPersistentMoraleStore(
       identityStore,
       formationStore,
@@ -324,6 +337,7 @@ function createCombatSandbox(
     ),
     pipelineOutput: createCombatPipelineOutput(),
     consequenceApplications: [],
+    pressureUpdates: [],
     moraleAssessments,
     moraleEvents: [],
     appliedDamagePressureScale: scenario.appliedDamagePressureScale,

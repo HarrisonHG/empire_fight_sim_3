@@ -16,6 +16,11 @@ import {
   type PersistentMoraleEvent,
 } from "../../src/sim/persistentMorale";
 import {
+  advanceCombatPressureOneTick,
+  createCombatPressureStore,
+  type UnitPressureUpdate,
+} from "../../src/sim/combatPressure";
+import {
   advanceCombatPipelineOneTick,
   createCombatPipelineOutput,
 } from "../../src/sim/combatPipeline";
@@ -29,6 +34,7 @@ import { createCombatTempoStore } from "../../src/sim/combatTempo";
 import {
   advanceFormationOneTick,
   createFormationBehaviourStore,
+  getIndividualConfidence,
   getUnitMovementStyle,
   type FormationBehaviourStore,
   type IndividualBehaviourConfig,
@@ -37,8 +43,10 @@ import {
 import type { SimulationBounds, WorldState } from "../../src/sim/types";
 import {
   createUnitIdentityStore,
+  getUnitIds,
   type UnitId,
   type UnitIdentityStore,
+  getUnitMembers,
 } from "../../src/sim/unitIdentity";
 import {
   createUnitLoadoutStore,
@@ -66,6 +74,8 @@ const START_Y = 100;
 const TARGET_ANCHOR_OFFSET_X = 8;
 const PERF_RNG_SEED = 0x4102;
 const WORLD_BOUNDS: SimulationBounds = { width: 1_800, height: 900 };
+const FOUR_A_BASELINE_MEAN_TICK_MILLISECONDS = 10.400075;
+const FOUR_A_BASELINE_P95_TICK_MILLISECONDS = 21.9073;
 
 describe("representative multi-person combat performance", () => {
   it(
@@ -89,6 +99,7 @@ describe("representative multi-person combat performance", () => {
       expect(report.totalAppliedDamage).toBe(report.totalApplications);
       expect(report.totalMoraleAssessments).toBe(UNIT_COUNT * MEASURED_TICKS);
       expect(report.totalNonSteadyMoraleAssessments).toBeGreaterThan(0);
+      expect(report.totalPressureUpdateMilliseconds).toBeGreaterThanOrEqual(0);
       expect(report.finalSourceDamageTotal).toBe(0);
       expect(report.finalTargetDamageTotal).toBe(report.totalAppliedDamage);
       expect(report.capacityReachedCount).toBe(0);
@@ -141,6 +152,15 @@ interface RepresentativeCombatPerformanceReport {
   readonly totalConsequences: number;
   readonly totalMoraleAssessments: number;
   readonly totalNonSteadyMoraleAssessments: number;
+  readonly totalPressureUpdateMilliseconds: number;
+  readonly meanPressureUpdateMilliseconds: number;
+  readonly totalConfidenceSamplingMilliseconds: number;
+  readonly meanConfidenceSamplingMilliseconds: number;
+  readonly confidenceSamples: number;
+  readonly fourABaselineMeanTickMilliseconds: number;
+  readonly fourABaselineP95TickMilliseconds: number;
+  readonly meanTickDeltaFromFourABaseline: number;
+  readonly p95TickDeltaFromFourABaseline: number;
   readonly totalAppliedDamage: number;
   readonly finalSourceDamageTotal: number;
   readonly finalTargetDamageTotal: number;
@@ -159,6 +179,7 @@ function runRepresentativeCombatPerformanceScenario(): RepresentativeCombatPerfo
   const consequenceOutput: CombatConsequenceApplication[] = [];
   const moraleOutput: CombatMoraleAssessment[] = [];
   const moraleEvents: PersistentMoraleEvent[] = [];
+  const pressureUpdates: UnitPressureUpdate[] = [];
 
   for (let tick = 0; tick < WARM_UP_TICKS; tick += 1) {
     advanceFormationOneTick(
@@ -186,6 +207,10 @@ function runRepresentativeCombatPerformanceScenario(): RepresentativeCombatPerfo
     harness.formation,
     moraleOutput,
   );
+  const pressureStore = createCombatPressureStore(
+    harness.identity,
+    harness.formation,
+  );
 
   const tickSamples = new Float64Array(MEASURED_TICKS);
   let totalTickMilliseconds = 0;
@@ -197,6 +222,7 @@ function runRepresentativeCombatPerformanceScenario(): RepresentativeCombatPerfo
   let totalConsequences = 0;
   let totalMoraleAssessments = 0;
   let totalNonSteadyMoraleAssessments = 0;
+  let totalPressureUpdateMilliseconds = 0;
   let totalAppliedDamage = 0;
 
   for (let tick = 0; tick < MEASURED_TICKS; tick += 1) {
@@ -221,6 +247,16 @@ function runRepresentativeCombatPerformanceScenario(): RepresentativeCombatPerfo
       pipelineResult.applications,
       consequenceOutput,
     );
+    const pressureStartedAt = performance.now();
+    advanceCombatPressureOneTick(
+      harness.identity,
+      harness.formation,
+      pipelineResult.opportunities,
+      consequenceResult.applications,
+      pressureStore,
+      pressureUpdates,
+    );
+    totalPressureUpdateMilliseconds += performance.now() - pressureStartedAt;
     const moraleResult = collectCombatMoraleAssessments(
       harness.identity,
       harness.formation,
@@ -257,6 +293,7 @@ function runRepresentativeCombatPerformanceScenario(): RepresentativeCombatPerfo
     (left, right) => left - right,
   );
   const p95Index = Math.max(0, Math.ceil(sortedSamples.length * 0.95) - 1);
+  const confidenceSampling = measureConfidenceSamplingCost(harness);
 
   return {
     scenario: "40x50-opposing-formed-units",
@@ -275,6 +312,21 @@ function runRepresentativeCombatPerformanceScenario(): RepresentativeCombatPerfo
     totalConsequences,
     totalMoraleAssessments,
     totalNonSteadyMoraleAssessments,
+    totalPressureUpdateMilliseconds,
+    meanPressureUpdateMilliseconds:
+      totalPressureUpdateMilliseconds / MEASURED_TICKS,
+    totalConfidenceSamplingMilliseconds:
+      confidenceSampling.totalMilliseconds,
+    meanConfidenceSamplingMilliseconds:
+      confidenceSampling.totalMilliseconds / MEASURED_TICKS,
+    confidenceSamples: confidenceSampling.sampleCount,
+    fourABaselineMeanTickMilliseconds: FOUR_A_BASELINE_MEAN_TICK_MILLISECONDS,
+    fourABaselineP95TickMilliseconds: FOUR_A_BASELINE_P95_TICK_MILLISECONDS,
+    meanTickDeltaFromFourABaseline:
+      totalTickMilliseconds / MEASURED_TICKS -
+      FOUR_A_BASELINE_MEAN_TICK_MILLISECONDS,
+    p95TickDeltaFromFourABaseline:
+      sortedSamples[p95Index]! - FOUR_A_BASELINE_P95_TICK_MILLISECONDS,
     totalAppliedDamage,
     finalSourceDamageTotal: getTotalDamage(
       harness.survivability,
@@ -568,6 +620,28 @@ function writeRepresentativeCombatReport(
           totalMoraleAssessments: report.totalMoraleAssessments,
           totalNonSteadyMoraleAssessments:
             report.totalNonSteadyMoraleAssessments,
+          totalPressureUpdateMilliseconds: roundForReport(
+            report.totalPressureUpdateMilliseconds,
+          ),
+          meanPressureUpdateMilliseconds: roundForReport(
+            report.meanPressureUpdateMilliseconds,
+          ),
+          totalConfidenceSamplingMilliseconds: roundForReport(
+            report.totalConfidenceSamplingMilliseconds,
+          ),
+          meanConfidenceSamplingMilliseconds: roundForReport(
+            report.meanConfidenceSamplingMilliseconds,
+          ),
+          confidenceSamples: report.confidenceSamples,
+          fourABaselineMeanTickMilliseconds:
+            report.fourABaselineMeanTickMilliseconds,
+          fourABaselineP95TickMilliseconds: report.fourABaselineP95TickMilliseconds,
+          meanTickDeltaFromFourABaseline: roundForReport(
+            report.meanTickDeltaFromFourABaseline,
+          ),
+          p95TickDeltaFromFourABaseline: roundForReport(
+            report.p95TickDeltaFromFourABaseline,
+          ),
           totalAppliedDamage: report.totalAppliedDamage,
           finalSourceDamageTotal: report.finalSourceDamageTotal,
           finalTargetDamageTotal: report.finalTargetDamageTotal,
@@ -586,6 +660,36 @@ function writeRepresentativeCombatReport(
       ) +
       "\n",
   );
+}
+
+function measureConfidenceSamplingCost(
+  harness: RepresentativeCombatHarness,
+): { readonly totalMilliseconds: number; readonly sampleCount: number } {
+  let totalMilliseconds = 0;
+  let sampleCount = 0;
+  let confidenceTotal = 0;
+  const unitIds = getUnitIds(harness.identity);
+
+  for (let tick = 0; tick < MEASURED_TICKS; tick += 1) {
+    const startedAt = performance.now();
+    for (let unitIndex = 0; unitIndex < harness.identity.unitCount; unitIndex += 1) {
+      const unitId = unitIds[unitIndex]!;
+      const members = getUnitMembers(harness.identity, unitId);
+      for (let memberIndex = 0; memberIndex < members.length; memberIndex += 1) {
+        confidenceTotal += getIndividualConfidence(
+          harness.formation,
+          members[memberIndex]!,
+        );
+        sampleCount += 1;
+      }
+    }
+    totalMilliseconds += performance.now() - startedAt;
+  }
+
+  if (confidenceTotal < 0) {
+    throw new Error("Confidence sampling total must be non-negative.");
+  }
+  return { totalMilliseconds, sampleCount };
 }
 
 function roundForReport(value: number): number {

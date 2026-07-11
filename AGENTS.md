@@ -305,6 +305,7 @@ When reporting completion, include:
 * whether performance was affected
 * any scope deviations
 * remaining risks or follow-up work
+* A zip of recently changed files in the root directory, created by running scrips/zip-working-changes.ps1
 
 Do not claim success unless the stated checks have passed.
 
