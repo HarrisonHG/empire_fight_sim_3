@@ -1,6 +1,12 @@
 import type { CombatMoraleAssessment } from "./combatMorale";
+import type { UnitPressureUpdate } from "./combatPressure";
+import {
+  getUnitAccumulatedDamage,
+  type CombatSurvivabilityStore,
+} from "./combatSurvivability";
 import {
   getIndividualConfidence,
+  getIndividualRole,
   type FormationBehaviourStore,
 } from "./formationBehaviour";
 import {
@@ -50,6 +56,13 @@ export interface PersistentMoraleTickResult {
   readonly events: readonly PersistentMoraleEvent[];
 }
 
+export interface PersistentMoraleContext {
+  /** Existing survivability ownership; read-only accumulated damage history. */
+  readonly survivabilityStore?: CombatSurvivabilityStore;
+  /** Latest 4B source summaries in deterministic unit order. */
+  readonly pressureUpdates?: readonly UnitPressureUpdate[];
+}
+
 interface InternalPersistentMoraleStore extends PersistentMoraleStore {
   readonly unitIndexById: ReadonlyMap<UnitId, number>;
   readonly pressure: number[];
@@ -57,12 +70,22 @@ interface InternalPersistentMoraleStore extends PersistentMoraleStore {
   readonly cohesion: Int32Array;
   readonly states: PersistentUnitMoraleState[];
   readonly stateTicks: Int32Array;
+  readonly upwardTicks: Int32Array;
+  readonly downwardTicks: Int32Array;
+  readonly safeTicks: Int32Array;
   readonly routingRisk: Int32Array;
   readonly recoveryProgress: Int32Array;
 }
 
-const ROUTING_RISK_THRESHOLD = 100;
 const MAX_INTEGER_STATE_VALUE = 0x7fff_ffff;
+const STRAINED_STRESS_THRESHOLD = 30;
+const SHAKEN_STRESS_THRESHOLD = 60;
+const WAVERING_STRESS_THRESHOLD = 90;
+const ROUTING_STRESS_THRESHOLD = 120;
+const ROUTING_RISK_THRESHOLD = 40;
+const DOWNWARD_TRANSITION_TICKS = 4;
+const ROUTING_SAFE_TICKS = 6;
+const RECOVERY_STEADY_TICKS = 6;
 
 export function createPersistentMoraleStore(
   identityStore: UnitIdentityStore,
@@ -84,6 +107,9 @@ export function createPersistentMoraleStore(
     cohesion: new Int32Array(unitIds.length),
     states: new Array<PersistentUnitMoraleState>(unitIds.length).fill("steady"),
     stateTicks: new Int32Array(unitIds.length),
+    upwardTicks: new Int32Array(unitIds.length),
+    downwardTicks: new Int32Array(unitIds.length),
+    safeTicks: new Int32Array(unitIds.length),
     routingRisk: new Int32Array(unitIds.length),
     recoveryProgress: new Int32Array(unitIds.length),
   };
@@ -102,8 +128,8 @@ export function createPersistentMoraleStore(
 }
 
 /**
- * Applies only the 4A persistent interpretation layer. It deliberately does
- * not decay pressure, recover units, or affect formation/movement behaviour.
+ * Interprets 4B pressure through durable 4C state transitions. It reads
+ * existing stores only and deliberately does not affect formation/movement.
  */
 export function advancePersistentMoraleOneTick(
   identityStore: UnitIdentityStore,
@@ -111,6 +137,7 @@ export function advancePersistentMoraleOneTick(
   assessments: readonly CombatMoraleAssessment[],
   store: PersistentMoraleStore,
   out: PersistentMoraleEvent[] = [],
+  context: PersistentMoraleContext = {},
 ): PersistentMoraleTickResult {
   validateStores(identityStore, formationStore);
   const internal = asInternal(store);
@@ -123,6 +150,7 @@ export function advancePersistentMoraleOneTick(
     );
   }
   validateAssessments(identityStore, assessments);
+  validateContext(identityStore, context);
 
   out.length = 0;
   const unitIds = getUnitIds(identityStore);
@@ -137,15 +165,33 @@ export function advancePersistentMoraleOneTick(
       assessment,
     );
 
+    const profile = collectUnitMoraleProfile(
+      formationStore,
+      getUnitMembers(identityStore, unitId),
+      assessment,
+      context.survivabilityStore === undefined
+        ? 0
+        : getUnitAccumulatedDamage(context.survivabilityStore, unitId),
+    );
+    const pressureUpdate = context.pressureUpdates?.[unitIndex];
+    const hasFreshPressure =
+      pressureUpdate !== undefined && pressureUpdate.unitId === unitId
+        ? pressureUpdate.hasFreshPressure
+        : inferFreshPressure(assessment);
     const previousState = internal.states[unitIndex]!;
-    internal.routingRisk[unitIndex] = increaseBounded(
+    const candidateState = determineCandidateState(profile.stressScore);
+    internal.routingRisk[unitIndex] = updateRoutingRisk(
       internal.routingRisk[unitIndex]!,
-      calculateRoutingRiskIncrease(assessment),
+      candidateState,
+      profile.recentCapacityReached,
     );
     const nextState = determineNextState(
+      internal,
+      unitIndex,
       previousState,
-      assessment,
-      internal.routingRisk[unitIndex]!,
+      candidateState,
+      hasFreshPressure,
+      profile,
     );
 
     if (nextState === previousState) {
@@ -158,6 +204,14 @@ export function advancePersistentMoraleOneTick(
 
     internal.states[unitIndex] = nextState;
     internal.stateTicks[unitIndex] = 1;
+    internal.upwardTicks[unitIndex] = 0;
+    internal.downwardTicks[unitIndex] = 0;
+    if (nextState !== "recovering") {
+      internal.recoveryProgress[unitIndex] = 0;
+    }
+    if (nextState !== "routing") {
+      internal.safeTicks[unitIndex] = 0;
+    }
     out.push({
       kind: "unit_morale_changed",
       unitId,
@@ -213,50 +267,61 @@ function calculateAverageConfidence(
   return total / memberEntityIds.length;
 }
 
-function calculateRoutingRiskIncrease(
-  assessment: CombatMoraleAssessment,
-): number {
-  switch (assessment.moraleState) {
-    case "steady":
-      return 0;
-    case "pressured":
-      return 1;
-    case "wavering":
-      return 4;
-    case "breakRisk":
-      return assessment.recentCapacityReached ? 16 : 12;
-  }
-}
-
 function determineNextState(
+  store: InternalPersistentMoraleStore,
+  unitIndex: number,
   currentState: PersistentUnitMoraleState,
-  assessment: CombatMoraleAssessment,
-  routingRisk: number,
+  candidateState: PersistentUnitMoraleState,
+  hasFreshPressure: boolean,
+  profile: UnitMoraleProfile,
 ): PersistentUnitMoraleState {
-  if (currentState === "routing" || currentState === "recovering") {
-    return currentState;
+  if (currentState === "routing") {
+    return determineRoutingTransition(
+      store,
+      unitIndex,
+      candidateState,
+      hasFreshPressure,
+    );
+  }
+  if (currentState === "recovering") {
+    return determineRecoveryTransition(
+      store,
+      unitIndex,
+      candidateState,
+      hasFreshPressure,
+    );
   }
 
-  let assessedState: PersistentUnitMoraleState;
-  switch (assessment.moraleState) {
-    case "steady":
-      assessedState = "steady";
-      break;
-    case "pressured":
-      assessedState = "strained";
-      break;
-    case "wavering":
-      assessedState = "shaken";
-      break;
-    case "breakRisk":
-      assessedState =
-        routingRisk >= ROUTING_RISK_THRESHOLD ? "routing" : "wavering";
-      break;
+  const candidateRank = moraleStateRank(candidateState);
+  const currentRank = moraleStateRank(currentState);
+  if (candidateRank > currentRank) {
+    store.upwardTicks[unitIndex] = increaseBounded(
+      store.upwardTicks[unitIndex]!,
+      1,
+    );
+    store.downwardTicks[unitIndex] = 0;
+    const nextState = nextEscalatingState(currentState);
+    const durationMet =
+      store.upwardTicks[unitIndex]! >= requiredUpwardTicks(nextState, profile);
+    const routingRiskMet =
+      nextState !== "routing" ||
+      store.routingRisk[unitIndex]! >= ROUTING_RISK_THRESHOLD;
+    return durationMet && routingRiskMet ? nextState : currentState;
+  }
+  if (candidateRank < currentRank) {
+    store.downwardTicks[unitIndex] = increaseBounded(
+      store.downwardTicks[unitIndex]!,
+      1,
+    );
+    store.upwardTicks[unitIndex] = 0;
+    return store.downwardTicks[unitIndex]! >= DOWNWARD_TRANSITION_TICKS
+      ? nextDeescalatingState(currentState)
+      : currentState;
   }
 
-  return moraleStateRank(assessedState) > moraleStateRank(currentState)
-    ? assessedState
-    : currentState;
+  store.upwardTicks[unitIndex] = 0;
+  store.downwardTicks[unitIndex] = 0;
+  return currentState;
 }
 
 function moraleStateRank(state: PersistentUnitMoraleState): number {
@@ -274,6 +339,193 @@ function moraleStateRank(state: PersistentUnitMoraleState): number {
     case "recovering":
       return 4;
   }
+}
+
+interface UnitMoraleProfile {
+  readonly stressScore: number;
+  readonly experienceAdjustment: number;
+  readonly confidence: number;
+  readonly cohesion: number;
+  readonly recentCapacityReached: boolean;
+}
+
+function collectUnitMoraleProfile(
+  formationStore: FormationBehaviourStore,
+  members: readonly number[],
+  assessment: CombatMoraleAssessment,
+  accumulatedDamage: number,
+): UnitMoraleProfile {
+  let confidenceTotal = 0;
+  let experienceTotal = 0;
+  for (let index = 0; index < members.length; index += 1) {
+    const entityId = members[index]!;
+    confidenceTotal += getIndividualConfidence(formationStore, entityId);
+    experienceTotal += experienceAdjustmentForRole(
+      getIndividualRole(formationStore, entityId),
+    );
+  }
+  const confidence = Math.trunc(confidenceTotal / members.length);
+  const experienceAdjustment = Math.trunc(experienceTotal / members.length);
+  let stressScore = Math.trunc(assessment.pressureAverage);
+  stressScore += Math.min(30, accumulatedDamage * 2);
+  stressScore += Math.min(20, assessment.recentCohesionDamageValue * 4);
+  if (assessment.recentCapacityReached) stressScore += 40;
+  if (assessment.cohesion < 700) stressScore += 10;
+  if (assessment.cohesion < 400) stressScore += 20;
+  if (assessment.cohesion < 200) stressScore += 20;
+  stressScore -= Math.trunc((confidence - 500) / 50);
+  stressScore -= experienceAdjustment * 15;
+
+  return {
+    stressScore: stressScore > 0 ? stressScore : 0,
+    experienceAdjustment,
+    confidence,
+    cohesion: assessment.cohesion,
+    recentCapacityReached: assessment.recentCapacityReached,
+  };
+}
+
+function experienceAdjustmentForRole(role: "recruit" | "regular" | "veteran"): number {
+  switch (role) {
+    case "recruit":
+      return -1;
+    case "regular":
+      return 0;
+    case "veteran":
+      return 1;
+  }
+}
+
+function determineCandidateState(stressScore: number): PersistentUnitMoraleState {
+  if (stressScore >= ROUTING_STRESS_THRESHOLD) return "routing";
+  if (stressScore >= WAVERING_STRESS_THRESHOLD) return "wavering";
+  if (stressScore >= SHAKEN_STRESS_THRESHOLD) return "shaken";
+  if (stressScore >= STRAINED_STRESS_THRESHOLD) return "strained";
+  return "steady";
+}
+
+function determineRoutingTransition(
+  store: InternalPersistentMoraleStore,
+  unitIndex: number,
+  candidateState: PersistentUnitMoraleState,
+  hasFreshPressure: boolean,
+): PersistentUnitMoraleState {
+  if (hasFreshPressure || moraleStateRank(candidateState) > 1) {
+    store.safeTicks[unitIndex] = 0;
+    return "routing";
+  }
+  store.safeTicks[unitIndex] = increaseBounded(
+    store.safeTicks[unitIndex]!,
+    1,
+  );
+  return store.safeTicks[unitIndex]! >= ROUTING_SAFE_TICKS
+    ? "recovering"
+    : "routing";
+}
+
+function determineRecoveryTransition(
+  store: InternalPersistentMoraleStore,
+  unitIndex: number,
+  candidateState: PersistentUnitMoraleState,
+  hasFreshPressure: boolean,
+): PersistentUnitMoraleState {
+  if (hasFreshPressure || moraleStateRank(candidateState) >= 2) {
+    store.recoveryProgress[unitIndex] = 0;
+    return "wavering";
+  }
+  if (candidateState !== "steady") {
+    store.recoveryProgress[unitIndex] = 0;
+    return "recovering";
+  }
+  store.recoveryProgress[unitIndex] = increaseBounded(
+    store.recoveryProgress[unitIndex]!,
+    1,
+  );
+  return store.recoveryProgress[unitIndex]! >= RECOVERY_STEADY_TICKS
+    ? "steady"
+    : "recovering";
+}
+
+function requiredUpwardTicks(
+  nextState: PersistentUnitMoraleState,
+  profile: UnitMoraleProfile,
+): number {
+  const base =
+    nextState === "strained"
+      ? 3
+      : nextState === "shaken"
+        ? 3
+        : nextState === "wavering"
+          ? 4
+          : 5;
+  const confidenceAdjustment =
+    profile.confidence >= 750 ? 1 : profile.confidence < 250 ? -1 : 0;
+  const cohesionAdjustment = profile.cohesion < 400 ? -1 : 0;
+  const capacityAdjustment = profile.recentCapacityReached ? -1 : 0;
+  const result =
+    base +
+    profile.experienceAdjustment +
+    confidenceAdjustment +
+    cohesionAdjustment +
+    capacityAdjustment;
+  return result > 0 ? result : 1;
+}
+
+function nextEscalatingState(
+  state: PersistentUnitMoraleState,
+): PersistentUnitMoraleState {
+  switch (state) {
+    case "steady":
+      return "strained";
+    case "strained":
+      return "shaken";
+    case "shaken":
+      return "wavering";
+    case "wavering":
+      return "routing";
+    case "routing":
+    case "recovering":
+      return state;
+  }
+}
+
+function nextDeescalatingState(
+  state: PersistentUnitMoraleState,
+): PersistentUnitMoraleState {
+  switch (state) {
+    case "strained":
+      return "steady";
+    case "shaken":
+      return "strained";
+    case "wavering":
+      return "shaken";
+    case "steady":
+    case "routing":
+    case "recovering":
+      return state;
+  }
+}
+
+function updateRoutingRisk(
+  current: number,
+  candidateState: PersistentUnitMoraleState,
+  recentCapacityReached: boolean,
+): number {
+  const rank = moraleStateRank(candidateState);
+  if (rank >= 4) {
+    return increaseBounded(current, recentCapacityReached ? 14 : 10);
+  }
+  if (rank >= 3) return increaseBounded(current, 5);
+  if (rank >= 2) return increaseBounded(current, 1);
+  return current > 4 ? current - 4 : 0;
+}
+
+function inferFreshPressure(assessment: CombatMoraleAssessment): boolean {
+  return (
+    assessment.moraleState !== "steady" ||
+    assessment.recentCohesionDamageValue > 0 ||
+    assessment.recentCapacityReached
+  );
 }
 
 function validateStores(
@@ -303,6 +555,39 @@ function validateAssessments(
       throw new RangeError(
         "Persistent morale assessments must be in deterministic unit order.",
       );
+    }
+  }
+}
+
+function validateContext(
+  identityStore: UnitIdentityStore,
+  context: PersistentMoraleContext,
+): void {
+  if (
+    context.survivabilityStore !== undefined &&
+    (context.survivabilityStore.entityCount !== identityStore.entityCount ||
+      context.survivabilityStore.unitCount !== identityStore.unitCount)
+  ) {
+    throw new RangeError(
+      "Combat survivability store must match unit identity entity and unit counts.",
+    );
+  }
+  if (
+    context.pressureUpdates !== undefined &&
+    context.pressureUpdates.length !== identityStore.unitCount
+  ) {
+    throw new RangeError(
+      "Persistent morale requires one pressure update per unit when provided.",
+    );
+  }
+  if (context.pressureUpdates !== undefined) {
+    const unitIds = getUnitIds(identityStore);
+    for (let unitIndex = 0; unitIndex < unitIds.length; unitIndex += 1) {
+      if (context.pressureUpdates[unitIndex]?.unitId !== unitIds[unitIndex]) {
+        throw new RangeError(
+          "Persistent morale pressure updates must be in deterministic unit order.",
+        );
+      }
     }
   }
 }

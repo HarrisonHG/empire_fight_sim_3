@@ -171,11 +171,15 @@ describe("live combat scenario", () => {
     for (let tick = 0; tick < CONTACT_RUN_TICKS; tick += 1) {
       advanceSimulationOneTick(simulation);
       const combat = requireCombatSandbox(simulation);
+      const transition = combat.moraleEvents[0];
+      if (transition === undefined) {
+        continue;
+      }
       const assessment = combat.moraleAssessments.find(
-        (candidate) => candidate.moraleState !== "steady",
+        (candidate) => candidate.unitId === transition.unitId,
       );
       if (assessment === undefined) {
-        continue;
+        throw new Error("Live combat is missing its transitioned morale assessment.");
       }
 
       const morale = getPersistentUnitMorale(
@@ -193,11 +197,11 @@ describe("live combat scenario", () => {
       expect(pressureUpdate.pressureAfterAverage).toBe(
         assessment.pressureAverage,
       );
-      expect(morale.state).not.toBe("steady");
+      expect(morale.state).toBe(transition.state);
       expect(combat.moraleEvents).toContainEqual(
         expect.objectContaining({
           kind: "unit_morale_changed",
-          unitId: assessment.unitId,
+          unitId: transition.unitId,
           previousState: "steady",
           state: "strained",
         }),

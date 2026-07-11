@@ -269,6 +269,10 @@ function runRepresentativeCombatPerformanceScenario(): RepresentativeCombatPerfo
       moraleResult.assessments,
       persistentMoraleStore,
       moraleEvents,
+      {
+        survivabilityStore: harness.survivability,
+        pressureUpdates,
+      },
     );
     const elapsedMilliseconds = performance.now() - startedAt;
 

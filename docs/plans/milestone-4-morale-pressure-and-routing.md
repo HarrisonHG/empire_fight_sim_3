@@ -232,6 +232,16 @@ Use table-driven cases for:
 - identical pressure sequence
 - different expected transition timings
 
+### Implementation record (2026-07-11)
+
+- [x] Added deterministic threshold-plus-duration arbitration with one-step
+  escalation and de-escalation, confidence, cohesion, role experience, and
+  accumulated-damage inputs.
+- [x] Added the `routing → recovering → steady` path, with fresh 4B contact
+  returning a recovering unit to `wavering` before any later re-route.
+- [ ] Friendly-support, captain, behaviour-profile, and richer damage-history
+  inputs are not yet represented by authoritative local simulation data.
+
 ---
 
 ## 4D — Hesitation and degraded movement

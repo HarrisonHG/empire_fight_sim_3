@@ -21,9 +21,11 @@ import {
   advancePersistentMoraleOneTick,
   createPersistentMoraleStore,
   getPersistentUnitMorale,
+  type PersistentMoraleContext,
   type PersistentMoraleEvent,
   type PersistentMoraleStore,
 } from "../../src/sim/persistentMorale";
+import type { UnitPressureUpdate } from "../../src/sim/combatPressure";
 import {
   createUnitIdentityStore,
   getUnitIds,
@@ -67,7 +69,7 @@ describe("persistent unit morale", () => {
     const harness = createHarness();
     let firstRisk = 0;
 
-    for (let tick = 0; tick < 15; tick += 1) {
+    for (let tick = 0; tick < 20; tick += 1) {
       advance(harness, [weakSurvivabilityApplication(tick)]);
       if (tick === 0) {
         firstRisk = getPersistentUnitMorale(
@@ -82,10 +84,12 @@ describe("persistent unit morale", () => {
     expect(morale.routingRisk).toBeGreaterThan(firstRisk);
   });
 
-  it("emits each morale transition once and not on unchanged ticks", () => {
+  it("emits each morale transition once after its duration gate", () => {
     const harness = createHarness();
 
-    setTargetPressure(harness, 20);
+    setTargetPressure(harness, 70);
+    expect(advance(harness)).toEqual([]);
+    expect(advance(harness)).toEqual([]);
     expect(advance(harness)).toEqual([
       {
         kind: "unit_morale_changed",
@@ -96,7 +100,7 @@ describe("persistent unit morale", () => {
     ]);
     expect(advance(harness)).toEqual([]);
 
-    setTargetPressure(harness, 50);
+    expect(advance(harness)).toEqual([]);
     expect(advance(harness)).toEqual([
       {
         kind: "unit_morale_changed",
@@ -108,19 +112,99 @@ describe("persistent unit morale", () => {
     expect(advance(harness)).toEqual([]);
   });
 
-  it("does not oscillate downward when inputs move back below a threshold", () => {
+  it("requires sustained calm input before de-escalating", () => {
     const harness = createHarness();
 
-    setTargetPressure(harness, 50);
-    advance(harness);
+    setTargetPressure(harness, 70);
+    for (let tick = 0; tick < 3; tick += 1) {
+      advance(harness);
+    }
     setTargetPressure(harness, 0);
-    expect(advance(harness)).toEqual([]);
+    for (let tick = 0; tick < 3; tick += 1) {
+      expect(advance(harness)).toEqual([]);
+    }
 
-    expect(getPersistentUnitMorale(harness.store, TARGET_UNIT_ID)).toMatchObject({
-      state: "shaken",
-      stateTicks: 2,
-      pressure: 0,
-    });
+    expect(getPersistentUnitMorale(harness.store, TARGET_UNIT_ID).state).toBe(
+      "strained",
+    );
+    expect(advance(harness)).toEqual([
+      {
+        kind: "unit_morale_changed",
+        unitId: TARGET_UNIT_ID,
+        previousState: "strained",
+        state: "steady",
+      },
+    ]);
+  });
+
+  it.each([
+    { role: "veteran" as const, expectedState: "strained" },
+    { role: "regular" as const, expectedState: "shaken" },
+    { role: "recruit" as const, expectedState: "wavering" },
+  ])(
+    "applies identical pressure sequences differently for $role units",
+    ({ role, expectedState }) => {
+      const harness = createHarness({ targetRole: role });
+      setTargetPressure(harness, 85);
+
+      for (let tick = 0; tick < 7; tick += 1) {
+        advance(harness);
+      }
+
+      expect(
+        getPersistentUnitMorale(harness.store, TARGET_UNIT_ID).state,
+      ).toBe(expectedState);
+    },
+  );
+
+  it("routes only after sustained stress, recovers after safety, and relapses on contact", () => {
+    const harness = createHarness();
+    setTargetPressure(harness, 150);
+    for (let tick = 0; tick < 15; tick += 1) {
+      advance(harness);
+    }
+    expect(getPersistentUnitMorale(harness.store, TARGET_UNIT_ID).state).toBe(
+      "routing",
+    );
+
+    setTargetPressure(harness, 0);
+    for (let tick = 0; tick < 6; tick += 1) {
+      advance(harness);
+    }
+    expect(getPersistentUnitMorale(harness.store, TARGET_UNIT_ID).state).toBe(
+      "recovering",
+    );
+
+    expect(advance(harness, [], { pressureUpdates: renewedContactUpdates() })).toEqual([
+      {
+        kind: "unit_morale_changed",
+        unitId: TARGET_UNIT_ID,
+        previousState: "recovering",
+        state: "wavering",
+      },
+    ]);
+  });
+
+  it("returns from recovering to steady only after the recovery duration", () => {
+    const harness = createHarness();
+    setTargetPressure(harness, 150);
+    for (let tick = 0; tick < 15; tick += 1) {
+      advance(harness);
+    }
+    setTargetPressure(harness, 0);
+    for (let tick = 0; tick < 6; tick += 1) {
+      advance(harness);
+    }
+    for (let tick = 0; tick < 5; tick += 1) {
+      advance(harness);
+    }
+    expect(getPersistentUnitMorale(harness.store, TARGET_UNIT_ID).state).toBe(
+      "recovering",
+    );
+    advance(harness);
+    expect(getPersistentUnitMorale(harness.store, TARGET_UNIT_ID).state).toBe(
+      "steady",
+    );
   });
 
   it("is deterministic for identical consequence sequences", () => {
@@ -165,7 +249,11 @@ interface MoraleHarness {
   readonly events: PersistentMoraleEvent[];
 }
 
-function createHarness(): MoraleHarness {
+interface MoraleHarnessOptions {
+  readonly targetRole?: "recruit" | "regular" | "veteran";
+}
+
+function createHarness(options: MoraleHarnessOptions = {}): MoraleHarness {
   const identity = createUnitIdentityStore({
     entityCount: 4,
     units: [
@@ -182,7 +270,10 @@ function createHarness(): MoraleHarness {
     ],
     individuals: [0, 1, 2, 3].map((entityId) => ({
       entityId,
-      role: "regular" as const,
+      role:
+        entityId === 2 || entityId === 3
+          ? (options.targetRole ?? "regular")
+          : "regular",
       slotRow: 0,
       slotCol: entityId % 2,
       memberMaxStep: 1,
@@ -204,6 +295,7 @@ function createHarness(): MoraleHarness {
 function advance(
   harness: MoraleHarness,
   applications: readonly CombatSurvivabilityApplication[] = [],
+  context: PersistentMoraleContext = {},
 ): readonly PersistentMoraleEvent[] {
   applyCombatConsequences(
     harness.identity,
@@ -224,8 +316,37 @@ function advance(
     harness.assessments,
     harness.store,
     harness.events,
+    context,
   );
   return result.events.slice();
+}
+
+function renewedContactUpdates(): readonly UnitPressureUpdate[] {
+  return [
+    pressureUpdate(SOURCE_UNIT_ID, false),
+    pressureUpdate(TARGET_UNIT_ID, true),
+  ];
+}
+
+function pressureUpdate(
+  unitId: number,
+  hasFreshPressure: boolean,
+): UnitPressureUpdate {
+  return {
+    unitId,
+    engaged: hasFreshPressure,
+    inContact: hasFreshPressure,
+    hasFreshPressure,
+    pressureBeforeAverage: 0,
+    pressureAfterAverage: 0,
+    confidenceAverage: 500,
+    engagedPressureDeltaPerMember: 0,
+    contactPressureDeltaPerMember: 0,
+    consequencePressureDeltaPerMember: 0,
+    cohesionLossValue: 0,
+    cohesionPressureDeltaPerMember: 0,
+    decayPerMember: 0,
+  };
 }
 
 function formationUnit(unitId: number, anchorX: number) {

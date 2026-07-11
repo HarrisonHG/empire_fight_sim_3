@@ -33,6 +33,9 @@ export interface CombatPressureStore {
 /** Compact per-unit explanation for the latest pressure stage. */
 export interface UnitPressureUpdate {
   readonly unitId: UnitId;
+  readonly engaged: boolean;
+  readonly inContact: boolean;
+  readonly hasFreshPressure: boolean;
   readonly pressureBeforeAverage: number;
   readonly pressureAfterAverage: number;
   readonly confidenceAverage: number;
@@ -260,6 +263,9 @@ function applyUnitPressureUpdate(
 
   return {
     unitId,
+    engaged,
+    inContact,
+    hasFreshPressure,
     pressureBeforeAverage: Math.trunc(pressureBeforeTotal / members.length),
     pressureAfterAverage: Math.trunc(pressureAfterTotal / members.length),
     confidenceAverage,

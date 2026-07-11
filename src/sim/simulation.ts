@@ -153,6 +153,10 @@ export function advanceSimulationOneTick(simulation: SimulationState): void {
       combatSandbox.moraleAssessments,
       combatSandbox.persistentMoraleStore,
       combatSandbox.moraleEvents,
+      {
+        survivabilityStore: combatSandbox.survivabilityStore,
+        pressureUpdates: combatSandbox.pressureUpdates,
+      },
     );
     updateCombatCounters(combatSandbox);
     combatSandbox.debugSnapshot = createCombatDebugSnapshot(combatSandbox);
