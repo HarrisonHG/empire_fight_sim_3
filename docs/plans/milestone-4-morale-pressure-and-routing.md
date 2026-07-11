@@ -611,6 +611,27 @@ some units recover if pressure disappears
 
 ---
 
+### 4H-2 human-inspection scenario record (2026-07-11)
+
+- [x] Added the deterministic seven-unit morale inspection scenario as the
+  normal live-app default: three comparable blue front units (veteran,
+  regular, recruit), a blue reserve behind the recruit retreat path, and three
+  holding red opponents.
+- [x] Scenario data now permits multiple units per faction plus optional
+  formation-owned initial cohesion and individual confidence, while retaining
+  the existing 20-vs-15 sandbox and its regression coverage.
+- [x] The scenario's bounded headless run demonstrates the intended sequence:
+  veteran holds without routing, regular degrades, recruit routes through the
+  reserve and applies contagion, then reaches recovery and reforms without
+  forward advance. Membership remains unchanged and replay is deterministic.
+- [x] The existing combat debug snapshot and metrics panel label every unit and
+  retain readable persistent state, pressure, cohesion, routing risk, recovery
+  progress, and movement style.
+- [ ] Ready for human inspection. Milestone 4 remains unaccepted until that
+  visual inspection is performed and judged.
+
+---
+
 ## Suggested tick order
 
 A safe initial integration model is:

@@ -75,11 +75,17 @@ export interface CombatSandboxUnitScenario {
   readonly shieldClass: ShieldClass;
   readonly attackIntervalTicks: number;
   readonly maxDamageCapacity: number;
+  /** Optional compact inspection label; does not affect simulation rules. */
+  readonly label?: string;
+  /** Optional formation-owned initial cohesion; also defines recovery maximum. */
+  readonly initialCohesion?: number;
+  /** Optional per-member confidence used by persistent morale interpretation. */
+  readonly individualConfidence?: number;
 }
 
 /**
  * The intentionally narrow production combat scene. It is scenario data, not
- * a general scenario framework: exactly two opposing units are supported.
+ * a general scenario framework: small deterministic opposing-unit sets only.
  */
 export interface CombatSandboxScenario {
   readonly kind: "liveCombatSandbox";
@@ -132,6 +138,7 @@ export type SimulationSnapshot =
 
 export interface LiveCombatDebugUnitSnapshot {
   readonly unitId: number;
+  readonly label: string;
   readonly factionId: number;
   readonly memberCount: number;
   readonly movementStyle: UnitMovementStyle;
@@ -175,6 +182,7 @@ export interface CombatSandboxSimulationState {
   readonly routingContagionStore: RoutingContagionStore;
   readonly recoveryThreatStore: RecoveryThreatStore;
   readonly persistentMoraleStore: PersistentMoraleStore;
+  readonly unitLabels: ReadonlyMap<UnitId, string>;
   /** Tick-start read model consumed by formation; persistent morale owns it. */
   readonly moraleMovementStates: Map<UnitId, MoraleMovementState>;
   readonly pipelineOutput: CombatPipelineOutput;

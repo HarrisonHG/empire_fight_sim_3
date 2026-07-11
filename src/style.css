@@ -89,3 +89,7 @@ body {
   overflow-wrap: anywhere;
   text-align: right;
 }
+
+[data-testid="combat-unit-state"] {
+  white-space: pre-wrap;
+}

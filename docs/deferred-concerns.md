@@ -506,6 +506,25 @@ Milestone 8, 10, or 15.
 
 ---
 
+## DC-016 — Ordinary unit sizes lacked full-path performance evidence
+
+**Area:** Milestone 4 performance coverage
+**Status:** resolved
+
+**Observation**
+
+The 2,000-entity 100×20 benchmark previously measured formation only, while
+the complete Milestone 4 combat/morale path was represented only by 40×50.
+
+**Resolution (Milestone 4H-1, 2026-07-11)**
+
+Added a separately reported 2,000-entity full-path benchmark with 100 units
+of 20 people. It runs formation, combat, consequences, pressure, routing
+contagion, recovery threat, morale assessment, and persistent morale with one
+bounded routing projection and one bounded recovering projection.
+
+---
+
 # Maintenance rules
 
 When adding an entry:

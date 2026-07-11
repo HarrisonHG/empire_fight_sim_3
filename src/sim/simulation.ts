@@ -295,6 +295,9 @@ function createCombatSandbox(
         slotRow: Math.floor(memberIndex / unit.cols),
         slotCol: memberIndex % unit.cols,
         memberMaxStep: unit.memberMaxStep,
+        ...(unit.individualConfidence === undefined
+          ? {}
+          : { confidence: unit.individualConfidence }),
       });
     }
 
@@ -334,6 +337,9 @@ function createCombatSandbox(
       cols: unit.cols,
       unitSpeed: unit.unitSpeed,
       order: unit.order,
+      ...(unit.initialCohesion === undefined
+        ? {}
+        : { cohesion: unit.initialCohesion }),
     })),
     individuals: individualDefinitions,
   });
@@ -380,6 +386,9 @@ function createCombatSandbox(
     routingContagionStore: createRoutingContagionStore(identityStore),
     recoveryThreatStore: createRecoveryThreatStore(identityStore, world),
     persistentMoraleStore,
+    unitLabels: new Map(
+      scenario.units.map((unit) => [unit.unitId, unit.label ?? `Unit ${unit.unitId}`]),
+    ),
     moraleMovementStates,
     pipelineOutput: createCombatPipelineOutput(),
     consequenceApplications: [],
@@ -411,8 +420,8 @@ function validateCombatSandboxScenario(
   if (scenario.kind !== "liveCombatSandbox") {
     throw new RangeError("Unknown combat sandbox scenario kind.");
   }
-  if (scenario.units.length !== 2) {
-    throw new RangeError("Live combat sandbox requires exactly two units.");
+  if (scenario.units.length < 2) {
+    throw new RangeError("Live combat sandbox requires at least two units.");
   }
   assertNonNegativeSafeInteger(
     scenario.appliedDamagePressureScale,
@@ -432,9 +441,6 @@ function validateCombatSandboxScenario(
     if (unitIds.has(unit.unitId)) {
       throw new RangeError("Live combat sandbox unit IDs must be unique.");
     }
-    if (factionIds.has(unit.factionId)) {
-      throw new RangeError("Live combat sandbox factions must be distinct.");
-    }
     unitIds.add(unit.unitId);
     factionIds.add(unit.factionId);
 
@@ -449,6 +455,15 @@ function validateCombatSandboxScenario(
       "attackIntervalTicks",
     );
     assertPositiveSafeInteger(unit.maxDamageCapacity, "maxDamageCapacity");
+    if (unit.initialCohesion !== undefined) {
+      assertNonNegativeSafeInteger(unit.initialCohesion, "initialCohesion");
+    }
+    if (unit.individualConfidence !== undefined) {
+      assertNonNegativeSafeInteger(
+        unit.individualConfidence,
+        "individualConfidence",
+      );
+    }
     if (unit.rows * unit.cols < unit.memberCount) {
       throw new RangeError(
         "Live combat formation slots must cover every unit member.",
@@ -457,6 +472,10 @@ function validateCombatSandboxScenario(
     validateDeploymentZone(world, unit.deploymentZone);
     validateAnchor(world, unit.anchorX, unit.anchorY);
     configuredEntityCount += unit.memberCount;
+  }
+
+  if (factionIds.size < 2) {
+    throw new RangeError("Live combat sandbox requires at least two factions.");
   }
 
   if (configuredEntityCount !== world.entityCount) {
@@ -583,6 +602,7 @@ function createCombatDebugSnapshot(
     );
     units.push({
       unitId,
+      label: combatSandbox.unitLabels.get(unitId) ?? `Unit ${unitId}`,
       factionId: getFactionIdForUnit(combatSandbox.identityStore, unitId),
       memberCount: getUnitMembers(combatSandbox.identityStore, unitId).length,
       movementStyle: getUnitMovementStyle(combatSandbox.formationStore, unitId),

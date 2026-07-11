@@ -1,6 +1,6 @@
 # Empire Fight Sim Milestone Roadmap
 
-Status: working roadmap. Updated through the official Combat, Calls, Weapons & Armour, Skills, and Character XP reviews plus project battlefield-behaviour rulings on 2026-07-11.
+Status: working roadmap. Updated through the official Combat, Calls, Weapons & Armour, Skills, Character XP, citizen-nation, barbarian battle-flavour, and pre-battle tonic/magic-item/ritual-enhancement reviews plus project battlefield-behaviour rulings on 2026-07-11.
 
 This file records the current milestone series for the deterministic Empire LARP battle simulation. It includes completed foundation work, the active morale sequence, the individual-combat correction, and the likely future roadmap.
 
@@ -36,7 +36,19 @@ npm run build
 - Treat runtime skill qualification, runtime resource use, and character-build legality as separate concerns.
 - Until the later character-authoring milestone, scenario/loadout content may assume each entity has the XP and skills required for its assigned equipment and role.
 - Hero points, mana, herbs, liao, and Artisan's Oil are individual finite resources even before full XP validation exists.
-- Initial population scope remains citizens versus barbarians. Do not add nation, lineage, or Imperial Orc character distinctions until explicitly requested.
+- Team and nation are separate concepts: team controls hostility and battle lifecycle, while nation biases generated unit archetypes, equipment, roles, experience distributions, and existing behaviour-profile selection.
+- Current citizen nations are Brass Coast, Dawn, Highguard, Imperial Orcs, League, Marches, Navarr, Urizen, Varushka, and Wintermark.
+- Current barbarian nations are Jotun, Druj, and Grendel.
+- Nation must not apply hidden runtime combat bonuses or make otherwise legal equipment/skills illegal. Generated individual state remains authoritative.
+- Every generated unit normally belongs to exactly one nation; mixed-national units are explicit scenario-authored exceptions.
+- Veteran experience remains widely distributed across nations, except generated Imperial Orcs never use the fresh-recruit tier unless a test scenario explicitly overrides it.
+- Lineage, species bonuses, barbarian septs, and elite monster physiology remain excluded until explicitly requested.
+- Tonics, bonded magic items, and ritual enchantments are pre-battle persistent enhancement sources, separate from purchased skills, mundane loadouts, and transient battlefield effects.
+- Initial enhancement support applies selections during deterministic battle setup; it does not simulate in-battle potion use, item crafting/bonding, or ritual performance.
+- Enhancement content must use typed effect primitives and explicit deterministic adapters. Do not create one bespoke branch per named item or a general-purpose scripting language.
+- Campaign `military units`, armies, fleets, resources, fortifications, and ritual-economy effects are not simulation units and remain outside scope.
+- The initial character model permits one tonic, at most one bonded personal item of each official form, and at most one direct ritual enchantment; explicit multi-target ritual applications preserve named targets rather than dynamically following sim-unit membership.
+- Effects that grant unreviewed spells may exist as catalogue data but remain inactive until a dedicated Magic/Spellcasting review defines their battlefield semantics.
 
 ---
 
@@ -1374,11 +1386,12 @@ Important placement rules:
 - Milestone 11 establishes canonical skill/content data and finite runtime resources.
 - Milestone 13 activates heroic skills, simplified CURSE, Exorcism, and call delivery.
 - Milestone 18 validates that a named authored character could legally buy the assigned skills with XP.
+- Milestone 19 applies selected tonics, bonded magic items, and ritual enchantments as source-owned pre-battle modifiers over this canonical runtime state.
 - ranged loadouts and ammunition capacity are defined here, but recoverable projectile objects remain later.
 
 Boundary:
 
-Prefer data, derivation, and reusable validators over hard-coded bespoke logic. Do not implement every official spell, ritual, magic item, potion, monster ability, priest ceremony, or artisan recipe in this milestone.
+Prefer data, derivation, and reusable validators over hard-coded bespoke logic. Do not implement every official spell, ritual, magic item, potion, monster ability, priest ceremony, or artisan recipe in this milestone. Reserve stable modifier/source hooks so Milestone 19 can extend derived runtime profiles without mutating base skill definitions.
 
 ---
 
@@ -1445,6 +1458,8 @@ Calls are not generic damage modifiers or videogame cooldown powers. They can:
 - affect everyone in an area without inflicting an ordinary hit
 
 Every ordinary strike-delivered call also carries the ordinary one-global-hit result when the blow actually lands on the character. A weapon or shield contact may prevent that hit while still allowing `ENTANGLE`, `REPEL`, `STRIKEDOWN`, or item-targeted `SHATTER` to apply. MASS calls are ranged area effects and do not cause ordinary hit loss.
+
+Milestone 13 owns the authoritative call/effect actions. Milestone 19 may add new pre-battle sources, charges, substitutions, and conditional permissions for those actions, but must not duplicate their resolution logic.
 
 Safety calls remain excluded.
 
@@ -1974,39 +1989,548 @@ Optimise against realistic target scenarios, not abstract anxiety.
 
 ---
 
-## Milestone 17: Content Authoring and Scenario Schema
+## Milestone 17: Content Authoring, Nation-Flavoured Unit Generation, and Scenario Schema
 
 Status: future.
 
 Purpose:
 
-Make battles authorable and repeatable without editing code.
+Make battles authorable and repeatable without editing code, and generate recognisable citizen and barbarian forces through deterministic nation-weighted unit archetypes.
 
-Expected direction:
+This milestone owns nationality as a content-generation layer. It does not grant national combat bonuses.
+
+Core model:
+
+```txt
+team decides hostility
+nation biases generation
+unit archetype creates coherent composition
+individual state decides behaviour
+scenario overrides defaults explicitly
+```
+
+## Team and nation identity
+
+Required team vocabulary:
+
+```txt
+citizen
+barbarian
+```
+
+Required citizen nations:
+
+```txt
+brassCoast
+dawn
+highguard
+imperialOrcs
+league
+marches
+navarr
+urizen
+varushka
+wintermark
+```
+
+Required barbarian nations:
+
+```txt
+jotun
+druj
+grendel
+```
+
+Rules:
+
+- citizen teams may use citizen nations only
+- barbarian teams may use barbarian nations only
+- a generated unit normally owns exactly one nation
+- individuals inherit unit nation in the first implementation
+- mixed-national or attached-specialist units require explicit scenario authoring
+- nation is preserved in snapshots, replay metadata, debug views, and after-action reports
+- nation does not replace faction/team identity
+
+## Two-stage unit generation
+
+Do not generate every member independently from one flat national table.
+
+Use:
+
+```txt
+NationDefinition
+→ weighted UnitArchetypeDefinition
+→ archetype-specific member templates
+→ individual variation
+→ existing runtime stores
+```
+
+Required data concepts:
+
+```txt
+NationDefinition
+UnitArchetypeDefinition
+MemberTemplateDefinition
+EmbeddedSupportPolicy
+ExperienceDistribution
+NationProfileOverride
+GeneratedUnitRequest
+AuthoredUnitDefinition
+```
+
+Nation definitions may weight:
+
+```txt
+unit archetypes
+armour categories
+weapon categories
+shield prevalence
+ranged prevalence
+support-role quotas
+banner prevalence
+formation-style selection
+existing behaviour-profile selection
+experience distribution
+```
+
+They must not apply direct runtime modifiers such as national armour, speed, morale, or damage bonuses.
+
+## Experience distribution
+
+Most citizen nations use a broad distribution across:
+
+```txt
+recruit
+trained
+experienced
+veteran
+```
+
+Project rule for Imperial Orcs:
+
+```txt
+recruit weight = 0
+minimum generated experience = trained
+```
+
+This represents the real-player commitment associated with fielding an Imperial Orc, not a species bonus.
+
+Barbarian experience distributions remain scenario-configurable because monster composition changes by battle.
+
+## Citizen nation generation summary
+
+### The Brass Coast
+
+Bias toward:
+
+- mixed light, medium, and some heavy armour
+- round shields
+- axes, one-handed weapons, polearms, thrown weapons, and meaningful ranged presence
+- mobile corsair groups
+- aggressive kohan shock bands
+- well-equipped family guards
+- moderate battle-mage and Physick density
+
+Default archetype direction:
+
+```txt
+family guard
+corsair company
+kohan shock band
+mixed Freeborn line
+specialist/support retinue
+```
+
+### Dawn
+
+Bias toward:
+
+- heavy infantry
+- large shields
+- one-handed weapons, great weapons, and some polearms
+- strong banner prevalence
+- small numbers of battlemages and Physicks
+- very low ranged prevalence
+- confident close-combat profiles
+
+Default archetype direction:
+
+```txt
+noble-house heavy line
+yeofolk shield retinue
+knight-errant shock group
+war-witch-supported household
+```
+
+### Highguard
+
+Bias toward:
+
+- disciplined uniform chapters
+- medium/heavy armour
+- large shields
+- close-order formations
+- one-handed weapons, spears/polearms, and some bows
+- cataphracts, guardians, unconquered scouts, and magister support
+
+Default archetype direction:
+
+```txt
+guardian shield chapter
+cataphract heavy group
+mixed chapter line
+unconquered scout group
+magister/support cadre
+```
+
+Highguard should be the strongest default candidate for rigid close-order shield-wall behaviour.
+
+### Imperial Orcs
+
+Bias toward:
+
+- trained-or-better members only
+- tight legion identity
+- medium/heavy layered armour
+- shields
+- heavy close-combat weapons
+- low ranged prevalence
+- warcaster support
+- high cohesion without treating lives as disposable
+
+Default archetype direction:
+
+```txt
+legion shield line
+heavy-weapon legion
+warcaster-supported legion
+mobile veteran detachment
+support detachment
+```
+
+### The League
+
+Bias toward:
+
+- coherent professional free companies
+- pikes, bills, polearms, and great weapons
+- unified ranged weapons with crossbow visual flavour
+- light ambidextrous bravos and bucklers
+- higher Artisan/specialist density
+- mixed light/medium armour with some heavy specialists
+
+Default archetype direction:
+
+```txt
+pike-or-bill free company
+crossbow company
+great-weapon company
+bravo skirmish group
+specialist company
+```
+
+### The Marches
+
+Bias toward:
+
+- large bill, polearm, and pike blocks
+- cohesive household formations
+- broad armour variation by wealth
+- uncommon large shields
+- small beater/archer groups covering flanks
+- cautious, steady behaviour rather than glory seeking
+
+Default archetype direction:
+
+```txt
+bill-and-polearm block
+pike block
+household heavy retinue
+beater archer group
+flank guard
+```
+
+### Navarr
+
+Bias toward:
+
+- light and medium armour
+- very high bow prevalence
+- polearm/spear-flavoured skirmish groups under the project's existing weapon abstraction
+- few large shields
+- mobile ambush and flank behaviour
+- very high Physick density
+
+Default archetype direction:
+
+```txt
+bow-heavy thorn group
+spear/polearm skirmish group
+light ambush group
+mixed thorn group
+medium line group
+```
+
+### Urizen
+
+Bias toward:
+
+- medium armour and mage armour
+- swords, polearms, bows, and moderate shields
+- the highest citizen battle-mage density
+- carefully composed mage-supported mixed units
+- sentinels, sword scholars, questors, and archer support
+
+Default archetype direction:
+
+```txt
+sentinel mixed line
+mage-supported line
+sword-scholar group
+questor/skirmish group
+archer support group
+```
+
+### Varushka
+
+Bias toward:
+
+- medium/heavy armour
+- round shields
+- broad swords, axes, bardiches, polearms, and great weapons
+- durable schlacta lines
+- close-quarter wagon raiders
+- heavy boyar retainers
+- mixed martial/magical warden fellowships
+
+Default archetype direction:
+
+```txt
+schlacta shield line
+wagon-raider company
+boyar heavy retinue
+warden fellowship
+scout/specialist group
+```
+
+### Wintermark
+
+Do not flatten the three traditions into one national average.
+
+Bias toward:
+
+- Steinr shielded medium/heavy melee
+- Suaq bows, spears/polearms, flanking, and low shield use
+- Kallavesi axes, large weapons, and low shield use
+- very high banner prevalence
+- high Grimnir/Physick presence
+- organised casualty retrieval
+
+Default archetype direction:
+
+```txt
+Steinr shield warband
+Suaq bow-and-spear group
+Kallavesi axe band
+mixed banner warband
+grimnir escort/support group
+```
+
+## Barbarian nation generation summary
+
+### Jotun
+
+Bias toward:
+
+- mail-dominant medium/heavy armour
+- axe-and-shield frontal warbands
+- younger spear-and-shield fighters
+- long-axe shock groups
+- thrown weapons rather than bows or crossbows
+- sustain-focused magical support
+- high banner and rally prevalence
+
+Project reconciliation:
+
+Jotun are shield-heavy and can form shield walls, but their ordinary shield use is more aggressive and less rigidly interlocked than Highguard or professional Grendel formations.
+
+Default archetype direction:
+
+```txt
+axe-and-shield warband
+younger spear-and-shield band
+long-axe shock band
+thrown-weapon skirmish band
+sustain-support retinue
+```
+
+### Druj
+
+Bias toward:
+
+- light/medium armour
+- bucklers rather than large shields
+- spears/polearms, bows, and thrown weapons
+- hit-and-run skirmish behaviour
+- high `ENTANGLE` and `PARALYSE` support
+- ranged harassment and rapid withdrawal
+- a small minority of heavy Pakkad
+
+Default archetype direction:
+
+```txt
+spear-and-buckler skirmish band
+bow/javelin harassment band
+control-mage raid group
+Pakkad heavy group
+herbalist/support group
+```
+
+### Grendel
+
+Bias toward:
+
+- disciplined combined arms
+- medium armour, large shields, and backup weapons
+- spear-and-shield professional lines
+- unified ranged weapons with crossbow visual flavour
+- dual-blade assault groups
+- embedded offensive and defensive battle mages
+- a minority of heavy land infantry
+
+Grendel durability should emerge from:
+
+```txt
+medium armour
+large shields
+Endurance/equipment quality
+formation discipline
+backup weapons
+healing magic
+defensive magic
+```
+
+Do not model every Grendel as universal steel heavy armour.
+
+Default archetype direction:
+
+```txt
+spear-and-shield professional line
+crossbow-and-shield combined unit
+dual-blade assault group
+mage-supported combined-arms unit
+heavy land-infantry group
+```
+
+Medium and large Grendel units should use deterministic minimum mage slots or support quotas rather than merely hoping an independent random roll supplies their combined-arms support.
+
+Deferred:
+
+- elite monster units
+- giant or non-humanoid physiology
+- bespoke monster collision and reach
+- barbarian septs and subject-clan simulation
+
+## Banners
+
+Nation profiles bias the probability that a generated unit has a banner.
+
+Suggested initial prevalence:
+
+```txt
+very high: Dawn, Wintermark
+high: Highguard, Imperial Orcs, Marches, Jotun, Grendel
+medium: Brass Coast, League, Urizen, Varushka
+low-medium: Navarr, Druj
+```
+
+The banner's runtime morale/reform effects remain universal. Nation does not change banner strength.
+
+## Expected scenario schema
 
 - JSON/data-driven scenario files
 - army definitions
-- unit archetypes and mixed-member composition templates
-- faction templates
-- individual combat-skill, armour, helmet, fitness, confidence, and energy distributions
+- team and nation definitions
+- NationDefinition references
+- weighted unit archetypes and mixed-member composition templates
+- deterministic generated-unit requests
+- explicitly authored units
+- faction/team templates
+- individual combat-skill, armour, helmet, fitness, confidence, energy, and experience distributions
+- support-role quotas
+- banner chances
 - casualty, Fortitude, treatment, and respawn timings
 - Sentinel Gate and respawn-point definitions
 - objective definitions
 - equipment, canonical skill IDs, trusted runtime skill profiles, hero-point, mana, herb, liao, Artisan's Oil, and starting-ammunition definitions
-- optional authored character-build references without yet requiring all scenarios to use them
+- optional tonic, bonded magic-item, and ritual-enchantment catalogue references
+- explicit pre-battle enhancement selections for generated or authored characters
+- explicit multi-target ritual application IDs and target character IDs
+- optional authored character-build references without requiring all scenarios to use them
 - terrain and safety-zone definitions
 - deterministic scenario/ref events such as traumatic wounds or curses
 - replay exports
 - after-action summaries
 
+Useful nation-profile overrides:
+
+```txt
+archetype weights
+experience distribution
+unit size
+support-role quotas
+banner chance
+armour distribution
+weapon distribution
+behaviour-profile weights
+formation-style weights
+```
+
+Overrides must be explicit and preserved in replay metadata.
+
 Validation requirements:
 
+- reject team/nation mismatches
+- require exactly one nation for ordinary generated units
+- permit explicit mixed-national authored exceptions
 - reject impossible weapon/skill combinations when validation is requested
 - permit explicitly trusted generated profiles before Milestone 18, but mark them as bypassing XP-build validation
 - reject invalid shield, grip, hand-use, or armour-profile combinations
 - preserve explicit seeds for all generated individual profiles
 - expose generated distributions in after-action/debug data
+- guarantee no fresh-recruit Imperial Orcs unless explicitly overridden
 
+Suggested slices:
+
+```txt
+17A team-safe citizen and barbarian NationId definitions
+17B unit nation ownership and replay/snapshot metadata
+17C NationDefinition, UnitArchetypeDefinition, and member-template schemas
+17D citizen nation profile fixtures
+17E Jotun, Druj, and Grendel profile fixtures
+17F deterministic two-stage unit/member generation
+17G support quotas, banners, and experience distributions
+17H scenario overrides and validation
+17I statistical structural tests, authoring fixtures, and consolidation
+```
+
+Testing direction:
+
+- same seed produces identical nation/archetype/member output
+- nation never overrides actual individual runtime state
+- Imperial Orc generation produces no recruits
+- Marcher defaults strongly favour polearms/pikes over shields
+- Navarr defaults produce more ranged members than Dawn defaults
+- Dawn defaults produce more heavy-armour and shield users than Navarr defaults
+- Highguard defaults favour the strongest close-order shield discipline
+- Wintermark generation produces coherent tradition-based units rather than evenly mixed national soup
+- Grendel medium/large units satisfy embedded mage-support minimums
+- scenario overrides are deterministic and inspectable
+- authored legal exceptions remain deployable
+
+Boundary:
+
+This milestone authors and generates content. It must not duplicate combat, morale, energy, treatment, command, or call-effect logic.
 
 ---
 
@@ -2016,7 +2540,7 @@ Status: future.
 
 Purpose:
 
-Allow users to create named individual characters, assign an XP budget, purchase legal skills, equip them, and deploy them as members of a specific unit on the citizen or barbarian team.
+Allow users to create named individual characters, choose a citizen or barbarian nation, assign an XP budget, purchase legal skills, equip them, and deploy them as members of a specific unit on the appropriate team.
 
 This is deliberately late. The runtime simulation should first know what skills and resources do. The authoring milestone then proves that a named character could legally possess the chosen combination.
 
@@ -2024,6 +2548,7 @@ Expected direction:
 
 - stable character ID and user-facing name
 - team selection: `citizen` or `barbarian`
+- nation selection constrained by team
 - unit assignment
 - explicit XP budget, defaulting to 8 for a normal starting character
 - skill purchases with ranks
@@ -2035,21 +2560,30 @@ Expected direction:
 - derived maximum hits, hero points, mana, death counts, spell slots, and support inventories
 - scenario-configurable herbs, liao, Artisan's Oil, ammunition, equipment, energy, experience, confidence, and behaviour profile
 - deterministic roster import/export
-- deployment of authored characters into a selected scenario/unit/team
+- deployment of authored characters into a selected scenario/unit/team/nation
+- nation-weighted suggested builds without nation-exclusive legality
+- optional pre-battle tonic, bonded magic-item, and ritual-enchantment selections
+- enhancement availability/compatibility feedback delegated to the Milestone 19 catalogue validator
 - example builds and reusable templates
 
 Explicit exclusions:
 
 ```txt
-nation
 lineage
-Imperial Orc character rules
+species bonuses
+barbarian septs and subject clans
+nation-exclusive skills or XP costs
 personal resource economics
 background approval
 bands as character-creation legality
 ```
 
-The simulation continues to use only citizens and barbarians until explicitly expanded.
+Nation is authoring identity and generation flavour. It must not prohibit an otherwise legal unusual build.
+
+Project rule:
+
+- Imperial Orc authored characters cannot use the fresh-recruit experience tier by default
+- no other Imperial Orc species or character-creation mechanics are added
 
 Suggested headless model:
 
@@ -2066,13 +2600,14 @@ Suggested slices:
 
 ```txt
 18A reuse canonical skill catalogue and XP-cost evaluator
-18B character draft, name, team, unit, and stable ID
+18B character draft, name, team, nation, unit, and stable ID
 18C purchase, prerequisite, and repeat-cost validation
 18D equipment and role legality validation
 18E derived hits, hero points, mana, death counts, and support inventories
 18F roster templates, JSON import/export, and deterministic deployment
 18G simple authoring UI and actionable validation feedback
-18H example builds, regression tests, replay metadata, and consolidation
+18H enhancement-selection placeholders and stable import/export fields
+18I example builds, regression tests, replay metadata, and consolidation
 ```
 
 Important rules:
@@ -2093,12 +2628,261 @@ Testing requirements:
 - equipment legality matrix
 - deterministic derived resources
 - deterministic roster serialization and deployment
-- citizen/barbarian and unit assignment
+- citizen/barbarian, nation, and unit assignment
+- team/nation mismatch validation
+- Imperial Orc recruit-tier rejection
 - backward compatibility for trusted generated profiles
 
 Boundary:
 
 Do not turn this into a campaign account simulator. It authors battle participants, not the entire Empire character website.
+
+---
+
+## Milestone 19: Pre-Battle Persistent Enhancements — Tonics, Magic Items, and Ritual Enchantments
+
+Status: future.
+
+Purpose:
+
+Allow authored or scenario-generated characters to enter battle under explicitly selected persistent tonic, bonded magic-item, and ritual-enchantment effects without simulating the economy, crafting, bonding, potion application, or ritual performance that created them.
+
+This milestone is late by design. Basic modifiers are straightforward, but the content depends on authoritative individual hits, calls, conditions, active skills, hero/mana pools, healing, repair, equipment state, SHATTER, and character authoring. The difficulty is the interaction matrix and catalogue discipline, not tick-time computation.
+
+## Scope boundary
+
+At initial implementation:
+
+```txt
+selection and application happen before tick 0
+one tonic may be selected
+one bonded personal item per official form may be selected
+one direct ritual enchantment may be selected
+explicit multi-target ritual applications name their targets
+battle/day charge pools do not replenish during a normal battle
+```
+
+Do not model:
+
+```txt
+in-battle potion drinking or application
+crafting, recipe ownership, rare materials, bonding ceremony, or item expiry
+ritual performance, covens, mastery, lore ranks, magnitude, crystal mana, or failure
+campaign military units, armies, fleets, resources, fortifications, or downtime actions
+wealth acquisition or market availability
+all official magic items or rituals merely because they exist
+```
+
+## Core source model
+
+```ts
+type PreBattleEnhancementKind =
+  | 'tonic'
+  | 'magicItem'
+  | 'ritualEnchantment';
+
+interface PreBattleEnhancementSelection {
+  tonicId?: TonicId;
+  magicItems: {
+    weapon?: MagicItemId;
+    armour?: MagicItemId;
+    talisman?: MagicItemId;
+    standard?: MagicItemId;
+  };
+  directEnchantmentId?: RitualId;
+  inheritedRitualApplicationIds: readonly RitualApplicationId[];
+}
+```
+
+Every active effect must preserve:
+
+```txt
+source definition ID
+source kind
+source item entity where applicable
+ritual application and explicit target set
+active/suspended/consumed/removed state
+remaining source-specific charges
+linked condition or linked character where required
+```
+
+## Typed effect primitives
+
+Prefer a small explicit vocabulary:
+
+```txt
+statDelta
+maximumResourceDelta
+grantRuntimeSkill
+grantAction
+grantCallSource
+sourceSpecificChargePool
+resourceCostSubstitution
+conditionalModifier
+startingCondition
+onResourceSpent
+onHitsRestored
+onConditionRemoved
+onSuccessfulCall
+linkedTargetRestriction
+equipmentActivationRequirement
+repairActionModifier
+treatmentActionModifier
+```
+
+Do not use a general-purpose effect scripting language. Use named deterministic adapters for genuinely exceptional effects such as Warming Armour's collapse on VENOM removal.
+
+## Deterministic setup order
+
+```txt
+identity/team/nation/unit/base profile
+→ purchased or trusted skills
+→ mundane equipment
+→ validate and apply magic-item skill grants
+→ tonic selection
+→ direct ritual enchantment
+→ explicit multi-target ritual applications
+→ derive effective skills and maximum resources
+→ initialise current hits/hero/mana/support resources
+→ apply starting VENOM/WEAKNESS or other explicit conditions
+→ initialise source-specific charge pools
+→ validate unsupported dependencies and incompatibilities
+→ snapshot replay metadata
+```
+
+Do not mutate base skill definitions or mundane loadout data to represent enhancements.
+
+## Tonics
+
+Initial supported tonic catalogue:
+
+```txt
+Oakenhide Tonic                 +1 Endurance
+Winterskin Tonic                +2 Endurance
+Ironblood Tonic                 +3 Endurance
+Tonic of Sunlit Glass           +1 Fortitude
+Tonic of the Distant Shore      +3 Fortitude
+Tonic of Surging Flame          one free Unstoppable use
+Warming Armour                  +2 Endurance, starts VENOM, drops to zero if VENOM removed
+Weakening Sun                   +2 Endurance, starts WEAKNESS, drops to zero if WEAKNESS removed
+```
+
+Project simplification:
+
+- use the official human +2 Endurance branch for Warming Armour and Weakening Sun because the simulation currently omits species
+- exclude species-specific Imperial Orc tonic branches rather than adding hidden species mechanics
+
+## Magic items
+
+Support only curated items whose explicit effect maps to existing systems:
+
+```txt
+Endurance/Fortitude modifiers
+hero-point and mana modifiers
+Weapon Master, Shield, or Marksman grants
+heroic-skill grants and free-use charge pools
+CLEAVE/IMPALE/STRIKEDOWN/ENTANGLE/PARALYSE/REPEL/SHATTER/VENOM/WEAKNESS sources
+Heal/Purify/Restore Limb/Mend/Exorcism sources and modifiers
+Physick charge modifiers
+item self-repair
+hero/mana conversion
+condition, hit-restoration, or resource-spend event triggers
+explicit linked-character effects
+```
+
+Activation rules must depend on the official item form and state. A dropped, slung, broken, unworn, or no-longer-wielded source suspends effects that require it.
+
+Effects that grant unreviewed spells remain catalogue-only with:
+
+```txt
+activationDependency: magicSpellcastingReview
+```
+
+Do not infer spell cost, cast time, range, swift-casting rules, implement use, or interruption.
+
+## Ritual enchantments
+
+Retain only explicit persistent battlefield enchantments from Spring, Summer, Autumn, Winter, Day, and Night that map to existing stats, skills, calls, heroic abilities, healing, repair, or conditions.
+
+Rules:
+
+- one direct enchantment per character
+- group/banner/band rituals use exact authored target character IDs
+- later unit split, merge, routing, or reassignment does not retarget the enchantment
+- season/event duration is normalized to the whole battle
+- direct ritual casting and ritual-resource accounting remain absent
+- official campaign `military unit` is never interpreted as a simulation unit
+
+Representative retained effects include:
+
+```txt
+Skin of Bark, Blood of Amber            +3 Endurance
+Vitality of Rushing Water               healing also removes removable VENOM
+Irrepressible Monkey Spirit             free Unstoppable/Relentless uses
+Vigour of Youth                         +3 Fortitude
+Champion's Shining Resolve              +2 hero points
+Remember the Fallen                     per-target finite combat-call grants
+Might of the Myrmidon                   supported combat-skill grants
+Sum of the Parts                        +3 Endurance
+Circle of Gold                          explicit linked-target Stay With Me uses
+Pallid Flesh of the Dead                +3 Endurance and starting VENOM
+A Perfect Moment                        grants Marksman
+Embrace the Living Flame                +1 hero point
+Still Waters Running Deep               +3 hero points
+```
+
+The complete curated list lives in `official-rules-prebattle-tonics-magic-items-and-rituals-simulation-extraction.md`.
+
+## Mid-battle suspension and interaction
+
+Although new enhancements are not created during battle, their activity may change:
+
+- SHATTER may disable a magical weapon, shield, or implement
+- dropping a magical standard suspends `while wielding` bonuses
+- a dangerous tonic or item may end when VENOM/WEAKNESS is removed
+- source-specific daily uses may be exhausted
+- linked effects may become unusable when the linked target is absent or terminal
+
+Unresolved general rule to settle before implementation:
+
+> How should current hits behave when an active +Endurance source stops applying and current hits exceed the new maximum?
+
+Resolve this centrally from the current official rules. Do not let each item adapter make its own choice.
+
+## Suggested slices
+
+```txt
+19A enhancement IDs, typed effect primitives, and deterministic setup pipeline
+19B tonic slot and eight supported tonic definitions
+19C magic-item forms, selection validation, activation requirements, and passive modifiers
+19D magic-item skill grants, resource conversion, event triggers, and charge pools
+19E magic-item call, heroic, treatment, Exorcism, and repair adapters
+19F ritual-enchantment exclusivity and explicit multi-target application records
+19G curated realm ritual definitions and magic-gated spell sources
+19H character-builder and scenario-schema integration
+19I source suspension, SHATTER/drop interactions, replay/debug support, tests, and consolidation
+```
+
+## Testing requirements
+
+- one-tonic exclusivity
+- one bonded personal item per official form
+- direct-enchantment exclusivity
+- explicit ritual target sets do not follow dynamic unit membership
+- deterministic derived stats and charge pools
+- unsupported magic-gated selections fail validation clearly
+- Warming Armour and Weakening Sun condition-removal collapse
+- magic-item skill grants alter runtime qualification but not XP purchases
+- item drop/SHATTER suspends only dependent effects
+- identical item definitions on different characters retain independent charges
+- no daily replenishment during a one-hour battle
+- stable ordering for condition removal, hit restoration, item loss, and event-triggered effects
+- replay/debug state exposes selections, source IDs, charges, suspension reasons, and target links
+- enhancement processing is event-driven or setup-derived rather than scanning every catalogue entry every tick
+
+Boundary:
+
+Do not expand this into an Empire economy, potion-use, ritual-casting, or magic-item crafting simulator. Do not activate spells whose battlefield rules have not been reviewed.
 
 ---
 
@@ -2111,5 +2895,7 @@ Reviewed source extracts that inform this roadmap:
 - `official-rules-weapons-and-armour-simulation-extraction.md` — simplified weapon categories, armour hits/protection, shields, and equipment permissions
 - `official-rules-calls-treatment-and-repair-behaviour-supplement.md` — medical urgency, casualty dragging, healer handoff, and SHATTER repair behaviour
 - `official-rules-skills-character-xp-and-banners-simulation-extraction.md` — relevant skills, prerequisites, XP, hero/mana pools, support consumables, simplified CURSE/Exorcism, banners, and the later character builder
+- `official-rules-nations-and-barbarian-unit-flavour-extraction.md` — citizen and barbarian nation IDs, unit archetypes, composition biases, Imperial Orc experience floor, and deterministic nation-weighted generation
+- `official-rules-prebattle-tonics-magic-items-and-rituals-simulation-extraction.md` — curated pre-battle tonics, bonded magic items, ritual enchantments, source-owned modifiers, spell-gated content, and Milestone 19 placement
 
 Further official pages should be extracted separately and then assigned to existing milestones or used to justify targeted new plans.

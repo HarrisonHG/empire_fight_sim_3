@@ -67,14 +67,14 @@ export class MetricsPanel {
     this.combatUnitStateValue.textContent = combatDebug.units
       .map(
         (unit) =>
-          `U${unit.unitId}/F${unit.factionId} (${unit.memberCount}): ` +
+          `${unit.label} · U${unit.unitId}/F${unit.factionId} (${unit.memberCount}): ` +
           `${unit.movementStyle}, D ${formatCombatNumber(unit.accumulatedDamage)}, ` +
           `M ${unit.persistentMoraleState}, R ${unit.routingRisk}, ` +
           `Rec ${unit.recoveryProgress}, P ${formatCombatNumber(unit.persistentPressure)}, ` +
           `C ${unit.currentCohesion} ` +
           `(assessment ${unit.assessmentMoraleState}/P ${formatCombatNumber(unit.assessmentPressureAverage)})`,
       )
-      .join(" | ");
+      .join("\n");
   }
 
   public updateWorkerMetrics(message: MetricsWorkerMessage): void {

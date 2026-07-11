@@ -1,6 +1,6 @@
 import "./style.css";
 
-import { LIVE_COMBAT_SCENARIO } from "./content/liveCombatScenario";
+import { MORALE_INSPECTION_SCENARIO } from "./content/moraleInspectionScenario";
 import { PixiEntityRenderer } from "./render/PixiEntityRenderer";
 import { Controls } from "./ui/Controls";
 import { MetricsPanel } from "./ui/MetricsPanel";
@@ -51,7 +51,7 @@ async function startApplication(): Promise<void> {
     }
   });
 
-  workerClient.start(LIVE_COMBAT_SCENARIO);
+  workerClient.start(MORALE_INSPECTION_SCENARIO);
 
   window.addEventListener(
     "pagehide",
