@@ -25,7 +25,9 @@ import {
 import {
   advancePersistentMoraleOneTick,
   createPersistentMoraleStore,
+  getPersistentUnitMoraleState,
 } from "./persistentMorale";
+import type { MoraleMovementState } from "./moraleMovement";
 import { SeededRng } from "./rng";
 import {
   createUnitIdentityStore,
@@ -33,6 +35,7 @@ import {
   getUnitIdForEntity,
   getUnitIds,
   getUnitMembers,
+  type UnitId,
 } from "./unitIdentity";
 import { createUnitLoadoutStore } from "./unitLoadout";
 import type {
@@ -114,6 +117,7 @@ export function advanceSimulationOneTick(simulation: SimulationState): void {
       simulation.world,
       combatSandbox.identityStore,
       combatSandbox.formationStore,
+      combatSandbox.moraleMovementStates,
     );
     advanceCombatPipelineOneTick(
       simulation.world,
@@ -158,6 +162,7 @@ export function advanceSimulationOneTick(simulation: SimulationState): void {
         pressureUpdates: combatSandbox.pressureUpdates,
       },
     );
+    syncMoraleMovementStates(combatSandbox);
     updateCombatCounters(combatSandbox);
     combatSandbox.debugSnapshot = createCombatDebugSnapshot(combatSandbox);
   }
@@ -327,6 +332,17 @@ function createCombatSandbox(
     [],
     moraleAssessments,
   );
+  const persistentMoraleStore = createPersistentMoraleStore(
+    identityStore,
+    formationStore,
+    moraleAssessments,
+  );
+  const moraleMovementStates = new Map<UnitId, MoraleMovementState>();
+  syncMoraleMovementStatesForStores(
+    identityStore,
+    persistentMoraleStore,
+    moraleMovementStates,
+  );
   const combatSandbox: CombatSandboxSimulationState = {
     identityStore,
     loadoutStore,
@@ -334,11 +350,8 @@ function createCombatSandbox(
     tempoStore,
     survivabilityStore,
     pressureStore: createCombatPressureStore(identityStore, formationStore),
-    persistentMoraleStore: createPersistentMoraleStore(
-      identityStore,
-      formationStore,
-      moraleAssessments,
-    ),
+    persistentMoraleStore,
+    moraleMovementStates,
     pipelineOutput: createCombatPipelineOutput(),
     consequenceApplications: [],
     pressureUpdates: [],
@@ -475,6 +488,35 @@ function updateCombatCounters(combatSandbox: CombatSandboxSimulationState): void
   combatSandbox.totalSurvivabilityApplicationCount +=
     combatSandbox.survivabilityApplicationCount;
   combatSandbox.totalConsequenceCount += combatSandbox.consequenceCount;
+}
+
+/**
+ * This projection is refreshed after morale arbitration, so its new state is
+ * read by formation on the following movement tick rather than mid-tick.
+ */
+function syncMoraleMovementStates(
+  combatSandbox: CombatSandboxSimulationState,
+): void {
+  syncMoraleMovementStatesForStores(
+    combatSandbox.identityStore,
+    combatSandbox.persistentMoraleStore,
+    combatSandbox.moraleMovementStates,
+  );
+}
+
+function syncMoraleMovementStatesForStores(
+  identityStore: CombatSandboxSimulationState["identityStore"],
+  persistentMoraleStore: CombatSandboxSimulationState["persistentMoraleStore"],
+  moraleMovementStates: Map<UnitId, MoraleMovementState>,
+): void {
+  const unitIds = getUnitIds(identityStore);
+  for (let unitIndex = 0; unitIndex < unitIds.length; unitIndex += 1) {
+    const unitId = unitIds[unitIndex]!;
+    moraleMovementStates.set(
+      unitId,
+      getPersistentUnitMoraleState(persistentMoraleStore, unitId),
+    );
+  }
 }
 
 function createEmptyCombatDebugSnapshot(): LiveCombatDebugSnapshot {

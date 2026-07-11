@@ -297,6 +297,24 @@ The first implementation only needs one deterministic wavering response.
 - Morale modifiers do not mutate base configuration.
 - No render-time or frame-time influence.
 
+### Implementation record (2026-07-11)
+
+- [x] Added a read-only tick-start morale-to-formation boundary. Persistent
+  morale remains the sole state owner; formation consumes only the projected
+  state and never writes it.
+- [x] Added fixed-point, per-unit anchor and per-member slot-correction
+  carries: strained uses 850/1000, shaken 650/1000, wavering halts anchor
+  advance with 500/1000 correction, and recovering halts advance with
+  700/1000 correction.
+- [x] Kept `steady` byte-for-byte on the existing movement path and left
+  `routing` unchanged until 4E. The post-arbitration projection means a
+  transition affects formation on the following tick.
+- [x] Added headless coverage for steady equivalence, multi-tick fractional
+  slowing, halted reforming, immutable configured rates, deterministic replay,
+  and unchanged entity membership.
+- [ ] Routing movement, give-ground behaviour, contagion, rallying, captains,
+  UI, and rendering remain outside 4D.
+
 ---
 
 ## 4E — Routing movement

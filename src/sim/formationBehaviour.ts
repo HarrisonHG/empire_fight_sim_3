@@ -13,6 +13,10 @@ import {
   type UnitId,
   type UnitIdentityStore,
 } from "./unitIdentity";
+import type {
+  MoraleMovementState,
+  UnitMoraleMovementStateSource,
+} from "./moraleMovement";
 import type { WorldState } from "./types";
 
 export type UnitOrder = "hold" | "advance" | "advanceCautious";
@@ -95,6 +99,8 @@ interface InternalFormationBehaviourStore extends FormationBehaviourStore {
   readonly rows: Int32Array;
   readonly cols: Int32Array;
   readonly unitSpeed: Int32Array;
+  /** Fixed-point carry for morale-reduced anchor movement. */
+  readonly anchorMovementRemainder: Int32Array;
   readonly orders: UnitOrder[];
   readonly cohesion: Int32Array;
   readonly unitMovementStyle: UnitMovementStyle[];
@@ -108,6 +114,8 @@ interface InternalFormationBehaviourStore extends FormationBehaviourStore {
   readonly slotRow: Int32Array;
   readonly slotCol: Int32Array;
   readonly memberMaxStep: Int32Array;
+  /** Fixed-point carry for morale-reduced member slot correction. */
+  readonly slotCorrectionRemainder: Int32Array;
   readonly pressure: Int32Array;
   readonly confidence: Int32Array;
   readonly stuckTicks: Int32Array;
@@ -147,6 +155,11 @@ const PUSH_THROUGH_SOURCE_COHESION_LOSS = 5;
 const PUSH_THROUGH_BLOCKER_COHESION_LOSS = 3;
 const PUSH_THROUGH_SOURCE_PRESSURE_GAIN = 20;
 const PUSH_THROUGH_BLOCKER_PRESSURE_GAIN = 10;
+const MORALE_MOVEMENT_SCALE = 1_000;
+const STRAINED_MOVEMENT_SCALE = 850;
+const SHAKEN_MOVEMENT_SCALE = 650;
+const WAVERING_CORRECTION_SCALE = 500;
+const RECOVERING_CORRECTION_SCALE = 700;
 
 export function createFormationBehaviourStore(
   identityStore: UnitIdentityStore,
@@ -189,6 +202,7 @@ export function createFormationBehaviourStore(
     rows: new Int32Array(unitCount),
     cols: new Int32Array(unitCount),
     unitSpeed: new Int32Array(unitCount),
+    anchorMovementRemainder: new Int32Array(unitCount),
     orders: new Array<UnitOrder>(unitCount).fill("hold"),
     cohesion: new Int32Array(unitCount),
     unitMovementStyle: new Array<UnitMovementStyle>(unitCount).fill(
@@ -203,6 +217,7 @@ export function createFormationBehaviourStore(
     slotRow: new Int32Array(config.entityCount),
     slotCol: new Int32Array(config.entityCount),
     memberMaxStep: new Int32Array(config.entityCount),
+    slotCorrectionRemainder: new Int32Array(config.entityCount),
     pressure: new Int32Array(config.entityCount),
     confidence: new Int32Array(config.entityCount),
     stuckTicks: new Int32Array(config.entityCount),
@@ -356,6 +371,14 @@ export function getIndividualPressure(
   return internal.pressure[entityId]!;
 }
 
+export function getUnitConfiguredSpeed(
+  store: FormationBehaviourStore,
+  unitId: UnitId,
+): number {
+  const internal = asInternal(store);
+  return internal.unitSpeed[requireUnitIndex(internal, unitId)]!;
+}
+
 export function getIndividualConfidence(
   store: FormationBehaviourStore,
   entityId: number,
@@ -372,6 +395,15 @@ export function getIndividualRole(
   const internal = asInternal(store);
   assertEntityIdInRange(entityId, internal.entityCount);
   return internal.roles[entityId]!;
+}
+
+export function getIndividualConfiguredMaxStep(
+  store: FormationBehaviourStore,
+  entityId: number,
+): number {
+  const internal = asInternal(store);
+  assertEntityIdInRange(entityId, internal.entityCount);
+  return internal.memberMaxStep[entityId]!;
 }
 
 export function setIndividualPressure(
@@ -423,6 +455,7 @@ export function advanceFormationOneTick(
   world: WorldState,
   identityStore: UnitIdentityStore,
   store: FormationBehaviourStore,
+  moraleMovementStates?: UnitMoraleMovementStateSource,
 ): FormationTickResult {
   const internal = asInternal(store);
   validateWorldForBehaviour(world, internal, identityStore);
@@ -442,6 +475,7 @@ export function advanceFormationOneTick(
       blockerGrid,
       unitId,
       storeUnitIndex,
+      moraleMovementStates?.get(unitId) ?? "steady",
       events,
     );
   }
@@ -456,6 +490,7 @@ function processUnit(
   blockerGrid: SpatialGrid | undefined,
   unitId: UnitId,
   unitIndex: number,
+  moraleMovementState: MoraleMovementState,
   events: FormationEvent[],
 ): void {
   const order = store.orders[unitIndex]!;
@@ -466,6 +501,18 @@ function processUnit(
   const cols = store.cols[unitIndex]!;
   const centerCol = Math.floor(cols / 2);
   const isAdvancing = order === "advance" || order === "advanceCautious";
+  const anchorMovementScale = anchorMovementScaleForMorale(
+    moraleMovementState,
+  );
+  const correctionMovementScale = correctionMovementScaleForMorale(
+    moraleMovementState,
+  );
+  if (
+    anchorMovementScale === 0 ||
+    anchorMovementScale === MORALE_MOVEMENT_SCALE
+  ) {
+    store.anchorMovementRemainder[unitIndex] = 0;
+  }
 
   const style = chooseUnitMovementStyle(
     identityStore,
@@ -486,17 +533,29 @@ function processUnit(
   }
 
   if (shouldAdvanceUnitAnchor(isAdvancing, style)) {
+    const effectiveUnitSpeed = scaleMovementStepWithRemainder(
+      unitSpeed,
+      anchorMovementScale,
+      store.anchorMovementRemainder,
+      unitIndex,
+    );
     store.anchorX[unitIndex] =
-      store.anchorX[unitIndex]! + headingX * unitSpeed;
+      store.anchorX[unitIndex]! + headingX * effectiveUnitSpeed;
     store.anchorY[unitIndex] =
-      store.anchorY[unitIndex]! + headingY * unitSpeed;
+      store.anchorY[unitIndex]! + headingY * effectiveUnitSpeed;
   } else if (isAdvancing && style === "formedDetour") {
+    const effectiveUnitSpeed = scaleMovementStepWithRemainder(
+      unitSpeed,
+      anchorMovementScale,
+      store.anchorMovementRemainder,
+      unitIndex,
+    );
     sidestepFormedDetourAnchor(
       world,
       store,
       unitId,
       unitIndex,
-      unitSpeed,
+      effectiveUnitSpeed,
       headingX,
       headingY,
     );
@@ -544,6 +603,12 @@ function processUnit(
     const slotRow = store.slotRow[entityId]!;
     const slotCol = store.slotCol[entityId]!;
     const memberMaxStep = store.memberMaxStep[entityId]!;
+    const effectiveMemberMaxStep = scaleMovementStepWithRemainder(
+      memberMaxStep,
+      correctionMovementScale,
+      store.slotCorrectionRemainder,
+      entityId,
+    );
     const pressure = store.pressure[entityId]!;
 
     const backward = slotRow * spacing;
@@ -587,8 +652,8 @@ function processUnit(
     const deltaX = slotX - posX;
     const deltaY = slotY - posY;
 
-    let stepX = clampComponent(deltaX, memberMaxStep);
-    let stepY = clampComponent(deltaY, memberMaxStep);
+    let stepX = clampComponent(deltaX, effectiveMemberMaxStep);
+    let stepY = clampComponent(deltaY, effectiveMemberMaxStep);
 
     let mode: MovementMode = decideMode(order, stepX, stepY);
 
@@ -1021,6 +1086,71 @@ function getHostileContactQueryRadius(
       spacing * HOSTILE_CONTACT_LATERAL_SPACING_MULTIPLIER,
     ),
   );
+}
+
+function anchorMovementScaleForMorale(
+  state: MoraleMovementState,
+): number {
+  switch (state) {
+    case "steady":
+    case "routing":
+      // Routing keeps normal formation movement until 4E owns its movement.
+      return MORALE_MOVEMENT_SCALE;
+    case "strained":
+      return STRAINED_MOVEMENT_SCALE;
+    case "shaken":
+      return SHAKEN_MOVEMENT_SCALE;
+    case "wavering":
+    case "recovering":
+      return 0;
+  }
+}
+
+function correctionMovementScaleForMorale(
+  state: MoraleMovementState,
+): number {
+  switch (state) {
+    case "steady":
+    case "routing":
+      return MORALE_MOVEMENT_SCALE;
+    case "strained":
+      return STRAINED_MOVEMENT_SCALE;
+    case "shaken":
+      return SHAKEN_MOVEMENT_SCALE;
+    case "wavering":
+      return WAVERING_CORRECTION_SCALE;
+    case "recovering":
+      return RECOVERING_CORRECTION_SCALE;
+  }
+}
+
+/**
+ * Integer carry preserves fractional morale speed reductions across ticks.
+ * At scale 850, a configured speed of one advances 17 cells in 20 ticks,
+ * rather than being truncated to zero every tick.
+ */
+function scaleMovementStepWithRemainder(
+  configuredStep: number,
+  scale: number,
+  remainders: Int32Array,
+  index: number,
+): number {
+  if (scale === MORALE_MOVEMENT_SCALE) {
+    remainders[index] = 0;
+    return configuredStep;
+  }
+  if (scale === 0 || configuredStep === 0) {
+    remainders[index] = 0;
+    return 0;
+  }
+
+  const scaledWithRemainder =
+    configuredStep * scale + remainders[index]!;
+  const effectiveStep = Math.floor(
+    scaledWithRemainder / MORALE_MOVEMENT_SCALE,
+  );
+  remainders[index] = scaledWithRemainder % MORALE_MOVEMENT_SCALE;
+  return effectiveStep;
 }
 
 function chooseUnitMovementStyle(

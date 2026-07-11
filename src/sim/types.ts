@@ -11,13 +11,14 @@ import type {
   PersistentMoraleEvent,
   PersistentMoraleStore,
 } from "./persistentMorale";
+import type { MoraleMovementState } from "./moraleMovement";
 import type {
   FormationBehaviourStore,
   IndividualRole,
   UnitMovementStyle,
   UnitOrder,
 } from "./formationBehaviour";
-import type { UnitIdentityStore } from "./unitIdentity";
+import type { UnitId, UnitIdentityStore } from "./unitIdentity";
 import type {
   ArmourClass,
   ShieldClass,
@@ -156,6 +157,8 @@ export interface CombatSandboxSimulationState {
   readonly survivabilityStore: CombatSurvivabilityStore;
   readonly pressureStore: CombatPressureStore;
   readonly persistentMoraleStore: PersistentMoraleStore;
+  /** Tick-start read model consumed by formation; persistent morale owns it. */
+  readonly moraleMovementStates: Map<UnitId, MoraleMovementState>;
   readonly pipelineOutput: CombatPipelineOutput;
   readonly consequenceApplications: CombatConsequenceApplication[];
   readonly pressureUpdates: UnitPressureUpdate[];

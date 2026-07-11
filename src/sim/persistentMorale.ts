@@ -1,5 +1,6 @@
 import type { CombatMoraleAssessment } from "./combatMorale";
 import type { UnitPressureUpdate } from "./combatPressure";
+import type { MoraleMovementState } from "./moraleMovement";
 import {
   getUnitAccumulatedDamage,
   type CombatSurvivabilityStore,
@@ -16,13 +17,7 @@ import {
   type UnitIdentityStore,
 } from "./unitIdentity";
 
-export type PersistentUnitMoraleState =
-  | "steady"
-  | "strained"
-  | "shaken"
-  | "wavering"
-  | "routing"
-  | "recovering";
+export type PersistentUnitMoraleState = MoraleMovementState;
 
 /**
  * A read model of a unit's current morale inputs plus its persistent
@@ -239,6 +234,14 @@ export function getPersistentUnitMorale(
     routingRisk: internal.routingRisk[unitIndex]!,
     recoveryProgress: internal.recoveryProgress[unitIndex]!,
   };
+}
+
+export function getPersistentUnitMoraleState(
+  store: PersistentMoraleStore,
+  unitId: UnitId,
+): PersistentUnitMoraleState {
+  const internal = asInternal(store);
+  return internal.states[requireUnitIndex(internal, unitId)]!;
 }
 
 function refreshObservedInputs(
