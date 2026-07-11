@@ -330,7 +330,7 @@ A routing unit should:
 - Move away from the principal hostile pressure
 - Stop preserving normal combat formation
 - Avoid deliberately running through enemies
-- Be allowed to flow through allies with disruption
+- Be allowed to physically flow through allies
 - Maintain unit identity
 - Remain deterministic
 
@@ -369,9 +369,8 @@ A later recovery style may be:
 Routing through allies:
 
 - Permitted
-- Adds pressure to both units
-- Reduces cohesion
-- May cause the allied unit to give way or later rout
+- Does not apply pressure, cohesion, or other contagion effects in 4E; those
+  effects belong to 4F.
 
 Routing through enemies:
 
@@ -386,10 +385,29 @@ Routing off the world edge:
 
 - A routing unit moves away from its hostile.
 - It does not move through the hostile line.
-- It can disrupt an allied unit behind it.
+- It can physically flow through an allied unit behind it without changing the
+  ally's morale inputs.
 - Identical scenarios route identically.
 - Unit processing order does not change retreat direction.
 - Routing does not delete entities.
+
+### Implementation record (2026-07-11)
+
+- [x] Added `routeAway`, a temporary routing movement style that suspends
+  normal formation/order arbitration without changing the stored order,
+  heading, speed, or member step configuration.
+- [x] Chose a unit-level retreat heading from tick-start spatial-grid and
+  anchor data: away from the nearest nearby hostile, or opposite the stored
+  heading when none is nearby. Edge handling tries deterministic perpendicular
+  alternatives and clamps positions to the world.
+- [x] Added loose per-member routing movement, retained the existing local
+  hostile contact cap, and deliberately permit flow through allies without
+  applying any 4F pressure or cohesion effect.
+- [x] Added headless coverage for retreat, fallback, hostile-line safety,
+  allied flow, world edges, processing order, deterministic replay,
+  configuration preservation, and entity membership.
+- [ ] Routing contagion, cohesion damage, rallying, captains, removal, UI, and
+  rendering remain outside 4E.
 
 ---
 

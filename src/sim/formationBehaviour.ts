@@ -33,7 +33,8 @@ export type UnitMovementStyle =
   | "looseFlow" // Emitted by Milestone 2B blocker arbitration.
   | "pushThrough" // Emitted by Milestone 2B blocker arbitration.
   | "haltAndWait" // Emitted by Milestone 2B blocker arbitration.
-  | "engageFront"; // 2B style selection only; does not implement combat.
+  | "engageFront" // 2B style selection only; does not implement combat.
+  | "routeAway"; // 4E temporary routing movement; stored order remains intact.
 
 export interface UnitFormationConfig {
   readonly unitId: UnitId;
@@ -109,6 +110,9 @@ interface InternalFormationBehaviourStore extends FormationBehaviourStore {
   readonly activeBlockerUnitId: Int32Array;
   readonly activeBlockerDistance: Int32Array;
   readonly activeBlockerLateralOffset: Int32Array;
+  /** Temporary 4E routing intent; never replaces the configured heading. */
+  readonly routingHeadingX: Int8Array;
+  readonly routingHeadingY: Int8Array;
 
   readonly roles: IndividualRole[];
   readonly slotRow: Int32Array;
@@ -130,6 +134,9 @@ interface InternalFormationBehaviourStore extends FormationBehaviourStore {
   /** Fixed tick-start positions used for symmetric hostile contact limits. */
   readonly contactSnapshotPositionsX: Int32Array;
   readonly contactSnapshotPositionsY: Int32Array;
+  /** Tick-start anchors used for order-independent 4E retreat choices. */
+  readonly anchorSnapshotX: Int32Array;
+  readonly anchorSnapshotY: Int32Array;
 
   readonly rng: SeededRng;
 }
@@ -160,6 +167,8 @@ const STRAINED_MOVEMENT_SCALE = 850;
 const SHAKEN_MOVEMENT_SCALE = 650;
 const WAVERING_CORRECTION_SCALE = 500;
 const RECOVERING_CORRECTION_SCALE = 700;
+const ROUTING_PRIMARY_HOSTILE_QUERY_RADIUS = 192;
+const ROUTING_LATERAL_CORRECTION_MAX_STEP = 1;
 
 export function createFormationBehaviourStore(
   identityStore: UnitIdentityStore,
@@ -213,6 +222,8 @@ export function createFormationBehaviourStore(
     activeBlockerUnitId: new Int32Array(unitCount),
     activeBlockerDistance: new Int32Array(unitCount),
     activeBlockerLateralOffset: new Int32Array(unitCount),
+    routingHeadingX: new Int8Array(unitCount),
+    routingHeadingY: new Int8Array(unitCount),
     roles: new Array<IndividualRole>(config.entityCount).fill("regular"),
     slotRow: new Int32Array(config.entityCount),
     slotCol: new Int32Array(config.entityCount),
@@ -236,6 +247,8 @@ export function createFormationBehaviourStore(
     scratchCandidateUnitIds: [],
     contactSnapshotPositionsX: new Int32Array(config.entityCount),
     contactSnapshotPositionsY: new Int32Array(config.entityCount),
+    anchorSnapshotX: new Int32Array(unitCount),
+    anchorSnapshotY: new Int32Array(unitCount),
     rng: new SeededRng(config.rngSeed),
   };
   store.activeBlockerUnitId.fill(NO_ACTIVE_BLOCKER_UNIT_ID);
@@ -371,6 +384,19 @@ export function getIndividualPressure(
   return internal.pressure[entityId]!;
 }
 
+/** Returns the temporary 4E retreat direction without exposing mutable state. */
+export function getUnitRoutingHeading(
+  store: FormationBehaviourStore,
+  unitId: UnitId,
+): { readonly x: number; readonly y: number } {
+  const internal = asInternal(store);
+  const index = requireUnitIndex(internal, unitId);
+  return {
+    x: internal.routingHeadingX[index]!,
+    y: internal.routingHeadingY[index]!,
+  };
+}
+
 export function getUnitConfiguredSpeed(
   store: FormationBehaviourStore,
   unitId: UnitId,
@@ -464,6 +490,17 @@ export function advanceFormationOneTick(
   const unitIds = getUnitIds(identityStore);
   const blockerGrid =
     unitIds.length > 1 ? prepareBlockerGrid(internal, world) : undefined;
+  if (blockerGrid === undefined) {
+    snapshotFormationTickStart(internal, world);
+  }
+  prepareRoutingHeadings(
+    world,
+    identityStore,
+    internal,
+    blockerGrid,
+    unitIds,
+    moraleMovementStates,
+  );
 
   for (let unitIndex = 0; unitIndex < unitIds.length; unitIndex += 1) {
     const unitId = unitIds[unitIndex]!;
@@ -501,6 +538,18 @@ function processUnit(
   const cols = store.cols[unitIndex]!;
   const centerCol = Math.floor(cols / 2);
   const isAdvancing = order === "advance" || order === "advanceCautious";
+  if (moraleMovementState === "routing") {
+    processRoutingUnit(
+      world,
+      identityStore,
+      store,
+      blockerGrid,
+      unitId,
+      unitIndex,
+      events,
+    );
+    return;
+  }
   const anchorMovementScale = anchorMovementScaleForMorale(
     moraleMovementState,
   );
@@ -792,6 +841,366 @@ function processUnit(
   }
 }
 
+interface RoutingHeading {
+  readonly x: number;
+  readonly y: number;
+}
+
+function prepareRoutingHeadings(
+  world: WorldState,
+  identityStore: UnitIdentityStore,
+  store: InternalFormationBehaviourStore,
+  blockerGrid: SpatialGrid | undefined,
+  unitIds: readonly UnitId[],
+  moraleMovementStates: UnitMoraleMovementStateSource | undefined,
+): void {
+  for (let unitIndex = 0; unitIndex < unitIds.length; unitIndex += 1) {
+    const unitId = unitIds[unitIndex]!;
+    if (moraleMovementStates?.get(unitId) !== "routing") {
+      store.routingHeadingX[unitIndex] = 0;
+      store.routingHeadingY[unitIndex] = 0;
+      continue;
+    }
+
+    const heading = selectRoutingHeading(
+      world,
+      identityStore,
+      store,
+      blockerGrid,
+      unitId,
+      unitIndex,
+    );
+    store.routingHeadingX[unitIndex] = heading.x;
+    store.routingHeadingY[unitIndex] = heading.y;
+  }
+}
+
+function selectRoutingHeading(
+  world: WorldState,
+  identityStore: UnitIdentityStore,
+  store: InternalFormationBehaviourStore,
+  blockerGrid: SpatialGrid | undefined,
+  unitId: UnitId,
+  unitIndex: number,
+): RoutingHeading {
+  const fallback = {
+    x: -store.headingX[unitIndex]!,
+    y: -store.headingY[unitIndex]!,
+  };
+  const primaryHostileUnitId = findPrimaryRoutingHostileUnit(
+    identityStore,
+    store,
+    blockerGrid,
+    unitId,
+    unitIndex,
+  );
+  if (primaryHostileUnitId === undefined) {
+    return selectValidRoutingHeading(world, store, unitIndex, fallback);
+  }
+
+  const hostileIndex = requireUnitIndex(store, primaryHostileUnitId);
+  const deltaX =
+    store.anchorSnapshotX[unitIndex]! - store.anchorSnapshotX[hostileIndex]!;
+  const deltaY =
+    store.anchorSnapshotY[unitIndex]! - store.anchorSnapshotY[hostileIndex]!;
+  const preferred = directionAwayFromHostile(deltaX, deltaY, fallback);
+  return selectValidRoutingHeading(world, store, unitIndex, preferred);
+}
+
+function findPrimaryRoutingHostileUnit(
+  identityStore: UnitIdentityStore,
+  store: InternalFormationBehaviourStore,
+  blockerGrid: SpatialGrid | undefined,
+  unitId: UnitId,
+  unitIndex: number,
+): UnitId | undefined {
+  if (blockerGrid === undefined) {
+    return undefined;
+  }
+
+  const nearbyEntityIds = queryEntitiesWithinRadiusInto(
+    blockerGrid,
+    store.anchorSnapshotX[unitIndex]!,
+    store.anchorSnapshotY[unitIndex]!,
+    ROUTING_PRIMARY_HOSTILE_QUERY_RADIUS,
+    store.scratchNearbyEntityIds,
+  );
+  const candidateUnitIds = collectCandidateUnitIds(
+    identityStore,
+    unitId,
+    nearbyEntityIds,
+    store.scratchCandidateUnitIds,
+  );
+  const sourceFactionId = getFactionIdForUnit(identityStore, unitId);
+  let primaryUnitId: UnitId | undefined;
+  let primaryDistanceSquared = Number.MAX_SAFE_INTEGER;
+
+  for (let candidateIndex = 0; candidateIndex < candidateUnitIds.length; candidateIndex += 1) {
+    const candidateUnitId = candidateUnitIds[candidateIndex]!;
+    if (getFactionIdForUnit(identityStore, candidateUnitId) === sourceFactionId) {
+      continue;
+    }
+    const hostileIndex = requireUnitIndex(store, candidateUnitId);
+    const deltaX =
+      store.anchorSnapshotX[hostileIndex]! - store.anchorSnapshotX[unitIndex]!;
+    const deltaY =
+      store.anchorSnapshotY[hostileIndex]! - store.anchorSnapshotY[unitIndex]!;
+    const distanceSquared = deltaX * deltaX + deltaY * deltaY;
+    if (
+      distanceSquared < primaryDistanceSquared ||
+      (distanceSquared === primaryDistanceSquared &&
+        (primaryUnitId === undefined || candidateUnitId < primaryUnitId))
+    ) {
+      primaryUnitId = candidateUnitId;
+      primaryDistanceSquared = distanceSquared;
+    }
+  }
+
+  return primaryUnitId;
+}
+
+function directionAwayFromHostile(
+  deltaX: number,
+  deltaY: number,
+  fallback: RoutingHeading,
+): RoutingHeading {
+  const absoluteX = Math.abs(deltaX);
+  const absoluteY = Math.abs(deltaY);
+  if (absoluteX === 0 && absoluteY === 0) {
+    return fallback;
+  }
+  if (absoluteX >= absoluteY) {
+    return { x: deltaX < 0 ? -1 : 1, y: 0 };
+  }
+  return { x: 0, y: deltaY < 0 ? -1 : 1 };
+}
+
+function selectValidRoutingHeading(
+  world: WorldState,
+  store: InternalFormationBehaviourStore,
+  unitIndex: number,
+  preferred: RoutingHeading,
+): RoutingHeading {
+  const candidates: readonly RoutingHeading[] = [
+    preferred,
+    { x: -preferred.y, y: preferred.x },
+    { x: preferred.y, y: -preferred.x },
+    { x: -preferred.x, y: -preferred.y },
+  ];
+
+  for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
+    const candidate = candidates[candidateIndex]!;
+    if (canAdvanceRoutingAnchor(world, store, unitIndex, candidate)) {
+      return candidate;
+    }
+  }
+
+  return preferred;
+}
+
+function canAdvanceRoutingAnchor(
+  world: WorldState,
+  store: InternalFormationBehaviourStore,
+  unitIndex: number,
+  heading: RoutingHeading,
+): boolean {
+  const speed = store.unitSpeed[unitIndex]!;
+  const nextX = store.anchorSnapshotX[unitIndex]! + heading.x * speed;
+  const nextY = store.anchorSnapshotY[unitIndex]! + heading.y * speed;
+  return (
+    nextX >= 0 &&
+    nextY >= 0 &&
+    nextX < world.bounds.width &&
+    nextY < world.bounds.height
+  );
+}
+
+function processRoutingUnit(
+  world: WorldState,
+  identityStore: UnitIdentityStore,
+  store: InternalFormationBehaviourStore,
+  blockerGrid: SpatialGrid | undefined,
+  unitId: UnitId,
+  unitIndex: number,
+  events: FormationEvent[],
+): void {
+  const routeHeadingX = store.routingHeadingX[unitIndex]!;
+  const routeHeadingY = store.routingHeadingY[unitIndex]!;
+  const unitSpeed = store.unitSpeed[unitIndex]!;
+  const spacing = store.spacing[unitIndex]!;
+  const perpX = -routeHeadingY;
+  const perpY = routeHeadingX;
+
+  store.styleCommitmentTicksRemaining[unitIndex] = 0;
+  store.blockerReleaseTicksRemaining[unitIndex] = 0;
+  clearActiveBlocker(store, unitIndex);
+  store.unitMovementStyle[unitIndex] = "routeAway";
+  if (store.lastEmittedUnitStyle[unitIndex] !== "routeAway") {
+    store.lastEmittedUnitStyle[unitIndex] = "routeAway";
+    events.push({ kind: "unit_movement_choice", unitId, style: "routeAway" });
+  }
+
+  const sourceFactionId = getFactionIdForUnit(identityStore, unitId);
+  const members = getUnitMembers(identityStore, unitId);
+  const anchorForwardStep = getRoutingAnchorForwardStep(
+    identityStore,
+    store,
+    blockerGrid,
+    sourceFactionId,
+    members,
+    routeHeadingX,
+    routeHeadingY,
+    perpX,
+    perpY,
+    spacing,
+    unitSpeed,
+  );
+  store.anchorX[unitIndex] = clampWorldCoordinate(
+    store.anchorX[unitIndex]! + routeHeadingX * anchorForwardStep,
+    world.bounds.width,
+  );
+  store.anchorY[unitIndex] = clampWorldCoordinate(
+    store.anchorY[unitIndex]! + routeHeadingY * anchorForwardStep,
+    world.bounds.height,
+  );
+
+  for (let memberIndex = 0; memberIndex < members.length; memberIndex += 1) {
+    const entityId = members[memberIndex]!;
+    const memberMaxStep = store.memberMaxStep[entityId]!;
+    const requestedForwardStep = memberMaxStep;
+    const allowedForwardStep = getHostileContactForwardStepLimit(
+      identityStore,
+      store,
+      blockerGrid,
+      entityId,
+      sourceFactionId,
+      routeHeadingX,
+      routeHeadingY,
+      perpX,
+      perpY,
+      spacing,
+      memberMaxStep,
+      requestedForwardStep,
+    );
+    const currentX = world.positionsX[entityId]!;
+    const currentY = world.positionsY[entityId]!;
+    const lateralStep = routingLateralStep(
+      store,
+      unitIndex,
+      unitId,
+      entityId,
+      currentX,
+      currentY,
+      perpX,
+      perpY,
+      spacing,
+      memberMaxStep,
+    );
+    const nextX = clampWorldCoordinate(
+      currentX + routeHeadingX * allowedForwardStep + perpX * lateralStep,
+      world.bounds.width,
+    );
+    const nextY = clampWorldCoordinate(
+      currentY + routeHeadingY * allowedForwardStep + perpY * lateralStep,
+      world.bounds.height,
+    );
+    const moved = nextX !== currentX || nextY !== currentY;
+
+    world.positionsX[entityId] = nextX;
+    world.positionsY[entityId] = nextY;
+    store.movementMode[entityId] = moved
+      ? "advanceWithUnit"
+      : "holdPosition";
+    if (store.lastEmittedMovementMode[entityId] !== store.movementMode[entityId]) {
+      store.lastEmittedMovementMode[entityId] = store.movementMode[entityId];
+      events.push({
+        kind: "individual_movement_mode",
+        entityId,
+        mode: store.movementMode[entityId],
+      });
+    }
+    if (store.isStuck[entityId] === 1) {
+      store.isStuck[entityId] = 0;
+      events.push({ kind: "stuck_recovered", entityId });
+    }
+    store.stuckTicks[entityId] = 0;
+  }
+}
+
+function getRoutingAnchorForwardStep(
+  identityStore: UnitIdentityStore,
+  store: InternalFormationBehaviourStore,
+  blockerGrid: SpatialGrid | undefined,
+  sourceFactionId: number,
+  members: readonly number[],
+  routeHeadingX: number,
+  routeHeadingY: number,
+  perpX: number,
+  perpY: number,
+  spacing: number,
+  requestedAnchorStep: number,
+): number {
+  let allowedAnchorStep = requestedAnchorStep;
+  for (let memberIndex = 0; memberIndex < members.length; memberIndex += 1) {
+    const entityId = members[memberIndex]!;
+    const hostileQueryStep = Math.max(
+      store.memberMaxStep[entityId]!,
+      requestedAnchorStep,
+    );
+    const allowedMemberAnchorStep = getHostileContactForwardStepLimit(
+      identityStore,
+      store,
+      blockerGrid,
+      entityId,
+      sourceFactionId,
+      routeHeadingX,
+      routeHeadingY,
+      perpX,
+      perpY,
+      spacing,
+      hostileQueryStep,
+      requestedAnchorStep,
+    );
+    if (allowedMemberAnchorStep < allowedAnchorStep) {
+      allowedAnchorStep = allowedMemberAnchorStep;
+    }
+  }
+  return allowedAnchorStep;
+}
+
+function routingLateralStep(
+  store: InternalFormationBehaviourStore,
+  unitIndex: number,
+  unitId: UnitId,
+  entityId: number,
+  currentX: number,
+  currentY: number,
+  perpX: number,
+  perpY: number,
+  spacing: number,
+  memberMaxStep: number,
+): number {
+  if (memberMaxStep === 0) {
+    return 0;
+  }
+  const halfSpread = Math.max(1, Math.floor(spacing / 2));
+  const phase = (unitId + entityId) % 3;
+  const targetLateral = phase === 0 ? -halfSpread : phase === 1 ? 0 : halfSpread;
+  const currentLateral =
+    (currentX - store.anchorX[unitIndex]!) * perpX +
+    (currentY - store.anchorY[unitIndex]!) * perpY;
+  return clampComponent(
+    targetLateral - currentLateral,
+    Math.min(memberMaxStep, ROUTING_LATERAL_CORRECTION_MAX_STEP),
+  );
+}
+
+function clampWorldCoordinate(coordinate: number, extent: number): number {
+  if (coordinate < 0) return 0;
+  const maximum = extent - 1;
+  return coordinate > maximum ? maximum : coordinate;
+}
+
 function computeLooseFlowLateralOffset(
   world: WorldState,
   store: InternalFormationBehaviourStore,
@@ -989,11 +1398,22 @@ function prepareBlockerGrid(
   }
 
   buildSpatialGrid(grid, world);
+  snapshotFormationTickStart(store, world);
+  return grid;
+}
+
+function snapshotFormationTickStart(
+  store: InternalFormationBehaviourStore,
+  world: WorldState,
+): void {
   for (let entityIndex = 0; entityIndex < world.entityCount; entityIndex += 1) {
     store.contactSnapshotPositionsX[entityIndex] = world.positionsX[entityIndex]!;
     store.contactSnapshotPositionsY[entityIndex] = world.positionsY[entityIndex]!;
   }
-  return grid;
+  for (let unitIndex = 0; unitIndex < store.unitCount; unitIndex += 1) {
+    store.anchorSnapshotX[unitIndex] = store.anchorX[unitIndex]!;
+    store.anchorSnapshotY[unitIndex] = store.anchorY[unitIndex]!;
+  }
 }
 
 /**
@@ -1094,7 +1514,7 @@ function anchorMovementScaleForMorale(
   switch (state) {
     case "steady":
     case "routing":
-      // Routing keeps normal formation movement until 4E owns its movement.
+      // 4E routes before normal formation scaling reaches this branch.
       return MORALE_MOVEMENT_SCALE;
     case "strained":
       return STRAINED_MOVEMENT_SCALE;
@@ -1574,7 +1994,13 @@ function releaseBlockerStyleIfReady(
 }
 
 function isBlockerArbitrationStyle(style: UnitMovementStyle): boolean {
-  return style !== "formedMarch" && style !== "orderedHalt";
+  return (
+    style === "formedDetour" ||
+    style === "looseFlow" ||
+    style === "pushThrough" ||
+    style === "haltAndWait" ||
+    style === "engageFront"
+  );
 }
 
 function getBlockerStyleRelationship(
