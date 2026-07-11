@@ -119,6 +119,9 @@ interface InternalFormationBehaviourStore extends FormationBehaviourStore {
   blockerGrid: SpatialGrid | undefined;
   readonly scratchNearbyEntityIds: number[];
   readonly scratchCandidateUnitIds: UnitId[];
+  /** Fixed tick-start positions used for symmetric hostile contact limits. */
+  readonly contactSnapshotPositionsX: Int32Array;
+  readonly contactSnapshotPositionsY: Int32Array;
 
   readonly rng: SeededRng;
 }
@@ -138,6 +141,7 @@ const BLOCKER_STYLE_RELEASE_TICKS = 2;
 const NO_ACTIVE_BLOCKER_UNIT_ID = -1;
 const NO_ACTIVE_BLOCKER_DISTANCE = -1;
 const FRONT_CONTACT_GAP = 1;
+const HOSTILE_CONTACT_LATERAL_SPACING_MULTIPLIER = 2;
 const MAX_INTEGER_STATE_VALUE = 0x7fff_ffff;
 const PUSH_THROUGH_SOURCE_COHESION_LOSS = 5;
 const PUSH_THROUGH_BLOCKER_COHESION_LOSS = 3;
@@ -215,6 +219,8 @@ export function createFormationBehaviourStore(
     blockerGrid: undefined,
     scratchNearbyEntityIds: [],
     scratchCandidateUnitIds: [],
+    contactSnapshotPositionsX: new Int32Array(config.entityCount),
+    contactSnapshotPositionsY: new Int32Array(config.entityCount),
     rng: new SeededRng(config.rngSeed),
   };
   store.activeBlockerUnitId.fill(NO_ACTIVE_BLOCKER_UNIT_ID);
@@ -485,6 +491,7 @@ function processUnit(
   if (members.length === 0) {
     return;
   }
+  const sourceFactionId = getFactionIdForUnit(identityStore, unitId);
 
   // Compute max forward progress across allies at the start of this tick.
   // Used to hesitate recruits so they do not become the foremost fighter.
@@ -609,6 +616,30 @@ function processUnit(
         if (stepX === 0 && stepY === 0) {
           mode = "holdPosition";
         }
+      }
+    }
+
+    const forwardStep = stepX * headingX + stepY * headingY;
+    const hostileContactForwardLimit = getHostileContactForwardStepLimit(
+      identityStore,
+      store,
+      blockerGrid,
+      entityId,
+      sourceFactionId,
+      headingX,
+      headingY,
+      perpX,
+      perpY,
+      spacing,
+      memberMaxStep,
+      forwardStep,
+    );
+    if (forwardStep > hostileContactForwardLimit) {
+      const reduction = forwardStep - hostileContactForwardLimit;
+      stepX -= headingX * reduction;
+      stepY -= headingY * reduction;
+      if (stepX === 0 && stepY === 0) {
+        mode = "holdPosition";
       }
     }
 
@@ -875,7 +906,103 @@ function prepareBlockerGrid(
   }
 
   buildSpatialGrid(grid, world);
+  for (let entityIndex = 0; entityIndex < world.entityCount; entityIndex += 1) {
+    store.contactSnapshotPositionsX[entityIndex] = world.positionsX[entityIndex]!;
+    store.contactSnapshotPositionsY[entityIndex] = world.positionsY[entityIndex]!;
+  }
   return grid;
+}
+
+/**
+ * Returns the maximum legal positive forward movement for a member against
+ * nearby hostile bodies. The midpoint cap uses tick-start positions, so two
+ * fighters advancing toward one another cannot swap sides because their units
+ * happen to be processed in a particular order.
+ */
+function getHostileContactForwardStepLimit(
+  identityStore: UnitIdentityStore,
+  store: InternalFormationBehaviourStore,
+  blockerGrid: SpatialGrid | undefined,
+  entityId: number,
+  sourceFactionId: number,
+  headingX: number,
+  headingY: number,
+  perpX: number,
+  perpY: number,
+  spacing: number,
+  memberMaxStep: number,
+  requestedForwardStep: number,
+): number {
+  if (blockerGrid === undefined || requestedForwardStep <= 0) {
+    return requestedForwardStep;
+  }
+
+  const queryRadius = getHostileContactQueryRadius(spacing, memberMaxStep);
+  const sourceX = store.contactSnapshotPositionsX[entityId]!;
+  const sourceY = store.contactSnapshotPositionsY[entityId]!;
+  const nearbyEntityIds = queryEntitiesWithinRadiusInto(
+    blockerGrid,
+    sourceX,
+    sourceY,
+    queryRadius,
+    store.scratchNearbyEntityIds,
+  );
+  let maximumForwardStep = requestedForwardStep;
+
+  for (let index = 0; index < nearbyEntityIds.length; index += 1) {
+    const candidateEntityId = nearbyEntityIds[index]!;
+    if (candidateEntityId === entityId) {
+      continue;
+    }
+
+    const candidateUnitId = getUnitIdForEntity(
+      identityStore,
+      candidateEntityId,
+    );
+    if (
+      getFactionIdForUnit(identityStore, candidateUnitId) === sourceFactionId
+    ) {
+      continue;
+    }
+
+    const relativeX =
+      store.contactSnapshotPositionsX[candidateEntityId]! - sourceX;
+    const relativeY =
+      store.contactSnapshotPositionsY[candidateEntityId]! - sourceY;
+    const forwardDistance = relativeX * headingX + relativeY * headingY;
+    if (forwardDistance < 0) {
+      continue;
+    }
+
+    const lateralDistance = Math.abs(relativeX * perpX + relativeY * perpY);
+    const lateralContactLimit =
+      spacing * HOSTILE_CONTACT_LATERAL_SPACING_MULTIPLIER;
+    if (lateralDistance > lateralContactLimit) {
+      continue;
+    }
+
+    const midpointForwardStep = Math.max(
+      0,
+      Math.floor((forwardDistance - FRONT_CONTACT_GAP) / 2),
+    );
+    if (midpointForwardStep < maximumForwardStep) {
+      maximumForwardStep = midpointForwardStep;
+    }
+  }
+
+  return maximumForwardStep;
+}
+
+function getHostileContactQueryRadius(
+  spacing: number,
+  memberMaxStep: number,
+): number {
+  return Math.ceil(
+    Math.hypot(
+      memberMaxStep * 2 + FRONT_CONTACT_GAP,
+      spacing * HOSTILE_CONTACT_LATERAL_SPACING_MULTIPLIER,
+    ),
+  );
 }
 
 function chooseUnitMovementStyle(

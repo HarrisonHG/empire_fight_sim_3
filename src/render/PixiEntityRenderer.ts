@@ -16,6 +16,9 @@ import type {
 const DOT_RADIUS = 2;
 const DOT_COLOR = 0xe8_f1_ff;
 const BACKGROUND_COLOR = 0x0d_13_1f;
+const DEFAULT_DOT_TINT = 0xff_ff_ff;
+const FIRST_FACTION_TINT = 0x63_9d_ff;
+const SECOND_FACTION_TINT = 0xff_6b_78;
 
 export class PixiEntityRenderer {
   private readonly worldLayer = new Container();
@@ -98,6 +101,13 @@ export class PixiEntityRenderer {
         this.spritesByEntityId.set(entityId, sprite);
         this.worldLayer.addChild(sprite);
       }
+
+      const sprite = this.spritesByEntityId.get(entityId);
+      if (sprite === undefined) {
+        throw new Error(`Renderer has no sprite for entity ID ${entityId}.`);
+      }
+
+      sprite.tint = getFactionTint(snapshot.factionIds?.[index]);
     }
 
     for (const [entityId, sprite] of this.spritesByEntityId) {
@@ -143,6 +153,13 @@ export class PixiEntityRenderer {
     if (snapshot.positions.length !== snapshot.entityCount * 2) {
       throw new Error("Initial snapshot has an invalid interleaved position count.");
     }
+
+    if (
+      snapshot.factionIds !== undefined &&
+      snapshot.factionIds.length !== snapshot.entityCount
+    ) {
+      throw new Error("Initial snapshot has an invalid faction ID count.");
+    }
   }
 
   private updateSpritePositions(positions: Int32Array): void {
@@ -187,4 +204,15 @@ export class PixiEntityRenderer {
     this.application.resize();
     this.layoutWorld();
   };
+}
+
+function getFactionTint(factionId: number | undefined): number {
+  switch (factionId) {
+    case 1:
+      return FIRST_FACTION_TINT;
+    case 2:
+      return SECOND_FACTION_TINT;
+    default:
+      return DEFAULT_DOT_TINT;
+  }
 }

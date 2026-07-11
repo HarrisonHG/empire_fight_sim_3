@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { FOUNDATION_SCENARIO } from "../../src/content/foundationScenario";
+import { LIVE_COMBAT_SCENARIO } from "../../src/content/liveCombatScenario";
 import type {
   ErrorWorkerMessage,
   MetricsWorkerMessage,
@@ -10,6 +11,50 @@ import type {
 import { SimulationRunner } from "../../src/worker/SimulationRunner";
 
 describe("SimulationRunner", () => {
+  it("publishes faction and combat debug snapshots for the live app scenario", () => {
+    const runner = new SimulationRunner(createClock());
+    const startMessages = runner.handleCommand({
+      type: "start",
+      scenario: LIVE_COMBAT_SCENARIO,
+    });
+    const initialSnapshot = findMessage(startMessages, "snapshot").snapshot;
+
+    expect(initialSnapshot).toMatchObject({
+      kind: "initial",
+      entityCount: 35,
+    });
+    if (initialSnapshot.kind !== "initial") {
+      throw new Error("Expected initial live-combat snapshot.");
+    }
+    expect(initialSnapshot.factionIds).toHaveLength(35);
+    expect(initialSnapshot.combatDebug?.units).toHaveLength(2);
+
+    let lastMessages: readonly WorkerMessage[] = [];
+    for (let tick = 0; tick < 320; tick += 1) {
+      lastMessages = runner.runScheduledTick(0);
+    }
+
+    const finalSnapshot = findMessage(lastMessages, "snapshot").snapshot;
+    if (finalSnapshot.kind !== "positions") {
+      throw new Error("Expected live-combat position snapshot.");
+    }
+    expect(finalSnapshot.combatDebug).toMatchObject({
+      totalOpportunityCount: expect.any(Number),
+      totalStrikeCount: expect.any(Number),
+      totalSurvivabilityApplicationCount: expect.any(Number),
+      totalConsequenceCount: expect.any(Number),
+    });
+    expect(finalSnapshot.combatDebug?.totalOpportunityCount).toBeGreaterThan(0);
+    expect(finalSnapshot.combatDebug?.totalStrikeCount).toBeGreaterThan(0);
+    expect(
+      finalSnapshot.combatDebug?.totalSurvivabilityApplicationCount,
+    ).toBeGreaterThan(0);
+    expect(finalSnapshot.combatDebug?.totalConsequenceCount).toBeGreaterThan(0);
+    expect(findMessage(lastMessages, "metrics").snapshotBytes).toBeGreaterThan(
+      35 * 2 * Int32Array.BYTES_PER_ELEMENT,
+    );
+  });
+
   it("supports start, pause, and resume lifecycle transitions", () => {
     const runner = new SimulationRunner(createClock());
 

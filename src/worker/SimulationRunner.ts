@@ -4,7 +4,7 @@ import {
   createPositionSnapshot,
   createSimulation,
 } from "../sim/simulation";
-import type { SimulationState } from "../sim/types";
+import type { SimulationSnapshot, SimulationState } from "../sim/types";
 import type {
   ErrorWorkerMessage,
   MetricsWorkerMessage,
@@ -159,7 +159,7 @@ export class SimulationRunner {
         tick: simulation.tick,
         tickTimeMs,
         lagMs,
-        snapshotBytes: snapshot.positions.byteLength,
+        snapshotBytes: estimateSnapshotPayloadBytes(snapshot),
       };
 
       return [
@@ -207,4 +207,21 @@ export class SimulationRunner {
       message,
     };
   }
+}
+
+function estimateSnapshotPayloadBytes(snapshot: SimulationSnapshot): number {
+  let bytes = snapshot.positions.byteLength;
+
+  if (snapshot.kind === "initial") {
+    bytes += snapshot.ids.byteLength;
+    bytes += snapshot.factionIds?.byteLength ?? 0;
+  }
+
+  if (snapshot.combatDebug !== undefined) {
+    // Combat debug is small plain data. Its JSON length gives a stable,
+    // conservative accounting for the extra structured-clone payload.
+    bytes += JSON.stringify(snapshot.combatDebug).length;
+  }
+
+  return bytes;
 }

@@ -31,7 +31,25 @@ Design doctrine explains intent and boundaries. It is not permission to implemen
 
 If scope is ambiguous, stop and ask rather than broadening the implementation.
 
-If ever asked to read or refer to a file that doesn't exist. Say so and stop immediately.
+If a referenced file is missing, first determine whether it is required for the requested task.
+
+* If required, report the missing file and stop before making changes.
+* If not required, report it as a documentation issue and continue using the task prompt, active plan, and current repository state.
+
+## Current Project Phase
+
+The project is at the tail end of Milestone 3.
+
+A temporary visual integration spike is being performed before Milestone 4 so a human can observe the simulation behaviour implemented so far.
+
+The spike may connect existing simulation, worker, renderer, and UI paths as needed, but it must not:
+
+* implement Milestone 4 systems early
+* replace existing Milestone 3 foundations
+* move simulation rules into rendering or UI code
+* introduce production abstractions solely to polish the spike
+
+Treat findings from the spike as evidence for Milestone 4 planning.
 
 ## Required Reading
 

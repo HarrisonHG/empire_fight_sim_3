@@ -13,6 +13,11 @@ export class MetricsPanel {
   private readonly tickTimeValue = createMetricValue("tick-time");
   private readonly entityCountValue = createMetricValue("entity-count");
   private readonly currentTickValue = createMetricValue("current-tick");
+  private readonly combatTickCountsValue = createMetricValue("combat-tick-counts");
+  private readonly combatTotalCountsValue = createMetricValue(
+    "combat-total-counts",
+  );
+  private readonly combatUnitStateValue = createMetricValue("combat-unit-state");
   private frameRequest: number | undefined;
   private sampleStartedAt: number | undefined;
   private sampledFrames = 0;
@@ -28,6 +33,9 @@ export class MetricsPanel {
       createMetricRow("Tick time", this.tickTimeValue),
       createMetricRow("Entities", this.entityCountValue),
       createMetricRow("Tick", this.currentTickValue),
+      createMetricRow("Combat tick", this.combatTickCountsValue),
+      createMetricRow("Combat total", this.combatTotalCountsValue),
+      createMetricRow("Unit state", this.combatUnitStateValue),
     );
     this.element.append(metrics);
 
@@ -37,6 +45,33 @@ export class MetricsPanel {
   public updateSnapshot(snapshot: SimulationSnapshot): void {
     this.entityCountValue.textContent = snapshot.entityCount.toString();
     this.currentTickValue.textContent = snapshot.tick.toString();
+
+    const combatDebug = snapshot.combatDebug;
+    if (combatDebug === undefined) {
+      this.clearCombatDebug();
+      return;
+    }
+
+    this.combatTickCountsValue.textContent = formatCombatCounts(
+      combatDebug.opportunityCount,
+      combatDebug.strikeCount,
+      combatDebug.survivabilityApplicationCount,
+      combatDebug.consequenceCount,
+    );
+    this.combatTotalCountsValue.textContent = formatCombatCounts(
+      combatDebug.totalOpportunityCount,
+      combatDebug.totalStrikeCount,
+      combatDebug.totalSurvivabilityApplicationCount,
+      combatDebug.totalConsequenceCount,
+    );
+    this.combatUnitStateValue.textContent = combatDebug.units
+      .map(
+        (unit) =>
+          `U${unit.unitId}/F${unit.factionId} (${unit.memberCount}): ` +
+          `${unit.movementStyle}, D ${formatCombatNumber(unit.accumulatedDamage)}, ` +
+          `P ${formatCombatNumber(unit.pressureAverage)}, ${unit.moraleState}`,
+      )
+      .join(" | ");
   }
 
   public updateWorkerMetrics(message: MetricsWorkerMessage): void {
@@ -78,6 +113,12 @@ export class MetricsPanel {
 
     this.frameRequest = requestAnimationFrame(this.sampleFrame);
   };
+
+  private clearCombatDebug(): void {
+    this.combatTickCountsValue.textContent = "--";
+    this.combatTotalCountsValue.textContent = "--";
+    this.combatUnitStateValue.textContent = "--";
+  }
 }
 
 function createMetricValue(testId: string): HTMLElement {
@@ -93,4 +134,20 @@ function createMetricRow(label: string, value: HTMLElement): DocumentFragment {
   term.textContent = label;
   row.append(term, value);
   return row;
+}
+
+function formatCombatCounts(
+  opportunityCount: number,
+  strikeCount: number,
+  survivabilityApplicationCount: number,
+  consequenceCount: number,
+): string {
+  return (
+    `Opp ${opportunityCount} · Strike ${strikeCount} · ` +
+    `App ${survivabilityApplicationCount} · Conseq ${consequenceCount}`
+  );
+}
+
+function formatCombatNumber(value: number): string {
+  return Number.isInteger(value) ? value.toString() : value.toFixed(2);
 }

@@ -69,6 +69,7 @@ interface BlockerHarnessOptions {
   readonly sourceCohesion?: number;
   readonly sourceConfidence?: number;
   readonly sourcePressure?: number;
+  readonly sourceMemberMaxStep?: number;
   readonly blockerCohesion?: number;
   readonly blockerPressure?: number;
   readonly rngSeed?: number;
@@ -127,7 +128,7 @@ function createBlockerHarness(options: BlockerHarnessOptions = {}) {
           role: "regular",
           slotRow: 0,
           slotCol: 0,
-          memberMaxStep: 2,
+          memberMaxStep: options.sourceMemberMaxStep ?? 2,
           ...(options.sourceConfidence !== undefined
             ? { confidence: options.sourceConfidence }
             : {}),
@@ -1000,6 +1001,105 @@ describe("formation behaviour: unit blocker arbitration", () => {
     }
 
     expect(world.positionsX[0]).toBe(110);
+  });
+
+  it("keeps a front-line member before an immediate hostile contact boundary", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "hostile",
+      sourceMemberMaxStep: 4,
+    });
+    world.positionsX[0] = 100;
+    world.positionsY[0] = 100;
+    world.positionsX[1] = 103;
+    world.positionsY[1] = 100;
+
+    advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("engageFront");
+    expect(world.positionsX[0]).toBeLessThan(world.positionsX[1]!);
+    expect(world.positionsX[0]).toBe(101);
+  });
+
+  it("keeps halted forward slot correction before a hostile contact boundary", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "hostile",
+      sourceOrder: "hold",
+      sourceMemberMaxStep: 4,
+    });
+    world.positionsX[0] = 96;
+    world.positionsY[0] = 100;
+    world.positionsX[1] = 99;
+    world.positionsY[1] = 100;
+
+    advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("orderedHalt");
+    expect(world.positionsX[0]).toBe(97);
+    expect(world.positionsX[0]).toBeLessThan(world.positionsX[1]!);
+  });
+
+  it("keeps lateral formation correction while clamping hostile forward contact", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "hostile",
+      sourceMemberMaxStep: 4,
+    });
+    world.positionsX[0] = 100;
+    world.positionsY[0] = 90;
+    world.positionsX[1] = 103;
+    world.positionsY[1] = 100;
+
+    advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("engageFront");
+    expect(world.positionsX[0]).toBeLessThan(world.positionsX[1]!);
+    expect(world.positionsY[0]).toBeGreaterThan(90);
+  });
+
+  it("keeps backward formation correction while in hostile frontal contact", () => {
+    const { world, identity, store } = createBlockerHarness({
+      relationship: "hostile",
+      sourceMemberMaxStep: 4,
+    });
+    world.positionsX[0] = 112;
+    world.positionsY[0] = 100;
+    world.positionsX[1] = 113;
+    world.positionsY[1] = 100;
+
+    advanceFormationOneTick(world, identity, store);
+
+    expect(getUnitMovementStyle(store, 1)).toBe("engageFront");
+    expect(world.positionsX[0]).toBe(110);
+    expect(world.positionsX[0]).toBeLessThan(world.positionsX[1]!);
+  });
+
+  it("replays hostile contact limits deterministically", () => {
+    const runTrace = () => {
+      const { world, identity, store } = createBlockerHarness({
+        relationship: "hostile",
+        sourceMemberMaxStep: 4,
+      });
+      world.positionsX[0] = 100;
+      world.positionsY[0] = 90;
+      world.positionsX[1] = 103;
+      world.positionsY[1] = 100;
+      const trace: unknown[] = [];
+
+      for (let tick = 0; tick < 6; tick += 1) {
+        const result = advanceFormationOneTick(world, identity, store);
+        trace.push({
+          sourceX: world.positionsX[0],
+          sourceY: world.positionsY[0],
+          hostileX: world.positionsX[1],
+          hostileY: world.positionsY[1],
+          style: getUnitMovementStyle(store, 1),
+          events: result.events,
+        });
+      }
+
+      return trace;
+    };
+
+    expect(runTrace()).toEqual(runTrace());
   });
 
   it("lets pushThrough advance the anchor without displacing the blocker", () => {
