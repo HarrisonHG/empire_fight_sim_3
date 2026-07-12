@@ -1,5 +1,7 @@
 # Milestone 4: Morale, Pressure, and Routing
 
+Status: accepted / implemented following human inspection on 2026-07-12.
+
 ## Purpose
 
 Milestone 4 turns the existing combat records into visible battlefield behaviour.
@@ -627,8 +629,74 @@ some units recover if pressure disappears
 - [x] The existing combat debug snapshot and metrics panel label every unit and
   retain readable persistent state, pressure, cohesion, routing risk, recovery
   progress, and movement style.
-- [ ] Ready for human inspection. Milestone 4 remains unaccepted until that
-  visual inspection is performed and judged.
+- [x] Initial human inspection completed; findings were addressed in 4H-3.
+
+---
+
+### 4H-3 human-inspection corrections (2026-07-12)
+
+Human inspection found that the prior contact-line movement hid the practical
+difference between `strained`, `shaken`, and `wavering`; recovery was too
+short to inspect; the fragile recruit did not complete recovery usefully; the
+reserve did not visibly reflect contagion; and indefinite outcome-free contact
+eventually routed the veteran.
+
+- [x] Formation continues to own movement, but now maps projected morale to
+  deterministic hostile-contact styles: `strainedEngage` holds with a small
+  ragged slot offset, `shakenEngage` uses a larger ragged/backward offset, and
+  `giveGround` moves a wavering anchor backward on a bounded fixed-point
+  cadence while preserving hostile non-interpenetration. `routeAway` remains
+  exclusive to routing.
+- [x] Persistent morale now requires at least 100 recovering ticks (five
+  seconds at 20 Hz) and (as refined in 4H-4) 240 recovery progress before
+  resuming `steady`.
+  Confidence and role still change progress speed, but cannot shorten the
+  visible minimum. Safe low-confidence units may progress through recovery
+  from a `strained` candidate so they are not trapped forever.
+- [x] Retuned the 10-person inspection units without forcing morale state:
+  U11 is a very high-confidence veteran expected to hold for the bounded
+  inspection run; U12 reaches a more severe non-routing degraded state; U13
+  routes, passes through U14, remains recovering visibly, then completes
+  recovery; U14 has deliberately bounded resistance and visibly strains after
+  the pass-through without routing immediately.
+- [x] Added headless trace, recovery-duration, scenario-outcome, replay,
+  membership, and damage-preservation coverage. The scenario run is bounded;
+  U11 is not promised to withstand indefinitely repeated outcome-free contact.
+- [x] Corrected inspection completed; pursuit differentiation was addressed
+  in 4H-4.
+
+---
+
+### 4H-4 routing recovery differentiation and pursuit inspection (2026-07-12)
+
+- [x] Recovery remains part of the existing persistent morale state machine.
+  Routing remains `routeAway` until all gates pass: at least 6 routing ticks,
+  no fresh combat or contagion pressure, no hostile in the 192-unit local
+  threat range, cohesion at least 550, pressure below 30, routing risk below
+  20, and no candidate state above `strained`. It then enters `recovering`
+  and halts its anchor without replacing the stored order.
+- [x] While routing safely, formation-owned pressure decays by the existing
+  base rate plus a profile bonus of recruit 0, regular 1, veteran 2; durable
+  routing risk decays by recruit 2, regular 4, veteran 6 (plus one at high
+  confidence). Fresh pressure or renewed hostile contact during `recovering`
+  returns directly to `routing`, resetting recovery progress.
+- [x] Recovery still has its 100-tick (five-second) visible minimum and now
+  requires 240 progress: identical-confidence veteran, regular, and recruit
+  units recover in 100, 120, and 240 safe recovering ticks respectively.
+  Stored orders are eligible to resume only after persistent morale reaches
+  `steady`; movement continues to consume the prior tick projection.
+- [x] Added deterministic `?scenario=pursuit-regular` and
+  `?scenario=pursuit-veteran` inspection cases. Each has a 10-person blue
+  formation facing the same advancing 10-person red formation; only the blue
+  troop profile changes. Their headless run confirms routing, continued red
+  pursuit, separated hostile anchors during routing/recovery, safe recovery,
+  delayed order resumption, deterministic replay, and unchanged membership.
+- [x] Updated headless coverage for stop gates, profile-specific risk and
+  pressure decay, veteran/regular/recruit recovery ordering, recovery relapse,
+  preserved order timing, damage, and entity membership.
+- [x] Human inspection of the comparison and both pursuit cases succeeded.
+  Milestone 4 was accepted on 2026-07-12. The three cases are retained as one
+  combined `/test?scenario=morale-inspection` visual regression suite.
 
 ---
 

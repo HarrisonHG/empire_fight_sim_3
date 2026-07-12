@@ -38,6 +38,9 @@ export type UnitMovementStyle =
   | "pushThrough" // Emitted by Milestone 2B blocker arbitration.
   | "haltAndWait" // Emitted by Milestone 2B blocker arbitration.
   | "engageFront" // 2B style selection only; does not implement combat.
+  | "strainedEngage" // 4H-3: contact line holds with subtle raggedness.
+  | "shakenEngage" // 4H-3: contact line holds with pronounced raggedness.
+  | "giveGround" // 4H-3: wavering contact response; retreat without routing.
   | "routeAway"; // 4E temporary routing movement; stored order remains intact.
 
 export interface UnitFormationConfig {
@@ -172,6 +175,7 @@ const BLOCKER_STYLE_RELEASE_TICKS = 2;
 const NO_ACTIVE_BLOCKER_UNIT_ID = -1;
 const NO_ACTIVE_BLOCKER_DISTANCE = -1;
 const FRONT_CONTACT_GAP = 1;
+const RAGGED_CONTACT_GAP = 2;
 const HOSTILE_CONTACT_LATERAL_SPACING_MULTIPLIER = 2;
 const MAX_INTEGER_STATE_VALUE = 0x7fff_ffff;
 const PUSH_THROUGH_SOURCE_COHESION_LOSS = 5;
@@ -183,6 +187,11 @@ const STRAINED_MOVEMENT_SCALE = 850;
 const SHAKEN_MOVEMENT_SCALE = 650;
 const WAVERING_CORRECTION_SCALE = 500;
 const RECOVERING_CORRECTION_SCALE = 700;
+const WAVERING_GIVE_GROUND_SCALE = 50;
+const STRAINED_SLOT_LATERAL_OFFSET = 1;
+const STRAINED_SLOT_BACKSTEP = 1;
+const SHAKEN_SLOT_LATERAL_OFFSET = 2;
+const SHAKEN_SLOT_BACKSTEP = 2;
 const ROUTING_LATERAL_CORRECTION_MAX_STEP = 1;
 const MAX_ROUTING_PASS_THROUGH_INTERACTIONS_PER_TICK = 256;
 const NO_ROUTING_PASS_THROUGH_INTERACTIONS: readonly RoutingPassThroughInteraction[] =
@@ -642,8 +651,8 @@ function processUnit(
     moraleMovementState,
   );
   if (
-    anchorMovementScale === 0 ||
-    anchorMovementScale === MORALE_MOVEMENT_SCALE
+    anchorMovementScale === MORALE_MOVEMENT_SCALE ||
+    (anchorMovementScale === 0 && moraleMovementState !== "wavering")
   ) {
     store.anchorMovementRemainder[unitIndex] = 0;
   }
@@ -655,6 +664,7 @@ function processUnit(
     unitId,
     unitIndex,
     isAdvancing,
+    moraleMovementState,
   );
   store.unitMovementStyle[unitIndex] = style;
   if (store.lastEmittedUnitStyle[unitIndex] !== style) {
@@ -666,7 +676,22 @@ function processUnit(
     applyPushThroughDisruption(identityStore, store, unitId, unitIndex);
   }
 
-  if (shouldAdvanceUnitAnchor(isAdvancing, style)) {
+  if (style === "giveGround") {
+    const effectiveUnitSpeed = scaleMovementStepWithRemainder(
+      unitSpeed,
+      WAVERING_GIVE_GROUND_SCALE,
+      store.anchorMovementRemainder,
+      unitIndex,
+    );
+    moveAnchorBackward(
+      world,
+      store,
+      unitIndex,
+      effectiveUnitSpeed,
+      headingX,
+      headingY,
+    );
+  } else if (shouldAdvanceUnitAnchor(isAdvancing, style)) {
     const effectiveUnitSpeed = scaleMovementStepWithRemainder(
       unitSpeed,
       anchorMovementScale,
@@ -730,6 +755,7 @@ function processUnit(
     unitIndex,
     style,
   );
+  const hostileContactGap = hostileContactGapForStyle(style);
 
   for (let index = 0; index < members.length; index += 1) {
     const entityId = members[index]!;
@@ -754,7 +780,11 @@ function processUnit(
 
     let slotX = anchorX - headingX * backward + perpX * lateral;
     let slotY = anchorY - headingY * backward + perpY * lateral;
-    if (style === "engageFront" && slotRow === 0 && blockerForwardLimit >= 0) {
+    if (
+      isHostileContactMovementStyle(style) &&
+      slotRow === 0 &&
+      blockerForwardLimit >= 0
+    ) {
       slotX += headingX * blockerForwardLimit;
       slotY += headingY * blockerForwardLimit;
     } else if (style === "looseFlow") {
@@ -774,6 +804,23 @@ function processUnit(
       slotX += perpX * looseLateralOffset;
       slotY += perpY * looseLateralOffset;
     }
+
+    const moraleLateralDisruption = getMoraleSlotLateralDisruption(
+      moraleMovementState,
+      entityId,
+      slotRow,
+      slotCol,
+    );
+    const moraleBackwardDisruption = getMoraleSlotBackwardDisruption(
+      moraleMovementState,
+      entityId,
+      slotRow,
+      slotCol,
+    );
+    slotX +=
+      perpX * moraleLateralDisruption - headingX * moraleBackwardDisruption;
+    slotY +=
+      perpY * moraleLateralDisruption - headingY * moraleBackwardDisruption;
 
     const jitterMag = computePressureJitter(role, pressure);
     if (jitterMag > 0) {
@@ -850,6 +897,7 @@ function processUnit(
       spacing,
       memberMaxStep,
       forwardStep,
+      hostileContactGap,
     );
     if (forwardStep > hostileContactForwardLimit) {
       const reduction = forwardStep - hostileContactForwardLimit;
@@ -1506,7 +1554,27 @@ function shouldAdvanceUnitAnchor(
     isAdvancing &&
     style !== "formedDetour" &&
     style !== "haltAndWait" &&
-    style !== "engageFront"
+    !isHostileContactMovementStyle(style)
+  );
+}
+
+function moveAnchorBackward(
+  world: WorldState,
+  store: InternalFormationBehaviourStore,
+  unitIndex: number,
+  unitSpeed: number,
+  headingX: number,
+  headingY: number,
+): void {
+  if (unitSpeed <= 0) return;
+
+  store.anchorX[unitIndex] = clampWorldCoordinate(
+    store.anchorX[unitIndex]! - headingX * unitSpeed,
+    world.bounds.width,
+  );
+  store.anchorY[unitIndex] = clampWorldCoordinate(
+    store.anchorY[unitIndex]! - headingY * unitSpeed,
+    world.bounds.height,
   );
 }
 
@@ -1599,7 +1667,7 @@ function getActiveBlockerForwardLimit(
   unitIndex: number,
   style: UnitMovementStyle,
 ): number {
-  if (style !== "haltAndWait" && style !== "engageFront") {
+  if (style !== "haltAndWait" && !isHostileContactMovementStyle(style)) {
     return NO_ACTIVE_BLOCKER_DISTANCE;
   }
 
@@ -1608,7 +1676,25 @@ function getActiveBlockerForwardLimit(
     return NO_ACTIVE_BLOCKER_DISTANCE;
   }
 
-  return Math.max(0, blockerDistance - FRONT_CONTACT_GAP);
+  return Math.max(0, blockerDistance - hostileContactGapForStyle(style));
+}
+
+/** Authoritative 4B contact signal for all formation hostile-contact styles. */
+export function isHostileContactMovementStyle(style: UnitMovementStyle): boolean {
+  return (
+    style === "engageFront" ||
+    style === "strainedEngage" ||
+    style === "shakenEngage" ||
+    style === "giveGround"
+  );
+}
+
+function hostileContactGapForStyle(style: UnitMovementStyle): number {
+  return style === "strainedEngage" ||
+    style === "shakenEngage" ||
+    style === "giveGround"
+    ? RAGGED_CONTACT_GAP
+    : FRONT_CONTACT_GAP;
 }
 
 function prepareBlockerGrid(
@@ -1668,12 +1754,17 @@ function getHostileContactForwardStepLimit(
   spacing: number,
   memberMaxStep: number,
   requestedForwardStep: number,
+  contactGap = FRONT_CONTACT_GAP,
 ): number {
   if (blockerGrid === undefined || requestedForwardStep <= 0) {
     return requestedForwardStep;
   }
 
-  const queryRadius = getHostileContactQueryRadius(spacing, memberMaxStep);
+  const queryRadius = getHostileContactQueryRadius(
+    spacing,
+    memberMaxStep,
+    contactGap,
+  );
   const sourceX = store.contactSnapshotPositionsX[entityId]!;
   const sourceY = store.contactSnapshotPositionsY[entityId]!;
   const nearbyEntityIds = queryEntitiesWithinRadiusInto(
@@ -1719,7 +1810,7 @@ function getHostileContactForwardStepLimit(
 
     const midpointForwardStep = Math.max(
       0,
-      Math.floor((forwardDistance - FRONT_CONTACT_GAP) / 2),
+      Math.floor((forwardDistance - contactGap) / 2),
     );
     if (midpointForwardStep < maximumForwardStep) {
       maximumForwardStep = midpointForwardStep;
@@ -1732,10 +1823,11 @@ function getHostileContactForwardStepLimit(
 function getHostileContactQueryRadius(
   spacing: number,
   memberMaxStep: number,
+  contactGap = FRONT_CONTACT_GAP,
 ): number {
   return Math.ceil(
     Math.hypot(
-      memberMaxStep * 2 + FRONT_CONTACT_GAP,
+      memberMaxStep * 2 + contactGap,
       spacing * HOSTILE_CONTACT_LATERAL_SPACING_MULTIPLIER,
     ),
   );
@@ -1813,6 +1905,7 @@ function chooseUnitMovementStyle(
   unitId: UnitId,
   unitIndex: number,
   isAdvancing: boolean,
+  moraleMovementState: MoraleMovementState,
 ): UnitMovementStyle {
   if (!isAdvancing) {
     store.styleCommitmentTicksRemaining[unitIndex] = 0;
@@ -1843,7 +1936,7 @@ function chooseUnitMovementStyle(
 
   let candidateStyle: UnitMovementStyle;
   if (blocker.relationship === "hostile") {
-    candidateStyle = "engageFront";
+    candidateStyle = hostileContactStyleForMorale(moraleMovementState);
   } else {
     candidateStyle = chooseAlliedBlockerStyle(
       identityStore,
@@ -2232,14 +2325,32 @@ function isBlockerArbitrationStyle(style: UnitMovementStyle): boolean {
     style === "looseFlow" ||
     style === "pushThrough" ||
     style === "haltAndWait" ||
-    style === "engageFront"
+    isHostileContactMovementStyle(style)
   );
+}
+
+function hostileContactStyleForMorale(
+  state: MoraleMovementState,
+): UnitMovementStyle {
+  switch (state) {
+    case "steady":
+      return "engageFront";
+    case "strained":
+      return "strainedEngage";
+    case "shaken":
+      return "shakenEngage";
+    case "wavering":
+      return "giveGround";
+    case "routing":
+    case "recovering":
+      throw new Error("Routing and recovering bypass hostile contact styling.");
+  }
 }
 
 function getBlockerStyleRelationship(
   style: UnitMovementStyle,
 ): "allied" | "hostile" {
-  return style === "engageFront" ? "hostile" : "allied";
+  return isHostileContactMovementStyle(style) ? "hostile" : "allied";
 }
 
 function computeAverageConfidence(
@@ -2334,6 +2445,52 @@ function computePressureJitter(
   const divisor =
     role === "recruit" ? 100 : role === "regular" ? 250 : 1000;
   return Math.floor(pressure / divisor);
+}
+
+function getMoraleSlotLateralDisruption(
+  state: MoraleMovementState,
+  entityId: number,
+  slotRow: number,
+  slotCol: number,
+): number {
+  switch (state) {
+    case "steady":
+    case "routing":
+    case "recovering":
+    case "wavering":
+      return 0;
+    case "strained":
+      return (
+        ((entityId + slotRow + slotCol) % 3) - 1
+      ) * STRAINED_SLOT_LATERAL_OFFSET;
+    case "shaken":
+      return (
+        ((entityId + slotRow * 2 + slotCol) % 5) - 2
+      ) * SHAKEN_SLOT_LATERAL_OFFSET;
+  }
+}
+
+function getMoraleSlotBackwardDisruption(
+  state: MoraleMovementState,
+  entityId: number,
+  slotRow: number,
+  slotCol: number,
+): number {
+  switch (state) {
+    case "steady":
+    case "routing":
+    case "recovering":
+    case "wavering":
+      return 0;
+    case "strained":
+      return (
+        (entityId + slotRow * 2 + slotCol) % 2
+      ) * STRAINED_SLOT_BACKSTEP;
+    case "shaken":
+      return (
+        (entityId + slotRow + slotCol * 2) % 3
+      ) * SHAKEN_SLOT_BACKSTEP;
+  }
 }
 
 function asInternal(

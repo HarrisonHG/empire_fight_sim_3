@@ -88,6 +88,31 @@ describe("morale movement modifiers", () => {
     expect(shaken.world.positionsX[0]).toBe(93);
   });
 
+  it("uses distinct deterministic hostile-contact traces for strained, shaken, and wavering", () => {
+    const steady = runHostileContactTrace("steady");
+    const strained = runHostileContactTrace("strained");
+    const shaken = runHostileContactTrace("shaken");
+    const wavering = runHostileContactTrace("wavering");
+
+    expect(steady.style).toBe("engageFront");
+    expect(strained.style).toBe("strainedEngage");
+    expect(shaken.style).toBe("shakenEngage");
+    expect(wavering.style).toBe("giveGround");
+    expect([strained.positionsX, strained.positionsY]).not.toEqual([
+      steady.positionsX,
+      steady.positionsY,
+    ]);
+    expect([shaken.positionsX, shaken.positionsY]).not.toEqual([
+      strained.positionsX,
+      strained.positionsY,
+    ]);
+    expect(wavering.anchor.x).toBeLessThan(steady.anchor.x);
+    expect(Math.max(...wavering.positionsX.slice(0, 3))).toBeLessThan(
+      Math.min(...wavering.positionsX.slice(3)),
+    );
+    expect(wavering).toEqual(runHostileContactTrace("wavering"));
+  });
+
   it.each(["wavering", "recovering"] as const)(
     "%s halts anchor advance but continues limited slot correction",
     (state) => {
@@ -231,4 +256,75 @@ function advanceTicks(
       states,
     );
   }
+}
+
+function runHostileContactTrace(state: MoraleMovementState) {
+  const world: WorldState = {
+    entityCount: 6,
+    bounds: { width: 1_000, height: 1_000 },
+    ids: Uint32Array.from([0, 1, 2, 3, 4, 5]),
+    positionsX: Int32Array.from([100, 100, 100, 108, 108, 108]),
+    positionsY: Int32Array.from([94, 100, 106, 94, 100, 106]),
+    velocitiesX: new Int32Array(6),
+    velocitiesY: new Int32Array(6),
+  };
+  const identity = createUnitIdentityStore({
+    entityCount: 6,
+    units: [
+      { unitId: 1, factionId: 1, memberEntityIds: [0, 1, 2] },
+      { unitId: 2, factionId: 2, memberEntityIds: [3, 4, 5] },
+    ],
+  });
+  const store = createFormationBehaviourStore(identity, {
+    entityCount: 6,
+    rngSeed: 0x4d_4f_52_41,
+    units: [
+      {
+        unitId: 1,
+        anchorX: 100,
+        anchorY: 100,
+        headingX: 1,
+        headingY: 0,
+        spacing: 6,
+        rows: 1,
+        cols: 3,
+        unitSpeed: 1,
+        order: "advance",
+      },
+      {
+        unitId: 2,
+        anchorX: 108,
+        anchorY: 100,
+        headingX: -1,
+        headingY: 0,
+        spacing: 6,
+        rows: 1,
+        cols: 3,
+        unitSpeed: 0,
+        order: "advance",
+      },
+    ],
+    individuals: Array.from({ length: 6 }, (_, entityId) => ({
+      entityId,
+      role: "regular" as const,
+      slotRow: 0,
+      slotCol: entityId % 3,
+      memberMaxStep: 2,
+    })),
+  });
+  const states = new Map<UnitId, MoraleMovementState>([
+    [UNIT_ID, state],
+    [2, "steady"],
+  ]);
+
+  for (let tick = 0; tick < 40; tick += 1) {
+    advanceFormationOneTick(world, identity, store, states);
+  }
+
+  return {
+    style: getUnitMovementStyle(store, UNIT_ID),
+    anchor: getUnitAnchor(store, UNIT_ID),
+    positionsX: Array.from(world.positionsX),
+    positionsY: Array.from(world.positionsY),
+  };
 }

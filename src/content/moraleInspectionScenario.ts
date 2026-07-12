@@ -10,10 +10,10 @@ export const MORALE_INSPECTION_SCENARIO: SimulationScenario = Object.freeze({
     kind: "liveCombatSandbox",
     appliedDamagePressureScale: 7,
     units: Object.freeze([
-      blueUnit(11, 10, 160, "veteran", 900, 1_000, "advance"),
-      blueUnit(12, 10, 360, "regular", 850, 1_000, "advance"),
-      blueUnit(13, 10, 560, "recruit", 0, 560, "advance", 520, 6),
-      blueUnit(14, 10, 560, "veteran", 1_000, 1_000, "hold", 430),
+      blueUnit(11, 10, 160, "veteran", 2_500, 1_000, "advance"),
+      blueUnit(12, 10, 360, "regular", 1_000, 1_000, "advance"),
+      blueUnit(13, 10, 560, "recruit", 0, 700, "advance", 520, 12, 8),
+      blueUnit(14, 10, 560, "regular", 2_000, 600, "hold", 380),
       hostileUnit(21, 160, "Red veteran opposition"),
       hostileUnit(22, 360, "Red regular opposition"),
       hostileUnit(23, 560, "Red recruit opposition"),
@@ -31,6 +31,7 @@ function blueUnit(
   order: "advance" | "hold",
   anchorX = 520,
   unitSpeed = 2,
+  memberMaxStep = 3,
 ): CombatSandboxUnitScenario {
   return {
     unitId,
@@ -55,7 +56,7 @@ function blueUnit(
     unitSpeed,
     order,
     role,
-    memberMaxStep: 3,
+    memberMaxStep,
     weaponCategory: "pike",
     weaponReachBand: "veryLong",
     armourClass: "light",

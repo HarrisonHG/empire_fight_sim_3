@@ -485,7 +485,7 @@ Key placement decisions:
 
 ## Milestone 4: Morale, Pressure, and Routing
 
-Status: in progress.
+Status: accepted / implemented following human inspection on 2026-07-12.
 
 Purpose:
 
@@ -503,6 +503,16 @@ Current direction:
 Boundary:
 
 Avoid one giant morale engine. Build and validate the system in slices. Do not pull later energy, death, command, scenario, or equipment systems into Milestone 4 merely because they will eventually influence morale.
+
+Acceptance evidence:
+
+- persistent pressure, morale transitions, degraded movement, routing,
+  contagion, and recovery are deterministic and headlessly covered;
+- the comparison, reserve pass-through, regular pursuit, and veteran pursuit
+  cases passed human inspection;
+- these cases are retained under `/test?scenario=morale-inspection` as a
+  visual regression asset;
+- richer graphical morale representation remains deferred under DC-017.
 
 ---
 

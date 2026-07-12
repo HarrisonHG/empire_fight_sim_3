@@ -525,6 +525,51 @@ bounded routing projection and one bounded recovering projection.
 
 ---
 
+## DC-017 - Rich morale visual representation remains renderer/debug work
+
+**Area:** Renderer and debug inspection
+**Status:** noted
+
+**Observation**
+
+Milestone 4 exposes readable persistent morale fields and distinct formation
+movement, but deliberately does not add specialised sprites, icons, trails, or
+an expanded tactical debug presentation for pressure, routing, recovery, and
+pursuit.
+
+Milestone 4 was accepted after human inspection on 2026-07-12. Its combined
+`/test?scenario=morale-inspection` regression asset retains the current debug
+representation without treating that representation as final visual design.
+
+**Why deferred**
+
+The current metrics panel and deterministic inspection scenarios are enough to
+validate the Milestone 4 simulation. Richer visual representation belongs to
+the renderer/debug milestone rather than morale ownership or movement.
+
+**Revisit trigger**
+
+When Milestone 14 defines the renderer and debug inspection presentation.
+
+**Likely milestone**
+
+Milestone 14.
+
+## DC-018 — Visual-suite area isolation uses anchor distance
+
+**Area:** Visual regression scenario correctness  
+**Status:** watching
+
+The combined Milestone 4 test proves that unit anchors remain beyond the local
+interaction radius, but does not measure the minimum distance between actual
+entities in separate test areas.
+
+The current scenario has sufficient margin for its small formations. Revisit
+if formations, movement spread, or interaction ranges change. Prefer an
+entity-to-entity minimum-distance assertion or an explicit footprint margin.
+
+---
+
 # Maintenance rules
 
 When adding an entry:

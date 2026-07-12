@@ -3,11 +3,14 @@ import type { CombatAttackOpportunity } from "./combatTempo";
 import {
   getIndividualConfidence,
   getIndividualPressure,
+  getIndividualRole,
   getUnitCohesion,
   getUnitMovementStyle,
+  isHostileContactMovementStyle,
   setIndividualPressure,
   type FormationBehaviourStore,
 } from "./formationBehaviour";
+import type { UnitMoraleMovementStateSource } from "./moraleMovement";
 import {
   getUnitIds,
   getUnitMembers,
@@ -77,6 +80,12 @@ const DEFAULT_PRESSURE_DECAY_PER_MEMBER = 2;
 const DEFAULT_HIGH_CONFIDENCE_THRESHOLD = 750;
 const DEFAULT_HIGH_CONFIDENCE_ENGAGEMENT_REDUCTION = 1;
 const DEFAULT_HIGH_CONFIDENCE_DECAY_BONUS = 1;
+/** Additional formation-owned pressure decay while a unit is routing safely. */
+export const ROUTING_PRESSURE_DECAY_BONUS = {
+  veteran: 2,
+  regular: 1,
+  recruit: 0,
+} as const;
 const MAX_INTEGER_STATE_VALUE = 0x7fff_ffff;
 const DEFAULT_RESOLVED_CONFIG: ResolvedCombatPressureConfig = {
   engagedPressureDeltaPerMember: DEFAULT_ENGAGED_PRESSURE_DELTA_PER_MEMBER,
@@ -128,6 +137,7 @@ export function advanceCombatPressureOneTick(
   store: CombatPressureStore,
   out: UnitPressureUpdate[] = [],
   config: CombatPressureConfig = {},
+  tickStartMoraleStates?: UnitMoraleMovementStateSource,
 ): CombatPressureTickResult {
   validateStores(identityStore, formationStore);
   const internal = asInternal(store);
@@ -159,6 +169,7 @@ export function advanceCombatPressureOneTick(
         unitId,
         unitIndex,
         resolvedConfig,
+        tickStartMoraleStates,
       ),
     );
   }
@@ -201,14 +212,17 @@ function applyUnitPressureUpdate(
   unitId: UnitId,
   unitIndex: number,
   config: ResolvedCombatPressureConfig,
+  tickStartMoraleStates: UnitMoraleMovementStateSource | undefined,
 ): UnitPressureUpdate {
   const members = getUnitMembers(identityStore, unitId);
   const confidenceAverage = calculateAverageConfidence(formationStore, members);
   const highConfidence = confidenceAverage >= config.highConfidenceThreshold;
   const engaged = store.engagedByUnit[unitIndex] === 1;
-  // Until a dedicated contact snapshot exists, formation's hostile
-  // engageFront choice is the authoritative current-contact signal.
-  const inContact = getUnitMovementStyle(formationStore, unitId) === "engageFront";
+  // Until a dedicated contact snapshot exists, formation's hostile-contact
+  // movement styles are the authoritative current-contact signal.
+  const inContact = isHostileContactMovementStyle(
+    getUnitMovementStyle(formationStore, unitId),
+  );
   const currentCohesion = getUnitCohesion(formationStore, unitId);
   const previousCohesion = store.previousCohesion[unitIndex]!;
   const cohesionLossValue =
@@ -241,7 +255,10 @@ function applyUnitPressureUpdate(
   const decayPerMember = hasFreshPressure
     ? 0
     : config.pressureDecayPerMember +
-      (highConfidence ? config.highConfidenceDecayBonus : 0);
+      (highConfidence ? config.highConfidenceDecayBonus : 0) +
+      (tickStartMoraleStates?.get(unitId) === "routing"
+        ? routingPressureDecayBonus(formationStore, members)
+        : 0);
   const appliedPressureDeltaPerMember =
     engagedPressureDeltaPerMember +
     contactPressureDeltaPerMember +
@@ -276,6 +293,19 @@ function applyUnitPressureUpdate(
     cohesionPressureDeltaPerMember,
     decayPerMember,
   };
+}
+
+function routingPressureDecayBonus(
+  formationStore: FormationBehaviourStore,
+  members: readonly number[],
+): number {
+  let total = 0;
+  for (let index = 0; index < members.length; index += 1) {
+    total += ROUTING_PRESSURE_DECAY_BONUS[
+      getIndividualRole(formationStore, members[index]!)
+    ];
+  }
+  return Math.trunc(total / members.length);
 }
 
 function calculateAverageConfidence(

@@ -35,11 +35,77 @@ body {
 }
 
 .controls,
-.metrics-panel {
+.metrics-panel,
+.visual-test-scenario-panel {
   pointer-events: auto;
   background: rgb(13 19 31 / 88%);
   border: 1px solid #475569;
   border-radius: 4px;
+}
+
+.visual-test-scenario-panel {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  max-width: min(520px, calc(100vw - 24px));
+  padding: 10px 12px;
+  pointer-events: auto;
+}
+
+.visual-test-scenario-panel h1 {
+  margin: 8px 0 4px;
+  font-size: 1rem;
+}
+
+.visual-test-scenario-panel p,
+.visual-test-scenario-panel ul {
+  margin: 4px 0;
+}
+
+.visual-test-scenario-panel a,
+.visual-test-menu a {
+  color: #93c5fd;
+}
+
+#app.visual-test-menu-host {
+  overflow: auto;
+}
+
+.visual-test-menu {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 28px 20px 48px;
+  box-sizing: border-box;
+}
+
+.visual-test-list {
+  display: grid;
+  gap: 16px;
+}
+
+.visual-test-list article {
+  padding: 16px 18px;
+  background: #111b2b;
+  border: 1px solid #475569;
+  border-radius: 6px;
+}
+
+.visual-test-list h2,
+.visual-test-list p,
+.visual-test-list ul {
+  margin: 6px 0;
+}
+
+.visual-test-milestone {
+  color: #cbd5e1;
+  font-weight: 600;
+}
+
+.visual-test-error {
+  padding: 10px 12px;
+  color: #fecaca;
+  background: #451a1a;
+  border: 1px solid #f87171;
 }
 
 .controls {

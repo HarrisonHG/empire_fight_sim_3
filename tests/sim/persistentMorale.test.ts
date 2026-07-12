@@ -29,6 +29,7 @@ import {
   advancePersistentMoraleOneTick,
   createPersistentMoraleStore,
   getPersistentUnitMorale,
+  RECOVERY_CONSTANTS,
   type PersistentMoraleContext,
   type PersistentMoraleEvent,
   type PersistentMoraleStore,
@@ -176,9 +177,7 @@ describe("persistent unit morale", () => {
     );
 
     setTargetPressure(harness, 0);
-    for (let tick = 0; tick < 6; tick += 1) {
-      advance(harness, [], { recoveryThreatSummaries: recoveryThreats(false) });
-    }
+    advanceUntilState(harness, "recovering");
     expect(getPersistentUnitMorale(harness.store, TARGET_UNIT_ID).state).toBe(
       "recovering",
     );
@@ -191,7 +190,7 @@ describe("persistent unit morale", () => {
         kind: "unit_morale_changed",
         unitId: TARGET_UNIT_ID,
         previousState: "recovering",
-        state: "wavering",
+        state: "routing",
       },
     ]);
   });
@@ -209,13 +208,61 @@ describe("persistent unit morale", () => {
     );
   });
 
-  it("returns from recovering to steady only after multiple recovery ticks", () => {
+  it("keeps routing beyond its minimum until both pressure and risk fall below explicit stop gates", () => {
     const harness = routeHarness();
     setTargetPressure(harness, 0);
-    for (let tick = 0; tick < 6; tick += 1) {
+
+    for (let tick = 0; tick < RECOVERY_CONSTANTS.minimumRoutingTicks; tick += 1) {
       advance(harness, [], { recoveryThreatSummaries: recoveryThreats(false) });
     }
-    for (let tick = 0; tick < 11; tick += 1) {
+    expect(getPersistentUnitMorale(harness.store, TARGET_UNIT_ID).state).toBe(
+      "routing",
+    );
+
+    const ticksToRecovery = advanceUntilState(harness, "recovering");
+    expect(ticksToRecovery).toBeGreaterThan(0);
+    const morale = getPersistentUnitMorale(harness.store, TARGET_UNIT_ID);
+    expect(morale.pressure).toBeLessThan(RECOVERY_CONSTANTS.routingStopPressure);
+    expect(morale.routingRisk).toBeLessThan(RECOVERY_CONSTANTS.routingStopRisk);
+  });
+
+  it("decays routing risk by role only while no fresh source has renewed it", () => {
+    const harnesses = [
+      routeHarness({ targetRole: "veteran", targetConfidence: 500 }),
+      routeHarness({ targetRole: "regular", targetConfidence: 500 }),
+      routeHarness({ targetRole: "recruit", targetConfidence: 500 }),
+    ];
+    const before = harnesses.map((harness) =>
+      getPersistentUnitMorale(harness.store, TARGET_UNIT_ID).routingRisk,
+    );
+
+    for (let tick = 0; tick < 2; tick += 1) {
+      for (const harness of harnesses) {
+        setTargetPressure(harness, 0);
+        advance(harness, [], { recoveryThreatSummaries: recoveryThreats(true) });
+      }
+    }
+
+    const shed = harnesses.map(
+      (harness, index) =>
+        before[index]! -
+        getPersistentUnitMorale(harness.store, TARGET_UNIT_ID).routingRisk,
+    );
+    expect(shed).toEqual([12, 8, 4]);
+  });
+
+  it("holds recovery for the configured visible minimum before returning to steady", () => {
+    const harness = routeHarness({
+      targetRole: "veteran",
+      targetConfidence: 800,
+    });
+    setTargetPressure(harness, 0);
+    advanceUntilState(harness, "recovering");
+    for (
+      let tick = 0;
+      tick < RECOVERY_CONSTANTS.minimumRecoveringTicks - 1;
+      tick += 1
+    ) {
       advance(harness, [], { recoveryThreatSummaries: recoveryThreats(false) });
     }
     expect(getPersistentUnitMorale(harness.store, TARGET_UNIT_ID).state).toBe(
@@ -231,12 +278,7 @@ describe("persistent unit morale", () => {
     const harness = routeHarness({ targetCohesion: 600 });
     applyUnitCohesionLoss(harness.formation, TARGET_UNIT_ID, 30);
     setTargetPressure(harness, 0);
-    for (let tick = 0; tick < 6; tick += 1) {
-      advance(harness, [], {
-        pressureUpdates: calmPressureUpdates(),
-        recoveryThreatSummaries: recoveryThreats(false),
-      });
-    }
+    advanceUntilState(harness, "recovering");
     expect(getPersistentUnitMorale(harness.store, TARGET_UNIT_ID).state).toBe(
       "recovering",
     );
@@ -265,12 +307,7 @@ describe("persistent unit morale", () => {
     const harness = routeHarness({ targetCohesion: 600 });
     applyUnitCohesionLoss(harness.formation, TARGET_UNIT_ID, 30);
     setTargetPressure(harness, 0);
-    for (let tick = 0; tick < 7; tick += 1) {
-      advance(harness, [], {
-        pressureUpdates: calmPressureUpdates(),
-        recoveryThreatSummaries: recoveryThreats(false),
-      });
-    }
+    advanceUntilState(harness, "recovering");
 
     expect(getPersistentUnitMorale(harness.store, TARGET_UNIT_ID).cohesion).toBe(
       getUnitCohesion(harness.formation, TARGET_UNIT_ID),
@@ -282,16 +319,28 @@ describe("persistent unit morale", () => {
     const low = routeHarness({ targetRole: "recruit", targetConfidence: 200 });
     for (const harness of [high, low]) {
       setTargetPressure(harness, 0);
-      for (let tick = 0; tick < 6; tick += 1) {
-        advance(harness, [], { recoveryThreatSummaries: recoveryThreats(false) });
-      }
+      advanceUntilState(harness, "recovering");
     }
-    for (let tick = 0; tick < 4; tick += 1) {
+    for (let tick = 0; tick < 100; tick += 1) {
       advance(high, [], { recoveryThreatSummaries: recoveryThreats(false) });
       advance(low, [], { recoveryThreatSummaries: recoveryThreats(false) });
     }
     expect(getPersistentUnitMorale(high.store, TARGET_UNIT_ID).state).toBe("steady");
     expect(getPersistentUnitMorale(low.store, TARGET_UNIT_ID).state).toBe("recovering");
+    for (let tick = 0; tick < 160; tick += 1) {
+      advance(low, [], { recoveryThreatSummaries: recoveryThreats(false) });
+    }
+    expect(getPersistentUnitMorale(low.store, TARGET_UNIT_ID).state).toBe("steady");
+  });
+
+  it("returns veteran, regular, then recruit units to steady under the same safe recovery sequence", () => {
+    const veteran = ticksFromRecoveryToSteady("veteran");
+    const regular = ticksFromRecoveryToSteady("regular");
+    const recruit = ticksFromRecoveryToSteady("recruit");
+
+    expect(veteran).toBeGreaterThanOrEqual(RECOVERY_CONSTANTS.minimumRecoveringTicks);
+    expect(veteran).toBeLessThan(regular);
+    expect(regular).toBeLessThan(recruit);
   });
 
   it("is deterministic for identical recovery sequences", () => {
@@ -308,12 +357,14 @@ describe("persistent unit morale", () => {
       getUnitMembers(harness.identity, unitId),
     );
     setTargetPressure(harness, 0);
-
-    for (let tick = 0; tick < 10; tick += 1) {
+    for (let tick = 0; tick < 400; tick += 1) {
       advance(harness, [], {
         survivabilityStore: survivability,
         recoveryThreatSummaries: recoveryThreats(false),
       });
+      if (getPersistentUnitMorale(harness.store, TARGET_UNIT_ID).state === "recovering") {
+        break;
+      }
     }
 
     expect(getPersistentUnitMorale(harness.store, TARGET_UNIT_ID).state).toBe(
@@ -555,4 +606,29 @@ function runRecoverySequence(): unknown {
   }
 
   return timeline;
+}
+
+function advanceUntilState(
+  harness: MoraleHarness,
+  state: "recovering" | "steady",
+): number {
+  for (let tick = 0; tick < 400; tick += 1) {
+    advance(harness, [], {
+      pressureUpdates: calmPressureUpdates(),
+      recoveryThreatSummaries: recoveryThreats(false),
+    });
+    if (getPersistentUnitMorale(harness.store, TARGET_UNIT_ID).state === state) {
+      return tick + 1;
+    }
+  }
+  throw new Error(`Morale never reached ${state}.`);
+}
+
+function ticksFromRecoveryToSteady(
+  targetRole: "recruit" | "regular" | "veteran",
+): number {
+  const harness = routeHarness({ targetRole, targetConfidence: 500 });
+  setTargetPressure(harness, 0);
+  advanceUntilState(harness, "recovering");
+  return advanceUntilState(harness, "steady");
 }

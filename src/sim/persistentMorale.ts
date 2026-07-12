@@ -89,13 +89,26 @@ const ROUTING_RISK_THRESHOLD = 40;
 const DOWNWARD_TRANSITION_TICKS = 4;
 export const RECOVERY_CONSTANTS = {
   minimumRoutingTicks: 6,
+  /** Five visible seconds at the simulation's fixed 20 Hz tick rate. */
+  minimumRecoveringTicks: 100,
   maximumPressure: 60,
+  /** Routing cannot stop until both durable indicators have fallen this far. */
+  routingStopPressure: 30,
+  routingStopRisk: 20,
   minimumCohesion: 550,
-  progressRequired: 12,
-  baseProgressPerTick: 1,
+  progressRequired: 240,
+  baseProgressPerTick: 2,
   highConfidenceProgressBonus: 1,
   baseCohesionRestorePerTick: 2,
   highConfidenceCohesionRestoreBonus: 1,
+} as const;
+
+/** Durable routing-risk decay while no current source has refreshed it. */
+export const ROUTING_RISK_DECAY = {
+  veteran: 6,
+  regular: 4,
+  recruit: 2,
+  highConfidenceBonus: 1,
 } as const;
 
 export function createPersistentMoraleStore(
@@ -194,11 +207,17 @@ export function advancePersistentMoraleOneTick(
       context.recoveryThreatSummaries[unitIndex]!.hostileNearby;
     const previousState = internal.states[unitIndex]!;
     const candidateState = determineCandidateState(profile.stressScore);
-    internal.routingRisk[unitIndex] = updateRoutingRisk(
-      internal.routingRisk[unitIndex]!,
-      candidateState,
-      profile.recentCapacityReached,
-    );
+    internal.routingRisk[unitIndex] =
+      previousState === "routing" && !hasFreshPressure
+        ? decreaseBounded(
+            internal.routingRisk[unitIndex]!,
+            routingRiskDecayPerTick(profile),
+          )
+        : updateRoutingRisk(
+            internal.routingRisk[unitIndex]!,
+            candidateState,
+            profile.recentCapacityReached,
+          );
     const nextState = determineNextState(
       internal,
       unitIndex,
@@ -410,8 +429,12 @@ function collectUnitMoraleProfile(
   if (assessment.cohesion < 700) stressScore += 10;
   if (assessment.cohesion < 400) stressScore += 20;
   if (assessment.cohesion < 200) stressScore += 20;
-  stressScore -= Math.trunc((confidence - 500) / 50);
-  stressScore -= experienceAdjustment * 15;
+  // Profile adjusts observed stress; it must not manufacture a non-steady
+  // candidate after all pressure, damage, and cohesion penalties are gone.
+  if (stressScore > 0) {
+    stressScore -= Math.trunc((confidence - 500) / 50);
+    stressScore -= experienceAdjustment * 15;
+  }
 
   return {
     stressScore: stressScore > 0 ? stressScore : 0,
@@ -453,7 +476,8 @@ function determineRoutingTransition(
   if (
     hasFreshPressure ||
     hostileNearby ||
-    profile.pressure >= RECOVERY_CONSTANTS.maximumPressure ||
+    profile.pressure >= RECOVERY_CONSTANTS.routingStopPressure ||
+    store.routingRisk[unitIndex]! >= RECOVERY_CONSTANTS.routingStopRisk ||
     profile.cohesion < RECOVERY_CONSTANTS.minimumCohesion ||
     moraleStateRank(candidateState) > 1
   ) {
@@ -472,9 +496,12 @@ function determineRecoveryTransition(
   hostileNearby: boolean,
   profile: UnitMoraleProfile,
 ): PersistentUnitMoraleState {
+  if (hasFreshPressure || hostileNearby) {
+    store.recoveryProgress[unitIndex] = 0;
+    return "routing";
+  }
   if (
-    hasFreshPressure ||
-    hostileNearby ||
+    profile.pressure >= RECOVERY_CONSTANTS.maximumPressure ||
     profile.pressure >= RECOVERY_CONSTANTS.maximumPressure ||
     profile.cohesion < RECOVERY_CONSTANTS.minimumCohesion ||
     moraleStateRank(candidateState) >= 2
@@ -482,15 +509,14 @@ function determineRecoveryTransition(
     store.recoveryProgress[unitIndex] = 0;
     return "wavering";
   }
-  if (candidateState !== "steady") {
-    store.recoveryProgress[unitIndex] = 0;
-    return "recovering";
-  }
   store.recoveryProgress[unitIndex] = increaseBounded(
     store.recoveryProgress[unitIndex]!,
     recoveryProgressPerTick(profile),
   );
-  return store.recoveryProgress[unitIndex]! >= RECOVERY_CONSTANTS.progressRequired
+  const hasCompletedMinimumDuration =
+    store.stateTicks[unitIndex]! >= RECOVERY_CONSTANTS.minimumRecoveringTicks;
+  return hasCompletedMinimumDuration &&
+    store.recoveryProgress[unitIndex]! >= RECOVERY_CONSTANTS.progressRequired
     ? "steady"
     : "recovering";
 }
@@ -505,6 +531,19 @@ function recoveryProgressPerTick(profile: UnitMoraleProfile): number {
     RECOVERY_CONSTANTS.baseProgressPerTick +
       confidenceBonus +
       profile.experienceAdjustment,
+  );
+}
+
+function routingRiskDecayPerTick(profile: UnitMoraleProfile): number {
+  const role =
+    profile.experienceAdjustment > 0
+      ? "veteran"
+      : profile.experienceAdjustment < 0
+        ? "recruit"
+        : "regular";
+  return (
+    ROUTING_RISK_DECAY[role] +
+    (profile.confidence >= 750 ? ROUTING_RISK_DECAY.highConfidenceBonus : 0)
   );
 }
 
@@ -593,6 +632,10 @@ function updateRoutingRisk(
   if (rank >= 3) return increaseBounded(current, 5);
   if (rank >= 2) return increaseBounded(current, 1);
   return current > 4 ? current - 4 : 0;
+}
+
+function decreaseBounded(current: number, amount: number): number {
+  return current > amount ? current - amount : 0;
 }
 
 function inferFreshPressure(assessment: CombatMoraleAssessment): boolean {

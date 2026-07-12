@@ -156,6 +156,25 @@ describe("combat pressure stage", () => {
     expect(targetPressures(highConfidence)).toEqual([0, 0]);
   });
 
+  it("uses only tick-start routing state to give veteran, regular, and recruit units distinct safe decay", () => {
+    const recruits = createHarness({ targetRole: "recruit" });
+    const regulars = createHarness({ targetRole: "regular" });
+    const veterans = createHarness({ targetRole: "veteran" });
+    const routingStates = new Map([
+      [SOURCE_UNIT_ID, "steady" as const],
+      [TARGET_UNIT_ID, "routing" as const],
+    ]);
+
+    for (const harness of [recruits, regulars, veterans]) {
+      setTargetPressure(harness, 10);
+      advancePressure(harness, undefined, [], routingStates);
+    }
+
+    expect(targetPressures(recruits)).toEqual([8, 8]);
+    expect(targetPressures(regulars)).toEqual([7, 7]);
+    expect(targetPressures(veterans)).toEqual([6, 6]);
+  });
+
   it("clamps pressure safely at the formation state maximum", () => {
     const harness = createHarness();
     setTargetPressure(harness, 0x7fff_ffff);
@@ -207,7 +226,10 @@ interface FormationSignalHarness {
   readonly store: CombatPressureStore;
 }
 
-function createHarness(options: { readonly targetConfidence?: number } = {}): PressureHarness {
+function createHarness(options: {
+  readonly targetConfidence?: number;
+  readonly targetRole?: "recruit" | "regular" | "veteran";
+} = {}): PressureHarness {
   const identity = createUnitIdentityStore({
     entityCount: 4,
     units: [
@@ -221,7 +243,8 @@ function createHarness(options: { readonly targetConfidence?: number } = {}): Pr
     units: [formationUnit(SOURCE_UNIT_ID, 100), formationUnit(TARGET_UNIT_ID, 200)],
     individuals: [0, 1, 2, 3].map((entityId) => ({
       entityId,
-      role: "regular" as const,
+      role:
+        entityId >= 2 ? (options.targetRole ?? "regular") : ("regular" as const),
       slotRow: 0,
       slotCol: entityId % 2,
       memberMaxStep: 1,
@@ -309,6 +332,10 @@ function advancePressure(
   harness: PressureHarness,
   opportunity: CombatAttackOpportunity | undefined = undefined,
   consequences: readonly CombatConsequenceApplication[] = [],
+  tickStartMoraleStates?: ReadonlyMap<
+    number,
+    "steady" | "strained" | "shaken" | "wavering" | "routing" | "recovering"
+  >,
 ): readonly UnitPressureUpdate[] {
   const result = advanceCombatPressureOneTick(
     harness.identity,
@@ -317,6 +344,8 @@ function advancePressure(
     consequences,
     harness.store,
     harness.updates,
+    {},
+    tickStartMoraleStates,
   );
   return result.updates.slice();
 }

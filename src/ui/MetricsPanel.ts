@@ -48,7 +48,20 @@ export class MetricsPanel {
 
     const combatDebug = snapshot.combatDebug;
     if (combatDebug === undefined) {
-      this.clearCombatDebug();
+      const formationDebug = snapshot.formationDebug;
+      if (formationDebug === undefined) {
+        this.clearCombatDebug();
+        return;
+      }
+      this.combatTickCountsValue.textContent = "--";
+      this.combatTotalCountsValue.textContent = "--";
+      this.combatUnitStateValue.textContent = formationDebug.units
+        .map(
+          (unit) =>
+            `${unit.label} · U${unit.unitId}/F${unit.factionId} (${unit.memberCount}): ` +
+            `${unit.movementStyle}, C ${unit.cohesion}`,
+        )
+        .join("\n");
       return;
     }
 

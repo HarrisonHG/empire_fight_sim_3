@@ -93,6 +93,42 @@ export interface CombatSandboxScenario {
   readonly appliedDamagePressureScale: number;
 }
 
+/** Explicit non-combat setup used only by retained formation visual tests. */
+export interface FormationSandboxUnitScenario {
+  readonly unitId: number;
+  readonly label: string;
+  readonly factionId: number;
+  readonly memberEntityIds: readonly number[];
+  readonly anchorX: number;
+  readonly anchorY: number;
+  readonly headingX: number;
+  readonly headingY: number;
+  readonly spacing: number;
+  readonly rows: number;
+  readonly cols: number;
+  readonly unitSpeed: number;
+  readonly order: UnitOrder;
+  readonly cohesion?: number;
+}
+
+export interface FormationSandboxIndividualScenario {
+  readonly entityId: number;
+  readonly x: number;
+  readonly y: number;
+  readonly role: IndividualRole;
+  readonly slotRow: number;
+  readonly slotCol: number;
+  readonly memberMaxStep: number;
+  readonly pressure?: number;
+  readonly confidence?: number;
+}
+
+export interface FormationSandboxScenario {
+  readonly kind: "formationSandbox";
+  readonly units: readonly FormationSandboxUnitScenario[];
+  readonly individuals: readonly FormationSandboxIndividualScenario[];
+}
+
 export interface SimulationScenario {
   readonly seed: number;
   readonly entityCount: number;
@@ -100,6 +136,20 @@ export interface SimulationScenario {
   readonly minSpeedUnitsPerTick: number;
   readonly maxSpeedUnitsPerTick: number;
   readonly combatSandbox?: CombatSandboxScenario;
+  readonly formationSandbox?: FormationSandboxScenario;
+}
+
+export interface FormationDebugUnitSnapshot {
+  readonly unitId: number;
+  readonly label: string;
+  readonly factionId: number;
+  readonly memberCount: number;
+  readonly movementStyle: UnitMovementStyle;
+  readonly cohesion: number;
+}
+
+export interface FormationDebugSnapshot {
+  readonly units: readonly FormationDebugUnitSnapshot[];
 }
 
 export interface WorldState {
@@ -122,6 +172,7 @@ export interface InitialSimulationSnapshot {
   /** Present only when the scenario assigns entities to visible factions. */
   readonly factionIds?: Uint8Array;
   readonly combatDebug?: LiveCombatDebugSnapshot;
+  readonly formationDebug?: FormationDebugSnapshot;
 }
 
 export interface PositionSimulationSnapshot {
@@ -130,6 +181,7 @@ export interface PositionSimulationSnapshot {
   readonly entityCount: number;
   readonly positions: Int32Array;
   readonly combatDebug?: LiveCombatDebugSnapshot;
+  readonly formationDebug?: FormationDebugSnapshot;
 }
 
 export type SimulationSnapshot =
@@ -204,11 +256,19 @@ export interface CombatSandboxSimulationState {
   debugSnapshot: LiveCombatDebugSnapshot;
 }
 
+export interface FormationSandboxSimulationState {
+  readonly identityStore: UnitIdentityStore;
+  readonly formationStore: FormationBehaviourStore;
+  readonly unitLabels: ReadonlyMap<UnitId, string>;
+  debugSnapshot: FormationDebugSnapshot;
+}
+
 export interface SimulationState {
   tick: number;
   rngState: number;
   readonly world: WorldState;
   readonly combatSandbox?: CombatSandboxSimulationState;
+  readonly formationSandbox?: FormationSandboxSimulationState;
 }
 
 export function entityIdFromIndex(index: number): EntityId {

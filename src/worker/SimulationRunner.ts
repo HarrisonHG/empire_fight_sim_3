@@ -222,6 +222,9 @@ function estimateSnapshotPayloadBytes(snapshot: SimulationSnapshot): number {
     // conservative accounting for the extra structured-clone payload.
     bytes += JSON.stringify(snapshot.combatDebug).length;
   }
+  if (snapshot.formationDebug !== undefined) {
+    bytes += JSON.stringify(snapshot.formationDebug).length;
+  }
 
   return bytes;
 }

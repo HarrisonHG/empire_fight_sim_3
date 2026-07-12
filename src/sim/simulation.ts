@@ -15,6 +15,7 @@ import { createCombatTempoStore } from "./combatTempo";
 import {
   advanceFormationOneTick,
   createFormationBehaviourStore,
+  getUnitCohesion,
   getUnitMovementStyle,
 } from "./formationBehaviour";
 import { moveWorldOneTick } from "./movement";
@@ -45,12 +46,16 @@ import {
   getUnitIds,
   getUnitMembers,
   type UnitId,
+  type UnitIdentityStore,
 } from "./unitIdentity";
 import { createUnitLoadoutStore } from "./unitLoadout";
 import type {
   CombatSandboxScenario,
   CombatSandboxSimulationState,
   CombatSandboxUnitScenario,
+  FormationDebugSnapshot,
+  FormationSandboxScenario,
+  FormationSandboxSimulationState,
   InitialSimulationSnapshot,
   LiveCombatDebugSnapshot,
   LiveCombatDebugUnitSnapshot,
@@ -91,6 +96,22 @@ export function createSimulation(
           scenario.combatSandbox,
           scenario.seed,
         );
+  if (
+    scenario.combatSandbox !== undefined &&
+    scenario.formationSandbox !== undefined
+  ) {
+    throw new RangeError(
+      "A scenario cannot configure combat and formation sandboxes together.",
+    );
+  }
+  const initializedFormationSandbox =
+    scenario.formationSandbox === undefined
+      ? undefined
+      : createFormationSandbox(
+          initializedWorld.world,
+          scenario.formationSandbox,
+          scenario.seed,
+        );
   const simulation: SimulationState = {
     tick: 0,
     rngState: initializedCombatSandbox?.rngState ?? initializedWorld.rngState,
@@ -98,18 +119,20 @@ export function createSimulation(
     ...(initializedCombatSandbox === undefined
       ? {}
       : { combatSandbox: initializedCombatSandbox.state }),
+    ...(initializedFormationSandbox === undefined
+      ? {}
+      : { formationSandbox: initializedFormationSandbox }),
   };
 
   snapshotBuffersBySimulation.set(simulation, {
     ids: initializedWorld.world.ids.slice(),
     positions: new Int32Array(initializedWorld.world.entityCount * 2),
     factionIds:
-      initializedCombatSandbox === undefined
-        ? undefined
-        : createFactionIdBuffer(
-            initializedWorld.world,
-            initializedCombatSandbox.state,
-          ),
+      createScenarioFactionIdBuffer(
+        initializedWorld.world,
+        initializedCombatSandbox?.state,
+        initializedFormationSandbox,
+      ),
   });
 
   return simulation;
@@ -118,7 +141,17 @@ export function createSimulation(
 /** Advances the complete simulation by exactly one fixed tick. */
 export function advanceSimulationOneTick(simulation: SimulationState): void {
   const combatSandbox = simulation.combatSandbox;
-  if (combatSandbox === undefined) {
+  const formationSandbox = simulation.formationSandbox;
+  if (formationSandbox !== undefined) {
+    advanceFormationOneTick(
+      simulation.world,
+      formationSandbox.identityStore,
+      formationSandbox.formationStore,
+    );
+    formationSandbox.debugSnapshot = createFormationDebugSnapshot(
+      formationSandbox,
+    );
+  } else if (combatSandbox === undefined) {
     // Preserve the Foundation baseline for its standalone movement/perf tests.
     moveWorldOneTick(simulation.world);
   } else {
@@ -153,6 +186,8 @@ export function advanceSimulationOneTick(simulation: SimulationState): void {
       combatSandbox.consequenceApplications,
       combatSandbox.pressureStore,
       combatSandbox.pressureUpdates,
+      {},
+      combatSandbox.moraleMovementStates,
     );
     advanceRoutingContagionOneTick(
       simulation.world,
@@ -217,6 +252,7 @@ export function createInitialSnapshot(
     positions: fillSnapshotPositions(simulation),
   };
   const combatDebug = simulation.combatSandbox?.debugSnapshot;
+  const formationDebug = simulation.formationSandbox?.debugSnapshot;
 
   return {
     ...baseSnapshot,
@@ -224,6 +260,7 @@ export function createInitialSnapshot(
       ? {}
       : { factionIds: snapshotBuffers.factionIds }),
     ...(combatDebug === undefined ? {} : { combatDebug }),
+    ...(formationDebug === undefined ? {} : { formationDebug }),
   };
 }
 
@@ -241,11 +278,76 @@ export function createPositionSnapshot(
     positions: fillSnapshotPositions(simulation),
   };
   const combatDebug = simulation.combatSandbox?.debugSnapshot;
+  const formationDebug = simulation.formationSandbox?.debugSnapshot;
 
   return {
     ...baseSnapshot,
     ...(combatDebug === undefined ? {} : { combatDebug }),
+    ...(formationDebug === undefined ? {} : { formationDebug }),
   };
+}
+
+function createFormationSandbox(
+  world: WorldState,
+  scenario: FormationSandboxScenario,
+  seed: number,
+): FormationSandboxSimulationState {
+  validateFormationSandboxScenario(world, scenario);
+  for (let index = 0; index < scenario.individuals.length; index += 1) {
+    const individual = scenario.individuals[index]!;
+    world.positionsX[individual.entityId] = individual.x;
+    world.positionsY[individual.entityId] = individual.y;
+    world.velocitiesX[individual.entityId] = 0;
+    world.velocitiesY[individual.entityId] = 0;
+  }
+  const identityStore = createUnitIdentityStore({
+    entityCount: world.entityCount,
+    units: scenario.units.map((unit) => ({
+      unitId: unit.unitId,
+      factionId: unit.factionId,
+      memberEntityIds: unit.memberEntityIds,
+    })),
+  });
+  const formationStore = createFormationBehaviourStore(identityStore, {
+    entityCount: world.entityCount,
+    rngSeed: seed,
+    units: scenario.units.map((unit) => ({
+      unitId: unit.unitId,
+      anchorX: unit.anchorX,
+      anchorY: unit.anchorY,
+      headingX: unit.headingX,
+      headingY: unit.headingY,
+      spacing: unit.spacing,
+      rows: unit.rows,
+      cols: unit.cols,
+      unitSpeed: unit.unitSpeed,
+      order: unit.order,
+      ...(unit.cohesion === undefined ? {} : { cohesion: unit.cohesion }),
+    })),
+    individuals: scenario.individuals.map((individual) => ({
+      entityId: individual.entityId,
+      role: individual.role,
+      slotRow: individual.slotRow,
+      slotCol: individual.slotCol,
+      memberMaxStep: individual.memberMaxStep,
+      ...(individual.pressure === undefined
+        ? {}
+        : { pressure: individual.pressure }),
+      ...(individual.confidence === undefined
+        ? {}
+        : { confidence: individual.confidence }),
+    })),
+  });
+  const state: FormationSandboxSimulationState = {
+    identityStore,
+    formationStore,
+    unitLabels: new Map(
+      scenario.units.map((unit) => [unit.unitId, unit.label]),
+    ),
+    debugSnapshot: { units: [] },
+  };
+  state.debugSnapshot = createFormationDebugSnapshot(state);
+  return state;
 }
 
 function createCombatSandbox(
@@ -485,6 +587,84 @@ function validateCombatSandboxScenario(
   }
 }
 
+function validateFormationSandboxScenario(
+  world: WorldState,
+  scenario: FormationSandboxScenario,
+): void {
+  if (scenario.kind !== "formationSandbox") {
+    throw new RangeError("Unknown formation sandbox scenario kind.");
+  }
+  if (scenario.units.length === 0) {
+    throw new RangeError("Formation sandbox requires at least one unit.");
+  }
+  if (scenario.individuals.length !== world.entityCount) {
+    throw new RangeError(
+      "Formation sandbox individuals must exactly match world entity count.",
+    );
+  }
+
+  const unitIds = new Set<number>();
+  const memberIds = new Set<number>();
+  for (let index = 0; index < scenario.units.length; index += 1) {
+    const unit = scenario.units[index]!;
+    assertNonNegativeSafeInteger(unit.unitId, "unitId");
+    assertNonNegativeSafeInteger(unit.factionId, "factionId");
+    if (unit.factionId > 0xff) {
+      throw new RangeError("Formation sandbox faction IDs must fit Uint8Array.");
+    }
+    if (unitIds.has(unit.unitId)) {
+      throw new RangeError("Formation sandbox unit IDs must be unique.");
+    }
+    unitIds.add(unit.unitId);
+    if (unit.memberEntityIds.length === 0) {
+      throw new RangeError("Formation sandbox units require members.");
+    }
+    for (const entityId of unit.memberEntityIds) {
+      assertNonNegativeSafeInteger(entityId, "memberEntityId");
+      if (entityId >= world.entityCount || memberIds.has(entityId)) {
+        throw new RangeError(
+          "Formation sandbox members must be unique world entity IDs.",
+        );
+      }
+      memberIds.add(entityId);
+    }
+    assertPositiveSafeInteger(unit.rows, "rows");
+    assertPositiveSafeInteger(unit.cols, "cols");
+    assertPositiveSafeInteger(unit.spacing, "spacing");
+    assertNonNegativeSafeInteger(unit.unitSpeed, "unitSpeed");
+    if (unit.rows * unit.cols < unit.memberEntityIds.length) {
+      throw new RangeError(
+        "Formation sandbox slots must cover every unit member.",
+      );
+    }
+    validateAnchor(world, unit.anchorX, unit.anchorY);
+  }
+  if (memberIds.size !== world.entityCount) {
+    throw new RangeError(
+      "Formation sandbox unit members must cover every world entity.",
+    );
+  }
+
+  const individualIds = new Set<number>();
+  for (const individual of scenario.individuals) {
+    assertNonNegativeSafeInteger(individual.entityId, "entityId");
+    if (
+      individual.entityId >= world.entityCount ||
+      individualIds.has(individual.entityId)
+    ) {
+      throw new RangeError(
+        "Formation sandbox individuals must have unique world entity IDs.",
+      );
+    }
+    individualIds.add(individual.entityId);
+    assertNonNegativeSafeInteger(individual.x, "individual.x");
+    assertNonNegativeSafeInteger(individual.y, "individual.y");
+    if (individual.x >= world.bounds.width || individual.y >= world.bounds.height) {
+      throw new RangeError("Formation sandbox individuals must fit world bounds.");
+    }
+  }
+}
+
 function validateDeploymentZone(
   world: WorldState,
   zone: CombatSandboxUnitScenario["deploymentZone"],
@@ -511,20 +691,32 @@ function validateAnchor(world: WorldState, x: number, y: number): void {
 
 function createFactionIdBuffer(
   world: WorldState,
-  combatSandbox: CombatSandboxSimulationState,
+  identityStore: UnitIdentityStore,
 ): Uint8Array {
   const factionIds = new Uint8Array(world.entityCount);
   for (let entityIndex = 0; entityIndex < world.entityCount; entityIndex += 1) {
     const unitId = getUnitIdForEntity(
-      combatSandbox.identityStore,
+      identityStore,
       world.ids[entityIndex]!,
     );
     factionIds[entityIndex] = getFactionIdForUnit(
-      combatSandbox.identityStore,
+      identityStore,
       unitId,
     );
   }
   return factionIds;
+}
+
+function createScenarioFactionIdBuffer(
+  world: WorldState,
+  combatSandbox: CombatSandboxSimulationState | undefined,
+  formationSandbox: FormationSandboxSimulationState | undefined,
+): Uint8Array | undefined {
+  const identityStore =
+    combatSandbox?.identityStore ?? formationSandbox?.identityStore;
+  return identityStore === undefined
+    ? undefined
+    : createFactionIdBuffer(world, identityStore);
 }
 
 function updateCombatCounters(combatSandbox: CombatSandboxSimulationState): void {
@@ -634,6 +826,25 @@ function createCombatDebugSnapshot(
   };
 }
 
+function createFormationDebugSnapshot(
+  formationSandbox: FormationSandboxSimulationState,
+): FormationDebugSnapshot {
+  const unitIds = getUnitIds(formationSandbox.identityStore);
+  return {
+    units: unitIds.map((unitId) => ({
+      unitId,
+      label: formationSandbox.unitLabels.get(unitId) ?? `Unit ${unitId}`,
+      factionId: getFactionIdForUnit(formationSandbox.identityStore, unitId),
+      memberCount: getUnitMembers(formationSandbox.identityStore, unitId).length,
+      movementStyle: getUnitMovementStyle(
+        formationSandbox.formationStore,
+        unitId,
+      ),
+      cohesion: getUnitCohesion(formationSandbox.formationStore, unitId),
+    })),
+  };
+}
+
 function fillSnapshotPositions(simulation: SimulationState): Int32Array {
   const { world } = simulation;
   const snapshotPositions = getSnapshotBuffers(simulation).positions;
@@ -657,9 +868,11 @@ function getSnapshotBuffers(simulation: SimulationState): SnapshotBuffers {
     ids: simulation.world.ids.slice(),
     positions: new Int32Array(simulation.world.entityCount * 2),
     factionIds:
-      simulation.combatSandbox === undefined
-        ? undefined
-        : createFactionIdBuffer(simulation.world, simulation.combatSandbox),
+      createScenarioFactionIdBuffer(
+        simulation.world,
+        simulation.combatSandbox,
+        simulation.formationSandbox,
+      ),
   };
   snapshotBuffersBySimulation.set(simulation, buffers);
   return buffers;

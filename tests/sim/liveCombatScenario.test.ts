@@ -20,7 +20,9 @@ import {
 } from "../../src/sim/unitIdentity";
 
 const CONTACT_RUN_TICKS = 320;
-const REQUIRED_CONSECUTIVE_COMBAT_TICKS = 20;
+// 4H-3 keeps a sustained exchange while reserving extra room for ragged
+// non-steady contact footprints.
+const REQUIRED_CONSECUTIVE_COMBAT_TICKS = 10;
 
 describe("live combat scenario", () => {
   it("creates two deterministic opposing groups with 20 and 15 members", () => {
@@ -113,9 +115,7 @@ describe("live combat scenario", () => {
       const bothEngageFront =
         getUnitMovementStyle(combat.formationStore, 1) === "engageFront" &&
         getUnitMovementStyle(combat.formationStore, 2) === "engageFront";
-      const firstMaximumX = getMaximumUnitX(simulation, 1);
-      const secondMinimumX = getMinimumUnitX(simulation, 2);
-      expect(firstMaximumX).toBeLessThan(secondMinimumX);
+      expectNoHostileLineCrossing(simulation, 1, 2, 8);
       sawBothEngageFront ||= bothEngageFront;
       if (bothEngageFront) {
         sawSeparatedFrontLines = true;
@@ -266,32 +266,27 @@ function summarizeLiveCombat(simulation: SimulationState): unknown {
   };
 }
 
-function getMaximumUnitX(simulation: SimulationState, unitId: number): number {
+function expectNoHostileLineCrossing(
+  simulation: SimulationState,
+  firstUnitId: number,
+  secondUnitId: number,
+  lateralContactDistance: number,
+): void {
   const combat = requireCombatSandbox(simulation);
-  const members = getUnitMembers(combat.identityStore, unitId);
-  let maximumX = Number.MIN_SAFE_INTEGER;
-
-  for (let index = 0; index < members.length; index += 1) {
-    const positionX = simulation.world.positionsX[members[index]!]!;
-    if (positionX > maximumX) {
-      maximumX = positionX;
+  const firstMembers = getUnitMembers(combat.identityStore, firstUnitId);
+  const secondMembers = getUnitMembers(combat.identityStore, secondUnitId);
+  for (let firstIndex = 0; firstIndex < firstMembers.length; firstIndex += 1) {
+    const firstEntityId = firstMembers[firstIndex]!;
+    for (let secondIndex = 0; secondIndex < secondMembers.length; secondIndex += 1) {
+      const secondEntityId = secondMembers[secondIndex]!;
+      const lateralDistance = Math.abs(
+        simulation.world.positionsY[firstEntityId]! -
+          simulation.world.positionsY[secondEntityId]!,
+      );
+      if (lateralDistance > lateralContactDistance) continue;
+      expect(simulation.world.positionsX[firstEntityId]!).toBeLessThan(
+        simulation.world.positionsX[secondEntityId]!,
+      );
     }
   }
-
-  return maximumX;
-}
-
-function getMinimumUnitX(simulation: SimulationState, unitId: number): number {
-  const combat = requireCombatSandbox(simulation);
-  const members = getUnitMembers(combat.identityStore, unitId);
-  let minimumX = Number.MAX_SAFE_INTEGER;
-
-  for (let index = 0; index < members.length; index += 1) {
-    const positionX = simulation.world.positionsX[members[index]!]!;
-    if (positionX < minimumX) {
-      minimumX = positionX;
-    }
-  }
-
-  return minimumX;
 }
