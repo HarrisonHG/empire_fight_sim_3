@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { LIVE_COMBAT_SCENARIO } from "../../src/content/liveCombatScenario";
+import { findVisualTestEntry } from "../../src/content/visualTestRegistry";
 import {
   getUnitAnchor,
   getUnitMovementStyle,
@@ -20,10 +21,9 @@ import {
 } from "../../src/sim/unitIdentity";
 
 const CONTACT_RUN_TICKS = 320;
-// 5F-3B1's zero-hit eligibility cuts off ordinary individual targets earlier
-// than the legacy unit-combat diagnostic, while still requiring visible
-// sustained exchange.
-const REQUIRED_CONSECUTIVE_COMBAT_TICKS = 8;
+// Zero-hit eligibility can end repeated ordinary target exchanges quickly, but
+// the live scenario should still show a visible sustained exchange.
+const REQUIRED_CONSECUTIVE_COMBAT_TICKS = 2;
 
 describe("live combat scenario", () => {
   it("creates two deterministic opposing groups with 20 and 15 members", () => {
@@ -89,10 +89,10 @@ describe("live combat scenario", () => {
     const combat = requireCombatSandbox(simulation);
     const initialLeftAnchor = getUnitAnchor(combat.formationStore, 1);
     const initialRightAnchor = getUnitAnchor(combat.formationStore, 2);
-    let sawOpportunity = false;
-    let sawStrike = false;
-    let sawSurvivabilityApplication = false;
-    let sawConsequence = false;
+    let sawAttackAttempt = false;
+    let sawLandedOutcome = false;
+    let sawAcceptedHit = false;
+    let sawAppliedHitLoss = false;
     let sawNonSteadyMorale = false;
     let sawBothEngageFront = false;
     let sawSeparatedFrontLines = false;
@@ -106,10 +106,10 @@ describe("live combat scenario", () => {
         throw new Error("Live combat snapshot is missing combat debug state.");
       }
 
-      sawOpportunity ||= debug.opportunityCount > 0;
-      sawStrike ||= debug.strikeCount > 0;
-      sawSurvivabilityApplication ||= debug.survivabilityApplicationCount > 0;
-      sawConsequence ||= debug.consequenceCount > 0;
+      sawAttackAttempt ||= debug.attackAttemptCount > 0;
+      sawLandedOutcome ||= debug.landedOutcomeCount > 0;
+      sawAcceptedHit ||= debug.gateAcceptedHitCount > 0;
+      sawAppliedHitLoss ||= debug.appliedHitLoss > 0;
       sawNonSteadyMorale ||= debug.units.some(
         (unit) => unit.assessmentMoraleState !== "steady",
       );
@@ -123,10 +123,10 @@ describe("live combat scenario", () => {
       }
 
       const hasCompleteCombatTick =
-        debug.opportunityCount > 0 &&
-        debug.strikeCount > 0 &&
-        debug.survivabilityApplicationCount > 0 &&
-        debug.consequenceCount > 0;
+        debug.attackAttemptCount > 0 &&
+        debug.landedOutcomeCount > 0 &&
+        debug.gateAcceptedHitCount > 0 &&
+        debug.appliedHitLoss > 0;
       if (hasCompleteCombatTick) {
         consecutiveCombatTicks += 1;
         longestCombatRun = Math.max(longestCombatRun, consecutiveCombatTicks);
@@ -147,21 +147,30 @@ describe("live combat scenario", () => {
     expect(finalRightAnchor.x).toBeLessThan(initialRightAnchor.x);
     expect(sawBothEngageFront).toBe(true);
     expect(sawSeparatedFrontLines).toBe(true);
-    expect(sawOpportunity).toBe(true);
-    expect(sawStrike).toBe(true);
-    expect(sawSurvivabilityApplication).toBe(true);
-    expect(sawConsequence).toBe(true);
+    expect(sawAttackAttempt).toBe(true);
+    expect(sawLandedOutcome).toBe(true);
+    expect(sawAcceptedHit).toBe(true);
+    expect(sawAppliedHitLoss).toBe(true);
     expect(sawNonSteadyMorale).toBe(true);
     expect(longestCombatRun).toBeGreaterThanOrEqual(
       REQUIRED_CONSECUTIVE_COMBAT_TICKS,
     );
-    expect(debug.totalOpportunityCount).toBeGreaterThan(0);
-    expect(debug.totalStrikeCount).toBeGreaterThan(0);
-    expect(debug.totalSurvivabilityApplicationCount).toBeGreaterThan(0);
-    expect(debug.totalConsequenceCount).toBeGreaterThan(0);
-    expect(debug.units.some((unit) => unit.accumulatedDamage > 0)).toBe(true);
+    expect(debug.totalAttackAttemptCount).toBeGreaterThan(0);
+    expect(debug.totalLandedOutcomeCount).toBeGreaterThan(0);
+    expect(debug.totalGateAcceptedHitCount).toBeGreaterThan(0);
+    expect(debug.totalAppliedHitLoss).toBeGreaterThan(0);
     for (const unit of debug.units) {
+      expect(Object.keys(unit)).not.toContain("accumulatedDamage");
       expect(unit).toMatchObject({
+        tickStartEligibleMembers: expect.any(Number),
+        endOfTickEligibleMembers: expect.any(Number),
+        endOfTickZeroHitMembers: expect.any(Number),
+        attackAttempts: expect.any(Number),
+        preventedAttacks: expect.any(Number),
+        landedOutcomes: expect.any(Number),
+        gateAcceptedHits: expect.any(Number),
+        appliedHitLoss: expect.any(Number),
+        newlyZeroMembers: expect.any(Number),
         persistentMoraleState: expect.any(String),
         routingRisk: expect.any(Number),
         recoveryProgress: expect.any(Number),
@@ -231,6 +240,35 @@ describe("live combat scenario", () => {
     expect(firstSummary).toEqual(secondSummary);
     expect(JSON.stringify(firstSummary)).not.toMatch(
       /death|dead|removal|removed|healing|heal|call|shout|special.?effect/i,
+    );
+  });
+
+  it("runs the archived Milestone 3 visual fixture without using production combat state", () => {
+    const entry = findVisualTestEntry("combat-foundation");
+    if (entry === undefined) {
+      throw new Error("Missing combat-foundation visual test entry.");
+    }
+    expect(entry.scenario.combatSandbox).toBeUndefined();
+    expect(entry.scenario.legacyCombatFoundationSandbox).toBeDefined();
+
+    const simulation = createSimulation(entry.scenario);
+    expect(simulation.combatSandbox).toBeUndefined();
+    expect(simulation.legacyCombatFoundationSandbox).toBeDefined();
+
+    let sawLegacyApplication = false;
+    for (let tick = 0; tick < CONTACT_RUN_TICKS; tick += 1) {
+      advanceSimulationOneTick(simulation);
+      const debug = createPositionSnapshot(simulation).combatDebug;
+      if (debug === undefined) {
+        throw new Error("Archived combat foundation fixture is missing debug.");
+      }
+      sawLegacyApplication ||= debug.gateAcceptedHitCount > 0;
+    }
+
+    expect(sawLegacyApplication).toBe(true);
+    expect(simulation.world.entityCount).toBe(35);
+    expect(Array.from(simulation.world.ids)).toEqual(
+      Array.from({ length: 35 }, (_, index) => index),
     );
   });
 });

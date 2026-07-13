@@ -1,6 +1,6 @@
 # Milestone 5: Individual Combat State, Defence, and Empire Hit Rules
 
-Status: in progress; 5A, 5B, 5C-1, 5C-2, 5D, 5E, 5F-1, 5F-2, 5F-3A, and 5F-3B1 implemented and awaiting review.
+Status: in progress; 5A, 5B, 5C-1, 5C-2, 5D, 5E, 5F-1, 5F-2, 5F-3A, 5F-3B1, and 5F-3B2 implemented and awaiting review.
 
 ## Product goal
 
@@ -1051,6 +1051,57 @@ authorities.
 ### Acceptance requirement
 
 Milestone 4 routing, recovery, and visual regression scenarios must continue to work with the new derived inputs.
+
+### 5F-3B2 implementation record (2026-07-13)
+
+- [x] Retired the legacy unit combat runtime from the production live combat
+  tick. Production no longer calls `advanceCombatPipelineOneTick`,
+  `applyCombatConsequences`, or `compareIndividualCombatShadow`.
+- [x] Removed legacy runtime ownership from production combat state:
+  tempo store, survivability store, pipeline output, consequence buffers,
+  shadow comparison records, and legacy opportunity/strike/application/
+  consequence counters. The old unit-level modules remain as isolated
+  Milestone 3 regression fixtures and comparison tools.
+- [x] Renamed the production individual combat entrypoint to
+  `advanceIndividualCombatPipelineOneTick`; earlier observation/parallel
+  wording is now historical to completed migration records only.
+- [x] Kept `UnitLoadoutStore` in production only as static scenario content
+  used to derive individual combat profiles. It no longer feeds a second
+  runtime combat authority.
+- [x] Preserved `/test?scenario=combat-foundation` as an archived Milestone 3
+  fixture through an explicit `legacyCombatFoundationSandbox` scenario branch.
+  The normal live combat scenario still uses only the individual-authoritative
+  production sandbox, and the visual registry labels the Milestone 3 route as
+  archived.
+- [x] Migrated live debug snapshots and the minimal metrics panel display from
+  legacy accumulated damage/counters to individual-authoritative fields:
+  attack attempts, prevented attacks, landed outcomes, gate-accepted hits,
+  applied hit loss, newly zero members, tick-start eligible members,
+  end-of-tick eligible members, and end-of-tick zero-hit members.
+- [x] Corrected low-cohesion recovery semantics. Routing may enter recovery
+  below the normal cohesion floor when pressure, risk, threat, and safety gates
+  pass. Recovery restores formation-owned cohesion gradually, and a unit may
+  return to steady only after duration, progress, and cohesion gates pass, with
+  the cohesion gate equal to
+  `min(configured maximum cohesion, RECOVERY_CONSTANTS.minimumCohesion)`.
+- [x] Removed the duplicated persistent-morale `maximumPressure` recovery
+  condition.
+- [x] Kept the accepted morale assessment API stable and recorded the
+  zero-hit/recent-shock naming debt in `docs/deferred-concerns.md` for 5G.
+- [x] Added tests for zero-cohesion recovery entry, below-floor recovery hold,
+  steady only after all recovery gates, configured maximum below 550,
+  persistent/formation cohesion synchronization, absence of legacy runtime
+  stores in production, archived Milestone 3 visual-fixture isolation,
+  individual-authoritative debug fields, deterministic replay, and no entity
+  removal.
+- [x] Remeasured the authority-only live path with 20 warm-up ticks and 100
+  measured ticks for each complete-live run. At 2,000 entities both runs
+  remained above 50 ms p95 on this machine; formation was the largest measured
+  stage and routing/recovery/morale was second. No optimisation was attempted
+  in this slice; this remains a 5G scaling concern.
+- [x] Deferred casualty/dying/falling/removal, treatment/healing, line-gap
+  geometry, shield-wall doctrine, calls, projectiles, energy, and the full
+  `/test?scenario=individual-combat` visual suite to later slices.
 
 ---
 

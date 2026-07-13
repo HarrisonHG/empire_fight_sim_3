@@ -65,23 +65,28 @@ export class MetricsPanel {
       return;
     }
 
-    this.combatTickCountsValue.textContent = formatCombatCounts(
-      combatDebug.opportunityCount,
-      combatDebug.strikeCount,
-      combatDebug.survivabilityApplicationCount,
-      combatDebug.consequenceCount,
-    );
-    this.combatTotalCountsValue.textContent = formatCombatCounts(
-      combatDebug.totalOpportunityCount,
-      combatDebug.totalStrikeCount,
-      combatDebug.totalSurvivabilityApplicationCount,
-      combatDebug.totalConsequenceCount,
-    );
+    this.combatTickCountsValue.textContent = formatCombatCounts({
+      attacks: combatDebug.attackAttemptCount,
+      prevented: combatDebug.preventedAttackCount,
+      landed: combatDebug.landedOutcomeCount,
+      accepted: combatDebug.gateAcceptedHitCount,
+      hitLoss: combatDebug.appliedHitLoss,
+      zero: combatDebug.newlyZeroMemberCount,
+    });
+    this.combatTotalCountsValue.textContent = formatCombatCounts({
+      attacks: combatDebug.totalAttackAttemptCount,
+      prevented: combatDebug.totalPreventedAttackCount,
+      landed: combatDebug.totalLandedOutcomeCount,
+      accepted: combatDebug.totalGateAcceptedHitCount,
+      hitLoss: combatDebug.totalAppliedHitLoss,
+      zero: combatDebug.totalNewlyZeroMemberCount,
+    });
     this.combatUnitStateValue.textContent = combatDebug.units
       .map(
         (unit) =>
           `${unit.label} · U${unit.unitId}/F${unit.factionId} (${unit.memberCount}): ` +
-          `${unit.movementStyle}, D ${formatCombatNumber(unit.accumulatedDamage)}, ` +
+          `${unit.movementStyle}, H ${unit.endOfTickEligibleMembers}/${unit.memberCount}, ` +
+          `Z ${unit.endOfTickZeroHitMembers}, Loss ${unit.appliedHitLoss}, ` +
           `M ${unit.persistentMoraleState}, R ${unit.routingRisk}, ` +
           `Rec ${unit.recoveryProgress}, P ${formatCombatNumber(unit.persistentPressure)}, ` +
           `C ${unit.currentCohesion} ` +
@@ -152,15 +157,18 @@ function createMetricRow(label: string, value: HTMLElement): DocumentFragment {
   return row;
 }
 
-function formatCombatCounts(
-  opportunityCount: number,
-  strikeCount: number,
-  survivabilityApplicationCount: number,
-  consequenceCount: number,
-): string {
+function formatCombatCounts(counts: {
+  readonly attacks: number;
+  readonly prevented: number;
+  readonly landed: number;
+  readonly accepted: number;
+  readonly hitLoss: number;
+  readonly zero: number;
+}): string {
   return (
-    `Opp ${opportunityCount} · Strike ${strikeCount} · ` +
-    `App ${survivabilityApplicationCount} · Conseq ${consequenceCount}`
+    `Atk ${counts.attacks} · Prev ${counts.prevented} · ` +
+    `Land ${counts.landed} · Gate ${counts.accepted} · ` +
+    `Hit ${counts.hitLoss} · Zero ${counts.zero}`
   );
 }
 

@@ -29,7 +29,7 @@ import type {
 } from "../../src/sim/types";
 import { getUnitIds, getUnitMembers } from "../../src/sim/unitIdentity";
 
-describe("integrated individual combat observation pipeline", () => {
+describe("integrated individual combat authority pipeline", () => {
   it("initialises all individual stores and reusable buffers with matching entity counts", () => {
     const simulation = createSimulation(LIVE_COMBAT_SCENARIO);
     const combat = requireCombatSandbox(simulation);
@@ -136,7 +136,7 @@ describe("integrated individual combat observation pipeline", () => {
     ).toThrow(RangeError);
   });
 
-  it("runs the full individual chain from real world positions without changing legacy authority", () => {
+  it("runs the full individual-authoritative chain from real world positions", () => {
     const simulation = createSimulation(closeMeleeScenario());
     const combat = requireCombatSandbox(simulation);
     const buffers = combat.individualCombatPipelineBuffers;
@@ -149,7 +149,6 @@ describe("integrated individual combat observation pipeline", () => {
     const accepted = buffers.acceptedLandedRecords;
     const applications = buffers.hitApplications;
     const zeroEvents = buffers.zeroHitEvents;
-    const legacyTraceBefore = legacyTrace(simulation);
     const targetId = getUnitMembers(combat.identityStore, 2)[0]!;
     const targetHitsBefore = getIndividualCurrentGlobalHits(
       combat.individualGlobalHitStore,
@@ -195,12 +194,10 @@ describe("integrated individual combat observation pipeline", () => {
     ).toBe(true);
     expect(simulation.world.entityCount).toBe(3);
     expect(Array.from(simulation.world.ids)).toEqual([0, 1, 2]);
-    expect(legacyTraceBefore).toMatchObject({
-      entityCount: simulation.world.entityCount,
-    });
-    expect(legacyTrace(simulation)).toMatchObject({
-      ids: Array.from(simulation.world.ids),
-    });
+    expect("tempoStore" in combat).toBe(false);
+    expect("survivabilityStore" in combat).toBe(false);
+    expect("pipelineOutput" in combat).toBe(false);
+    expect("consequenceApplications" in combat).toBe(false);
   });
 
   it("holds the one-second relationship gate under the integrated tick counter", () => {
@@ -445,7 +442,6 @@ describe("integrated individual combat observation pipeline", () => {
     const unitSummaryObjects = combat.individualCombatUnitSummaries.slice();
     const consequenceSummaryObjects =
       combat.individualCombatConsequenceSummaries.slice();
-    const comparisonObjects = combat.individualCombatShadowComparisons.slice();
 
     for (let tick = 0; tick < 4; tick += 1) {
       advanceSimulationOneTick(simulation);
@@ -457,18 +453,12 @@ describe("integrated individual combat observation pipeline", () => {
     expect(combat.individualCombatConsequenceSummaries.length).toBe(
       consequenceSummaryObjects.length,
     );
-    expect(combat.individualCombatShadowComparisons.length).toBe(
-      comparisonObjects.length,
-    );
     for (let index = 0; index < unitSummaryObjects.length; index += 1) {
       expect(combat.individualCombatUnitSummaries[index]).toBe(
         unitSummaryObjects[index],
       );
       expect(combat.individualCombatConsequenceSummaries[index]).toBe(
         consequenceSummaryObjects[index],
-      );
-      expect(combat.individualCombatShadowComparisons[index]).toBe(
-        comparisonObjects[index],
       );
     }
     expect(consequenceForUnit(combat, 1)).toMatchObject({
@@ -520,47 +510,36 @@ describe("integrated individual combat observation pipeline", () => {
     );
   });
 
-  it("keeps shadow comparison diagnostic and non-authoritative", () => {
+  it("does not retain legacy runtime stores or shadow comparison state", () => {
     const simulation = createSimulation(closeMeleeScenario());
-    const before = legacyTrace(simulation);
 
     for (let tick = 0; tick < 8; tick += 1) {
       advanceSimulationOneTick(simulation);
     }
 
     const combat = requireCombatSandbox(simulation);
-    const comparison = shadowComparisonForUnit(combat, 2);
-    expect(comparison).toMatchObject({
-      individualIncomingEngagement:
-        consequenceForUnit(combat, 2).hasIncomingEngagement,
-      individualAppliedHitLoss:
-        consequenceForUnit(combat, 2).incomingAppliedHitLoss,
-      individualNewlyZeroCount:
-        consequenceForUnit(combat, 2).newlyZeroMembers,
+    expect(consequenceForUnit(combat, 2)).toMatchObject({
+      unitId: 2,
+      incomingAppliedHitLoss: expect.any(Number),
     });
-    expect(Object.keys(comparison)).toEqual(
-      expect.arrayContaining([
-        "legacyHadAttackOpportunity",
-        "legacyHadConsequence",
-      ]),
-    );
-    expect(Object.keys(comparison)).not.toContain("legacyConsideredEngaged");
-    expect(legacyTrace(simulation)).toMatchObject({
-      entityCount: (before as { entityCount: number }).entityCount,
-    });
+    expect("individualCombatShadowComparisons" in combat).toBe(false);
+    expect("tempoStore" in combat).toBe(false);
+    expect("survivabilityStore" in combat).toBe(false);
+    expect("pipelineOutput" in combat).toBe(false);
+    expect("consequenceApplications" in combat).toBe(false);
   });
 
-  it("keeps legacy combat, pressure, cohesion, morale, and entity traces deterministic", () => {
+  it("keeps individual combat, pressure, cohesion, morale, and entity traces deterministic", () => {
     const first = runLiveCombat(320);
     const second = runLiveCombat(320);
 
-    expect(legacyTrace(first)).toEqual(legacyTrace(second));
+    expect(authorityTrace(first)).toEqual(authorityTrace(second));
     expect(first.combatSandbox?.totalIndividualSelectedTargetCount).toBeGreaterThan(0);
     expect(first.combatSandbox?.totalIndividualActiveCommitmentCount)
       .toBeGreaterThan(0);
   });
 
-  it("replays the integrated observation state deterministically without deferred outcome fields", () => {
+  it("replays the integrated authority state deterministically without deferred outcome fields", () => {
     const first = runCloseMeleeReplay();
     const second = runCloseMeleeReplay();
 
@@ -604,9 +583,6 @@ function runCloseMeleeReplay(): unknown {
     consequenceSummaries: combat.individualCombatConsequenceSummaries.map(
       (summary) => ({ ...summary }),
     ),
-    shadowComparisons: combat.individualCombatShadowComparisons.map(
-      (comparison) => ({ ...comparison }),
-    ),
     counters: individualCounterTrace(combat),
   };
 }
@@ -619,7 +595,7 @@ function runLiveCombat(tickCount: number): SimulationState {
   return simulation;
 }
 
-function legacyTrace(simulation: SimulationState): unknown {
+function authorityTrace(simulation: SimulationState): unknown {
   const combat = requireCombatSandbox(simulation);
   const unitIds = getUnitIds(combat.identityStore);
   return {
@@ -627,12 +603,7 @@ function legacyTrace(simulation: SimulationState): unknown {
     ids: Array.from(simulation.world.ids),
     positionsX: Array.from(simulation.world.positionsX),
     positionsY: Array.from(simulation.world.positionsY),
-    legacyCounters: {
-      opportunities: combat.totalOpportunityCount,
-      strikes: combat.totalStrikeCount,
-      survivabilityApplications: combat.totalSurvivabilityApplicationCount,
-      consequences: combat.totalConsequenceCount,
-    },
+    counters: individualCounterTrace(combat),
     units: unitIds.map((unitId) => ({
       unitId,
       cohesion: getUnitCohesion(combat.formationStore, unitId),
@@ -715,19 +686,6 @@ function consequenceForUnit(
     throw new Error(`Missing individual combat consequence for unit ${unitId}.`);
   }
   return summary;
-}
-
-function shadowComparisonForUnit(
-  combat: ReturnType<typeof requireCombatSandbox>,
-  unitId: number,
-) {
-  const comparison = combat.individualCombatShadowComparisons.find(
-    (candidate) => candidate.unitId === unitId,
-  );
-  if (comparison === undefined) {
-    throw new Error(`Missing individual combat shadow comparison for ${unitId}.`);
-  }
-  return comparison;
 }
 
 function applyHitsToZero(

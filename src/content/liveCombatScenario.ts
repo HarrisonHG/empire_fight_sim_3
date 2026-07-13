@@ -84,3 +84,19 @@ export const LIVE_COMBAT_SCENARIO: SimulationScenario = Object.freeze({
     ]),
   }),
 });
+
+const MILESTONE_3_COMBAT_SANDBOX =
+  LIVE_COMBAT_SCENARIO.combatSandbox as NonNullable<
+    SimulationScenario["combatSandbox"]
+  >;
+
+/** Archived Milestone 3 unit-combat fixture; not the production combat path. */
+export const MILESTONE_3_COMBAT_FOUNDATION_SCENARIO: SimulationScenario =
+  Object.freeze({
+    seed: DEFAULT_LIVE_COMBAT_SEED,
+    entityCount: LIVE_COMBAT_SCENARIO.entityCount,
+    bounds: LIVE_COMBAT_SCENARIO.bounds,
+    minSpeedUnitsPerTick: LIVE_COMBAT_SCENARIO.minSpeedUnitsPerTick,
+    maxSpeedUnitsPerTick: LIVE_COMBAT_SCENARIO.maxSpeedUnitsPerTick,
+    legacyCombatFoundationSandbox: MILESTONE_3_COMBAT_SANDBOX,
+  });

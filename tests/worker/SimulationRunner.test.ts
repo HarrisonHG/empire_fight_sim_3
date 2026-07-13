@@ -46,17 +46,15 @@ describe("SimulationRunner", () => {
       throw new Error("Expected live-combat position snapshot.");
     }
     expect(finalSnapshot.combatDebug).toMatchObject({
-      totalOpportunityCount: expect.any(Number),
-      totalStrikeCount: expect.any(Number),
-      totalSurvivabilityApplicationCount: expect.any(Number),
-      totalConsequenceCount: expect.any(Number),
+      totalAttackAttemptCount: expect.any(Number),
+      totalLandedOutcomeCount: expect.any(Number),
+      totalGateAcceptedHitCount: expect.any(Number),
+      totalAppliedHitLoss: expect.any(Number),
     });
-    expect(finalSnapshot.combatDebug?.totalOpportunityCount).toBeGreaterThan(0);
-    expect(finalSnapshot.combatDebug?.totalStrikeCount).toBeGreaterThan(0);
-    expect(
-      finalSnapshot.combatDebug?.totalSurvivabilityApplicationCount,
-    ).toBeGreaterThan(0);
-    expect(finalSnapshot.combatDebug?.totalConsequenceCount).toBeGreaterThan(0);
+    expect(finalSnapshot.combatDebug?.totalAttackAttemptCount).toBeGreaterThan(0);
+    expect(finalSnapshot.combatDebug?.totalLandedOutcomeCount).toBeGreaterThan(0);
+    expect(finalSnapshot.combatDebug?.totalGateAcceptedHitCount).toBeGreaterThan(0);
+    expect(finalSnapshot.combatDebug?.totalAppliedHitLoss).toBeGreaterThan(0);
     expect(finalSnapshot.combatDebug?.units[0]).toMatchObject({
       persistentMoraleState: expect.any(String),
       routingRisk: expect.any(Number),

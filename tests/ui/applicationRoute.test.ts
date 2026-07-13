@@ -4,6 +4,7 @@ import {
   VISUAL_TEST_REGISTRY,
   visualTestHref,
 } from "../../src/content/visualTestRegistry";
+import { LIVE_COMBAT_SCENARIO } from "../../src/content/liveCombatScenario";
 import { resolveApplicationRoute } from "../../src/ui/applicationRoute";
 import { buildVisualTestMenuItems } from "../../src/ui/visualTestMenuItems";
 
@@ -37,5 +38,23 @@ describe("visual test application routing", () => {
     expect(new Set(ids).size).toBe(ids.length);
     expect(buildVisualTestMenuItems(VISUAL_TEST_REGISTRY).map((item) => item.href))
       .toEqual(ids.map(visualTestHref));
+  });
+
+  it("keeps the archived Milestone 3 combat fixture isolated from current scenarios", () => {
+    expect(LIVE_COMBAT_SCENARIO.combatSandbox).toBeDefined();
+    expect(LIVE_COMBAT_SCENARIO.legacyCombatFoundationSandbox).toBeUndefined();
+
+    const legacyEntries = VISUAL_TEST_REGISTRY.filter(
+      (entry) => entry.scenario.legacyCombatFoundationSandbox !== undefined,
+    );
+    expect(legacyEntries.map((entry) => entry.id)).toEqual([
+      "combat-foundation",
+    ]);
+    expect(legacyEntries[0]?.scenario.combatSandbox).toBeUndefined();
+
+    for (const entry of VISUAL_TEST_REGISTRY) {
+      if (entry.id === "combat-foundation") continue;
+      expect(entry.scenario.legacyCombatFoundationSandbox).toBeUndefined();
+    }
   });
 });

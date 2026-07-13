@@ -314,6 +314,59 @@ describe("persistent unit morale", () => {
     );
   });
 
+  it("lets a routed unit at zero cohesion enter recovery when safe", () => {
+    const harness = routeHarness({ targetCohesion: 600 });
+    applyUnitCohesionLoss(harness.formation, TARGET_UNIT_ID, 600);
+    setTargetPressure(harness, 0);
+
+    advanceUntilState(harness, "recovering");
+
+    const morale = getPersistentUnitMorale(harness.store, TARGET_UNIT_ID);
+    expect(morale.state).toBe("recovering");
+    expect(morale.cohesion).toBe(0);
+    expect(getUnitCohesion(harness.formation, TARGET_UNIT_ID)).toBe(0);
+  });
+
+  it("keeps recovering below the required cohesion floor and reaches steady only after all gates pass", () => {
+    const harness = routeHarness({ targetCohesion: 600 });
+    applyUnitCohesionLoss(harness.formation, TARGET_UNIT_ID, 600);
+    setTargetPressure(harness, 0);
+    advanceUntilState(harness, "recovering");
+
+    for (let tick = 0; tick < 120; tick += 1) {
+      advance(harness, [], {
+        pressureUpdates: calmPressureUpdates(),
+        recoveryThreatSummaries: recoveryThreats(false),
+      });
+    }
+    let morale = getPersistentUnitMorale(harness.store, TARGET_UNIT_ID);
+    expect(morale.state).toBe("recovering");
+    expect(morale.cohesion).toBeLessThan(RECOVERY_CONSTANTS.minimumCohesion);
+
+    advanceUntilState(harness, "steady");
+    morale = getPersistentUnitMorale(harness.store, TARGET_UNIT_ID);
+    expect(morale.state).toBe("steady");
+    expect(morale.cohesion).toBeGreaterThanOrEqual(
+      RECOVERY_CONSTANTS.minimumCohesion,
+    );
+    expect(morale.cohesion).toBe(getUnitCohesion(harness.formation, TARGET_UNIT_ID));
+  });
+
+  it("allows steady recovery at configured maximum cohesion below the normal floor", () => {
+    const harness = routeHarness({ targetCohesion: 400 });
+    applyUnitCohesionLoss(harness.formation, TARGET_UNIT_ID, 400);
+    setTargetPressure(harness, 0);
+    advanceUntilState(harness, "recovering");
+
+    advanceUntilState(harness, "steady");
+
+    const morale = getPersistentUnitMorale(harness.store, TARGET_UNIT_ID);
+    expect(getUnitMaximumCohesion(harness.formation, TARGET_UNIT_ID)).toBe(400);
+    expect(morale.state).toBe("steady");
+    expect(morale.cohesion).toBe(400);
+    expect(morale.cohesion).toBe(getUnitCohesion(harness.formation, TARGET_UNIT_ID));
+  });
+
   it("uses confidence and troop profile to recover faster without restoring damage", () => {
     const high = routeHarness({ targetRole: "veteran", targetConfidence: 800 });
     const low = routeHarness({ targetRole: "recruit", targetConfidence: 200 });

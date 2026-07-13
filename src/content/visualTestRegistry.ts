@@ -1,4 +1,4 @@
-import { LIVE_COMBAT_SCENARIO } from "./liveCombatScenario";
+import { MILESTONE_3_COMBAT_FOUNDATION_SCENARIO } from "./liveCombatScenario";
 import { MILESTONE_4_VISUAL_SCENARIO } from "./milestone4VisualScenario";
 import { MOVEMENT_BEHAVIOUR_SCENARIO } from "./movementBehaviourScenario";
 import type { SimulationScenario } from "../sim/types";
@@ -34,18 +34,18 @@ export const VISUAL_TEST_REGISTRY: readonly VisualTestEntry[] = Object.freeze([
   }),
   Object.freeze({
     id: "combat-foundation",
-    title: "Combat foundation regression",
+    title: "Archived combat foundation regression",
     milestone: "Milestone 3",
     purpose:
-      "Retains the accepted 20-blue versus 15-red unit-level combat pipeline.",
+      "Retains the accepted 20-blue versus 15-red unit-level combat pipeline as an isolated archived fixture.",
     expectedObservations: Object.freeze([
       "Both sides advance and their reach-aware fronts engage without interpenetrating.",
-      "Opportunities, strikes, applications, and consequences accumulate.",
+      "Archived opportunity, strike, application, and consequence counters accumulate.",
       "Pressure and morale diagnostics update.",
       "No entities die or disappear.",
     ]),
     recommendedTickRange: Object.freeze({ start: 0, end: 420 }),
-    scenario: LIVE_COMBAT_SCENARIO,
+    scenario: MILESTONE_3_COMBAT_FOUNDATION_SCENARIO,
   }),
   Object.freeze({
     id: "morale-inspection",

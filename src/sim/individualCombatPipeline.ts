@@ -203,7 +203,7 @@ export function createIndividualCombatPipelineBuffers(): IndividualCombatPipelin
   };
 }
 
-export function advanceIndividualCombatPipelineObservationOneTick(
+export function advanceIndividualCombatPipelineOneTick(
   world: WorldState,
   identityStore: UnitIdentityStore,
   formationStore: FormationBehaviourStore,

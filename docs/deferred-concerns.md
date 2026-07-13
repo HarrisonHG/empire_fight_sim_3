@@ -570,6 +570,33 @@ entity-to-entity minimum-distance assertion or an explicit footprint margin.
 
 ---
 
+## DC-019 - Individual morale shock naming still mirrors cohesion terminology
+
+**Area:** Combat morale/debug naming
+**Status:** noted
+
+Milestone 5F-3B2 moved production pressure and morale to individual-combat
+consequence summaries, but kept the accepted morale assessment API stable.
+The current path uses the individual zero-hit transition count as the recent
+morale shock signal while some lower-level naming still reflects the older
+cohesion-damage terminology.
+
+**Why deferred**
+
+Renaming the accepted morale fields during the runtime-retirement slice would
+create broad churn in tests and diagnostics without changing behaviour.
+
+**Revisit trigger**
+
+When Milestone 5G reviews debug/event naming after the individual pipeline is
+fully consolidated.
+
+**Likely milestone**
+
+Milestone 5G.
+
+---
+
 # Maintenance rules
 
 When adding an entry:

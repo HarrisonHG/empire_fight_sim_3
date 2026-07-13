@@ -1,5 +1,5 @@
-import type { CombatConsequenceApplication } from "./combatConsequences";
 import type { CombatMoraleAssessment, CombatMoraleState } from "./combatMorale";
+import type { CombatConsequenceApplication } from "./combatConsequences";
 import type { CombatPipelineOutput } from "./combatPipeline";
 import type {
   CombatPressureStore,
@@ -17,7 +17,6 @@ import type {
 } from "./individualCombatAggregation";
 import type {
   IndividualCombatConsequenceProjectionStore,
-  IndividualCombatShadowComparison,
   IndividualCombatUnitConsequenceSummary,
 } from "./individualCombatConsequences";
 import type { IndividualCombatEligibilitySnapshot } from "./individualCombatEligibility";
@@ -156,6 +155,11 @@ export interface SimulationScenario {
   readonly minSpeedUnitsPerTick: number;
   readonly maxSpeedUnitsPerTick: number;
   readonly combatSandbox?: CombatSandboxScenario;
+  /**
+   * Archived Milestone 3 visual regression fixture. This deliberately uses the
+   * old unit-level combat path outside production combat authority.
+   */
+  readonly legacyCombatFoundationSandbox?: CombatSandboxScenario;
   readonly formationSandbox?: FormationSandboxScenario;
 }
 
@@ -214,10 +218,7 @@ export interface LiveCombatDebugUnitSnapshot {
   readonly factionId: number;
   readonly memberCount: number;
   readonly movementStyle: UnitMovementStyle;
-  readonly accumulatedDamage: number;
-  /** Stateless Milestone 3 assessment, retained for diagnostic comparison. */
   readonly assessmentPressureAverage: number;
-  /** Stateless Milestone 3 assessment, retained for diagnostic comparison. */
   readonly assessmentMoraleState: CombatMoraleState;
   /** Persistent Milestone 4 interpretation consumed by next tick's movement. */
   readonly persistentMoraleState: MoraleMovementState;
@@ -225,24 +226,41 @@ export interface LiveCombatDebugUnitSnapshot {
   readonly recoveryProgress: number;
   readonly persistentPressure: number;
   readonly currentCohesion: number;
+  readonly tickStartEligibleMembers: number;
+  readonly endOfTickEligibleMembers: number;
+  readonly endOfTickZeroHitMembers: number;
+  readonly attackAttempts: number;
+  readonly preventedAttacks: number;
+  readonly landedOutcomes: number;
+  readonly gateAcceptedHits: number;
+  readonly appliedHitLoss: number;
+  readonly newlyZeroMembers: number;
 }
 
 /** Compact, render-safe inspection state for the production combat sandbox. */
 export interface LiveCombatDebugSnapshot {
-  readonly opportunityCount: number;
-  readonly strikeCount: number;
-  readonly survivabilityApplicationCount: number;
-  readonly consequenceCount: number;
-  readonly totalOpportunityCount: number;
-  readonly totalStrikeCount: number;
-  readonly totalSurvivabilityApplicationCount: number;
-  readonly totalConsequenceCount: number;
+  readonly attackAttemptCount: number;
+  readonly preventedAttackCount: number;
+  readonly landedOutcomeCount: number;
+  readonly gateAcceptedHitCount: number;
+  readonly appliedHitLoss: number;
+  readonly newlyZeroMemberCount: number;
+  readonly tickStartEligibleMemberCount: number;
+  readonly endOfTickEligibleMemberCount: number;
+  readonly endOfTickZeroHitMemberCount: number;
+  readonly totalAttackAttemptCount: number;
+  readonly totalPreventedAttackCount: number;
+  readonly totalLandedOutcomeCount: number;
+  readonly totalGateAcceptedHitCount: number;
+  readonly totalAppliedHitLoss: number;
+  readonly totalNewlyZeroMemberCount: number;
   readonly units: readonly LiveCombatDebugUnitSnapshot[];
 }
 
 /**
- * The accepted Milestone 3 stores owned by the live sandbox only. Generic
- * foundation simulations deliberately remain free of these stores.
+ * Production combat state. Unit loadouts remain as static scenario content
+ * used to derive individual combat profiles; runtime combat authority is the
+ * individual pipeline.
  */
 export interface CombatSandboxSimulationState {
   readonly identityStore: UnitIdentityStore;
@@ -259,11 +277,8 @@ export interface CombatSandboxSimulationState {
   readonly individualCombatUnitSummaries: readonly IndividualCombatUnitSummary[];
   readonly individualCombatConsequenceProjectionStore: IndividualCombatConsequenceProjectionStore;
   readonly individualCombatConsequenceSummaries: readonly IndividualCombatUnitConsequenceSummary[];
-  readonly individualCombatShadowComparisons: readonly IndividualCombatShadowComparison[];
   readonly individualCombatPipelineStores: IndividualCombatPipelineStores;
   readonly individualCombatPipelineBuffers: IndividualCombatPipelineBuffers;
-  readonly tempoStore: CombatTempoStore;
-  readonly survivabilityStore: CombatSurvivabilityStore;
   readonly pressureStore: CombatPressureStore;
   readonly routingContagionStore: RoutingContagionStore;
   readonly recoveryThreatStore: RecoveryThreatStore;
@@ -271,18 +286,12 @@ export interface CombatSandboxSimulationState {
   readonly unitLabels: ReadonlyMap<UnitId, string>;
   /** Tick-start read model consumed by formation; persistent morale owns it. */
   readonly moraleMovementStates: Map<UnitId, MoraleMovementState>;
-  readonly pipelineOutput: CombatPipelineOutput;
-  readonly consequenceApplications: CombatConsequenceApplication[];
   readonly pressureUpdates: UnitPressureUpdate[];
   readonly routingContagionSummaries: UnitRoutingContagionSummary[];
   readonly recoveryThreatSummaries: UnitRecoveryThreatSummary[];
   readonly moraleAssessments: CombatMoraleAssessment[];
   readonly moraleEvents: PersistentMoraleEvent[];
   readonly appliedDamagePressureScale: number;
-  opportunityCount: number;
-  strikeCount: number;
-  survivabilityApplicationCount: number;
-  consequenceCount: number;
   individualEligibleMeleeSourceCount: number;
   individualSelectedTargetCount: number;
   individualActiveCommitmentCount: number;
@@ -302,10 +311,6 @@ export interface CombatSandboxSimulationState {
   individualEndOfTickCombatEligibleMemberCount: number;
   individualEndOfTickZeroHitMemberCount: number;
   individualNewlyZeroHitMemberCount: number;
-  totalOpportunityCount: number;
-  totalStrikeCount: number;
-  totalSurvivabilityApplicationCount: number;
-  totalConsequenceCount: number;
   totalIndividualEligibleMeleeSourceCount: number;
   totalIndividualSelectedTargetCount: number;
   totalIndividualActiveCommitmentCount: number;
@@ -335,11 +340,40 @@ export interface FormationSandboxSimulationState {
   debugSnapshot: FormationDebugSnapshot;
 }
 
+/** Isolated archived Milestone 3 visual fixture state, not production combat. */
+export interface LegacyCombatFoundationSimulationState {
+  readonly identityStore: UnitIdentityStore;
+  readonly loadoutStore: UnitLoadoutStore;
+  readonly formationStore: FormationBehaviourStore;
+  readonly tempoStore: CombatTempoStore;
+  readonly survivabilityStore: CombatSurvivabilityStore;
+  readonly pipelineOutput: CombatPipelineOutput;
+  readonly consequenceApplications: CombatConsequenceApplication[];
+  readonly pressureStore: CombatPressureStore;
+  readonly persistentMoraleStore: PersistentMoraleStore;
+  readonly unitLabels: ReadonlyMap<UnitId, string>;
+  readonly moraleMovementStates: Map<UnitId, MoraleMovementState>;
+  readonly pressureUpdates: UnitPressureUpdate[];
+  readonly moraleAssessments: CombatMoraleAssessment[];
+  readonly moraleEvents: PersistentMoraleEvent[];
+  readonly appliedDamagePressureScale: number;
+  opportunityCount: number;
+  strikeCount: number;
+  survivabilityApplicationCount: number;
+  consequenceCount: number;
+  totalOpportunityCount: number;
+  totalStrikeCount: number;
+  totalSurvivabilityApplicationCount: number;
+  totalConsequenceCount: number;
+  debugSnapshot: LiveCombatDebugSnapshot;
+}
+
 export interface SimulationState {
   tick: number;
   rngState: number;
   readonly world: WorldState;
   readonly combatSandbox?: CombatSandboxSimulationState;
+  readonly legacyCombatFoundationSandbox?: LegacyCombatFoundationSimulationState;
   readonly formationSandbox?: FormationSandboxSimulationState;
 }
 

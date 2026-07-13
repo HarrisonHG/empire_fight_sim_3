@@ -10,6 +10,7 @@ import {
   getIndividualConfidence,
   getIndividualRole,
   getUnitCohesion,
+  getUnitMaximumCohesion,
   restoreUnitCohesion,
   type FormationBehaviourStore,
 } from "./formationBehaviour";
@@ -190,6 +191,7 @@ export function advancePersistentMoraleOneTick(
 
     const profile = collectUnitMoraleProfile(
       formationStore,
+      unitId,
       getUnitMembers(identityStore, unitId),
       assessment,
       context.survivabilityStore === undefined
@@ -402,11 +404,13 @@ interface UnitMoraleProfile {
   readonly experienceAdjustment: number;
   readonly confidence: number;
   readonly cohesion: number;
+  readonly maximumCohesion: number;
   readonly recentCapacityReached: boolean;
 }
 
 function collectUnitMoraleProfile(
   formationStore: FormationBehaviourStore,
+  unitId: UnitId,
   members: readonly number[],
   assessment: CombatMoraleAssessment,
   accumulatedDamage: number,
@@ -442,6 +446,7 @@ function collectUnitMoraleProfile(
     experienceAdjustment,
     confidence,
     cohesion: assessment.cohesion,
+    maximumCohesion: getUnitMaximumCohesion(formationStore, unitId),
     recentCapacityReached: assessment.recentCapacityReached,
   };
 }
@@ -501,7 +506,6 @@ function determineRecoveryTransition(
   }
   if (
     profile.pressure >= RECOVERY_CONSTANTS.maximumPressure ||
-    profile.pressure >= RECOVERY_CONSTANTS.maximumPressure ||
     moraleStateRank(candidateState) >= 2
   ) {
     store.recoveryProgress[unitIndex] = 0;
@@ -513,8 +517,12 @@ function determineRecoveryTransition(
   );
   const hasCompletedMinimumDuration =
     store.stateTicks[unitIndex]! >= RECOVERY_CONSTANTS.minimumRecoveringTicks;
+  const hasRecoveredCohesion =
+    profile.cohesion >=
+    Math.min(profile.maximumCohesion, RECOVERY_CONSTANTS.minimumCohesion);
   return hasCompletedMinimumDuration &&
-    store.recoveryProgress[unitIndex]! >= RECOVERY_CONSTANTS.progressRequired
+    store.recoveryProgress[unitIndex]! >= RECOVERY_CONSTANTS.progressRequired &&
+    hasRecoveredCohesion
     ? "steady"
     : "recovering";
 }
