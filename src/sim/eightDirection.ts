@@ -127,8 +127,26 @@ export function areSameOrAdjacentEightDirections(
   left: EightDirection,
   right: EightDirection,
 ): boolean {
+  return areEightDirectionsWithinOctants(left, right, 1);
+}
+
+export function areEightDirectionsWithinOctants(
+  left: EightDirection,
+  right: EightDirection,
+  maximumOctantDistance: number,
+): boolean {
+  assertNonNegativeInteger(maximumOctantDistance, "maximumOctantDistance");
+  return (
+    getEightDirectionOctantDistance(left, right) <= maximumOctantDistance
+  );
+}
+
+export function getEightDirectionOctantDistance(
+  left: EightDirection,
+  right: EightDirection,
+): number {
   const difference = Math.abs(left.octantIndex - right.octantIndex);
-  return difference <= 1 || difference === OCTANT_COUNT - 1;
+  return Math.min(difference, OCTANT_COUNT - difference);
 }
 
 function signComponent(value: number): EightDirectionComponent {
@@ -140,5 +158,11 @@ function signComponent(value: number): EightDirectionComponent {
 function assertSafeInteger(value: number, name: string): void {
   if (!Number.isSafeInteger(value)) {
     throw new RangeError(`${name} must be a safe integer.`);
+  }
+}
+
+function assertNonNegativeInteger(value: number, name: string): void {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new RangeError(`${name} must be a non-negative safe integer.`);
   }
 }

@@ -1,6 +1,6 @@
 # Milestone 5: Individual Combat State, Defence, and Empire Hit Rules
 
-Status: in progress; 5A, 5B, and 5C-1 implemented and awaiting review.
+Status: in progress; 5A, 5B, 5C-1, and 5C-2 implemented and awaiting review.
 
 ## Product goal
 
@@ -466,6 +466,46 @@ Initial doctrine:
 ### Boundary
 
 No global-hit loss yet. `landed` means the blow passed defence, not that damage has been applied.
+
+### 5C-2 implementation record (2026-07-13)
+
+- [x] Added a standalone entity-indexed melee defence store owning guard state,
+  defence-recovery timers, transition-only last-emitted guard state, and
+  reusable snapshot/arbitration scratch storage.
+- [x] Consumed successful 5C-1 `IndividualMeleeAttackAttemptRecord` records and
+  ignored invalidated attack attempts without repeating target selection,
+  spatial queries, attack commitment, or attack validation.
+- [x] Added stable per-tick defender snapshots for action state, facing, active
+  weapon, guard state, shield category, and shield carried state. Guard
+  consumption remains active within the defence stage, so later canonical
+  attempts can exploit an opening created earlier in the same tick.
+- [x] Added deterministic defence arcs using shared eight-direction octants:
+  weapon parry and buckler block cover the facing octant plus one adjacent
+  octant on each side; held full shield covers the facing octant plus two
+  octants on each side. Rear octants remain undefended.
+- [x] Added active-defence arbitration order: held full shield, then held
+  buckler, then weapon parry. Slung shields provide no active defence.
+- [x] Added guard recovery timing: weapon parry 4 ticks, buckler block 3 ticks,
+  and shield block 4 ticks. Recovery timers advance at the start of each
+  defence tick; a defence assigned this tick does not tick down until the next
+  defence tick.
+- [x] Canonicalised successful attempts by defender entity ID then attacker
+  entity ID. Rear/out-of-arc attacks land without consuming guard, while the
+  first in-arc attack against ready guard consumes it and later in-arc attacks
+  land as `guardRecovering`.
+- [x] Emitted reusable-output defence records containing attacker, defender,
+  weapons, shield state, snapshotted defender action/guard/facing, incoming
+  octant, chosen defence, outcome, landed reason, assigned recovery, and
+  inherited `awkwardDistance`.
+- [x] Added headless deterministic tests for parry, buckler, shield, wider
+  shield arcs, slung shields, busy defenders, no-active-defence cases,
+  canonical multi-attacker openings, input-order independence, snapshot
+  semantics, octant wrap-around, output reuse, non-mutation, and replay.
+- [x] Added standalone structural performance coverage at 100, 500, 1,000, and
+  2,000 entities in ordinary units.
+- [x] Kept hit loss, armour effects, global-hit state, one-second gating,
+  zero-hit transitions, pressure/morale consequences, movement, production
+  integration, renderer, and UI work deferred to later slices.
 
 ---
 
