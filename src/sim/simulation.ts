@@ -1,5 +1,6 @@
 import { applyCombatConsequences } from "./combatConsequences";
 import {
+  collectCombatMoraleAssessmentsFromIndividualConsequences,
   collectCombatMoraleAssessments,
   type CombatMoraleAssessment,
 } from "./combatMorale";
@@ -20,7 +21,7 @@ import {
 } from "./formationBehaviour";
 import { moveWorldOneTick } from "./movement";
 import {
-  advanceCombatPressureOneTick,
+  advanceIndividualCombatPressureOneTick,
   createCombatPressureStore,
 } from "./combatPressure";
 import {
@@ -183,38 +184,15 @@ export function advanceSimulationOneTick(simulation: SimulationState): void {
         combatSandbox.individualCombatPipelineBuffers,
         simulation.tick,
       );
-    advanceCombatPipelineOneTick(
-      simulation.world,
-      combatSandbox.identityStore,
-      combatSandbox.loadoutStore,
-      combatSandbox.formationStore,
-      combatSandbox.tempoStore,
-      combatSandbox.survivabilityStore,
-      combatSandbox.pipelineOutput,
-    );
-    applyCombatConsequences(
+    advanceIndividualCombatPressureOneTick(
       combatSandbox.identityStore,
       combatSandbox.formationStore,
-      combatSandbox.pipelineOutput.applications,
-      combatSandbox.consequenceApplications,
+      individualCombatResult.consequenceSummaries,
+      combatSandbox.pressureStore,
+      combatSandbox.pressureUpdates,
       {
         appliedDamagePressureScale: combatSandbox.appliedDamagePressureScale,
       },
-    );
-    compareIndividualCombatShadow(
-      combatSandbox.identityStore,
-      combatSandbox.consequenceApplications,
-      individualCombatResult.consequenceSummaries,
-      combatSandbox.individualCombatConsequenceProjectionStore,
-    );
-    advanceCombatPressureOneTick(
-      combatSandbox.identityStore,
-      combatSandbox.formationStore,
-      combatSandbox.pipelineOutput.opportunities,
-      combatSandbox.consequenceApplications,
-      combatSandbox.pressureStore,
-      combatSandbox.pressureUpdates,
-      {},
       combatSandbox.moraleMovementStates,
     );
     advanceRoutingContagionOneTick(
@@ -233,10 +211,10 @@ export function advanceSimulationOneTick(simulation: SimulationState): void {
       combatSandbox.recoveryThreatStore,
       combatSandbox.recoveryThreatSummaries,
     );
-    collectCombatMoraleAssessments(
+    collectCombatMoraleAssessmentsFromIndividualConsequences(
       combatSandbox.identityStore,
       combatSandbox.formationStore,
-      combatSandbox.consequenceApplications,
+      individualCombatResult.consequenceSummaries,
       combatSandbox.moraleAssessments,
     );
     advancePersistentMoraleOneTick(
@@ -246,13 +224,40 @@ export function advanceSimulationOneTick(simulation: SimulationState): void {
       combatSandbox.persistentMoraleStore,
       combatSandbox.moraleEvents,
       {
-        survivabilityStore: combatSandbox.survivabilityStore,
         pressureUpdates: combatSandbox.pressureUpdates,
         routingContagionSummaries: combatSandbox.routingContagionSummaries,
         recoveryThreatSummaries: combatSandbox.recoveryThreatSummaries,
       },
     );
     syncMoraleMovementStates(combatSandbox);
+    advanceCombatPipelineOneTick(
+      simulation.world,
+      combatSandbox.identityStore,
+      combatSandbox.loadoutStore,
+      combatSandbox.formationStore,
+      combatSandbox.tempoStore,
+      combatSandbox.survivabilityStore,
+      combatSandbox.pipelineOutput,
+    );
+    applyCombatConsequences(
+      combatSandbox.identityStore,
+      combatSandbox.formationStore,
+      combatSandbox.pipelineOutput.applications,
+      combatSandbox.consequenceApplications,
+      {
+        appliedDamagePressureScale: 0,
+        mitigatedHitPressureDelta: 0,
+        capacityReachedPressureBonus: 0,
+        capacityReachedCohesionBonus: 0,
+      },
+    );
+    compareIndividualCombatShadow(
+      combatSandbox.identityStore,
+      combatSandbox.pipelineOutput.opportunities,
+      combatSandbox.consequenceApplications,
+      individualCombatResult.consequenceSummaries,
+      combatSandbox.individualCombatConsequenceProjectionStore,
+    );
     updateCombatCounters(combatSandbox);
     updateIndividualCombatCounters(combatSandbox, individualCombatResult);
     combatSandbox.debugSnapshot = createCombatDebugSnapshot(combatSandbox);

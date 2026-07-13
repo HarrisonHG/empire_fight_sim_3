@@ -1,6 +1,6 @@
 # Milestone 5: Individual Combat State, Defence, and Empire Hit Rules
 
-Status: in progress; 5A, 5B, 5C-1, 5C-2, 5D, 5E, 5F-1, 5F-2, and 5F-3A implemented and awaiting review.
+Status: in progress; 5A, 5B, 5C-1, 5C-2, 5D, 5E, 5F-1, 5F-2, 5F-3A, and 5F-3B1 implemented and awaiting review.
 
 ## Product goal
 
@@ -922,12 +922,13 @@ recovery path authoritative.
 
 ---
 
-## 5F-3B — Pressure/morale authority cutover and legacy retirement
+## 5F-3B1 — Individual pressure/morale authority cutover
 
 ### Purpose
 
-Replace the unit-level prototype combat path in production while preserving the
-unit-level outputs required by morale.
+Make the individual combat pipeline authoritative for pressure, cohesion
+consequences, and morale assessment while keeping the legacy unit combat path
+as a shadow diagnostic.
 
 ### Deliver
 
@@ -945,11 +946,107 @@ formation movement
 → pressure and morale
 ```
 
-Migrate pressure and morale inputs from prototype unit damage to believable individual results.
+Migrate pressure and morale inputs from prototype unit damage to believable
+individual results.
+
+Legacy unit combat may continue to run temporarily, but only after individual
+pressure/morale authority has completed for the tick and without writing
+pressure, cohesion, morale, routing, recovery, movement, or individual hits.
+
+### 5F-3B1 implementation record (2026-07-13)
+
+- [x] Refined individual consequence projection attribution. Selected targets
+  now count outgoing for source units and incoming for selected target units.
+  Valid attack attempts count only from `outcome: "attempted"` records;
+  invalidated attempts remain diagnostic and do not drive production pressure.
+- [x] Replaced the ambiguous shadow comparison field
+  `legacyConsideredEngaged` with `legacyHadAttackOpportunity` and
+  `legacyHadConsequence`. Legacy opportunities and consequence records now feed
+  the comparison separately.
+- [x] Added the individual-authoritative pressure/cohesion stage. It consumes
+  individual consequence summaries, preserves the accepted pressure constants
+  and confidence/decay behavior, keeps hostile-contact fallback, applies
+  incoming applied-hit pressure exactly once, and gives blocked, parried, or
+  gate-rejected attacks engagement pressure without hit-loss pressure.
+- [x] Added proportional zero-hit cohesion consequences through formation-owned
+  cohesion APIs:
+
+  ```text
+  ceil(unit maximum cohesion * newlyZeroHitMemberCount / memberCount)
+  ```
+
+  The applied loss is clamped by current cohesion, recorded on the pressure
+  update, and is not repeated on later ticks for already-zero members. The
+  same individual zero-hit cohesion loss is not also converted into
+  same-stage cohesion-loss pressure; formation/movement cohesion loss still
+  uses the accepted cohesion-pressure rule.
+- [x] Cut production morale assessment over to individual consequence
+  summaries. The old `capacityReached` shock path is now fed by
+  `incomingZeroHitTransitions > 0`; legacy accumulated unit damage and maximum
+  damage capacity no longer drive morale after the cutover.
+- [x] Kept persistent morale recovery compatible with the new proportional
+  zero-hit cohesion loss. Low cohesion still affects stress and recovery, but
+  once pressure, routing risk, and nearby-hostile gates are safe it no longer
+  permanently prevents a routing unit from entering or completing recovery.
+- [x] Reordered the live combat tick to:
+
+  ```text
+  formation and morale movement
+  → individual eligibility snapshot
+  → individual target selection
+  → attack lifecycle
+  → defence
+  → landed-hit gate
+  → global-hit application
+  → individual unit aggregation
+  → individual consequence projection
+  → individual-authoritative pressure and cohesion consequences
+  → routing contagion
+  → recovery threat
+  → morale assessment
+  → persistent morale arbitration
+  → legacy combat shadow diagnostics
+  → counters and snapshots
+  ```
+
+- [x] Kept legacy unit combat runtime active as a diagnostic only. Its shadow
+  consequence construction uses zero pressure bonuses so it does not mutate
+  authoritative pressure.
+- [x] Added/updated tests for selected-target incoming attribution, invalidated
+  attempts, blocked/parried pressure without hit pressure, gate-rejected landed
+  attacks, accepted hit pressure, confidence reduction, pressure decay,
+  safe-routing decay, proportional zero-hit cohesion loss, unit-size scaling,
+  same-tick multi-zero determinism, non-repeating zero cohesion loss,
+  zero-hit cohesion not double-counting as same-stage pressure, individual
+  newly-zero morale shock, shadow terminology, Milestone 4 visual scenario
+  ordering under individual authority, replay determinism, and no entity
+  removal.
+- [x] Extended the integrated performance report with individual pipeline,
+  consequence projection, individual pressure/cohesion, morale
+  assessment/persistence, legacy shadow path, and complete warmed live tick
+  timings. The retained stage benchmark still uses unarmed shield-defender
+  lanes; a fully bidirectional individual-combat case remains deferred.
+- [x] Deferred legacy runtime removal, casualty/dying state, falling, death
+  counts, healing/treatment, renderer/UI hit display, visual individual-combat
+  scenario, energy, calls, projectiles, line-gap geometry, and shield-wall
+  doctrine to 5F-3B2, 5G, or later slices.
+
+---
+
+## 5F-3B2 — Legacy combat runtime retirement
+
+### Purpose
+
+Remove the temporary legacy unit combat runtime from the live tick once the
+individual pressure/morale authority has enough diagnostic coverage.
+
+### Deliver
 
 Retire passive armour and shield reduction from the production path.
 
-Keep old unit-level modules only where they remain useful as isolated regression fixtures or comparison tools. Do not maintain two production authorities.
+Keep old unit-level modules only where they remain useful as isolated
+regression fixtures or comparison tools. Do not maintain two production
+authorities.
 
 ### Acceptance requirement
 

@@ -1,10 +1,13 @@
 import type { CombatConsequenceApplication } from "./combatConsequences";
+import type { IndividualCombatUnitConsequenceSummary } from "./individualCombatConsequences";
 import type { CombatAttackOpportunity } from "./combatTempo";
 import {
+  applyUnitCohesionLoss,
   getIndividualConfidence,
   getIndividualPressure,
   getIndividualRole,
   getUnitCohesion,
+  getUnitMaximumCohesion,
   getUnitMovementStyle,
   isHostileContactMovementStyle,
   setIndividualPressure,
@@ -46,6 +49,8 @@ export interface UnitPressureUpdate {
   readonly contactPressureDeltaPerMember: number;
   /** Already applied by the combat-consequence stage; never applied again here. */
   readonly consequencePressureDeltaPerMember: number;
+  readonly appliedHitPressureDeltaPerMember: number;
+  readonly zeroHitCohesionLossValue: number;
   readonly cohesionLossValue: number;
   readonly cohesionPressureDeltaPerMember: number;
   readonly decayPerMember: number;
@@ -61,6 +66,8 @@ interface InternalCombatPressureStore extends CombatPressureStore {
   readonly engagedByUnit: Uint8Array;
   readonly consequencePressureByUnit: Int32Array;
   readonly hasConsequenceByUnit: Uint8Array;
+  readonly applyConsequencePressureByUnit: Uint8Array;
+  readonly zeroHitCohesionLossByUnit: Int32Array;
 }
 
 interface ResolvedCombatPressureConfig {
@@ -121,6 +128,8 @@ export function createCombatPressureStore(
     engagedByUnit: new Uint8Array(unitIds.length),
     consequencePressureByUnit: new Int32Array(unitIds.length),
     hasConsequenceByUnit: new Uint8Array(unitIds.length),
+    applyConsequencePressureByUnit: new Uint8Array(unitIds.length),
+    zeroHitCohesionLossByUnit: new Int32Array(unitIds.length),
   } as InternalCombatPressureStore;
 }
 
@@ -177,6 +186,62 @@ export function advanceCombatPressureOneTick(
   return { updates: out };
 }
 
+export function advanceIndividualCombatPressureOneTick(
+  identityStore: UnitIdentityStore,
+  formationStore: FormationBehaviourStore,
+  individualConsequences: readonly IndividualCombatUnitConsequenceSummary[],
+  store: CombatPressureStore,
+  out: UnitPressureUpdate[] = [],
+  config: CombatPressureConfig & {
+    readonly appliedDamagePressureScale?: number;
+  } = {},
+  tickStartMoraleStates?: UnitMoraleMovementStateSource,
+): CombatPressureTickResult {
+  validateStores(identityStore, formationStore);
+  const internal = asInternal(store);
+  if (
+    internal.entityCount !== identityStore.entityCount ||
+    internal.unitCount !== identityStore.unitCount
+  ) {
+    throw new RangeError(
+      "Combat pressure store must match unit identity entity and unit counts.",
+    );
+  }
+  const resolvedConfig = resolveConfig(config);
+  const appliedDamagePressureScale =
+    config.appliedDamagePressureScale ?? 10;
+  assertNonNegativeInteger(
+    appliedDamagePressureScale,
+    "appliedDamagePressureScale",
+  );
+  prepareIndividualSourceScratch(
+    identityStore,
+    formationStore,
+    internal,
+    individualConsequences,
+    appliedDamagePressureScale,
+  );
+
+  out.length = 0;
+  const unitIds = getUnitIds(identityStore);
+  for (let unitIndex = 0; unitIndex < unitIds.length; unitIndex += 1) {
+    const unitId = unitIds[unitIndex]!;
+    out.push(
+      applyUnitPressureUpdate(
+        identityStore,
+        formationStore,
+        internal,
+        unitId,
+        unitIndex,
+        resolvedConfig,
+        tickStartMoraleStates,
+      ),
+    );
+  }
+
+  return { updates: out };
+}
+
 function prepareSourceScratch(
   identityStore: UnitIdentityStore,
   store: InternalCombatPressureStore,
@@ -186,6 +251,8 @@ function prepareSourceScratch(
   store.engagedByUnit.fill(0);
   store.consequencePressureByUnit.fill(0);
   store.hasConsequenceByUnit.fill(0);
+  store.applyConsequencePressureByUnit.fill(0);
+  store.zeroHitCohesionLossByUnit.fill(0);
 
   for (let index = 0; index < attackOpportunities.length; index += 1) {
     const opportunity = attackOpportunities[index]!;
@@ -202,6 +269,57 @@ function prepareSourceScratch(
       store.consequencePressureByUnit[unitIndex]!,
       consequence.pressureDeltaPerMember,
     );
+  }
+}
+
+function prepareIndividualSourceScratch(
+  identityStore: UnitIdentityStore,
+  formationStore: FormationBehaviourStore,
+  store: InternalCombatPressureStore,
+  individualConsequences: readonly IndividualCombatUnitConsequenceSummary[],
+  appliedDamagePressureScale: number,
+): void {
+  store.engagedByUnit.fill(0);
+  store.consequencePressureByUnit.fill(0);
+  store.hasConsequenceByUnit.fill(0);
+  store.applyConsequencePressureByUnit.fill(0);
+  store.zeroHitCohesionLossByUnit.fill(0);
+
+  for (let index = 0; index < individualConsequences.length; index += 1) {
+    const consequence = individualConsequences[index]!;
+    const unitIndex = requireUnitIndex(store, consequence.unitId);
+    const members = getUnitMembers(identityStore, consequence.unitId);
+    if (
+      consequence.outgoingSelectedTargets > 0 ||
+      consequence.incomingSelectedByHostiles > 0 ||
+      consequence.outgoingValidAttackAttempts > 0 ||
+      consequence.incomingValidAttackAttempts > 0
+    ) {
+      store.engagedByUnit[unitIndex] = 1;
+    }
+    if (consequence.incomingAppliedHitLoss > 0) {
+      store.hasConsequenceByUnit[unitIndex] = 1;
+      store.applyConsequencePressureByUnit[unitIndex] = 1;
+      store.consequencePressureByUnit[unitIndex] = multiplyBounded(
+        consequence.incomingAppliedHitLoss,
+        appliedDamagePressureScale,
+      );
+    }
+    if (consequence.newlyZeroMembers > 0) {
+      const maximumCohesion = getUnitMaximumCohesion(
+        formationStore,
+        consequence.unitId,
+      );
+      const requestedLoss = Math.ceil(
+        (maximumCohesion * consequence.newlyZeroMembers) / members.length,
+      );
+      const appliedLoss = applyUnitCohesionLoss(
+        formationStore,
+        consequence.unitId,
+        requestedLoss,
+      );
+      store.zeroHitCohesionLossByUnit[unitIndex] = appliedLoss;
+    }
   }
 }
 
@@ -243,8 +361,17 @@ function applyUnitPressureUpdate(
   );
   const consequencePressureDeltaPerMember =
     store.consequencePressureByUnit[unitIndex]!;
+  const appliedHitPressureDeltaPerMember =
+    store.applyConsequencePressureByUnit[unitIndex] === 1
+      ? consequencePressureDeltaPerMember
+      : 0;
+  const zeroHitCohesionLossValue = store.zeroHitCohesionLossByUnit[unitIndex]!;
+  const pressureBearingCohesionLoss =
+    cohesionLossValue > zeroHitCohesionLossValue
+      ? cohesionLossValue - zeroHitCohesionLossValue
+      : 0;
   const cohesionPressureDeltaPerMember = multiplyBounded(
-    cohesionLossValue,
+    pressureBearingCohesionLoss,
     config.cohesionLossPressureScale,
   );
   const hasFreshPressure =
@@ -262,6 +389,7 @@ function applyUnitPressureUpdate(
   const appliedPressureDeltaPerMember =
     engagedPressureDeltaPerMember +
     contactPressureDeltaPerMember +
+    appliedHitPressureDeltaPerMember +
     cohesionPressureDeltaPerMember;
 
   let pressureBeforeTotal = 0;
@@ -289,6 +417,8 @@ function applyUnitPressureUpdate(
     engagedPressureDeltaPerMember,
     contactPressureDeltaPerMember,
     consequencePressureDeltaPerMember,
+    appliedHitPressureDeltaPerMember,
+    zeroHitCohesionLossValue,
     cohesionLossValue,
     cohesionPressureDeltaPerMember,
     decayPerMember,

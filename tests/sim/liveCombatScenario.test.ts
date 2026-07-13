@@ -20,9 +20,10 @@ import {
 } from "../../src/sim/unitIdentity";
 
 const CONTACT_RUN_TICKS = 320;
-// 4H-3 keeps a sustained exchange while reserving extra room for ragged
-// non-steady contact footprints.
-const REQUIRED_CONSECUTIVE_COMBAT_TICKS = 10;
+// 5F-3B1's zero-hit eligibility cuts off ordinary individual targets earlier
+// than the legacy unit-combat diagnostic, while still requiring visible
+// sustained exchange.
+const REQUIRED_CONSECUTIVE_COMBAT_TICKS = 8;
 
 describe("live combat scenario", () => {
   it("creates two deterministic opposing groups with 20 and 15 members", () => {

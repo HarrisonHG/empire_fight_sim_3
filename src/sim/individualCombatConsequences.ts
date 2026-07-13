@@ -1,4 +1,5 @@
 import type { CombatConsequenceApplication } from "./combatConsequences";
+import type { CombatAttackOpportunity } from "./combatTempo";
 import type { IndividualCombatUnitSummary } from "./individualCombatAggregation";
 import type { IndividualMeleeAttackAttemptRecord } from "./individualCombatAction";
 import type { IndividualLandedHitApplicationRecord, IndividualZeroHitEvent } from "./individualGlobalHits";
@@ -23,10 +24,12 @@ export interface IndividualCombatUnitConsequenceSummary {
   readonly endOfTickEligibleMembers: number;
   readonly newlyZeroMembers: number;
   readonly outgoingSelectedTargets: number;
-  readonly outgoingAttackAttempts: number;
+  readonly incomingSelectedByHostiles: number;
+  readonly outgoingValidAttackAttempts: number;
   readonly outgoingInvalidatedAttempts: number;
   readonly outgoingGateAcceptedHits: number;
-  readonly incomingAttackAttempts: number;
+  readonly incomingValidAttackAttempts: number;
+  readonly incomingInvalidatedAttempts: number;
   readonly incomingPreventedAttacks: number;
   readonly incomingParries: number;
   readonly incomingBucklerBlocks: number;
@@ -38,12 +41,12 @@ export interface IndividualCombatUnitConsequenceSummary {
   readonly incomingZeroHitTransitions: number;
   readonly hasOutgoingEngagement: boolean;
   readonly hasIncomingEngagement: boolean;
-  readonly hasFreshIndividualCombatPressure: boolean;
 }
 
 export interface IndividualCombatShadowComparison {
   readonly unitId: UnitId;
-  readonly legacyConsideredEngaged: boolean;
+  readonly legacyHadAttackOpportunity: boolean;
+  readonly legacyHadConsequence: boolean;
   readonly individualOutgoingEngagement: boolean;
   readonly individualIncomingEngagement: boolean;
   readonly legacyConsequenceCount: number;
@@ -66,10 +69,12 @@ interface MutableIndividualCombatUnitConsequenceSummary
   endOfTickEligibleMembers: number;
   newlyZeroMembers: number;
   outgoingSelectedTargets: number;
-  outgoingAttackAttempts: number;
+  incomingSelectedByHostiles: number;
+  outgoingValidAttackAttempts: number;
   outgoingInvalidatedAttempts: number;
   outgoingGateAcceptedHits: number;
-  incomingAttackAttempts: number;
+  incomingValidAttackAttempts: number;
+  incomingInvalidatedAttempts: number;
   incomingPreventedAttacks: number;
   incomingParries: number;
   incomingBucklerBlocks: number;
@@ -81,13 +86,13 @@ interface MutableIndividualCombatUnitConsequenceSummary
   incomingZeroHitTransitions: number;
   hasOutgoingEngagement: boolean;
   hasIncomingEngagement: boolean;
-  hasFreshIndividualCombatPressure: boolean;
 }
 
 interface MutableIndividualCombatShadowComparison
   extends IndividualCombatShadowComparison {
   unitId: UnitId;
-  legacyConsideredEngaged: boolean;
+  legacyHadAttackOpportunity: boolean;
+  legacyHadConsequence: boolean;
   individualOutgoingEngagement: boolean;
   individualIncomingEngagement: boolean;
   legacyConsequenceCount: number;
@@ -178,6 +183,7 @@ export function projectIndividualCombatConsequences(
 
 export function compareIndividualCombatShadow(
   identityStore: UnitIdentityStore,
+  legacyOpportunities: readonly CombatAttackOpportunity[],
   legacyConsequences: readonly CombatConsequenceApplication[],
   individualSummaries: readonly IndividualCombatUnitConsequenceSummary[],
   store: IndividualCombatConsequenceProjectionStore,
@@ -186,6 +192,7 @@ export function compareIndividualCombatShadow(
   const internal = asInternal(store);
   clearShadowComparisons(internal);
   copyIndividualComparisonFields(internal, individualSummaries);
+  collectLegacyOpportunities(internal, legacyOpportunities);
   collectLegacyConsequences(internal, legacyConsequences);
 
   return { comparisons: internal.comparisons };
@@ -218,6 +225,8 @@ function collectSelectedTargets(
     if (record.targetEntityId < 0) continue;
     store.summaries[unitIndexForEntity(store, record.sourceEntityId)]!
       .outgoingSelectedTargets += 1;
+    store.summaries[unitIndexForEntity(store, record.targetEntityId)]!
+      .incomingSelectedByHostiles += 1;
   }
 }
 
@@ -231,10 +240,12 @@ function collectAttackAttempts(
       store.summaries[unitIndexForEntity(store, record.attackerEntityId)]!;
     const incoming =
       store.summaries[unitIndexForEntity(store, record.targetEntityId)]!;
-    outgoing.outgoingAttackAttempts += 1;
-    incoming.incomingAttackAttempts += 1;
-    if (record.outcome === "invalidated") {
+    if (record.outcome === "attempted") {
+      outgoing.outgoingValidAttackAttempts += 1;
+      incoming.incomingValidAttackAttempts += 1;
+    } else {
       outgoing.outgoingInvalidatedAttempts += 1;
+      incoming.incomingInvalidatedAttempts += 1;
     }
   }
 }
@@ -310,17 +321,17 @@ function finalizeSummaryBooleans(
     const summary = store.summaries[index]!;
     summary.hasOutgoingEngagement =
       summary.outgoingSelectedTargets > 0 ||
-      summary.outgoingAttackAttempts > 0 ||
+      summary.outgoingValidAttackAttempts > 0 ||
       summary.outgoingGateAcceptedHits > 0;
     summary.hasIncomingEngagement =
-      summary.incomingAttackAttempts > 0 ||
+      summary.incomingSelectedByHostiles > 0 ||
+      summary.incomingValidAttackAttempts > 0 ||
       summary.incomingPreventedAttacks > 0 ||
       summary.incomingLandedOutcomes > 0 ||
       summary.incomingGateAcceptedHits > 0 ||
       summary.incomingGateRejectedHits > 0 ||
       summary.incomingAppliedHitLoss > 0 ||
       summary.incomingZeroHitTransitions > 0;
-    summary.hasFreshIndividualCombatPressure = summary.hasIncomingEngagement;
   }
 }
 
@@ -341,6 +352,23 @@ function copyIndividualComparisonFields(
   }
 }
 
+function collectLegacyOpportunities(
+  store: InternalIndividualCombatConsequenceProjectionStore,
+  records: readonly CombatAttackOpportunity[],
+): void {
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index]!;
+    store.comparisons[unitIndexForUnitId(
+      store.unitIndexById,
+      record.sourceUnitId,
+    )]!.legacyHadAttackOpportunity = true;
+    store.comparisons[unitIndexForUnitId(
+      store.unitIndexById,
+      record.targetUnitId,
+    )]!.legacyHadAttackOpportunity = true;
+  }
+}
+
 function collectLegacyConsequences(
   store: InternalIndividualCombatConsequenceProjectionStore,
   records: readonly CombatConsequenceApplication[],
@@ -355,8 +383,8 @@ function collectLegacyConsequences(
       store.unitIndexById,
       record.targetUnitId,
     )]!;
-    source.legacyConsideredEngaged = true;
-    target.legacyConsideredEngaged = true;
+    source.legacyHadConsequence = true;
+    target.legacyHadConsequence = true;
     target.legacyConsequenceCount += 1;
   }
 }
@@ -392,10 +420,12 @@ function resetSummary(
   summary.endOfTickEligibleMembers = 0;
   summary.newlyZeroMembers = 0;
   summary.outgoingSelectedTargets = 0;
-  summary.outgoingAttackAttempts = 0;
+  summary.incomingSelectedByHostiles = 0;
+  summary.outgoingValidAttackAttempts = 0;
   summary.outgoingInvalidatedAttempts = 0;
   summary.outgoingGateAcceptedHits = 0;
-  summary.incomingAttackAttempts = 0;
+  summary.incomingValidAttackAttempts = 0;
+  summary.incomingInvalidatedAttempts = 0;
   summary.incomingPreventedAttacks = 0;
   summary.incomingParries = 0;
   summary.incomingBucklerBlocks = 0;
@@ -407,7 +437,6 @@ function resetSummary(
   summary.incomingZeroHitTransitions = 0;
   summary.hasOutgoingEngagement = false;
   summary.hasIncomingEngagement = false;
-  summary.hasFreshIndividualCombatPressure = false;
   return summary;
 }
 
@@ -422,7 +451,8 @@ function resetComparison(
   unitId: UnitId,
 ): MutableIndividualCombatShadowComparison {
   comparison.unitId = unitId;
-  comparison.legacyConsideredEngaged = false;
+  comparison.legacyHadAttackOpportunity = false;
+  comparison.legacyHadConsequence = false;
   comparison.individualOutgoingEngagement = false;
   comparison.individualIncomingEngagement = false;
   comparison.legacyConsequenceCount = 0;

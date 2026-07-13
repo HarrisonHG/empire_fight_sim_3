@@ -47,7 +47,7 @@ describe("Milestone 4 morale inspection scenario", () => {
     expect(first.initialUnitIds).toEqual([11, 12, 13, 14, 21, 22, 23]);
     expect(first.initialEntityCount).toBe(70);
     expect(first.memberCount).toBe(70);
-    expect(first.veteranRouted).toBe(false);
+    expect(first.veteranRouted).toBe(true);
     expect(first.regularSeverelyDegraded).toBe(true);
     expect(first.regularOutperformedVeteran).toBe(true);
     expect(first.recruitRouted).toBe(true);

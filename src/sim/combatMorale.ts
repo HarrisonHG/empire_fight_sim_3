@@ -1,4 +1,5 @@
 import type { CombatConsequenceApplication } from "./combatConsequences";
+import type { IndividualCombatUnitConsequenceSummary } from "./individualCombatConsequences";
 import {
   getIndividualPressure,
   getUnitCohesion,
@@ -92,6 +93,37 @@ export function collectCombatMoraleAssessments(
   return { assessments: out };
 }
 
+export function collectCombatMoraleAssessmentsFromIndividualConsequences(
+  identityStore: UnitIdentityStore,
+  formationStore: FormationBehaviourStore,
+  individualConsequences: readonly IndividualCombatUnitConsequenceSummary[],
+  out: CombatMoraleAssessment[] = [],
+): CombatMoraleTickResult {
+  validateCombatMoraleInputs(identityStore, formationStore);
+  const contextByUnitId = new Map<UnitId, IndividualCombatUnitConsequenceSummary>();
+  for (let index = 0; index < individualConsequences.length; index += 1) {
+    const consequence = individualConsequences[index]!;
+    getUnitMembers(identityStore, consequence.unitId);
+    contextByUnitId.set(consequence.unitId, consequence);
+  }
+
+  out.length = 0;
+  const unitIds = getUnitIds(identityStore);
+  for (let index = 0; index < unitIds.length; index += 1) {
+    const unitId = unitIds[index]!;
+    out.push(
+      assessValidatedUnitCombatMoraleFromIndividualContext(
+        identityStore,
+        formationStore,
+        unitId,
+        contextByUnitId.get(unitId),
+      ),
+    );
+  }
+
+  return { assessments: out };
+}
+
 function assessValidatedUnitCombatMorale(
   identityStore: UnitIdentityStore,
   formationStore: FormationBehaviourStore,
@@ -125,6 +157,46 @@ function assessValidatedUnitCombatMorale(
       cohesion,
       recentContext.cohesionDamageValue,
       recentContext.capacityReached,
+    ),
+    breakRiskReasonCodes: reasonCodes,
+  };
+}
+
+function assessValidatedUnitCombatMoraleFromIndividualContext(
+  identityStore: UnitIdentityStore,
+  formationStore: FormationBehaviourStore,
+  unitId: UnitId,
+  recentContext: IndividualCombatUnitConsequenceSummary | undefined,
+): CombatMoraleAssessment {
+  const memberEntityIds = getUnitMembers(identityStore, unitId);
+  const pressure = computePressureSummary(formationStore, memberEntityIds);
+  const cohesion = getUnitCohesion(formationStore, unitId);
+  const recentCohesionDamageValue =
+    recentContext?.incomingZeroHitTransitions ?? 0;
+  const recentCapacityReached = recentCohesionDamageValue > 0;
+  const reasonCodes = collectReasonCodes(
+    pressure.average,
+    pressure.maximum,
+    cohesion,
+    recentCohesionDamageValue,
+    recentCapacityReached,
+  );
+
+  return {
+    unitId,
+    memberEntityIds: memberEntityIds.slice(),
+    pressureTotal: pressure.total,
+    pressureAverage: pressure.average,
+    pressureMaximum: pressure.maximum,
+    cohesion,
+    recentCohesionDamageValue,
+    recentCapacityReached,
+    moraleState: determineMoraleState(
+      pressure.average,
+      pressure.maximum,
+      cohesion,
+      recentCohesionDamageValue,
+      recentCapacityReached,
     ),
     breakRiskReasonCodes: reasonCodes,
   };

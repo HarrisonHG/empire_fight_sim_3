@@ -478,7 +478,6 @@ function determineRoutingTransition(
     hostileNearby ||
     profile.pressure >= RECOVERY_CONSTANTS.routingStopPressure ||
     store.routingRisk[unitIndex]! >= RECOVERY_CONSTANTS.routingStopRisk ||
-    profile.cohesion < RECOVERY_CONSTANTS.minimumCohesion ||
     moraleStateRank(candidateState) > 1
   ) {
     return "routing";
@@ -503,7 +502,6 @@ function determineRecoveryTransition(
   if (
     profile.pressure >= RECOVERY_CONSTANTS.maximumPressure ||
     profile.pressure >= RECOVERY_CONSTANTS.maximumPressure ||
-    profile.cohesion < RECOVERY_CONSTANTS.minimumCohesion ||
     moraleStateRank(candidateState) >= 2
   ) {
     store.recoveryProgress[unitIndex] = 0;

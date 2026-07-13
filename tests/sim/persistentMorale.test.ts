@@ -514,6 +514,8 @@ function pressureUpdate(
     engagedPressureDeltaPerMember: 0,
     contactPressureDeltaPerMember: 0,
     consequencePressureDeltaPerMember: 0,
+    appliedHitPressureDeltaPerMember: 0,
+    zeroHitCohesionLossValue: 0,
     cohesionLossValue: 0,
     cohesionPressureDeltaPerMember: 0,
     decayPerMember: 0,

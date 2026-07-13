@@ -4,8 +4,10 @@ import type { CombatConsequenceApplication } from "../../src/sim/combatConsequen
 import {
   assessUnitCombatMorale,
   collectCombatMoraleAssessments,
+  collectCombatMoraleAssessmentsFromIndividualConsequences,
   type CombatMoraleAssessment,
 } from "../../src/sim/combatMorale";
+import type { IndividualCombatUnitConsequenceSummary } from "../../src/sim/individualCombatConsequences";
 import {
   createCombatSurvivabilityStore,
   getUnitAccumulatedDamage,
@@ -248,6 +250,32 @@ describe("combat morale assessments", () => {
       moraleState: "breakRisk",
       breakRiskReasonCodes: ["recentCohesionDamage", "capacityReached"],
     });
+  });
+
+  it("uses individual newly-zero transitions as the morale shock context", () => {
+    const harness = createMoraleHarness({});
+
+    const result = collectCombatMoraleAssessmentsFromIndividualConsequences(
+      harness.identity,
+      harness.formation,
+      [
+        individualConsequenceSummary(20, {
+          newlyZeroMembers: 1,
+          incomingZeroHitTransitions: 1,
+        }),
+      ],
+      [],
+    );
+
+    expect(result.assessments.find((assessment) => assessment.unitId === 20))
+      .toMatchObject({
+        recentCohesionDamageValue: 1,
+        recentCapacityReached: true,
+        moraleState: "breakRisk",
+        breakRiskReasonCodes: ["recentCohesionDamage", "capacityReached"],
+      });
+    expect(getUnitAccumulatedDamage(harness.survivability, 20)).toBe(0);
+    expect(isUnitDamageCapacityReached(harness.survivability, 20)).toBe(false);
   });
 
   it("combines reason codes in stable priority order", () => {
@@ -570,6 +598,37 @@ function consequenceRecord(
     pressureBeforeByMember: [0, 0, 0],
     pressureAfterByMember: [10, 10, 10],
     cohesionDamageValue: 0,
+    ...overrides,
+  };
+}
+
+function individualConsequenceSummary(
+  unitId: number,
+  overrides: Partial<IndividualCombatUnitConsequenceSummary> = {},
+): IndividualCombatUnitConsequenceSummary {
+  return {
+    unitId,
+    tickStartEligibleMembers: 3,
+    endOfTickEligibleMembers: 3,
+    newlyZeroMembers: 0,
+    outgoingSelectedTargets: 0,
+    incomingSelectedByHostiles: 0,
+    outgoingValidAttackAttempts: 0,
+    outgoingInvalidatedAttempts: 0,
+    outgoingGateAcceptedHits: 0,
+    incomingValidAttackAttempts: 0,
+    incomingInvalidatedAttempts: 0,
+    incomingPreventedAttacks: 0,
+    incomingParries: 0,
+    incomingBucklerBlocks: 0,
+    incomingShieldBlocks: 0,
+    incomingLandedOutcomes: 0,
+    incomingGateAcceptedHits: 0,
+    incomingGateRejectedHits: 0,
+    incomingAppliedHitLoss: 0,
+    incomingZeroHitTransitions: 0,
+    hasOutgoingEngagement: false,
+    hasIncomingEngagement: false,
     ...overrides,
   };
 }

@@ -7,7 +7,19 @@ import {
   type IndividualCombatPipelineStage,
 } from "../../src/sim/individualCombatPipeline";
 import { compareIndividualCombatShadow } from "../../src/sim/individualCombatConsequences";
+import { applyCombatConsequences } from "../../src/sim/combatConsequences";
+import {
+  collectCombatMoraleAssessmentsFromIndividualConsequences,
+} from "../../src/sim/combatMorale";
+import { advanceCombatPipelineOneTick } from "../../src/sim/combatPipeline";
+import { advanceIndividualCombatPressureOneTick } from "../../src/sim/combatPressure";
 import { advanceFormationOneTick } from "../../src/sim/formationBehaviour";
+import {
+  advancePersistentMoraleOneTick,
+  getPersistentUnitMoraleState,
+} from "../../src/sim/persistentMorale";
+import { advanceRoutingContagionOneTick } from "../../src/sim/routingContagion";
+import { collectRecoveryThreatSummaries } from "../../src/sim/recoveryThreat";
 import {
   advanceSimulationOneTick,
   createSimulation,
@@ -18,6 +30,7 @@ import type {
   SimulationScenario,
   SimulationState,
 } from "../../src/sim/types";
+import { getUnitIds } from "../../src/sim/unitIdentity";
 
 const MEASURED_TICKS = 30;
 const FULL_LIVE_WARM_UP_TICKS = 5;
@@ -84,6 +97,14 @@ interface IntegratedIndividualPerformanceReport {
     readonly legacyApplications: number;
     readonly legacyConsequences: number;
   };
+  readonly fullLiveStageReference: {
+    readonly warmUpTicks: number;
+    readonly individualPipeline: StageTimingReport;
+    readonly individualPressureAndCohesion: StageTimingReport;
+    readonly moraleAssessmentAndPersistence: StageTimingReport;
+    readonly legacyShadowPath: StageTimingReport;
+    readonly completeLiveTick: StageTimingReport;
+  };
   readonly timingPolicy: string;
 }
 
@@ -135,6 +156,7 @@ function runIntegratedIndividualPerformance(
     const shadowComparisonStartedAt = performance.now();
     compareIndividualCombatShadow(
       combat.identityStore,
+      [],
       combat.consequenceApplications,
       result.consequenceSummaries,
       combat.individualCombatConsequenceProjectionStore,
@@ -157,6 +179,7 @@ function runIntegratedIndividualPerformance(
   }
 
   const fullSandboxReference = runFullSandboxReference(entityCount);
+  const fullLiveStageReference = runFullLiveStageReference(entityCount);
   const membersPerUnit = membersPerUnitFor(entityCount);
   return {
     entityCount,
@@ -187,6 +210,7 @@ function runIntegratedIndividualPerformance(
     zeroHitTransitions,
     activeRelationships,
     fullSandboxReference,
+    fullLiveStageReference,
     timingPolicy:
       "Structural assertions only; real formation/world state and persistent individual stores are used. Full sandbox reference is reported separately and includes the temporary observation path.",
   };
@@ -213,6 +237,158 @@ function runFullSandboxReference(
     legacyApplications: combat.totalSurvivabilityApplicationCount,
     legacyConsequences: combat.totalConsequenceCount,
   };
+}
+
+function runFullLiveStageReference(
+  entityCount: number,
+): IntegratedIndividualPerformanceReport["fullLiveStageReference"] {
+  const simulation = createSimulation(legacyProductionReferenceScenario(entityCount));
+  const samples = {
+    individualPipeline: new Float64Array(MEASURED_TICKS),
+    individualPressureAndCohesion: new Float64Array(MEASURED_TICKS),
+    moraleAssessmentAndPersistence: new Float64Array(MEASURED_TICKS),
+    legacyShadowPath: new Float64Array(MEASURED_TICKS),
+    completeLiveTick: new Float64Array(MEASURED_TICKS),
+  };
+
+  for (let tick = 0; tick < FULL_LIVE_WARM_UP_TICKS; tick += 1) {
+    advanceSimulationOneTick(simulation);
+  }
+  for (let tick = 0; tick < MEASURED_TICKS; tick += 1) {
+    const combat = requireCombatSandbox(simulation);
+    const tickStartedAt = performance.now();
+    const formationResult = advanceFormationOneTick(
+      simulation.world,
+      combat.identityStore,
+      combat.formationStore,
+      combat.moraleMovementStates,
+    );
+
+    let startedAt = performance.now();
+    const individualCombatResult =
+      advanceIndividualCombatPipelineObservationOneTick(
+        simulation.world,
+        combat.identityStore,
+        combat.formationStore,
+        combat.individualCombatPipelineStores,
+        combat.individualCombatPipelineBuffers,
+        simulation.tick,
+      );
+    samples.individualPipeline[tick] = performance.now() - startedAt;
+
+    startedAt = performance.now();
+    advanceIndividualCombatPressureOneTick(
+      combat.identityStore,
+      combat.formationStore,
+      individualCombatResult.consequenceSummaries,
+      combat.pressureStore,
+      combat.pressureUpdates,
+      {
+        appliedDamagePressureScale: combat.appliedDamagePressureScale,
+      },
+      combat.moraleMovementStates,
+    );
+    samples.individualPressureAndCohesion[tick] = performance.now() - startedAt;
+
+    advanceRoutingContagionOneTick(
+      simulation.world,
+      combat.identityStore,
+      combat.formationStore,
+      combat.moraleMovementStates,
+      formationResult.routingPassThroughInteractions,
+      combat.routingContagionStore,
+      combat.routingContagionSummaries,
+    );
+    collectRecoveryThreatSummaries(
+      simulation.world,
+      combat.identityStore,
+      combat.formationStore,
+      combat.recoveryThreatStore,
+      combat.recoveryThreatSummaries,
+    );
+
+    startedAt = performance.now();
+    collectCombatMoraleAssessmentsFromIndividualConsequences(
+      combat.identityStore,
+      combat.formationStore,
+      individualCombatResult.consequenceSummaries,
+      combat.moraleAssessments,
+    );
+    advancePersistentMoraleOneTick(
+      combat.identityStore,
+      combat.formationStore,
+      combat.moraleAssessments,
+      combat.persistentMoraleStore,
+      combat.moraleEvents,
+      {
+        pressureUpdates: combat.pressureUpdates,
+        routingContagionSummaries: combat.routingContagionSummaries,
+        recoveryThreatSummaries: combat.recoveryThreatSummaries,
+      },
+    );
+    syncMoraleMovementStatesForPerf(combat);
+    samples.moraleAssessmentAndPersistence[tick] =
+      performance.now() - startedAt;
+
+    startedAt = performance.now();
+    advanceCombatPipelineOneTick(
+      simulation.world,
+      combat.identityStore,
+      combat.loadoutStore,
+      combat.formationStore,
+      combat.tempoStore,
+      combat.survivabilityStore,
+      combat.pipelineOutput,
+    );
+    applyCombatConsequences(
+      combat.identityStore,
+      combat.formationStore,
+      combat.pipelineOutput.applications,
+      combat.consequenceApplications,
+      {
+        appliedDamagePressureScale: 0,
+        mitigatedHitPressureDelta: 0,
+        capacityReachedPressureBonus: 0,
+        capacityReachedCohesionBonus: 0,
+      },
+    );
+    compareIndividualCombatShadow(
+      combat.identityStore,
+      combat.pipelineOutput.opportunities,
+      combat.consequenceApplications,
+      individualCombatResult.consequenceSummaries,
+      combat.individualCombatConsequenceProjectionStore,
+    );
+    samples.legacyShadowPath[tick] = performance.now() - startedAt;
+    samples.completeLiveTick[tick] = performance.now() - tickStartedAt;
+    simulation.tick += 1;
+  }
+
+  return {
+    warmUpTicks: FULL_LIVE_WARM_UP_TICKS,
+    individualPipeline: timingReport(samples.individualPipeline),
+    individualPressureAndCohesion: timingReport(
+      samples.individualPressureAndCohesion,
+    ),
+    moraleAssessmentAndPersistence: timingReport(
+      samples.moraleAssessmentAndPersistence,
+    ),
+    legacyShadowPath: timingReport(samples.legacyShadowPath),
+    completeLiveTick: timingReport(samples.completeLiveTick),
+  };
+}
+
+function syncMoraleMovementStatesForPerf(
+  combat: ReturnType<typeof requireCombatSandbox>,
+): void {
+  const unitIds = getUnitIds(combat.identityStore);
+  for (let index = 0; index < unitIds.length; index += 1) {
+    const unitId = unitIds[index]!;
+    combat.moraleMovementStates.set(
+      unitId,
+      getPersistentUnitMoraleState(combat.persistentMoraleStore, unitId),
+    );
+  }
 }
 
 function ordinaryUnitScenario(entityCount: number): SimulationScenario {
@@ -416,6 +592,11 @@ function assertReport(
     report.eligibility,
     report.totalIndividualPipeline,
     report.fullSandboxReference,
+    report.fullLiveStageReference.individualPipeline,
+    report.fullLiveStageReference.individualPressureAndCohesion,
+    report.fullLiveStageReference.moraleAssessmentAndPersistence,
+    report.fullLiveStageReference.legacyShadowPath,
+    report.fullLiveStageReference.completeLiveTick,
   ]) {
     expect(timing.meanMillisecondsPerTick).toBeGreaterThanOrEqual(0);
     expect(timing.maximumMillisecondsPerTick).toBeGreaterThanOrEqual(0);

@@ -7,16 +7,19 @@ import {
 import type { CombatAttackOpportunity } from "../../src/sim/combatTempo";
 import type { CombatSurvivabilityApplication } from "../../src/sim/combatSurvivability";
 import {
+  advanceIndividualCombatPressureOneTick,
   advanceCombatPressureOneTick,
   createCombatPressureStore,
   type CombatPressureStore,
   type UnitPressureUpdate,
 } from "../../src/sim/combatPressure";
+import type { IndividualCombatUnitConsequenceSummary } from "../../src/sim/individualCombatConsequences";
 import {
   advanceFormationOneTick,
   createFormationBehaviourStore,
   getIndividualPressure,
   getUnitAnchor,
+  getUnitCohesion,
   getUnitMovementStyle,
   setIndividualPressure,
   type FormationBehaviourStore,
@@ -206,6 +209,148 @@ describe("combat pressure stage", () => {
       getUnitMembers(harness.identity, unitId),
     )).toEqual(members);
   });
+
+  it("uses individual selections and valid attempts as authoritative engagement pressure", () => {
+    const harness = createHarness();
+
+    const updates = advanceIndividualPressure(harness, [
+      individualSummary(SOURCE_UNIT_ID, {
+        outgoingSelectedTargets: 1,
+        outgoingValidAttackAttempts: 1,
+      }),
+      individualSummary(TARGET_UNIT_ID, {
+        incomingSelectedByHostiles: 1,
+        incomingValidAttackAttempts: 1,
+        incomingPreventedAttacks: 1,
+        incomingParries: 1,
+      }),
+    ]);
+
+    expect(targetPressures(harness)).toEqual([4, 4]);
+    expect(findUpdate(updates, TARGET_UNIT_ID)).toMatchObject({
+      engaged: true,
+      engagedPressureDeltaPerMember: 4,
+      appliedHitPressureDeltaPerMember: 0,
+      consequencePressureDeltaPerMember: 0,
+    });
+  });
+
+  it("does not create individual pressure from invalidated attempts alone", () => {
+    const harness = createHarness();
+
+    const updates = advanceIndividualPressure(harness, [
+      individualSummary(SOURCE_UNIT_ID, {
+        outgoingInvalidatedAttempts: 1,
+      }),
+      individualSummary(TARGET_UNIT_ID, {
+        incomingInvalidatedAttempts: 1,
+      }),
+    ]);
+
+    expect(targetPressures(harness)).toEqual([0, 0]);
+    expect(findUpdate(updates, TARGET_UNIT_ID)).toMatchObject({
+      engaged: false,
+      hasFreshPressure: false,
+      decayPerMember: 2,
+    });
+  });
+
+  it("applies accepted individual hit pressure exactly once", () => {
+    const harness = createHarness();
+
+    const updates = advanceIndividualPressure(harness, [
+      individualSummary(TARGET_UNIT_ID, {
+        incomingValidAttackAttempts: 1,
+        incomingLandedOutcomes: 1,
+        incomingGateAcceptedHits: 1,
+        incomingAppliedHitLoss: 1,
+      }),
+    ]);
+
+    expect(targetPressures(harness)).toEqual([14, 14]);
+    expect(findUpdate(updates, TARGET_UNIT_ID)).toMatchObject({
+      engagedPressureDeltaPerMember: 4,
+      consequencePressureDeltaPerMember: 10,
+      appliedHitPressureDeltaPerMember: 10,
+      pressureBeforeAverage: 0,
+      pressureAfterAverage: 14,
+    });
+  });
+
+  it("does not apply hit pressure for gate-rejected landed attacks", () => {
+    const harness = createHarness();
+
+    const updates = advanceIndividualPressure(harness, [
+      individualSummary(TARGET_UNIT_ID, {
+        incomingValidAttackAttempts: 1,
+        incomingLandedOutcomes: 1,
+        incomingGateRejectedHits: 1,
+      }),
+    ]);
+
+    expect(targetPressures(harness)).toEqual([4, 4]);
+    expect(findUpdate(updates, TARGET_UNIT_ID)).toMatchObject({
+      consequencePressureDeltaPerMember: 0,
+      appliedHitPressureDeltaPerMember: 0,
+    });
+  });
+
+  it("records proportional zero-hit cohesion loss without double-counting pressure", () => {
+    const harness = createHarness();
+
+    const first = advanceIndividualPressure(harness, [
+      individualSummary(TARGET_UNIT_ID, {
+        incomingZeroHitTransitions: 1,
+        newlyZeroMembers: 1,
+      }),
+    ]);
+    const second = advanceIndividualPressure(harness, [
+      individualSummary(TARGET_UNIT_ID),
+    ]);
+
+    expect(getUnitCohesion(harness.formation, TARGET_UNIT_ID)).toBe(500);
+    expect(findUpdate(first, TARGET_UNIT_ID)).toMatchObject({
+      zeroHitCohesionLossValue: 500,
+      cohesionLossValue: 500,
+      cohesionPressureDeltaPerMember: 0,
+    });
+    expect(findUpdate(second, TARGET_UNIT_ID)).toMatchObject({
+      zeroHitCohesionLossValue: 0,
+      cohesionLossValue: 0,
+    });
+  });
+
+  it("scales zero-hit cohesion impact by unit size", () => {
+    const fivePerson = createSizedTargetHarness(5);
+    const thirtyPerson = createSizedTargetHarness(30);
+
+    advanceIndividualPressure(fivePerson, [
+      individualSummary(TARGET_UNIT_ID, { newlyZeroMembers: 1 }),
+    ]);
+    advanceIndividualPressure(thirtyPerson, [
+      individualSummary(TARGET_UNIT_ID, { newlyZeroMembers: 1 }),
+    ]);
+
+    expect(getUnitCohesion(fivePerson.formation, TARGET_UNIT_ID)).toBe(800);
+    expect(getUnitCohesion(thirtyPerson.formation, TARGET_UNIT_ID)).toBe(966);
+  });
+
+  it("combines multiple same-tick zero-hit cohesion transitions deterministically", () => {
+    const harness = createSizedTargetHarness(5);
+
+    const updates = advanceIndividualPressure(harness, [
+      individualSummary(TARGET_UNIT_ID, {
+        newlyZeroMembers: 3,
+        incomingZeroHitTransitions: 3,
+      }),
+    ]);
+
+    expect(getUnitCohesion(harness.formation, TARGET_UNIT_ID)).toBe(400);
+    expect(findUpdate(updates, TARGET_UNIT_ID)).toMatchObject({
+      zeroHitCohesionLossValue: 600,
+      cohesionLossValue: 600,
+    });
+  });
 });
 
 const SOURCE_UNIT_ID = 10;
@@ -252,6 +397,60 @@ function createHarness(options: {
         ? { confidence: options.targetConfidence }
         : {}),
     })),
+  });
+  return {
+    identity,
+    formation,
+    store: createCombatPressureStore(identity, formation),
+    consequences: [],
+    updates: [],
+  };
+}
+
+function createSizedTargetHarness(memberCount: number): PressureHarness {
+  const targetMembers = Array.from(
+    { length: memberCount },
+    (_unused, index) => index + 1,
+  );
+  const identity = createUnitIdentityStore({
+    entityCount: memberCount + 1,
+    units: [
+      { unitId: SOURCE_UNIT_ID, factionId: 1, memberEntityIds: [0] },
+      {
+        unitId: TARGET_UNIT_ID,
+        factionId: 2,
+        memberEntityIds: targetMembers,
+      },
+    ],
+  });
+  const formation = createFormationBehaviourStore(identity, {
+    entityCount: memberCount + 1,
+    rngSeed: 0x4d,
+    units: [
+      formationUnit(SOURCE_UNIT_ID, 100),
+      {
+        ...formationUnit(TARGET_UNIT_ID, 200),
+        rows: Math.ceil(memberCount / 10),
+        cols: Math.min(memberCount, 10),
+        cohesion: 1_000,
+      },
+    ],
+    individuals: [
+      {
+        entityId: 0,
+        role: "regular" as const,
+        slotRow: 0,
+        slotCol: 0,
+        memberMaxStep: 1,
+      },
+      ...targetMembers.map((entityId, index) => ({
+        entityId,
+        role: "regular" as const,
+        slotRow: Math.trunc(index / 10),
+        slotCol: index % 10,
+        memberMaxStep: 1,
+      })),
+    ],
   });
   return {
     identity,
@@ -348,6 +547,57 @@ function advancePressure(
     tickStartMoraleStates,
   );
   return result.updates.slice();
+}
+
+function advanceIndividualPressure(
+  harness: PressureHarness,
+  summaries: readonly IndividualCombatUnitConsequenceSummary[],
+  tickStartMoraleStates?: ReadonlyMap<
+    number,
+    "steady" | "strained" | "shaken" | "wavering" | "routing" | "recovering"
+  >,
+): readonly UnitPressureUpdate[] {
+  const result = advanceIndividualCombatPressureOneTick(
+    harness.identity,
+    harness.formation,
+    summaries,
+    harness.store,
+    harness.updates,
+    { appliedDamagePressureScale: 10 },
+    tickStartMoraleStates,
+  );
+  return result.updates.slice();
+}
+
+function individualSummary(
+  unitId: number,
+  overrides: Partial<IndividualCombatUnitConsequenceSummary> = {},
+): IndividualCombatUnitConsequenceSummary {
+  return {
+    unitId,
+    tickStartEligibleMembers: 2,
+    endOfTickEligibleMembers: 2,
+    newlyZeroMembers: 0,
+    outgoingSelectedTargets: 0,
+    incomingSelectedByHostiles: 0,
+    outgoingValidAttackAttempts: 0,
+    outgoingInvalidatedAttempts: 0,
+    outgoingGateAcceptedHits: 0,
+    incomingValidAttackAttempts: 0,
+    incomingInvalidatedAttempts: 0,
+    incomingPreventedAttacks: 0,
+    incomingParries: 0,
+    incomingBucklerBlocks: 0,
+    incomingShieldBlocks: 0,
+    incomingLandedOutcomes: 0,
+    incomingGateAcceptedHits: 0,
+    incomingGateRejectedHits: 0,
+    incomingAppliedHitLoss: 0,
+    incomingZeroHitTransitions: 0,
+    hasOutgoingEngagement: false,
+    hasIncomingEngagement: false,
+    ...overrides,
+  };
 }
 
 function engagedOpportunity(): CombatAttackOpportunity {

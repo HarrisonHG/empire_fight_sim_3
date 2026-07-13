@@ -329,13 +329,12 @@ describe("integrated individual combat observation pipeline", () => {
       tickStartEligibleMembers: 1,
       endOfTickEligibleMembers: 0,
       newlyZeroMembers: 1,
-      incomingAttackAttempts: 3,
+      incomingValidAttackAttempts: 3,
       incomingLandedOutcomes: 3,
       incomingGateAcceptedHits: 3,
       incomingAppliedHitLoss: 2,
       incomingZeroHitTransitions: 1,
       hasIncomingEngagement: true,
-      hasFreshIndividualCombatPressure: true,
     });
 
     advanceSimulationOneTick(simulation);
@@ -379,7 +378,7 @@ describe("integrated individual combat observation pipeline", () => {
       endOfTickZeroHitMemberCount: 1,
     });
     expect(consequenceForUnit(combat, 2)).toMatchObject({
-      incomingAttackAttempts: 0,
+      incomingValidAttackAttempts: 0,
       incomingGateAcceptedHits: 0,
       incomingGateRejectedHits: 0,
       incomingAppliedHitLoss: 0,
@@ -425,19 +424,18 @@ describe("integrated individual combat observation pipeline", () => {
     }
 
     expect(consequenceForUnit(combat, 1)).toMatchObject({
-      outgoingAttackAttempts: 1,
+      outgoingValidAttackAttempts: 1,
       outgoingGateAcceptedHits: 0,
       hasOutgoingEngagement: true,
     });
     expect(consequenceForUnit(combat, 2)).toMatchObject({
-      incomingAttackAttempts: 1,
+      incomingValidAttackAttempts: 1,
       incomingPreventedAttacks: 1,
       incomingShieldBlocks: 1,
       incomingLandedOutcomes: 0,
       incomingGateAcceptedHits: 0,
       incomingAppliedHitLoss: 0,
       hasIncomingEngagement: true,
-      hasFreshIndividualCombatPressure: true,
     });
   });
 
@@ -474,15 +472,15 @@ describe("integrated individual combat observation pipeline", () => {
       );
     }
     expect(consequenceForUnit(combat, 1)).toMatchObject({
-      outgoingAttackAttempts: 1,
+      outgoingValidAttackAttempts: 1,
       outgoingGateAcceptedHits: 1,
     });
     expect(consequenceForUnit(combat, 2)).toMatchObject({
-      outgoingAttackAttempts: 1,
+      outgoingValidAttackAttempts: 1,
       outgoingGateAcceptedHits: 1,
     });
     expect(consequenceForUnit(combat, 3)).toMatchObject({
-      incomingAttackAttempts: 2,
+      incomingValidAttackAttempts: 2,
       incomingLandedOutcomes: 2,
       incomingGateAcceptedHits: 2,
       incomingAppliedHitLoss: 2,
@@ -540,6 +538,13 @@ describe("integrated individual combat observation pipeline", () => {
       individualNewlyZeroCount:
         consequenceForUnit(combat, 2).newlyZeroMembers,
     });
+    expect(Object.keys(comparison)).toEqual(
+      expect.arrayContaining([
+        "legacyHadAttackOpportunity",
+        "legacyHadConsequence",
+      ]),
+    );
+    expect(Object.keys(comparison)).not.toContain("legacyConsideredEngaged");
     expect(legacyTrace(simulation)).toMatchObject({
       entityCount: (before as { entityCount: number }).entityCount,
     });
