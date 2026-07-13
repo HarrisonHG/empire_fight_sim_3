@@ -1,6 +1,6 @@
 # Milestone 5: Individual Combat State, Defence, and Empire Hit Rules
 
-Status: in progress; 5A and 5B implemented and awaiting review.
+Status: in progress; 5A, 5B, and 5C-1 implemented and awaiting review.
 
 ## Product goal
 
@@ -348,35 +348,101 @@ No attack resolution, guard, parry, shield block, damage, or target-driven strat
 
 ---
 
-## 5C — Attack commitment, recovery, guard, parry, and shield defence
+## 5C-1 — Facing and attack lifecycle
 
 ### Purpose
 
-Turn engagement into individual attack attempts and deterministic defence outcomes.
+Turn selected individual melee targets into deterministic attack commitment, recovery, facing, and attack-attempt records.
 
 ### Deliver
 
-Add dynamic combat-readiness state for:
+Add dynamic combat-action state for:
 
-- current target;
+- individual facing;
+- current combat action;
+- locked attack target;
 - attack commitment;
 - attack recovery;
-- guard readiness;
-- defence recovery;
-- facing;
-- shield coverage;
-- occupied hands;
-- current combat action.
+- current active melee weapon category;
+- transition-only action-state events.
 
 Suggested attack lifecycle:
 
 ```text
 ready
-→ committed
-→ resolved
-→ recovering
+→ committingAttack
+→ attempted or invalidated record
+→ recoveringAttack
 → ready
 ```
+
+Initial doctrine:
+
+- a ready attacker may commit only to a valid hostile selected target;
+- commitment locks the target and weapon until resolution;
+- 5B selection changes do not redirect active attacks;
+- resolution revalidates existence, hostility, melee mode, threat distance, and attack-facing arc;
+- invalidated attacks still enter recovery;
+- preferred-distance violations are recorded as `awkwardDistance`, not automatic invalidation;
+- facing is entity-owned eight-direction integer state and does not alter formation heading;
+- eight-direction quantisation uses axis dominance: exact 2:1 boundaries resolve to the axis, while less-dominant vectors resolve diagonally;
+- attack resolution quantises the current attacker-to-target vector and accepts only the locked octant plus its two adjacent octants.
+
+Produce inspectable attack-attempt records.
+
+### Boundary
+
+No guard, parry, shield defence, landed blows, global-hit loss, production-pipeline integration, movement changes, morale changes, or renderer/UI work.
+
+### 5C-1 implementation record (2026-07-13)
+
+- [x] Added a standalone entity-indexed combat-action store owning facing,
+  action state, locked target, commitment/recovery timers, active melee weapon,
+  and transition-only last-emitted state.
+- [x] Added a small pure eight-direction helper for reuse by later shield/parry
+  arcs. It quantises to east, southeast, south, southwest, west, northwest,
+  north, or northeast using integer-only 2:1 axis-dominance comparisons; exact
+  2:1 boundaries resolve to the axis, and `(0, 0)` is invalid.
+- [x] Initialised individual facing from formation heading and quantised attack
+  facing to deterministic integer eight-direction components.
+- [x] Replaced raw half-plane attack-facing revalidation with octant semantics:
+  resolution quantises the current attacker-to-target vector and allows the
+  locked facing octant plus immediately adjacent octants only.
+- [x] Added immutable timing by weapon category: dagger 2/2, one-handed 3/3,
+  great weapon 4/4, polearm 5/4, pike 6/5, thrown/rod 3/3, staff 5/4, and
+  non-melee unarmed/ranged 0/0.
+- [x] Consumed 5B selected-target records without repeating target selection or
+  building another spatial grid.
+- [x] Emitted reusable-output attack-attempt records with distance, threat,
+  preferred minimum, awkward-distance flag, facing, outcome, and explicit
+  invalidation reason.
+- [x] Added headless deterministic tests for octant quantisation, locking,
+  redirection prevention, timing order, recovery gating, invalidation, awkward
+  distance, facing, attack-arc acceptance/rejection, deterministic replay,
+  selected-record order independence, output reuse, and non-mutation of
+  movement/formation/pressure/target-selection state.
+- [x] Added standalone structural performance coverage at 100, 500, 1,000, and
+  2,000 entities in ordinary units.
+- [x] Kept production combat, guard/parry/shield defence, landed blows, global
+  hit loss, morale, movement, renderer, and UI integration deferred.
+
+---
+
+## 5C-2 — Guard, parry, and shield defence
+
+### Purpose
+
+Turn attack-attempt records into deterministic defence outcomes.
+
+### Deliver
+
+Add dynamic defence state for:
+
+- guard readiness;
+- defence recovery;
+- shield coverage;
+- occupied hands;
+- current defence action.
 
 Suggested defence result vocabulary:
 
@@ -395,10 +461,7 @@ Initial doctrine:
 - repeated attacks before guard recovery create openings;
 - multiple attackers can overwhelm defence through ordered state, not random chance;
 - shields widen active defended coverage;
-- weapons cannot parry arrows or bolts;
-- unsuitable distance can invalidate or disadvantage an attack.
-
-Produce inspectable attempt and defence records.
+- weapons cannot parry arrows or bolts.
 
 ### Boundary
 
