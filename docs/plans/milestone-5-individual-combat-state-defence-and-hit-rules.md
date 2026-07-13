@@ -1,6 +1,6 @@
 # Milestone 5: Individual Combat State, Defence, and Empire Hit Rules
 
-Status: in progress; 5A, 5B, 5C-1, and 5C-2 implemented and awaiting review.
+Status: in progress; 5A, 5B, 5C-1, 5C-2, 5D, and 5E implemented and awaiting review.
 
 ## Product goal
 
@@ -495,8 +495,10 @@ No global-hit loss yet. `landed` means the blow passed defence, not that damage 
   land as `guardRecovering`.
 - [x] Emitted reusable-output defence records containing attacker, defender,
   weapons, shield state, snapshotted defender action/guard/facing, incoming
-  octant, chosen defence, outcome, landed reason, assigned recovery, and
-  inherited `awkwardDistance`.
+  octant, `availableDefenceType`, outcome, landed reason, assigned recovery,
+  and inherited `awkwardDistance`. `availableDefenceType` identifies the
+  equipment-and-arc defence that could apply; outcome and landed reason state
+  whether it was actually executed.
 - [x] Added headless deterministic tests for parry, buckler, shield, wider
   shield arcs, slung shields, busy defenders, no-active-defence cases,
   canonical multi-attacker openings, input-order independence, snapshot
@@ -506,6 +508,8 @@ No global-hit loss yet. `landed` means the blow passed defence, not that damage 
 - [x] Kept hit loss, armour effects, global-hit state, one-second gating,
   zero-hit transitions, pressure/morale consequences, movement, production
   integration, renderer, and UI work deferred to later slices.
+- [x] 5D cleanup removed unused guard snapshot storage and renamed
+  `guardRecoveryCount` to `recoveringGuardCount`.
 
 ---
 
@@ -542,6 +546,53 @@ The zero-hit entity may be marked combat-ineligible only to prevent further ordi
 
 No death count, terminal state, dragging, treatment, execution, or egress.
 
+### 5D implementation record (2026-07-13)
+
+- [x] Added an entity-indexed `IndividualGlobalHitStore` owning immutable
+  maximum global hits, mutable current global hits, immutable derivation
+  breakdowns, immutable target armour categories, and one-shot zero-hit
+  transition memory.
+- [x] Reused 5A `deriveMaximumGlobalHits` for maximum-hit construction:
+  2 base plus Endurance, armour additions, qualifying helmet, qualifying
+  Dreadnought while wearing heavy armour, and temporary always-on modifiers.
+  Fortitude remains profile data and does not increase maximum hits.
+- [x] Initial current hits equal maximum hits. Maximum hits and derivations do
+  not mutate, and no passive hit recovery occurs.
+- [x] Added an explicit `MAX_REPRESENTABLE_GLOBAL_HITS` boundary matching the
+  current `Int32Array` storage (`2,147,483,647`). Derived maximum hits at that
+  value are accepted; derived maximum hits above it throw instead of wrapping
+  or clamping silently.
+- [x] Consumed 5C-2 `IndividualMeleeDefenceRecord` records. Only
+  `outcome === "landed"` records produce applications; parried,
+  buckler-blocked, and shield-blocked records remove no hits.
+- [x] Applied ordinary landed strikes sequentially in the canonical order
+  supplied by defence records. Each accepted ordinary landed strike removes
+  exactly one hit regardless of attacker weapon, reach, target armour, shield
+  state, or `awkwardDistance`.
+- [x] Added reusable-output hit application records containing attacker, target,
+  attacker weapon, target armour, target maximum hits, hit counts before/after,
+  requested/applied loss, zero-reaching flag, inherited awkward-distance flag,
+  `availableDefenceType`, landed reason, and application reason.
+- [x] Added one-shot `IndividualZeroHitEvent` emission when an entity moves from
+  above zero to zero. Later landed records against an already-zero entity
+  produce application records with zero applied loss and `alreadyAtZero`, but
+  no duplicate zero event.
+- [x] Explicitly left the one-second attacker-target gate inactive until 5E;
+  multiple attackers can remove multiple hits from the same defender in one
+  tick until zero is reached.
+- [x] Added headless deterministic tests for maximum-hit initialisation,
+  armour/endurance/helmet/Dreadnought/Fortitude behaviour, ordinary landed
+  strike rules, blocked outcomes, awkward distance, sequential same-tick hits,
+  zero clamping, transition-only zero events, already-zero applications,
+  immutable maximums/derivations, no passive recovery, output reuse, canonical
+  order preservation, replay, and non-mutation of unrelated state.
+- [x] Added standalone structural performance coverage at 100, 500, 1,000, and
+  2,000 entities in ordinary units.
+- [x] Kept one-second relationship gating, zero-hit attack filtering, dying,
+  casualty state, death timers, removal, healing, execution, calls, projectiles,
+  equipment damage, pressure/morale consequences, production integration,
+  renderer, and UI work deferred to 5E, Milestone 6, and later slices.
+
 ---
 
 ## 5E — Per-attacker/per-target one-second gate
@@ -570,6 +621,56 @@ Rules:
 No dense `entityCount × entityCount` structure.
 
 Add active-record count and expiry coverage to performance tests.
+
+### 5E implementation record (2026-07-13)
+
+- [x] Added a standalone sparse `IndividualLandedHitGateStore` that owns only
+  active attacker-target cooldown relationships. Relationships are stored in a
+  `Map` keyed by attacker and target entity IDs; no dense entity-by-entity
+  matrix is allocated.
+- [x] Added explicit fixed-tick semantics: one second is exactly 20 simulation
+  ticks. The gate receives `currentTick` explicitly, rejects decreasing ticks,
+  and repeated calls at the same tick remain deterministic: a relationship
+  accepted earlier at that tick causes later same-tick landed records for that
+  same pair to be rejected until the next allowed tick.
+- [x] Consumed canonical 5C-2 `IndividualMeleeDefenceRecord` records without
+  repeating defence resolution. Only `outcome === "landed"` records participate
+  in the gate; parried, buckler-blocked, and shield-blocked records neither
+  create nor extend cooldown relationships.
+- [x] Canonicalised landed records by target entity ID, then attacker entity
+  ID, so decision order does not depend on input-array order.
+- [x] Implemented per-relationship cooldown rules: the first eligible landed
+  strike is accepted and sets `nextAllowedTick = currentTick + 20`; strikes
+  before that tick are rejected without extending cooldown; a strike exactly at
+  `nextAllowedTick` is accepted; different attackers and different targets use
+  independent relationships.
+- [x] Added reusable gate-decision output containing attacker, target, current
+  tick, accepted/rejected outcome, reason, previous and resulting next-allowed
+  ticks, and remaining cooldown. Added a separate reusable accepted-record
+  array suitable for direct handoff to `applyIndividualLandedHits`.
+- [x] Expire stale relationships deterministically once their cooldown no
+  longer needs to be retained: relationships with `nextAllowedTick < currentTick`
+  expire before processing, and untouched relationships with
+  `nextAllowedTick <= currentTick` expire after processing. This preserves the
+  exact-boundary previous tick for an arriving landed record while dropping
+  inactive relationships at the same boundary.
+- [x] Returned structural counts for landed records considered, accepted,
+  rejected, relationships created, expired relationships, and active
+  relationships.
+- [x] Added headless deterministic tests for first hit acceptance, 19-tick
+  rejection, exact tick-20 acceptance, non-extending rejection, independent
+  attackers and targets, ignored blocked/parried records, canonical same-tick
+  order, reversed input order, stale expiry, accepted-record handoff into 5D,
+  multiple attackers removing one hit each, output reuse, replay determinism,
+  decreasing-tick validation, same-tick repeat determinism, forbidden fields,
+  and non-mutation of unrelated state.
+- [x] Added standalone structural performance coverage at 100, 500, 1,000, and
+  2,000 entities in ordinary units. Coverage exercises both accepted and
+  cooldown-rejected paths and reports relationships created, accepted/rejected
+  records, expired/active relationships, and mean/max/p95 timing.
+- [x] Kept zero-hit attack filtering, casualty and dying state, healing,
+  pressure and morale consequences, production integration, renderer, and UI
+  work deferred to 5F, Milestone 6, and later slices.
 
 ---
 

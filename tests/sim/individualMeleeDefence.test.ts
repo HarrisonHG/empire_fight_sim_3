@@ -51,7 +51,7 @@ describe("individual melee defence resolution", () => {
       expect.objectContaining({
         attackerEntityId: 0,
         defenderEntityId: 1,
-        chosenDefenceType: "weaponParry",
+        availableDefenceType: "weaponParry",
         outcome: "parried",
         guardStateBeforeResolution: "ready",
         defenceRecoveryTicksAssigned:
@@ -82,7 +82,7 @@ describe("individual melee defence resolution", () => {
       expect.objectContaining({
         attackerEntityId: 2,
         defenderEntityId: 1,
-        chosenDefenceType: "weaponParry",
+        availableDefenceType: "weaponParry",
         outcome: "landed",
         landedReason: "guardRecovering",
         guardStateBeforeResolution: "recovering",
@@ -125,7 +125,7 @@ describe("individual melee defence resolution", () => {
     ]);
 
     expect(resolve(harness, [attempt(0, 1)]).records[0]).toMatchObject({
-      chosenDefenceType: "bucklerBlock",
+      availableDefenceType: "bucklerBlock",
       outcome: "bucklerBlocked",
       defenceRecoveryTicksAssigned:
         INDIVIDUAL_MELEE_DEFENCE_TIMING.bucklerBlock.recoveryTicks,
@@ -139,7 +139,7 @@ describe("individual melee defence resolution", () => {
     ]);
 
     expect(resolve(harness, [attempt(0, 1)]).records[0]).toMatchObject({
-      chosenDefenceType: "shieldBlock",
+      availableDefenceType: "shieldBlock",
       outcome: "shieldBlocked",
       defenceRecoveryTicksAssigned:
         INDIVIDUAL_MELEE_DEFENCE_TIMING.shieldBlock.recoveryTicks,
@@ -181,7 +181,7 @@ describe("individual melee defence resolution", () => {
     ]);
 
     expect(resolve(harness, [attempt(0, 1)]).records[0]).toMatchObject({
-      chosenDefenceType: "none",
+      availableDefenceType: "none",
       outcome: "landed",
       landedReason: "noActiveDefence",
     });
@@ -220,7 +220,7 @@ describe("individual melee defence resolution", () => {
     ]);
 
     expect(resolve(harness, [attempt(0, 1)]).records[0]).toMatchObject({
-      chosenDefenceType: "none",
+      availableDefenceType: "none",
       outcome: "landed",
       landedReason: "noActiveDefence",
     });

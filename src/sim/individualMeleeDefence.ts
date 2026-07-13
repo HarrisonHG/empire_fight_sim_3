@@ -74,7 +74,8 @@ interface IndividualMeleeDefenceRecordBase {
   readonly defenderFacingY: EightDirectionComponent;
   readonly incomingDirectionName: EightDirectionName;
   readonly incomingDirectionOctantIndex: number;
-  readonly chosenDefenceType: IndividualMeleeDefenceType;
+  /** Equipment-and-arc defence available before guard/action-state checks. */
+  readonly availableDefenceType: IndividualMeleeDefenceType;
   readonly outcome: IndividualMeleeDefenceOutcome;
   readonly defenceRecoveryTicksAssigned: number;
   readonly awkwardDistance: boolean;
@@ -97,7 +98,7 @@ export interface IndividualMeleeDefenceTickResult {
   readonly bucklerBlockCount: number;
   readonly shieldBlockCount: number;
   readonly landedCount: number;
-  readonly guardRecoveryCount: number;
+  readonly recoveringGuardCount: number;
 }
 
 interface InternalIndividualMeleeDefenceStore
@@ -109,7 +110,6 @@ interface InternalIndividualMeleeDefenceStore
   readonly snapshottedFacingXByEntity: Int8Array;
   readonly snapshottedFacingYByEntity: Int8Array;
   readonly snapshottedActiveWeaponByEntity: IndividualWeaponCategory[];
-  readonly snapshottedGuardStateByEntity: IndividualGuardState[];
   readonly snapshottedShieldCategoryByEntity: IndividualShieldCategory[];
   readonly snapshottedShieldStateByEntity: IndividualShieldCarriedState[];
   readonly attemptScratch: IndividualMeleeAttackAttemptRecord[];
@@ -145,9 +145,6 @@ export function createIndividualMeleeDefenceStore(
     snapshottedActiveWeaponByEntity: new Array<IndividualWeaponCategory>(
       config.entityCount,
     ).fill("unarmed"),
-    snapshottedGuardStateByEntity: new Array<IndividualGuardState>(
-      config.entityCount,
-    ).fill("ready"),
     snapshottedShieldCategoryByEntity: new Array<IndividualShieldCategory>(
       config.entityCount,
     ).fill("none"),
@@ -214,10 +211,10 @@ export function resolveIndividualMeleeDefences(
     else landedCount += 1;
   }
 
-  let guardRecoveryCount = 0;
+  let recoveringGuardCount = 0;
   for (let entityId = 0; entityId < internal.entityCount; entityId += 1) {
     if (internal.guardStateByEntity[entityId] === "recovering") {
-      guardRecoveryCount += 1;
+      recoveringGuardCount += 1;
     }
   }
 
@@ -229,7 +226,7 @@ export function resolveIndividualMeleeDefences(
     bucklerBlockCount,
     shieldBlockCount,
     landedCount,
-    guardRecoveryCount,
+    recoveringGuardCount,
   };
 }
 
@@ -314,7 +311,7 @@ function resolveAttempt(
   if (availableDefence === "shieldBlock") {
     return {
       ...common,
-      chosenDefenceType: "shieldBlock",
+      availableDefenceType: "shieldBlock",
       outcome: "shieldBlocked",
       defenceRecoveryTicksAssigned: recoveryTicks,
     };
@@ -322,7 +319,7 @@ function resolveAttempt(
   if (availableDefence === "bucklerBlock") {
     return {
       ...common,
-      chosenDefenceType: "bucklerBlock",
+      availableDefenceType: "bucklerBlock",
       outcome: "bucklerBlocked",
       defenceRecoveryTicksAssigned: recoveryTicks,
     };
@@ -330,7 +327,7 @@ function resolveAttempt(
 
   return {
     ...common,
-    chosenDefenceType: "weaponParry",
+    availableDefenceType: "weaponParry",
     outcome: "parried",
     defenceRecoveryTicksAssigned: recoveryTicks,
   };
@@ -378,14 +375,14 @@ function chooseAvailableDefence(
 function landedRecord(
   common: Omit<
     IndividualMeleeDefenceRecordBase,
-    "chosenDefenceType" | "outcome" | "defenceRecoveryTicksAssigned"
+    "availableDefenceType" | "outcome" | "defenceRecoveryTicksAssigned"
   >,
-  chosenDefenceType: IndividualMeleeDefenceType,
+  availableDefenceType: IndividualMeleeDefenceType,
   landedReason: IndividualMeleeLandedReason,
 ): IndividualMeleeDefenceRecord {
   return {
     ...common,
-    chosenDefenceType,
+    availableDefenceType,
     outcome: "landed",
     landedReason,
     defenceRecoveryTicksAssigned: 0,
@@ -448,8 +445,6 @@ function snapshotDefenders(
     store.snapshottedFacingYByEntity[entityId] = facing.y;
     store.snapshottedActiveWeaponByEntity[entityId] =
       getActiveMeleeWeaponCategory(actionStore, entityId);
-    store.snapshottedGuardStateByEntity[entityId] =
-      store.guardStateByEntity[entityId]!;
     store.snapshottedShieldCategoryByEntity[entityId] =
       profile.shieldCategory;
     store.snapshottedShieldStateByEntity[entityId] =

@@ -114,7 +114,7 @@ function runDefencePerformance(entityCount: number): DefencePerformanceReport {
     bucklerBlocks += result.bucklerBlockCount;
     shieldBlocks += result.shieldBlockCount;
     landedAttacks += result.landedCount;
-    guardRecoveries += result.guardRecoveryCount;
+    guardRecoveries += result.recoveringGuardCount;
   }
 
   const sorted = Array.from(samples).sort((left, right) => left - right);
