@@ -20,6 +20,10 @@ import {
   type IndividualShieldCategory,
   type IndividualWeaponCategory,
 } from "./individualCombatProfile";
+import {
+  isIndividualCombatEligible,
+  type IndividualCombatEligibilitySnapshot,
+} from "./individualCombatEligibility";
 import type { WorldState } from "./types";
 import type { UnitIdentityStore } from "./unitIdentity";
 
@@ -182,20 +186,36 @@ export function resolveIndividualMeleeDefences(
   attackAttempts: readonly IndividualMeleeAttackAttemptRecord[],
   recordsOut: IndividualMeleeDefenceRecord[] = [],
   guardStateEventsOut: IndividualGuardStateEvent[] = [],
+  eligibility?: IndividualCombatEligibilitySnapshot,
 ): IndividualMeleeDefenceTickResult {
   validateStores(world, identityStore, actionStore, profileStore, defenceStore);
+  if (
+    eligibility !== undefined &&
+    eligibility.entityCount !== world.entityCount
+  ) {
+    throw new RangeError(
+      "Individual melee defence eligibility must match world entity count.",
+    );
+  }
   const internal = asInternal(defenceStore);
   recordsOut.length = 0;
   guardStateEventsOut.length = 0;
 
   advanceRecoveryTimers(internal, guardStateEventsOut);
   snapshotDefenders(actionStore, profileStore, internal);
-  prepareCanonicalAttempts(internal, attackAttempts);
+  prepareCanonicalAttempts(internal, attackAttempts, eligibility);
 
   for (let index = 0; index < internal.attemptScratch.length; index += 1) {
     const attempt = internal.attemptScratch[index]!;
     recordsOut.push(
-      resolveAttempt(world, profileStore, internal, attempt, guardStateEventsOut),
+      resolveAttempt(
+        world,
+        profileStore,
+        internal,
+        attempt,
+        guardStateEventsOut,
+        eligibility,
+      ),
     );
   }
 
@@ -236,6 +256,7 @@ function resolveAttempt(
   store: InternalIndividualMeleeDefenceStore,
   attempt: IndividualMeleeAttackAttemptRecord,
   eventsOut: IndividualGuardStateEvent[],
+  eligibility: IndividualCombatEligibilitySnapshot | undefined,
 ): IndividualMeleeDefenceRecord {
   const defenderEntityId = attempt.targetEntityId;
   const attackerEntityId = attempt.attackerEntityId;
@@ -288,6 +309,9 @@ function resolveAttempt(
     awkwardDistance: attempt.awkwardDistance,
   };
 
+  if (!isIndividualCombatEligible(eligibility, defenderEntityId)) {
+    return landedRecord(common, "none", "noActiveDefence");
+  }
   if (defenderActionState !== "ready") {
     return landedRecord(common, availableDefence, "defenderBusy");
   }
@@ -455,6 +479,7 @@ function snapshotDefenders(
 function prepareCanonicalAttempts(
   store: InternalIndividualMeleeDefenceStore,
   attackAttempts: readonly IndividualMeleeAttackAttemptRecord[],
+  eligibility: IndividualCombatEligibilitySnapshot | undefined,
 ): void {
   store.attemptScratch.length = 0;
   for (let index = 0; index < attackAttempts.length; index += 1) {
@@ -462,6 +487,9 @@ function prepareCanonicalAttempts(
     if (attempt.outcome === "attempted") {
       assertEntityId(attempt.attackerEntityId, store.entityCount);
       assertEntityId(attempt.targetEntityId, store.entityCount);
+      if (!isIndividualCombatEligible(eligibility, attempt.attackerEntityId)) {
+        continue;
+      }
       store.attemptScratch.push(attempt);
     }
   }
@@ -471,6 +499,7 @@ function prepareCanonicalAttempts(
       left.attackerEntityId - right.attackerEntityId,
   );
 }
+
 
 function transitionGuardState(
   store: InternalIndividualMeleeDefenceStore,

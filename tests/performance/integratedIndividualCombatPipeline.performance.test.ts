@@ -54,11 +54,13 @@ interface IntegratedIndividualPerformanceReport {
   readonly membersPerUnit: number;
   readonly worldBounds: SimulationBounds;
   readonly measuredTicks: number;
+  readonly eligibility: StageTimingReport;
   readonly targetSelection: StageTimingReport;
   readonly action: StageTimingReport;
   readonly defence: StageTimingReport;
   readonly gate: StageTimingReport;
   readonly hitApplication: StageTimingReport;
+  readonly unitAggregation: StageTimingReport;
   readonly totalIndividualPipeline: StageTimingReport;
   readonly selectedTargetRecords: number;
   readonly attackAttempts: number;
@@ -147,11 +149,13 @@ function runIntegratedIndividualPerformance(
     membersPerUnit,
     worldBounds: scenario.bounds,
     measuredTicks: MEASURED_TICKS,
+    eligibility: timingReport(stageSamples.eligibility),
     targetSelection: timingReport(stageSamples.targetSelection),
     action: timingReport(stageSamples.action),
     defence: timingReport(stageSamples.defence),
     gate: timingReport(stageSamples.gate),
     hitApplication: timingReport(stageSamples.globalHits),
+    unitAggregation: timingReport(stageSamples.aggregation),
     totalIndividualPipeline: timingReport(totalSamples),
     selectedTargetRecords,
     attackAttempts,
@@ -332,11 +336,13 @@ function createStageSamples(): Record<
   Float64Array
 > {
   return {
+    eligibility: new Float64Array(MEASURED_TICKS),
     targetSelection: new Float64Array(MEASURED_TICKS),
     action: new Float64Array(MEASURED_TICKS),
     defence: new Float64Array(MEASURED_TICKS),
     gate: new Float64Array(MEASURED_TICKS),
     globalHits: new Float64Array(MEASURED_TICKS),
+    aggregation: new Float64Array(MEASURED_TICKS),
   };
 }
 
@@ -382,6 +388,8 @@ function assertReport(
     report.defence,
     report.gate,
     report.hitApplication,
+    report.unitAggregation,
+    report.eligibility,
     report.totalIndividualPipeline,
     report.fullSandboxReference,
   ]) {

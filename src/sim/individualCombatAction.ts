@@ -12,6 +12,10 @@ import {
   type IndividualWeaponCategory,
 } from "./individualCombatProfile";
 import {
+  isIndividualCombatEligible,
+  type IndividualCombatEligibilitySnapshot,
+} from "./individualCombatEligibility";
+import {
   NO_INDIVIDUAL_TARGET,
   type IndividualSelectedTargetRecord,
 } from "./individualMeleeTargetSelection";
@@ -233,6 +237,7 @@ export function advanceIndividualCombatActions(
   store: IndividualCombatActionStore,
   attackAttemptsOut: IndividualMeleeAttackAttemptRecord[] = [],
   actionStateEventsOut: IndividualCombatActionStateEvent[] = [],
+  eligibility?: IndividualCombatEligibilitySnapshot,
 ): IndividualCombatActionTickResult {
   validateWorldAndStores(
     world,
@@ -241,6 +246,14 @@ export function advanceIndividualCombatActions(
     profileStore,
     store,
   );
+  if (
+    eligibility !== undefined &&
+    eligibility.entityCount !== world.entityCount
+  ) {
+    throw new RangeError(
+      "Individual combat action eligibility must match world entity count.",
+    );
+  }
   const internal = asInternal(store);
   prepareSelectedTargets(internal, selectedTargetRecords);
   attackAttemptsOut.length = 0;
@@ -248,6 +261,14 @@ export function advanceIndividualCombatActions(
 
   for (let entityId = 0; entityId < world.entityCount; entityId += 1) {
     const state = internal.actionStateByEntity[entityId]!;
+    if (!isIndividualCombatEligible(eligibility, entityId)) {
+      if (state === "committingAttack") {
+        cancelCommitmentIfActive(internal, entityId, actionStateEventsOut);
+      } else if (state === "recoveringAttack") {
+        advanceRecovery(internal, entityId, actionStateEventsOut);
+      }
+      continue;
+    }
     if (state === "ready") {
       tryBeginCommitment(
         world,
@@ -256,8 +277,17 @@ export function advanceIndividualCombatActions(
         internal,
         entityId,
         actionStateEventsOut,
+        eligibility,
       );
     } else if (state === "committingAttack") {
+      const targetEntityId = internal.lockedTargetByEntity[entityId]!;
+      if (
+        !targetExists(targetEntityId, world.entityCount) ||
+        !isIndividualCombatEligible(eligibility, targetEntityId)
+      ) {
+        cancelCommitmentIfActive(internal, entityId, actionStateEventsOut);
+        continue;
+      }
       advanceCommitment(
         world,
         identityStore,
@@ -266,6 +296,7 @@ export function advanceIndividualCombatActions(
         entityId,
         attackAttemptsOut,
         actionStateEventsOut,
+        eligibility,
       );
     } else {
       advanceRecovery(internal, entityId, actionStateEventsOut);
@@ -307,9 +338,16 @@ function tryBeginCommitment(
   store: InternalIndividualCombatActionStore,
   entityId: number,
   eventsOut: IndividualCombatActionStateEvent[],
+  eligibility: IndividualCombatEligibilitySnapshot | undefined,
 ): void {
   const targetEntityId = store.selectedTargetScratch[entityId]!;
   if (targetEntityId === NO_INDIVIDUAL_TARGET) return;
+  if (
+    !isIndividualCombatEligible(eligibility, entityId) ||
+    !isIndividualCombatEligible(eligibility, targetEntityId)
+  ) {
+    return;
+  }
 
   const profile = getIndividualCombatProfile(profileStore, entityId);
   const weaponCategory = store.activeWeaponByEntity[entityId]!;
@@ -349,6 +387,7 @@ function advanceCommitment(
   entityId: number,
   attackAttemptsOut: IndividualMeleeAttackAttemptRecord[],
   eventsOut: IndividualCombatActionStateEvent[],
+  eligibility: IndividualCombatEligibilitySnapshot | undefined,
 ): void {
   const remaining = store.commitmentTicksRemainingByEntity[entityId]!;
   if (remaining > 1) {
@@ -369,6 +408,7 @@ function advanceCommitment(
     targetEntityId,
     weaponCategory,
     timing,
+    eligibility,
   );
   attackAttemptsOut.push(resolved);
   store.lockedTargetByEntity[entityId] = NO_INDIVIDUAL_TARGET;
@@ -400,6 +440,7 @@ function resolveCommittedAttack(
   targetEntityId: number,
   weaponCategory: IndividualWeaponCategory,
   timing: IndividualCombatActionTiming,
+  eligibility: IndividualCombatEligibilitySnapshot | undefined,
 ): IndividualMeleeAttackAttemptRecord {
   const profile = getIndividualCombatProfile(profileStore, attackerEntityId);
   const distances = getMeleeDistances(profile, weaponCategory);
@@ -422,6 +463,12 @@ function resolveCommittedAttack(
   };
 
   if (!targetExists(targetEntityId, world.entityCount)) {
+    return invalidatedRecord(common, -1, false, "targetMissing");
+  }
+  if (
+    !isIndividualCombatEligible(eligibility, attackerEntityId) ||
+    !isIndividualCombatEligible(eligibility, targetEntityId)
+  ) {
     return invalidatedRecord(common, -1, false, "targetMissing");
   }
   if (distances.threat === 0) {
@@ -480,6 +527,18 @@ function resolveCommittedAttack(
     awkwardDistance,
     outcome: "attempted",
   };
+}
+
+function cancelCommitmentIfActive(
+  store: InternalIndividualCombatActionStore,
+  entityId: number,
+  eventsOut: IndividualCombatActionStateEvent[],
+): void {
+  if (store.actionStateByEntity[entityId] !== "committingAttack") return;
+  store.lockedTargetByEntity[entityId] = NO_INDIVIDUAL_TARGET;
+  store.commitmentTicksRemainingByEntity[entityId] = 0;
+  store.recoveryTicksRemainingByEntity[entityId] = 0;
+  transitionState(store, entityId, "ready", eventsOut);
 }
 
 function invalidatedRecord(

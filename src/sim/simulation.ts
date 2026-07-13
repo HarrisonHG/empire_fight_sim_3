@@ -36,6 +36,7 @@ import {
   createIndividualCombatProfileStoreFromUnitLoadouts,
   type IndividualCombatPipelineTickResult,
 } from "./individualCombatPipeline";
+import { getIndividualCombatUnitSummaries } from "./individualCombatAggregation";
 import {
   advanceRoutingContagionOneTick,
   createRoutingContagionStore,
@@ -513,6 +514,8 @@ function createCombatSandbox(
     loadoutStore,
     formationStore,
     individualProfileStore,
+    individualCombatEligibilitySnapshot:
+      individualCombatPipelineStores.eligibilitySnapshot,
     individualTargetSelectionStore:
       individualCombatPipelineStores.targetSelectionStore,
     individualCombatActionStore: individualCombatPipelineStores.actionStore,
@@ -520,6 +523,11 @@ function createCombatSandbox(
     individualLandedHitGateStore:
       individualCombatPipelineStores.landedHitGateStore,
     individualGlobalHitStore: individualCombatPipelineStores.globalHitStore,
+    individualCombatUnitAggregationStore:
+      individualCombatPipelineStores.unitAggregationStore,
+    individualCombatUnitSummaries: getIndividualCombatUnitSummaries(
+      individualCombatPipelineStores.unitAggregationStore,
+    ),
     individualCombatPipelineStores,
     individualCombatPipelineBuffers,
     tempoStore,
@@ -558,6 +566,9 @@ function createCombatSandbox(
     individualAppliedHitLoss: 0,
     individualZeroHitTransitionCount: 0,
     individualActiveGateRelationshipCount: 0,
+    individualCombatEligibleMemberCount: 0,
+    individualCombatIneligibleMemberCount: 0,
+    individualZeroHitMemberCount: 0,
     totalOpportunityCount: 0,
     totalStrikeCount: 0,
     totalSurvivabilityApplicationCount: 0,
@@ -576,6 +587,9 @@ function createCombatSandbox(
     totalIndividualAppliedHitLoss: 0,
     totalIndividualZeroHitTransitionCount: 0,
     totalIndividualActiveGateRelationshipCount: 0,
+    totalIndividualCombatEligibleMemberCount: 0,
+    totalIndividualCombatIneligibleMemberCount: 0,
+    totalIndividualZeroHitMemberCount: 0,
     debugSnapshot: createEmptyCombatDebugSnapshot(),
   };
   combatSandbox.debugSnapshot = createCombatDebugSnapshot(combatSandbox);
@@ -823,6 +837,11 @@ function updateIndividualCombatCounters(
     result.zeroHitTransitionCount;
   combatSandbox.individualActiveGateRelationshipCount =
     result.activeGateRelationshipCount;
+  combatSandbox.individualCombatEligibleMemberCount =
+    result.combatEligibleMemberCount;
+  combatSandbox.individualCombatIneligibleMemberCount =
+    result.combatIneligibleMemberCount;
+  combatSandbox.individualZeroHitMemberCount = result.zeroHitMemberCount;
   combatSandbox.totalIndividualEligibleMeleeSourceCount +=
     result.eligibleMeleeSourceCount;
   combatSandbox.totalIndividualSelectedTargetCount += result.selectedTargetCount;
@@ -845,6 +864,11 @@ function updateIndividualCombatCounters(
     result.zeroHitTransitionCount;
   combatSandbox.totalIndividualActiveGateRelationshipCount +=
     result.activeGateRelationshipCount;
+  combatSandbox.totalIndividualCombatEligibleMemberCount +=
+    result.combatEligibleMemberCount;
+  combatSandbox.totalIndividualCombatIneligibleMemberCount +=
+    result.combatIneligibleMemberCount;
+  combatSandbox.totalIndividualZeroHitMemberCount += result.zeroHitMemberCount;
 }
 
 /**

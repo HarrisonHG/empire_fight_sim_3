@@ -3,10 +3,15 @@ import { describe, expect, it } from "vitest";
 import { LIVE_COMBAT_SCENARIO } from "../../src/content/liveCombatScenario";
 import { getUnitCohesion } from "../../src/sim/formationBehaviour";
 import {
+  getIndividualCombatActionState,
   getLockedAttackTargetEntityId,
 } from "../../src/sim/individualCombatAction";
 import { getIndividualCombatProfile } from "../../src/sim/individualCombatProfile";
-import { getIndividualCurrentGlobalHits } from "../../src/sim/individualGlobalHits";
+import {
+  applyIndividualLandedHits,
+  getIndividualCurrentGlobalHits,
+} from "../../src/sim/individualGlobalHits";
+import type { IndividualMeleeDefenceRecord } from "../../src/sim/individualMeleeDefence";
 import { getSelectedTargetEntityId } from "../../src/sim/individualMeleeTargetSelection";
 import { getPersistentUnitMorale } from "../../src/sim/persistentMorale";
 import {
@@ -161,9 +166,9 @@ describe("integrated individual combat observation pipeline", () => {
     expect(buffers.hitApplications).toBe(applications);
     expect(buffers.zeroHitEvents).toBe(zeroEvents);
     expect(combat.individualEligibleMeleeSourceCount).toBe(2);
-    expect(combat.individualSelectedTargetCount).toBeGreaterThan(0);
+    expect(combat.totalIndividualSelectedTargetCount).toBeGreaterThan(0);
     expect(getSelectedTargetEntityId(combat.individualTargetSelectionStore, 0))
-      .toBe(targetId);
+      .toBe(-1);
     expect(
       getLockedAttackTargetEntityId(combat.individualCombatActionStore, 0),
     ).toBeGreaterThanOrEqual(-1);
@@ -195,8 +200,9 @@ describe("integrated individual combat observation pipeline", () => {
   });
 
   it("holds the one-second relationship gate under the integrated tick counter", () => {
-    const simulation = createSimulation(closeMeleeScenario());
+    const simulation = createSimulation(cooldownGateScenario());
     const combat = requireCombatSandbox(simulation);
+    const targetId = getUnitMembers(combat.identityStore, 2)[0]!;
 
     for (let tick = 0; tick < 30; tick += 1) {
       advanceSimulationOneTick(simulation);
@@ -204,9 +210,164 @@ describe("integrated individual combat observation pipeline", () => {
 
     expect(combat.totalIndividualGateAcceptedHitCount).toBeGreaterThanOrEqual(2);
     expect(combat.totalIndividualGateRejectedHitCount).toBeGreaterThan(0);
-    expect(combat.totalIndividualAppliedHitLoss).toBe(2);
-    expect(combat.totalIndividualZeroHitTransitionCount).toBe(1);
+    expect(getIndividualCurrentGlobalHits(combat.individualGlobalHitStore, targetId))
+      .toBeGreaterThan(0);
+    expect(combat.totalIndividualZeroHitTransitionCount).toBe(0);
     expect(combat.individualActiveGateRelationshipCount).toBeGreaterThan(0);
+  });
+
+  it("keeps zero-hit sources out of targeting and attack starts", () => {
+    const simulation = createSimulation(closeMeleeScenario());
+    const combat = requireCombatSandbox(simulation);
+    applyHitsToZero(combat, 0, 2);
+
+    advanceSimulationOneTick(simulation);
+
+    expect(getSelectedTargetEntityId(combat.individualTargetSelectionStore, 0))
+      .toBe(-1);
+    expect(
+      combat.individualCombatPipelineBuffers.attackAttempts.some(
+        (attempt) => attempt.attackerEntityId === 0,
+      ),
+    ).toBe(false);
+    expect(combat.individualCombatEligibleMemberCount).toBe(2);
+    expect(summaryForUnit(combat, 1)).toMatchObject({
+      memberCount: 2,
+      combatEligibleMemberCount: 1,
+      zeroHitMemberCount: 1,
+      combatCapableNumerator: 1,
+      combatCapableDenominator: 2,
+    });
+  });
+
+  it("cancels a locked attack when source or target is ineligible at tick start", () => {
+    const sourceZero = createSimulation(closeMeleeScenario());
+    const sourceCombat = requireCombatSandbox(sourceZero);
+    advanceSimulationOneTick(sourceZero);
+    expect(getIndividualCombatActionState(sourceCombat.individualCombatActionStore, 0))
+      .toBe("committingAttack");
+    applyHitsToZero(sourceCombat, 0, 2);
+    advanceSimulationOneTick(sourceZero);
+    expect(getIndividualCombatActionState(sourceCombat.individualCombatActionStore, 0))
+      .toBe("ready");
+    expect(getLockedAttackTargetEntityId(sourceCombat.individualCombatActionStore, 0))
+      .toBe(-1);
+    expect(
+      sourceCombat.individualCombatPipelineBuffers.attackAttempts.some(
+        (attempt) => attempt.attackerEntityId === 0,
+      ),
+    ).toBe(false);
+
+    const targetZero = createSimulation(closeMeleeScenario());
+    const targetCombat = requireCombatSandbox(targetZero);
+    advanceSimulationOneTick(targetZero);
+    expect(getIndividualCombatActionState(targetCombat.individualCombatActionStore, 0))
+      .toBe("committingAttack");
+    applyHitsToZero(targetCombat, 2, 0);
+    advanceSimulationOneTick(targetZero);
+    expect(getIndividualCombatActionState(targetCombat.individualCombatActionStore, 0))
+      .toBe("ready");
+    expect(getLockedAttackTargetEntityId(targetCombat.individualCombatActionStore, 0))
+      .toBe(-1);
+    expect(targetCombat.individualShieldBlockCount).toBe(0);
+  });
+
+  it("uses next-tick eligibility after same-tick zero and aggregates overkill independently", () => {
+    const simulation = createSimulation(overkillScenario());
+    const combat = requireCombatSandbox(simulation);
+    const targetId = getUnitMembers(combat.identityStore, 2)[0]!;
+
+    for (let tick = 0; tick < 4; tick += 1) {
+      advanceSimulationOneTick(simulation);
+    }
+
+    expect(getIndividualCurrentGlobalHits(combat.individualGlobalHitStore, targetId))
+      .toBe(0);
+    expect(combat.individualAppliedHitLoss).toBe(2);
+    expect(combat.individualZeroHitTransitionCount).toBe(1);
+    expect(combat.individualCombatIneligibleMemberCount).toBe(0);
+    expect(combat.individualCombatPipelineBuffers.hitApplications).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ applicationReason: "alreadyAtZero" }),
+      ]),
+    );
+    expect(summaryForUnit(combat, 2)).toMatchObject({
+      memberCount: 1,
+      combatEligibleMemberCount: 1,
+      zeroHitMemberCount: 1,
+      landedOutcomeCount: 3,
+      gateAcceptedHitCount: 3,
+      appliedHitLoss: 2,
+      zeroHitTransitionCount: 1,
+      combatCapableNumerator: 1,
+      combatCapableDenominator: 1,
+    });
+
+    advanceSimulationOneTick(simulation);
+
+    expect(combat.individualCombatIneligibleMemberCount).toBe(1);
+    expect(summaryForUnit(combat, 2)).toMatchObject({
+      combatEligibleMemberCount: 0,
+      zeroHitMemberCount: 1,
+      combatCapableNumerator: 0,
+      combatCapableDenominator: 1,
+    });
+    expect(
+      combat.individualCombatPipelineBuffers.selectedTargetRecords.some(
+        (record) => record.targetEntityId === targetId,
+      ),
+    ).toBe(false);
+  });
+
+  it("clears stale per-tick summary counts while retaining hit state", () => {
+    const simulation = createSimulation(overkillScenario());
+    const combat = requireCombatSandbox(simulation);
+    for (let tick = 0; tick < 4; tick += 1) {
+      advanceSimulationOneTick(simulation);
+    }
+    expect(summaryForUnit(combat, 2).gateAcceptedHitCount).toBe(3);
+
+    advanceSimulationOneTick(simulation);
+
+    expect(summaryForUnit(combat, 2)).toMatchObject({
+      selectedTargetCount: 0,
+      attackAttemptCount: 0,
+      landedOutcomeCount: 0,
+      gateAcceptedHitCount: 0,
+      gateRejectedHitCount: 0,
+      appliedHitLoss: 0,
+      zeroHitTransitionCount: 0,
+      zeroHitMemberCount: 1,
+    });
+  });
+
+  it("does not remove entities or alter formation movement for zero-hit members", () => {
+    const control = createSimulation(movingFormationScenario());
+    const zeroed = createSimulation(movingFormationScenario());
+    const zeroedCombat = requireCombatSandbox(zeroed);
+    applyHitsToZero(zeroedCombat, 0, 2);
+
+    for (let tick = 0; tick < 8; tick += 1) {
+      advanceSimulationOneTick(control);
+      advanceSimulationOneTick(zeroed);
+    }
+
+    const controlCombat = requireCombatSandbox(control);
+    expect(Array.from(zeroed.world.ids)).toEqual(Array.from(control.world.ids));
+    expect(getUnitMembers(zeroedCombat.identityStore, 1)).toEqual(
+      getUnitMembers(controlCombat.identityStore, 1),
+    );
+    expect(Array.from(zeroed.world.positionsX)).toEqual(
+      Array.from(control.world.positionsX),
+    );
+    expect(Array.from(zeroed.world.positionsY)).toEqual(
+      Array.from(control.world.positionsY),
+    );
+    expect(summaryForUnit(zeroedCombat, 1)).toMatchObject({
+      memberCount: 2,
+      combatEligibleMemberCount: 1,
+      zeroHitMemberCount: 1,
+    });
   });
 
   it("keeps legacy combat, pressure, cohesion, morale, and entity traces deterministic", () => {
@@ -341,6 +502,30 @@ function requireCombatSandbox(simulation: SimulationState) {
   return simulation.combatSandbox;
 }
 
+function summaryForUnit(
+  combat: ReturnType<typeof requireCombatSandbox>,
+  unitId: number,
+) {
+  const summary = combat.individualCombatUnitSummaries.find(
+    (candidate) => candidate.unitId === unitId,
+  );
+  if (summary === undefined) {
+    throw new Error(`Missing individual combat summary for unit ${unitId}.`);
+  }
+  return summary;
+}
+
+function applyHitsToZero(
+  combat: ReturnType<typeof requireCombatSandbox>,
+  targetEntityId: number,
+  attackerEntityId: number,
+): void {
+  applyIndividualLandedHits(combat.individualGlobalHitStore, [
+    landedRecord(attackerEntityId, targetEntityId),
+    landedRecord(attackerEntityId, targetEntityId),
+  ]);
+}
+
 function closeMeleeScenario(): SimulationScenario {
   return {
     seed: 0x5f01,
@@ -368,6 +553,122 @@ function closeMeleeScenario(): SimulationScenario {
           rows: 1,
           cols: 1,
           anchorX: 58,
+          anchorY: 60,
+          headingX: -1,
+          weaponCategory: "unarmed",
+          armourClass: "none",
+          shieldClass: "none",
+        }),
+      ],
+    },
+  };
+}
+
+function cooldownGateScenario(): SimulationScenario {
+  return {
+    seed: 0x5f04,
+    entityCount: 3,
+    bounds: { width: 160, height: 120 },
+    minSpeedUnitsPerTick: 1,
+    maxSpeedUnitsPerTick: 1,
+    combatSandbox: {
+      kind: "liveCombatSandbox",
+      appliedDamagePressureScale: 1,
+      units: [
+        baseUnit(1, 1, 0, 50, {
+          memberCount: 2,
+          rows: 1,
+          cols: 2,
+          anchorX: 50,
+          anchorY: 60,
+          headingX: 1,
+          weaponCategory: "oneHanded",
+          armourClass: "none",
+          shieldClass: "none",
+        }),
+        baseUnit(2, 2, 2, 58, {
+          memberCount: 1,
+          rows: 1,
+          cols: 1,
+          anchorX: 58,
+          anchorY: 60,
+          headingX: -1,
+          weaponCategory: "unarmed",
+          armourClass: "heavy",
+          shieldClass: "none",
+        }),
+      ],
+    },
+  };
+}
+
+function overkillScenario(): SimulationScenario {
+  return {
+    seed: 0x5f03,
+    entityCount: 4,
+    bounds: { width: 160, height: 120 },
+    minSpeedUnitsPerTick: 1,
+    maxSpeedUnitsPerTick: 1,
+    combatSandbox: {
+      kind: "liveCombatSandbox",
+      appliedDamagePressureScale: 1,
+      units: [
+        baseUnit(1, 1, 0, 50, {
+          memberCount: 3,
+          rows: 1,
+          cols: 3,
+          anchorX: 50,
+          anchorY: 60,
+          headingX: 1,
+          weaponCategory: "oneHanded",
+          armourClass: "none",
+          shieldClass: "none",
+        }),
+        baseUnit(2, 2, 3, 58, {
+          memberCount: 1,
+          rows: 1,
+          cols: 1,
+          anchorX: 58,
+          anchorY: 60,
+          headingX: -1,
+          weaponCategory: "unarmed",
+          armourClass: "none",
+          shieldClass: "none",
+        }),
+      ],
+    },
+  };
+}
+
+function movingFormationScenario(): SimulationScenario {
+  return {
+    seed: 0x5f05,
+    entityCount: 3,
+    bounds: { width: 180, height: 120 },
+    minSpeedUnitsPerTick: 1,
+    maxSpeedUnitsPerTick: 1,
+    combatSandbox: {
+      kind: "liveCombatSandbox",
+      appliedDamagePressureScale: 1,
+      units: [
+        baseUnit(1, 1, 0, 30, {
+          memberCount: 2,
+          rows: 1,
+          cols: 2,
+          anchorX: 30,
+          anchorY: 60,
+          headingX: 1,
+          weaponCategory: "oneHanded",
+          armourClass: "none",
+          shieldClass: "none",
+          order: "advance",
+          unitSpeed: 1,
+        }),
+        baseUnit(2, 2, 2, 130, {
+          memberCount: 1,
+          rows: 1,
+          cols: 1,
+          anchorX: 130,
           anchorY: 60,
           headingX: -1,
           weaponCategory: "unarmed",
@@ -455,5 +756,30 @@ function baseUnit(
     attackIntervalTicks: 20,
     maxDamageCapacity: 1_000_000,
     ...overrides,
+  };
+}
+
+function landedRecord(
+  attackerEntityId: number,
+  defenderEntityId: number,
+): IndividualMeleeDefenceRecord {
+  return {
+    attackerEntityId,
+    defenderEntityId,
+    attackerWeaponCategory: "oneHanded",
+    defenderActiveWeaponCategory: "oneHanded",
+    defenderShieldCategory: "none",
+    defenderShieldCarriedState: "none",
+    defenderActionState: "ready",
+    guardStateBeforeResolution: "ready",
+    defenderFacingX: -1,
+    defenderFacingY: 0,
+    incomingDirectionName: "west",
+    incomingDirectionOctantIndex: 4,
+    availableDefenceType: "none",
+    outcome: "landed",
+    landedReason: "noActiveDefence",
+    defenceRecoveryTicksAssigned: 0,
+    awkwardDistance: false,
   };
 }

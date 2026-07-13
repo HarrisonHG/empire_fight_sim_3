@@ -5,6 +5,10 @@ import {
   type IndividualCombatProfileStore,
 } from "./individualCombatProfile";
 import {
+  isIndividualCombatEligible,
+  type IndividualCombatEligibilitySnapshot,
+} from "./individualCombatEligibility";
+import {
   buildSpatialGrid,
   createSpatialGrid,
   queryEntitiesWithinRadiusInto,
@@ -118,8 +122,17 @@ export function advanceIndividualMeleeTargetSelection(
   out: IndividualSelectedTargetRecord[] = [],
   candidateQuery: IndividualTargetCandidateQuery =
     queryEntitiesWithinRadiusInto,
+  eligibility?: IndividualCombatEligibilitySnapshot,
 ): IndividualMeleeTargetSelectionTickResult {
   validateStores(world, identityStore, formationStore, profileStore, store);
+  if (
+    eligibility !== undefined &&
+    eligibility.entityCount !== world.entityCount
+  ) {
+    throw new RangeError(
+      "Individual melee targeting eligibility must match world entity count.",
+    );
+  }
   const internal = asInternal(store);
   buildSpatialGrid(internal.grid, world);
   out.length = 0;
@@ -131,6 +144,11 @@ export function advanceIndividualMeleeTargetSelection(
     const sourceDistances = getActiveMeleeDistances(sourceProfile);
     if (sourceDistances.threat === 0) {
       internal.selectedTargetByEntity[sourceEntityId] = NO_INDIVIDUAL_TARGET;
+      continue;
+    }
+    if (!isIndividualCombatEligible(eligibility, sourceEntityId)) {
+      internal.selectedTargetByEntity[sourceEntityId] = NO_INDIVIDUAL_TARGET;
+      out.push(noTargetRecord(sourceEntityId, sourceDistances));
       continue;
     }
 
@@ -165,6 +183,7 @@ export function advanceIndividualMeleeTargetSelection(
     for (let index = 0; index < candidateIds.length; index += 1) {
       const targetEntityId = candidateIds[index]!;
       if (targetEntityId === sourceEntityId) continue;
+      if (!isIndividualCombatEligible(eligibility, targetEntityId)) continue;
       const targetUnitId = getUnitIdForEntity(identityStore, targetEntityId);
       if (getFactionIdForUnit(identityStore, targetUnitId) === sourceFactionId) {
         continue;

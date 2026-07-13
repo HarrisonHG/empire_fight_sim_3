@@ -6,6 +6,17 @@ import {
   type IndividualMeleeAttackAttemptRecord,
 } from "./individualCombatAction";
 import {
+  collectIndividualCombatUnitSummaries,
+  createIndividualCombatUnitAggregationStore,
+  type IndividualCombatUnitAggregationStore,
+  type IndividualCombatUnitSummary,
+} from "./individualCombatAggregation";
+import {
+  createIndividualCombatEligibilitySnapshot,
+  projectIndividualCombatEligibilityFromHits,
+  type IndividualCombatEligibilitySnapshot,
+} from "./individualCombatEligibility";
+import {
   createIndividualCombatProfileStore,
   type IndividualArmourCategory,
   type IndividualCombatProfileConfig,
@@ -57,11 +68,13 @@ import {
 
 export interface IndividualCombatPipelineStores {
   readonly profileStore: IndividualCombatProfileStore;
+  readonly eligibilitySnapshot: IndividualCombatEligibilitySnapshot;
   readonly targetSelectionStore: IndividualMeleeTargetSelectionStore;
   readonly actionStore: IndividualCombatActionStore;
   readonly defenceStore: IndividualMeleeDefenceStore;
   readonly landedHitGateStore: IndividualLandedHitGateStore;
   readonly globalHitStore: IndividualGlobalHitStore;
+  readonly unitAggregationStore: IndividualCombatUnitAggregationStore;
 }
 
 export interface IndividualCombatPipelineBuffers {
@@ -91,6 +104,9 @@ export interface IndividualCombatPipelineStageResult {
   readonly appliedHitLoss: number;
   readonly zeroHitTransitionCount: number;
   readonly activeGateRelationshipCount: number;
+  readonly combatEligibleMemberCount: number;
+  readonly combatIneligibleMemberCount: number;
+  readonly zeroHitMemberCount: number;
 }
 
 export interface IndividualCombatPipelineTickResult
@@ -104,14 +120,17 @@ export interface IndividualCombatPipelineTickResult
   readonly acceptedLandedRecords: readonly IndividualMeleeDefenceRecord[];
   readonly hitApplications: readonly IndividualLandedHitApplicationRecord[];
   readonly zeroHitEvents: readonly IndividualZeroHitEvent[];
+  readonly unitSummaries: readonly IndividualCombatUnitSummary[];
 }
 
 export type IndividualCombatPipelineStage =
+  | "eligibility"
   | "targetSelection"
   | "action"
   | "defence"
   | "gate"
-  | "globalHits";
+  | "globalHits"
+  | "aggregation";
 
 export type IndividualCombatPipelineStageRunner = <T>(
   stage: IndividualCombatPipelineStage,
@@ -130,6 +149,9 @@ export function createIndividualCombatPipelineStores(
 ): IndividualCombatPipelineStores {
   return {
     profileStore,
+    eligibilitySnapshot: createIndividualCombatEligibilitySnapshot({
+      entityCount: world.entityCount,
+    }),
     targetSelectionStore: createIndividualMeleeTargetSelectionStore({
       entityCount: world.entityCount,
       bounds: world.bounds,
@@ -149,6 +171,8 @@ export function createIndividualCombatPipelineStores(
     globalHitStore: createIndividualGlobalHitStore(profileStore, {
       entityCount: world.entityCount,
     }),
+    unitAggregationStore:
+      createIndividualCombatUnitAggregationStore(identityStore),
   };
 }
 
@@ -176,6 +200,12 @@ export function advanceIndividualCombatPipelineObservationOneTick(
   options: IndividualCombatPipelineAdvanceOptions = {},
 ): IndividualCombatPipelineTickResult {
   const runStage = options.runStage ?? runStageDirectly;
+  const eligibilityResult = runStage("eligibility", () =>
+    projectIndividualCombatEligibilityFromHits(
+      stores.globalHitStore,
+      stores.eligibilitySnapshot,
+    ),
+  );
   const targetResult = runStage("targetSelection", () =>
     advanceIndividualMeleeTargetSelection(
       world,
@@ -184,6 +214,8 @@ export function advanceIndividualCombatPipelineObservationOneTick(
       stores.profileStore,
       stores.targetSelectionStore,
       buffers.selectedTargetRecords,
+      undefined,
+      stores.eligibilitySnapshot,
     ),
   );
   const actionResult = runStage("action", () =>
@@ -196,6 +228,7 @@ export function advanceIndividualCombatPipelineObservationOneTick(
       stores.actionStore,
       buffers.attackAttempts,
       buffers.actionStateEvents,
+      stores.eligibilitySnapshot,
     ),
   );
   const defenceResult = runStage("defence", () =>
@@ -208,6 +241,7 @@ export function advanceIndividualCombatPipelineObservationOneTick(
       actionResult.attackAttempts,
       buffers.defenceRecords,
       buffers.guardStateEvents,
+      stores.eligibilitySnapshot,
     ),
   );
   const gateResult = runStage("gate", () =>
@@ -227,6 +261,22 @@ export function advanceIndividualCombatPipelineObservationOneTick(
       buffers.zeroHitEvents,
     ),
   );
+  const aggregationResult = runStage("aggregation", () =>
+    collectIndividualCombatUnitSummaries(
+      identityStore,
+      stores.eligibilitySnapshot,
+      stores.globalHitStore,
+      stores.actionStore,
+      stores.defenceStore,
+      targetResult.records,
+      actionResult.attackAttempts,
+      defenceResult.records,
+      gateResult.decisions,
+      hitResult.applications,
+      hitResult.zeroHitEvents,
+      stores.unitAggregationStore,
+    ),
+  );
 
   return {
     selectedTargetRecords: targetResult.records,
@@ -238,6 +288,7 @@ export function advanceIndividualCombatPipelineObservationOneTick(
     acceptedLandedRecords: gateResult.acceptedRecords,
     hitApplications: hitResult.applications,
     zeroHitEvents: hitResult.zeroHitEvents,
+    unitSummaries: aggregationResult.summaries,
     eligibleMeleeSourceCount: targetResult.queryCount,
     selectedTargetCount: targetResult.activeTargetCount,
     activeCommitmentCount: actionResult.activeCommitmentCount,
@@ -252,7 +303,20 @@ export function advanceIndividualCombatPipelineObservationOneTick(
     appliedHitLoss: hitResult.totalAppliedHitLoss,
     zeroHitTransitionCount: hitResult.zeroHitEvents.length,
     activeGateRelationshipCount: gateResult.activeRelationshipCount,
+    combatEligibleMemberCount: eligibilityResult.eligibleCount,
+    combatIneligibleMemberCount: eligibilityResult.ineligibleCount,
+    zeroHitMemberCount: countZeroHitMembers(aggregationResult.summaries),
   };
+}
+
+function countZeroHitMembers(
+  summaries: readonly IndividualCombatUnitSummary[],
+): number {
+  let count = 0;
+  for (let index = 0; index < summaries.length; index += 1) {
+    count += summaries[index]!.zeroHitMemberCount;
+  }
+  return count;
 }
 
 export function createIndividualCombatProfileStoreFromUnitLoadouts(

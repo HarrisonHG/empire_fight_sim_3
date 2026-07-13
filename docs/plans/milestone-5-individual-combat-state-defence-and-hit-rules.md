@@ -1,6 +1,6 @@
 # Milestone 5: Individual Combat State, Defence, and Empire Hit Rules
 
-Status: in progress; 5A, 5B, 5C-1, 5C-2, 5D, 5E, and 5F-1 implemented and awaiting review.
+Status: in progress; 5A, 5B, 5C-1, 5C-2, 5D, 5E, 5F-1, and 5F-2 implemented and awaiting review.
 
 ## Product goal
 
@@ -791,6 +791,60 @@ Add derived unit summaries such as:
 Zero-hit filtering may be introduced here only as an eligibility rule and
 handoff for the later casualty lifecycle. Do not implement dying, removal,
 healing, or routing movement here.
+
+### 5F-2 implementation record (2026-07-13)
+
+- [x] Added a tick-start individual combat eligibility projection owned by the
+  individual observation pipeline. Current global hits greater than zero are
+  combat-eligible; zero current hits are combat-ineligible. The snapshot is
+  stable for target selection, action commitment/resolution, defence, gate, and
+  hit application during that tick, so a same-tick zero-hit transition becomes
+  ineligible on the next tick.
+- [x] Threaded explicit eligibility inputs through individual target selection,
+  attack action, and melee defence. Combat-ineligible entities do not select
+  targets, are ignored as ordinary melee targets, do not begin or complete
+  attacks, and do not actively parry or block. Existing committed attacks are
+  cancelled deterministically to ready when the source or locked target is
+  ineligible at tick start. Recovery timers may still tick down because no new
+  attack or defence is produced.
+- [x] Added a reusable per-unit individual combat aggregation store and summary
+  records after global-hit application. Summaries include member count,
+  combat-eligible members, zero-hit members, selected targets, committing and
+  recovering attackers, ready and recovering guards, attempts, invalidations,
+  parries, buckler blocks, shield blocks, landed outcomes, gate-accepted and
+  gate-rejected hits, applied hit loss, zero-hit transitions, and deterministic
+  combat-capable numerator/denominator fields.
+- [x] Extended the integrated observation pipeline order to:
+
+  ```text
+  formation
+  → eligibility snapshot
+  → target selection
+  → actions
+  → defence
+  → gate
+  → global hits
+  → unit aggregation
+  ```
+
+- [x] Kept the legacy unit combat/consequence/pressure/morale path authoritative
+  and unchanged. Aggregation is not written into pressure, cohesion, morale,
+  routing, renderer snapshots, UI, or worker messages in this slice.
+- [x] Added integration coverage for zero-hit source filtering, zero-hit target
+  filtering on the next tick, zero-hit defender inability to actively defend,
+  stale attack cancellation for ineligible sources and targets, same-tick
+  zero-transition semantics, overkill `alreadyAtZero` records, independent
+  multi-unit summaries, stale per-tick summary clearing, deterministic
+  combat-capable fractions, unchanged entity positions/membership, unchanged
+  legacy pressure/cohesion/morale traces, and deterministic replay.
+- [x] Extended the integrated benchmark to report eligibility projection and
+  unit aggregation separately at 100, 500, 1,000, and 2,000 entities, alongside
+  target selection, actions, defence, gate, hit application, total individual
+  path, and actual full live tick with the legacy and observation paths active.
+- [x] Deferred dying/casualty states, falls, death counts, treatment/healing,
+  pressure and morale cutover, legacy combat removal, renderer/UI snapshots,
+  visual scenarios, energy, calls, projectiles, line-gap geometry, casualty
+  position, and shield-wall doctrine to 5F-3, Milestone 6, or later slices.
 
 ---
 
