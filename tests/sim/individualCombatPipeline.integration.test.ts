@@ -11,6 +11,10 @@ import {
   applyIndividualLandedHits,
   getIndividualCurrentGlobalHits,
 } from "../../src/sim/individualGlobalHits";
+import {
+  createIndividualCombatConsequenceProjectionStore,
+  projectIndividualCombatConsequences,
+} from "../../src/sim/individualCombatConsequences";
 import type { IndividualMeleeDefenceRecord } from "../../src/sim/individualMeleeDefence";
 import { getSelectedTargetEntityId } from "../../src/sim/individualMeleeTargetSelection";
 import { getPersistentUnitMorale } from "../../src/sim/persistentMorale";
@@ -203,13 +207,21 @@ describe("integrated individual combat observation pipeline", () => {
     const simulation = createSimulation(cooldownGateScenario());
     const combat = requireCombatSandbox(simulation);
     const targetId = getUnitMembers(combat.identityStore, 2)[0]!;
+    let observedRejectedAttribution = false;
 
     for (let tick = 0; tick < 30; tick += 1) {
       advanceSimulationOneTick(simulation);
+      if (combat.individualGateRejectedHitCount > 0) {
+        observedRejectedAttribution = true;
+        expect(consequenceForUnit(combat, 2).incomingGateRejectedHits).toBe(
+          combat.individualGateRejectedHitCount,
+        );
+      }
     }
 
     expect(combat.totalIndividualGateAcceptedHitCount).toBeGreaterThanOrEqual(2);
     expect(combat.totalIndividualGateRejectedHitCount).toBeGreaterThan(0);
+    expect(observedRejectedAttribution).toBe(true);
     expect(getIndividualCurrentGlobalHits(combat.individualGlobalHitStore, targetId))
       .toBeGreaterThan(0);
     expect(combat.totalIndividualZeroHitTransitionCount).toBe(0);
@@ -230,14 +242,21 @@ describe("integrated individual combat observation pipeline", () => {
         (attempt) => attempt.attackerEntityId === 0,
       ),
     ).toBe(false);
-    expect(combat.individualCombatEligibleMemberCount).toBe(2);
+    expect(combat.individualTickStartCombatEligibleMemberCount).toBe(2);
     expect(summaryForUnit(combat, 1)).toMatchObject({
       memberCount: 2,
-      combatEligibleMemberCount: 1,
-      zeroHitMemberCount: 1,
-      combatCapableNumerator: 1,
-      combatCapableDenominator: 2,
+      tickStartCombatEligibleMemberCount: 1,
+      endOfTickCombatEligibleMemberCount: 1,
+      endOfTickZeroHitMemberCount: 1,
+      tickStartCombatCapableNumerator: 1,
+      tickStartCombatCapableDenominator: 2,
+      endOfTickCombatCapableNumerator: 1,
+      endOfTickCombatCapableDenominator: 2,
     });
+    expect(
+      summaryForUnit(combat, 1).eligibleReadyGuardCount +
+        summaryForUnit(combat, 1).eligibleRecoveringGuardCount,
+    ).toBe(1);
   });
 
   it("cancels a locked attack when source or target is ineligible at tick start", () => {
@@ -285,7 +304,7 @@ describe("integrated individual combat observation pipeline", () => {
       .toBe(0);
     expect(combat.individualAppliedHitLoss).toBe(2);
     expect(combat.individualZeroHitTransitionCount).toBe(1);
-    expect(combat.individualCombatIneligibleMemberCount).toBe(0);
+    expect(combat.individualTickStartCombatIneligibleMemberCount).toBe(0);
     expect(combat.individualCombatPipelineBuffers.hitApplications).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ applicationReason: "alreadyAtZero" }),
@@ -293,24 +312,43 @@ describe("integrated individual combat observation pipeline", () => {
     );
     expect(summaryForUnit(combat, 2)).toMatchObject({
       memberCount: 1,
-      combatEligibleMemberCount: 1,
-      zeroHitMemberCount: 1,
+      tickStartCombatEligibleMemberCount: 1,
+      endOfTickCombatEligibleMemberCount: 0,
+      endOfTickZeroHitMemberCount: 1,
+      newlyZeroHitMemberCount: 1,
       landedOutcomeCount: 3,
       gateAcceptedHitCount: 3,
       appliedHitLoss: 2,
       zeroHitTransitionCount: 1,
-      combatCapableNumerator: 1,
-      combatCapableDenominator: 1,
+      tickStartCombatCapableNumerator: 1,
+      tickStartCombatCapableDenominator: 1,
+      endOfTickCombatCapableNumerator: 0,
+      endOfTickCombatCapableDenominator: 1,
+    });
+    expect(consequenceForUnit(combat, 2)).toMatchObject({
+      tickStartEligibleMembers: 1,
+      endOfTickEligibleMembers: 0,
+      newlyZeroMembers: 1,
+      incomingAttackAttempts: 3,
+      incomingLandedOutcomes: 3,
+      incomingGateAcceptedHits: 3,
+      incomingAppliedHitLoss: 2,
+      incomingZeroHitTransitions: 1,
+      hasIncomingEngagement: true,
+      hasFreshIndividualCombatPressure: true,
     });
 
     advanceSimulationOneTick(simulation);
 
-    expect(combat.individualCombatIneligibleMemberCount).toBe(1);
+    expect(combat.individualTickStartCombatIneligibleMemberCount).toBe(1);
     expect(summaryForUnit(combat, 2)).toMatchObject({
-      combatEligibleMemberCount: 0,
-      zeroHitMemberCount: 1,
-      combatCapableNumerator: 0,
-      combatCapableDenominator: 1,
+      tickStartCombatEligibleMemberCount: 0,
+      endOfTickCombatEligibleMemberCount: 0,
+      endOfTickZeroHitMemberCount: 1,
+      tickStartCombatCapableNumerator: 0,
+      tickStartCombatCapableDenominator: 1,
+      endOfTickCombatCapableNumerator: 0,
+      endOfTickCombatCapableDenominator: 1,
     });
     expect(
       combat.individualCombatPipelineBuffers.selectedTargetRecords.some(
@@ -326,18 +364,26 @@ describe("integrated individual combat observation pipeline", () => {
       advanceSimulationOneTick(simulation);
     }
     expect(summaryForUnit(combat, 2).gateAcceptedHitCount).toBe(3);
+    expect(consequenceForUnit(combat, 2).incomingGateAcceptedHits).toBe(3);
 
     advanceSimulationOneTick(simulation);
 
     expect(summaryForUnit(combat, 2)).toMatchObject({
-      selectedTargetCount: 0,
+      eligibleSelectedTargetCount: 0,
       attackAttemptCount: 0,
       landedOutcomeCount: 0,
       gateAcceptedHitCount: 0,
       gateRejectedHitCount: 0,
       appliedHitLoss: 0,
       zeroHitTransitionCount: 0,
-      zeroHitMemberCount: 1,
+      endOfTickZeroHitMemberCount: 1,
+    });
+    expect(consequenceForUnit(combat, 2)).toMatchObject({
+      incomingAttackAttempts: 0,
+      incomingGateAcceptedHits: 0,
+      incomingGateRejectedHits: 0,
+      incomingAppliedHitLoss: 0,
+      incomingZeroHitTransitions: 0,
     });
   });
 
@@ -365,8 +411,137 @@ describe("integrated individual combat observation pipeline", () => {
     );
     expect(summaryForUnit(zeroedCombat, 1)).toMatchObject({
       memberCount: 2,
-      combatEligibleMemberCount: 1,
-      zeroHitMemberCount: 1,
+      tickStartCombatEligibleMemberCount: 1,
+      endOfTickZeroHitMemberCount: 1,
+    });
+  });
+
+  it("attributes prevented attacks without counting them as landed outcomes", () => {
+    const simulation = createSimulation(shieldBlockScenario());
+    const combat = requireCombatSandbox(simulation);
+
+    for (let tick = 0; tick < 4; tick += 1) {
+      advanceSimulationOneTick(simulation);
+    }
+
+    expect(consequenceForUnit(combat, 1)).toMatchObject({
+      outgoingAttackAttempts: 1,
+      outgoingGateAcceptedHits: 0,
+      hasOutgoingEngagement: true,
+    });
+    expect(consequenceForUnit(combat, 2)).toMatchObject({
+      incomingAttackAttempts: 1,
+      incomingPreventedAttacks: 1,
+      incomingShieldBlocks: 1,
+      incomingLandedOutcomes: 0,
+      incomingGateAcceptedHits: 0,
+      incomingAppliedHitLoss: 0,
+      hasIncomingEngagement: true,
+      hasFreshIndividualCombatPressure: true,
+    });
+  });
+
+  it("attributes several attacking units independently and reuses read-model objects", () => {
+    const simulation = createSimulation(multiSourceOverkillScenario());
+    const combat = requireCombatSandbox(simulation);
+    const unitSummaryObjects = combat.individualCombatUnitSummaries.slice();
+    const consequenceSummaryObjects =
+      combat.individualCombatConsequenceSummaries.slice();
+    const comparisonObjects = combat.individualCombatShadowComparisons.slice();
+
+    for (let tick = 0; tick < 4; tick += 1) {
+      advanceSimulationOneTick(simulation);
+    }
+
+    expect(combat.individualCombatUnitSummaries.length).toBe(
+      unitSummaryObjects.length,
+    );
+    expect(combat.individualCombatConsequenceSummaries.length).toBe(
+      consequenceSummaryObjects.length,
+    );
+    expect(combat.individualCombatShadowComparisons.length).toBe(
+      comparisonObjects.length,
+    );
+    for (let index = 0; index < unitSummaryObjects.length; index += 1) {
+      expect(combat.individualCombatUnitSummaries[index]).toBe(
+        unitSummaryObjects[index],
+      );
+      expect(combat.individualCombatConsequenceSummaries[index]).toBe(
+        consequenceSummaryObjects[index],
+      );
+      expect(combat.individualCombatShadowComparisons[index]).toBe(
+        comparisonObjects[index],
+      );
+    }
+    expect(consequenceForUnit(combat, 1)).toMatchObject({
+      outgoingAttackAttempts: 1,
+      outgoingGateAcceptedHits: 1,
+    });
+    expect(consequenceForUnit(combat, 2)).toMatchObject({
+      outgoingAttackAttempts: 1,
+      outgoingGateAcceptedHits: 1,
+    });
+    expect(consequenceForUnit(combat, 3)).toMatchObject({
+      incomingAttackAttempts: 2,
+      incomingLandedOutcomes: 2,
+      incomingGateAcceptedHits: 2,
+      incomingAppliedHitLoss: 2,
+      incomingZeroHitTransitions: 1,
+      newlyZeroMembers: 1,
+    });
+  });
+
+  it("projects identical consequences for reversed input record order", () => {
+    const simulation = createSimulation(overkillScenario());
+    const combat = requireCombatSandbox(simulation);
+    for (let tick = 0; tick < 4; tick += 1) {
+      advanceSimulationOneTick(simulation);
+    }
+
+    const reversedStore = createIndividualCombatConsequenceProjectionStore(
+      combat.identityStore,
+    );
+    const reversed = projectIndividualCombatConsequences(
+      combat.identityStore,
+      combat.individualCombatUnitSummaries.slice().reverse(),
+      combat.individualCombatPipelineBuffers.selectedTargetRecords
+        .slice()
+        .reverse(),
+      combat.individualCombatPipelineBuffers.attackAttempts.slice().reverse(),
+      combat.individualCombatPipelineBuffers.defenceRecords.slice().reverse(),
+      combat.individualCombatPipelineBuffers.gateDecisions.slice().reverse(),
+      combat.individualCombatPipelineBuffers.hitApplications.slice().reverse(),
+      combat.individualCombatPipelineBuffers.zeroHitEvents.slice().reverse(),
+      reversedStore,
+    );
+
+    expect(reversed.summaries.map((summary) => ({ ...summary }))).toEqual(
+      combat.individualCombatConsequenceSummaries.map((summary) => ({
+        ...summary,
+      })),
+    );
+  });
+
+  it("keeps shadow comparison diagnostic and non-authoritative", () => {
+    const simulation = createSimulation(closeMeleeScenario());
+    const before = legacyTrace(simulation);
+
+    for (let tick = 0; tick < 8; tick += 1) {
+      advanceSimulationOneTick(simulation);
+    }
+
+    const combat = requireCombatSandbox(simulation);
+    const comparison = shadowComparisonForUnit(combat, 2);
+    expect(comparison).toMatchObject({
+      individualIncomingEngagement:
+        consequenceForUnit(combat, 2).hasIncomingEngagement,
+      individualAppliedHitLoss:
+        consequenceForUnit(combat, 2).incomingAppliedHitLoss,
+      individualNewlyZeroCount:
+        consequenceForUnit(combat, 2).newlyZeroMembers,
+    });
+    expect(legacyTrace(simulation)).toMatchObject({
+      entityCount: (before as { entityCount: number }).entityCount,
     });
   });
 
@@ -417,6 +592,15 @@ function runCloseMeleeReplay(): unknown {
     })),
     zeroEvents: combat.individualCombatPipelineBuffers.zeroHitEvents.map(
       (record) => ({ ...record }),
+    ),
+    unitSummaries: combat.individualCombatUnitSummaries.map((summary) => ({
+      ...summary,
+    })),
+    consequenceSummaries: combat.individualCombatConsequenceSummaries.map(
+      (summary) => ({ ...summary }),
+    ),
+    shadowComparisons: combat.individualCombatShadowComparisons.map(
+      (comparison) => ({ ...comparison }),
     ),
     counters: individualCounterTrace(combat),
   };
@@ -513,6 +697,32 @@ function summaryForUnit(
     throw new Error(`Missing individual combat summary for unit ${unitId}.`);
   }
   return summary;
+}
+
+function consequenceForUnit(
+  combat: ReturnType<typeof requireCombatSandbox>,
+  unitId: number,
+) {
+  const summary = combat.individualCombatConsequenceSummaries.find(
+    (candidate) => candidate.unitId === unitId,
+  );
+  if (summary === undefined) {
+    throw new Error(`Missing individual combat consequence for unit ${unitId}.`);
+  }
+  return summary;
+}
+
+function shadowComparisonForUnit(
+  combat: ReturnType<typeof requireCombatSandbox>,
+  unitId: number,
+) {
+  const comparison = combat.individualCombatShadowComparisons.find(
+    (candidate) => candidate.unitId === unitId,
+  );
+  if (comparison === undefined) {
+    throw new Error(`Missing individual combat shadow comparison for ${unitId}.`);
+  }
+  return comparison;
 }
 
 function applyHitsToZero(
@@ -669,6 +879,93 @@ function movingFormationScenario(): SimulationScenario {
           rows: 1,
           cols: 1,
           anchorX: 130,
+          anchorY: 60,
+          headingX: -1,
+          weaponCategory: "unarmed",
+          armourClass: "none",
+          shieldClass: "none",
+        }),
+      ],
+    },
+  };
+}
+
+function shieldBlockScenario(): SimulationScenario {
+  return {
+    seed: 0x5f06,
+    entityCount: 2,
+    bounds: { width: 160, height: 120 },
+    minSpeedUnitsPerTick: 1,
+    maxSpeedUnitsPerTick: 1,
+    combatSandbox: {
+      kind: "liveCombatSandbox",
+      appliedDamagePressureScale: 1,
+      units: [
+        baseUnit(1, 1, 0, 50, {
+          memberCount: 1,
+          rows: 1,
+          cols: 1,
+          anchorX: 50,
+          anchorY: 60,
+          headingX: 1,
+          weaponCategory: "oneHanded",
+          armourClass: "none",
+          shieldClass: "none",
+        }),
+        baseUnit(2, 2, 1, 58, {
+          memberCount: 1,
+          rows: 1,
+          cols: 1,
+          anchorX: 58,
+          anchorY: 60,
+          headingX: -1,
+          weaponCategory: "unarmed",
+          armourClass: "none",
+          shieldClass: "shield",
+        }),
+      ],
+    },
+  };
+}
+
+function multiSourceOverkillScenario(): SimulationScenario {
+  return {
+    seed: 0x5f07,
+    entityCount: 3,
+    bounds: { width: 160, height: 120 },
+    minSpeedUnitsPerTick: 1,
+    maxSpeedUnitsPerTick: 1,
+    combatSandbox: {
+      kind: "liveCombatSandbox",
+      appliedDamagePressureScale: 1,
+      units: [
+        baseUnit(1, 1, 0, 50, {
+          memberCount: 1,
+          rows: 1,
+          cols: 1,
+          anchorX: 50,
+          anchorY: 58,
+          headingX: 1,
+          weaponCategory: "oneHanded",
+          armourClass: "none",
+          shieldClass: "none",
+        }),
+        baseUnit(2, 1, 1, 50, {
+          memberCount: 1,
+          rows: 1,
+          cols: 1,
+          anchorX: 50,
+          anchorY: 62,
+          headingX: 1,
+          weaponCategory: "oneHanded",
+          armourClass: "none",
+          shieldClass: "none",
+        }),
+        baseUnit(3, 2, 2, 58, {
+          memberCount: 1,
+          rows: 1,
+          cols: 1,
+          anchorX: 58,
           anchorY: 60,
           headingX: -1,
           weaponCategory: "unarmed",

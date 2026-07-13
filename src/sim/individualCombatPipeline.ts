@@ -12,6 +12,12 @@ import {
   type IndividualCombatUnitSummary,
 } from "./individualCombatAggregation";
 import {
+  createIndividualCombatConsequenceProjectionStore,
+  projectIndividualCombatConsequences,
+  type IndividualCombatConsequenceProjectionStore,
+  type IndividualCombatUnitConsequenceSummary,
+} from "./individualCombatConsequences";
+import {
   createIndividualCombatEligibilitySnapshot,
   projectIndividualCombatEligibilityFromHits,
   type IndividualCombatEligibilitySnapshot,
@@ -75,6 +81,7 @@ export interface IndividualCombatPipelineStores {
   readonly landedHitGateStore: IndividualLandedHitGateStore;
   readonly globalHitStore: IndividualGlobalHitStore;
   readonly unitAggregationStore: IndividualCombatUnitAggregationStore;
+  readonly consequenceProjectionStore: IndividualCombatConsequenceProjectionStore;
 }
 
 export interface IndividualCombatPipelineBuffers {
@@ -104,9 +111,11 @@ export interface IndividualCombatPipelineStageResult {
   readonly appliedHitLoss: number;
   readonly zeroHitTransitionCount: number;
   readonly activeGateRelationshipCount: number;
-  readonly combatEligibleMemberCount: number;
-  readonly combatIneligibleMemberCount: number;
-  readonly zeroHitMemberCount: number;
+  readonly tickStartCombatEligibleMemberCount: number;
+  readonly tickStartCombatIneligibleMemberCount: number;
+  readonly endOfTickCombatEligibleMemberCount: number;
+  readonly endOfTickZeroHitMemberCount: number;
+  readonly newlyZeroHitMemberCount: number;
 }
 
 export interface IndividualCombatPipelineTickResult
@@ -121,6 +130,7 @@ export interface IndividualCombatPipelineTickResult
   readonly hitApplications: readonly IndividualLandedHitApplicationRecord[];
   readonly zeroHitEvents: readonly IndividualZeroHitEvent[];
   readonly unitSummaries: readonly IndividualCombatUnitSummary[];
+  readonly consequenceSummaries: readonly IndividualCombatUnitConsequenceSummary[];
 }
 
 export type IndividualCombatPipelineStage =
@@ -130,7 +140,8 @@ export type IndividualCombatPipelineStage =
   | "defence"
   | "gate"
   | "globalHits"
-  | "aggregation";
+  | "aggregation"
+  | "consequenceProjection";
 
 export type IndividualCombatPipelineStageRunner = <T>(
   stage: IndividualCombatPipelineStage,
@@ -173,6 +184,8 @@ export function createIndividualCombatPipelineStores(
     }),
     unitAggregationStore:
       createIndividualCombatUnitAggregationStore(identityStore),
+    consequenceProjectionStore:
+      createIndividualCombatConsequenceProjectionStore(identityStore),
   };
 }
 
@@ -277,6 +290,19 @@ export function advanceIndividualCombatPipelineObservationOneTick(
       stores.unitAggregationStore,
     ),
   );
+  const consequenceProjectionResult = runStage("consequenceProjection", () =>
+    projectIndividualCombatConsequences(
+      identityStore,
+      aggregationResult.summaries,
+      targetResult.records,
+      actionResult.attackAttempts,
+      defenceResult.records,
+      gateResult.decisions,
+      hitResult.applications,
+      hitResult.zeroHitEvents,
+      stores.consequenceProjectionStore,
+    ),
+  );
 
   return {
     selectedTargetRecords: targetResult.records,
@@ -289,6 +315,7 @@ export function advanceIndividualCombatPipelineObservationOneTick(
     hitApplications: hitResult.applications,
     zeroHitEvents: hitResult.zeroHitEvents,
     unitSummaries: aggregationResult.summaries,
+    consequenceSummaries: consequenceProjectionResult.summaries,
     eligibleMeleeSourceCount: targetResult.queryCount,
     selectedTargetCount: targetResult.activeTargetCount,
     activeCommitmentCount: actionResult.activeCommitmentCount,
@@ -303,18 +330,34 @@ export function advanceIndividualCombatPipelineObservationOneTick(
     appliedHitLoss: hitResult.totalAppliedHitLoss,
     zeroHitTransitionCount: hitResult.zeroHitEvents.length,
     activeGateRelationshipCount: gateResult.activeRelationshipCount,
-    combatEligibleMemberCount: eligibilityResult.eligibleCount,
-    combatIneligibleMemberCount: eligibilityResult.ineligibleCount,
-    zeroHitMemberCount: countZeroHitMembers(aggregationResult.summaries),
+    tickStartCombatEligibleMemberCount: eligibilityResult.eligibleCount,
+    tickStartCombatIneligibleMemberCount: eligibilityResult.ineligibleCount,
+    endOfTickCombatEligibleMemberCount: countEndOfTickEligibleMembers(
+      aggregationResult.summaries,
+    ),
+    endOfTickZeroHitMemberCount: countEndOfTickZeroHitMembers(
+      aggregationResult.summaries,
+    ),
+    newlyZeroHitMemberCount: hitResult.zeroHitEvents.length,
   };
 }
 
-function countZeroHitMembers(
+function countEndOfTickEligibleMembers(
   summaries: readonly IndividualCombatUnitSummary[],
 ): number {
   let count = 0;
   for (let index = 0; index < summaries.length; index += 1) {
-    count += summaries[index]!.zeroHitMemberCount;
+    count += summaries[index]!.endOfTickCombatEligibleMemberCount;
+  }
+  return count;
+}
+
+function countEndOfTickZeroHitMembers(
+  summaries: readonly IndividualCombatUnitSummary[],
+): number {
+  let count = 0;
+  for (let index = 0; index < summaries.length; index += 1) {
+    count += summaries[index]!.endOfTickZeroHitMemberCount;
   }
   return count;
 }

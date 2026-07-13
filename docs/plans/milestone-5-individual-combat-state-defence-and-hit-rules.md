@@ -1,6 +1,6 @@
 # Milestone 5: Individual Combat State, Defence, and Empire Hit Rules
 
-Status: in progress; 5A, 5B, 5C-1, 5C-2, 5D, 5E, 5F-1, and 5F-2 implemented and awaiting review.
+Status: in progress; 5A, 5B, 5C-1, 5C-2, 5D, 5E, 5F-1, 5F-2, and 5F-3A implemented and awaiting review.
 
 ## Product goal
 
@@ -760,7 +760,7 @@ eligible in this temporary observation slice.
   aggregation, pressure/morale migration, legacy pipeline retirement,
   renderer/UI/debug snapshot expansion, visual scenarios, healing, calls,
   projectiles, backup weapon switching, dual wielding, energy, and command
-  behaviour to 5F-2, 5F-3, Milestone 6, or later slices.
+  behaviour to 5F-2, 5F-3A, 5F-3B, Milestone 6, or later slices.
 
 ---
 
@@ -844,11 +844,85 @@ healing, or routing movement here.
 - [x] Deferred dying/casualty states, falls, death counts, treatment/healing,
   pressure and morale cutover, legacy combat removal, renderer/UI snapshots,
   visual scenarios, energy, calls, projectiles, line-gap geometry, casualty
-  position, and shield-wall doctrine to 5F-3, Milestone 6, or later slices.
+  position, and shield-wall doctrine to 5F-3A, 5F-3B, Milestone 6, or later
+  slices.
 
 ---
 
-## 5F-3 — Pressure/morale cutover and legacy retirement
+## 5F-3A — Individual consequence projection in shadow mode
+
+### Purpose
+
+Make the individual observation path explain its unit-level consequences before
+it becomes authoritative for pressure or morale.
+
+### Deliver
+
+Clarify unit aggregation timing:
+
+- tick-start combat eligibility remains the authority for this tick's target,
+  action, and defence participation;
+- end-of-tick combat capability is derived from global hits after hit
+  application;
+- same-tick zero transitions remain tick-start eligible, become end-of-tick
+  ineligible, and become combat-ineligible on the next tick;
+- ready/committing/recovering guard and action counts include only tick-start
+  eligible fighters.
+
+Add a headless read model that projects individual records into per-unit
+consequence summaries with outgoing and incoming attribution.
+
+Keep the accepted legacy combat, pressure, cohesion, morale, routing, and
+recovery path authoritative.
+
+### 5F-3A implementation record (2026-07-13)
+
+- [x] Replaced ambiguous `IndividualCombatUnitSummary` fields with explicit
+  tick-start and end-of-tick names:
+  `tickStartCombatEligibleMemberCount`,
+  `endOfTickCombatEligibleMemberCount`, `endOfTickZeroHitMemberCount`,
+  `newlyZeroHitMemberCount`, and matching tick-start/end-of-tick
+  combat-capable numerator/denominator fields.
+- [x] Renamed combat-readiness counts to eligible-only fields:
+  `eligibleSelectedTargetCount`, `eligibleCommittingAttackCount`,
+  `eligibleRecoveringAttackCount`, `eligibleReadyGuardCount`, and
+  `eligibleRecoveringGuardCount`. Tick-start ineligible zero-hit members do not
+  contribute to these counts even if the raw guard/action stores still contain
+  ready state.
+- [x] Added `individualCombatConsequences.ts` as a deterministic shadow read
+  model. It owns reusable per-unit consequence summaries and an entity-to-unit
+  index lookup for attribution without repeated unit-member scans.
+- [x] Consequence projection attributes outgoing selections, attack attempts,
+  invalidated attempts, and gate-accepted hits to attacker units; incoming
+  attempts, prevented attacks, parries, buckler blocks, shield blocks, landed
+  outcomes, gate accepted/rejected decisions, applied hit loss, and zero
+  transitions to target units. Zero transitions are counted only from explicit
+  zero-hit events, not inferred from total zero-hit members.
+- [x] Added shadow comparison records per unit with legacy engagement,
+  individual outgoing/incoming engagement, legacy target-side consequence
+  count, individual applied hit loss, and individual newly-zero count. These
+  diagnostics are internal to the simulation state and are not exposed through
+  renderer/UI snapshots.
+- [x] The full combat sandbox still applies legacy consequences, pressure,
+  cohesion, morale, routing, and recovery exactly as before. The individual
+  consequence projection and shadow comparison do not mutate those systems.
+- [x] Extended integration coverage for clarified tick timing, same-tick zero
+  capability, eligible-only readiness counts, outgoing/incoming attribution,
+  prevented-versus-landed separation, gate accepted/rejected attribution,
+  applied-loss and zero-transition attribution, multiple attacker units,
+  per-tick clearing, read-model object reuse, reversed input order,
+  deterministic replay, unchanged legacy traces, and no entity removal.
+- [x] Extended the integrated benchmark to report aggregation clarification,
+  individual consequence projection, shadow comparison, and warmed full live
+  tick timing at 100, 500, 1,000, and 2,000 entities.
+- [x] Deferred pressure deltas from individual summaries, cohesion loss from
+  individual casualties, morale cutover, legacy combat removal,
+  casualty/dying behaviour, UI/debug snapshots, visual scenarios, healing,
+  calls, projectiles, energy, and command behaviour to 5F-3B or later slices.
+
+---
+
+## 5F-3B — Pressure/morale authority cutover and legacy retirement
 
 ### Purpose
 

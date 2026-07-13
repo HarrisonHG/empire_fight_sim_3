@@ -30,6 +30,11 @@ import {
   getPersistentUnitMoraleState,
 } from "./persistentMorale";
 import {
+  compareIndividualCombatShadow,
+  getIndividualCombatConsequenceSummaries,
+  getIndividualCombatShadowComparisons,
+} from "./individualCombatConsequences";
+import {
   advanceIndividualCombatPipelineObservationOneTick,
   createIndividualCombatPipelineBuffers,
   createIndividualCombatPipelineStores,
@@ -195,6 +200,12 @@ export function advanceSimulationOneTick(simulation: SimulationState): void {
       {
         appliedDamagePressureScale: combatSandbox.appliedDamagePressureScale,
       },
+    );
+    compareIndividualCombatShadow(
+      combatSandbox.identityStore,
+      combatSandbox.consequenceApplications,
+      individualCombatResult.consequenceSummaries,
+      combatSandbox.individualCombatConsequenceProjectionStore,
     );
     advanceCombatPressureOneTick(
       combatSandbox.identityStore,
@@ -528,6 +539,14 @@ function createCombatSandbox(
     individualCombatUnitSummaries: getIndividualCombatUnitSummaries(
       individualCombatPipelineStores.unitAggregationStore,
     ),
+    individualCombatConsequenceProjectionStore:
+      individualCombatPipelineStores.consequenceProjectionStore,
+    individualCombatConsequenceSummaries: getIndividualCombatConsequenceSummaries(
+      individualCombatPipelineStores.consequenceProjectionStore,
+    ),
+    individualCombatShadowComparisons: getIndividualCombatShadowComparisons(
+      individualCombatPipelineStores.consequenceProjectionStore,
+    ),
     individualCombatPipelineStores,
     individualCombatPipelineBuffers,
     tempoStore,
@@ -566,9 +585,11 @@ function createCombatSandbox(
     individualAppliedHitLoss: 0,
     individualZeroHitTransitionCount: 0,
     individualActiveGateRelationshipCount: 0,
-    individualCombatEligibleMemberCount: 0,
-    individualCombatIneligibleMemberCount: 0,
-    individualZeroHitMemberCount: 0,
+    individualTickStartCombatEligibleMemberCount: 0,
+    individualTickStartCombatIneligibleMemberCount: 0,
+    individualEndOfTickCombatEligibleMemberCount: 0,
+    individualEndOfTickZeroHitMemberCount: 0,
+    individualNewlyZeroHitMemberCount: 0,
     totalOpportunityCount: 0,
     totalStrikeCount: 0,
     totalSurvivabilityApplicationCount: 0,
@@ -587,9 +608,11 @@ function createCombatSandbox(
     totalIndividualAppliedHitLoss: 0,
     totalIndividualZeroHitTransitionCount: 0,
     totalIndividualActiveGateRelationshipCount: 0,
-    totalIndividualCombatEligibleMemberCount: 0,
-    totalIndividualCombatIneligibleMemberCount: 0,
-    totalIndividualZeroHitMemberCount: 0,
+    totalIndividualTickStartCombatEligibleMemberCount: 0,
+    totalIndividualTickStartCombatIneligibleMemberCount: 0,
+    totalIndividualEndOfTickCombatEligibleMemberCount: 0,
+    totalIndividualEndOfTickZeroHitMemberCount: 0,
+    totalIndividualNewlyZeroHitMemberCount: 0,
     debugSnapshot: createEmptyCombatDebugSnapshot(),
   };
   combatSandbox.debugSnapshot = createCombatDebugSnapshot(combatSandbox);
@@ -837,11 +860,16 @@ function updateIndividualCombatCounters(
     result.zeroHitTransitionCount;
   combatSandbox.individualActiveGateRelationshipCount =
     result.activeGateRelationshipCount;
-  combatSandbox.individualCombatEligibleMemberCount =
-    result.combatEligibleMemberCount;
-  combatSandbox.individualCombatIneligibleMemberCount =
-    result.combatIneligibleMemberCount;
-  combatSandbox.individualZeroHitMemberCount = result.zeroHitMemberCount;
+  combatSandbox.individualTickStartCombatEligibleMemberCount =
+    result.tickStartCombatEligibleMemberCount;
+  combatSandbox.individualTickStartCombatIneligibleMemberCount =
+    result.tickStartCombatIneligibleMemberCount;
+  combatSandbox.individualEndOfTickCombatEligibleMemberCount =
+    result.endOfTickCombatEligibleMemberCount;
+  combatSandbox.individualEndOfTickZeroHitMemberCount =
+    result.endOfTickZeroHitMemberCount;
+  combatSandbox.individualNewlyZeroHitMemberCount =
+    result.newlyZeroHitMemberCount;
   combatSandbox.totalIndividualEligibleMeleeSourceCount +=
     result.eligibleMeleeSourceCount;
   combatSandbox.totalIndividualSelectedTargetCount += result.selectedTargetCount;
@@ -864,11 +892,16 @@ function updateIndividualCombatCounters(
     result.zeroHitTransitionCount;
   combatSandbox.totalIndividualActiveGateRelationshipCount +=
     result.activeGateRelationshipCount;
-  combatSandbox.totalIndividualCombatEligibleMemberCount +=
-    result.combatEligibleMemberCount;
-  combatSandbox.totalIndividualCombatIneligibleMemberCount +=
-    result.combatIneligibleMemberCount;
-  combatSandbox.totalIndividualZeroHitMemberCount += result.zeroHitMemberCount;
+  combatSandbox.totalIndividualTickStartCombatEligibleMemberCount +=
+    result.tickStartCombatEligibleMemberCount;
+  combatSandbox.totalIndividualTickStartCombatIneligibleMemberCount +=
+    result.tickStartCombatIneligibleMemberCount;
+  combatSandbox.totalIndividualEndOfTickCombatEligibleMemberCount +=
+    result.endOfTickCombatEligibleMemberCount;
+  combatSandbox.totalIndividualEndOfTickZeroHitMemberCount +=
+    result.endOfTickZeroHitMemberCount;
+  combatSandbox.totalIndividualNewlyZeroHitMemberCount +=
+    result.newlyZeroHitMemberCount;
 }
 
 /**

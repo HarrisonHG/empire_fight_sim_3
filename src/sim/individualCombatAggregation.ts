@@ -1,10 +1,16 @@
-import { getIndividualCombatActionState, type IndividualCombatActionStore } from "./individualCombatAction";
-import type { IndividualCombatEligibilitySnapshot } from "./individualCombatEligibility";
-import { isIndividualCombatEligible } from "./individualCombatEligibility";
+import {
+  getIndividualCombatActionState,
+  type IndividualCombatActionStore,
+  type IndividualMeleeAttackAttemptRecord,
+} from "./individualCombatAction";
+import {
+  isIndividualCombatEligible,
+  type IndividualCombatEligibilitySnapshot,
+} from "./individualCombatEligibility";
 import {
   getIndividualCurrentGlobalHits,
-  type IndividualLandedHitApplicationRecord,
   type IndividualGlobalHitStore,
+  type IndividualLandedHitApplicationRecord,
   type IndividualZeroHitEvent,
 } from "./individualGlobalHits";
 import type { IndividualLandedHitGateDecisionRecord } from "./individualLandedHitGate";
@@ -13,7 +19,6 @@ import {
   type IndividualMeleeDefenceRecord,
   type IndividualMeleeDefenceStore,
 } from "./individualMeleeDefence";
-import type { IndividualMeleeAttackAttemptRecord } from "./individualCombatAction";
 import type { IndividualSelectedTargetRecord } from "./individualMeleeTargetSelection";
 import {
   getUnitIds,
@@ -30,13 +35,15 @@ export interface IndividualCombatUnitAggregationStore {
 export interface IndividualCombatUnitSummary {
   readonly unitId: UnitId;
   readonly memberCount: number;
-  readonly combatEligibleMemberCount: number;
-  readonly zeroHitMemberCount: number;
-  readonly selectedTargetCount: number;
-  readonly committingAttackCount: number;
-  readonly recoveringAttackCount: number;
-  readonly readyGuardCount: number;
-  readonly recoveringGuardCount: number;
+  readonly tickStartCombatEligibleMemberCount: number;
+  readonly endOfTickCombatEligibleMemberCount: number;
+  readonly endOfTickZeroHitMemberCount: number;
+  readonly newlyZeroHitMemberCount: number;
+  readonly eligibleSelectedTargetCount: number;
+  readonly eligibleCommittingAttackCount: number;
+  readonly eligibleRecoveringAttackCount: number;
+  readonly eligibleReadyGuardCount: number;
+  readonly eligibleRecoveringGuardCount: number;
   readonly attackAttemptCount: number;
   readonly invalidatedAttackCount: number;
   readonly parryCount: number;
@@ -47,8 +54,10 @@ export interface IndividualCombatUnitSummary {
   readonly gateRejectedHitCount: number;
   readonly appliedHitLoss: number;
   readonly zeroHitTransitionCount: number;
-  readonly combatCapableNumerator: number;
-  readonly combatCapableDenominator: number;
+  readonly tickStartCombatCapableNumerator: number;
+  readonly tickStartCombatCapableDenominator: number;
+  readonly endOfTickCombatCapableNumerator: number;
+  readonly endOfTickCombatCapableDenominator: number;
 }
 
 export interface IndividualCombatAggregationTickResult {
@@ -59,13 +68,15 @@ interface MutableIndividualCombatUnitSummary
   extends IndividualCombatUnitSummary {
   unitId: UnitId;
   memberCount: number;
-  combatEligibleMemberCount: number;
-  zeroHitMemberCount: number;
-  selectedTargetCount: number;
-  committingAttackCount: number;
-  recoveringAttackCount: number;
-  readyGuardCount: number;
-  recoveringGuardCount: number;
+  tickStartCombatEligibleMemberCount: number;
+  endOfTickCombatEligibleMemberCount: number;
+  endOfTickZeroHitMemberCount: number;
+  newlyZeroHitMemberCount: number;
+  eligibleSelectedTargetCount: number;
+  eligibleCommittingAttackCount: number;
+  eligibleRecoveringAttackCount: number;
+  eligibleReadyGuardCount: number;
+  eligibleRecoveringGuardCount: number;
   attackAttemptCount: number;
   invalidatedAttackCount: number;
   parryCount: number;
@@ -76,14 +87,15 @@ interface MutableIndividualCombatUnitSummary
   gateRejectedHitCount: number;
   appliedHitLoss: number;
   zeroHitTransitionCount: number;
-  combatCapableNumerator: number;
-  combatCapableDenominator: number;
+  tickStartCombatCapableNumerator: number;
+  tickStartCombatCapableDenominator: number;
+  endOfTickCombatCapableNumerator: number;
+  endOfTickCombatCapableDenominator: number;
 }
 
 interface InternalIndividualCombatUnitAggregationStore
   extends IndividualCombatUnitAggregationStore {
   readonly unitIds: readonly UnitId[];
-  readonly unitIndexById: ReadonlyMap<UnitId, number>;
   readonly entityUnitIndexByEntity: Int32Array;
   readonly summaries: MutableIndividualCombatUnitSummary[];
 }
@@ -92,14 +104,12 @@ export function createIndividualCombatUnitAggregationStore(
   identityStore: UnitIdentityStore,
 ): IndividualCombatUnitAggregationStore {
   const unitIds = getUnitIds(identityStore).slice();
-  const unitIndexById = new Map<UnitId, number>();
   const entityUnitIndexByEntity = new Int32Array(identityStore.entityCount);
   entityUnitIndexByEntity.fill(-1);
   const summaries: MutableIndividualCombatUnitSummary[] = [];
 
   for (let unitIndex = 0; unitIndex < unitIds.length; unitIndex += 1) {
     const unitId = unitIds[unitIndex]!;
-    unitIndexById.set(unitId, unitIndex);
     const members = getUnitMembers(identityStore, unitId);
     for (let memberIndex = 0; memberIndex < members.length; memberIndex += 1) {
       entityUnitIndexByEntity[members[memberIndex]!] = unitIndex;
@@ -111,7 +121,6 @@ export function createIndividualCombatUnitAggregationStore(
     entityCount: identityStore.entityCount,
     unitCount: unitIds.length,
     unitIds: Object.freeze(unitIds),
-    unitIndexById,
     entityUnitIndexByEntity,
     summaries,
   } as InternalIndividualCombatUnitAggregationStore;
@@ -155,7 +164,7 @@ export function collectIndividualCombatUnitSummaries(
     defenceStore,
     internal,
   );
-  collectSelections(internal, selectedTargets);
+  collectSelections(internal, eligibility, selectedTargets);
   collectAttempts(internal, attackAttempts);
   collectDefences(internal, defenceRecords);
   collectGateDecisions(internal, gateDecisions);
@@ -178,41 +187,65 @@ function collectMemberState(
     const summary = store.summaries[unitIndex]!;
     const members = getUnitMembers(identityStore, unitId);
     summary.memberCount = members.length;
-    summary.combatCapableDenominator = members.length;
+    summary.tickStartCombatCapableDenominator = members.length;
+    summary.endOfTickCombatCapableDenominator = members.length;
+
     for (let index = 0; index < members.length; index += 1) {
       const entityId = members[index]!;
-      if (isIndividualCombatEligible(eligibility, entityId)) {
-        summary.combatEligibleMemberCount += 1;
+      const tickStartEligible = isIndividualCombatEligible(eligibility, entityId);
+      const endOfTickEligible =
+        getIndividualCurrentGlobalHits(globalHitStore, entityId) > 0;
+
+      if (tickStartEligible) {
+        summary.tickStartCombatEligibleMemberCount += 1;
+        collectEligibleStateCounts(summary, actionStore, defenceStore, entityId);
       }
-      if (getIndividualCurrentGlobalHits(globalHitStore, entityId) === 0) {
-        summary.zeroHitMemberCount += 1;
-      }
-      const actionState = getIndividualCombatActionState(actionStore, entityId);
-      if (actionState === "committingAttack") {
-        summary.committingAttackCount += 1;
-      } else if (actionState === "recoveringAttack") {
-        summary.recoveringAttackCount += 1;
-      }
-      const guardState = getIndividualGuardState(defenceStore, entityId);
-      if (guardState === "ready") {
-        summary.readyGuardCount += 1;
+      if (endOfTickEligible) {
+        summary.endOfTickCombatEligibleMemberCount += 1;
       } else {
-        summary.recoveringGuardCount += 1;
+        summary.endOfTickZeroHitMemberCount += 1;
       }
     }
-    summary.combatCapableNumerator = summary.combatEligibleMemberCount;
+
+    summary.tickStartCombatCapableNumerator =
+      summary.tickStartCombatEligibleMemberCount;
+    summary.endOfTickCombatCapableNumerator =
+      summary.endOfTickCombatEligibleMemberCount;
+  }
+}
+
+function collectEligibleStateCounts(
+  summary: MutableIndividualCombatUnitSummary,
+  actionStore: IndividualCombatActionStore,
+  defenceStore: IndividualMeleeDefenceStore,
+  entityId: number,
+): void {
+  const actionState = getIndividualCombatActionState(actionStore, entityId);
+  if (actionState === "committingAttack") {
+    summary.eligibleCommittingAttackCount += 1;
+  } else if (actionState === "recoveringAttack") {
+    summary.eligibleRecoveringAttackCount += 1;
+  }
+
+  const guardState = getIndividualGuardState(defenceStore, entityId);
+  if (guardState === "ready") {
+    summary.eligibleReadyGuardCount += 1;
+  } else {
+    summary.eligibleRecoveringGuardCount += 1;
   }
 }
 
 function collectSelections(
   store: InternalIndividualCombatUnitAggregationStore,
+  eligibility: IndividualCombatEligibilitySnapshot,
   records: readonly IndividualSelectedTargetRecord[],
 ): void {
   for (let index = 0; index < records.length; index += 1) {
     const record = records[index]!;
     if (record.targetEntityId < 0) continue;
+    if (!isIndividualCombatEligible(eligibility, record.sourceEntityId)) continue;
     store.summaries[unitIndexForEntity(store, record.sourceEntityId)]!
-      .selectedTargetCount += 1;
+      .eligibleSelectedTargetCount += 1;
   }
 }
 
@@ -222,7 +255,8 @@ function collectAttempts(
 ): void {
   for (let index = 0; index < records.length; index += 1) {
     const record = records[index]!;
-    const summary = store.summaries[unitIndexForEntity(store, record.attackerEntityId)]!;
+    const summary =
+      store.summaries[unitIndexForEntity(store, record.attackerEntityId)]!;
     summary.attackAttemptCount += 1;
     if (record.outcome === "invalidated") {
       summary.invalidatedAttackCount += 1;
@@ -236,7 +270,8 @@ function collectDefences(
 ): void {
   for (let index = 0; index < records.length; index += 1) {
     const record = records[index]!;
-    const summary = store.summaries[unitIndexForEntity(store, record.defenderEntityId)]!;
+    const summary =
+      store.summaries[unitIndexForEntity(store, record.defenderEntityId)]!;
     if (record.outcome === "parried") summary.parryCount += 1;
     else if (record.outcome === "bucklerBlocked") summary.bucklerBlockCount += 1;
     else if (record.outcome === "shieldBlocked") summary.shieldBlockCount += 1;
@@ -273,8 +308,9 @@ function collectZeroHitEvents(
 ): void {
   for (let index = 0; index < records.length; index += 1) {
     const record = records[index]!;
-    store.summaries[unitIndexForEntity(store, record.entityId)]!
-      .zeroHitTransitionCount += 1;
+    const summary = store.summaries[unitIndexForEntity(store, record.entityId)]!;
+    summary.zeroHitTransitionCount += 1;
+    summary.newlyZeroHitMemberCount += 1;
   }
 }
 
@@ -282,8 +318,7 @@ function clearSummaries(
   store: InternalIndividualCombatUnitAggregationStore,
 ): void {
   for (let index = 0; index < store.summaries.length; index += 1) {
-    const unitId = store.unitIds[index]!;
-    resetSummary(store.summaries[index]!, unitId);
+    resetSummary(store.summaries[index]!, store.unitIds[index]!);
   }
 }
 
@@ -297,13 +332,15 @@ function resetSummary(
 ): MutableIndividualCombatUnitSummary {
   summary.unitId = unitId;
   summary.memberCount = 0;
-  summary.combatEligibleMemberCount = 0;
-  summary.zeroHitMemberCount = 0;
-  summary.selectedTargetCount = 0;
-  summary.committingAttackCount = 0;
-  summary.recoveringAttackCount = 0;
-  summary.readyGuardCount = 0;
-  summary.recoveringGuardCount = 0;
+  summary.tickStartCombatEligibleMemberCount = 0;
+  summary.endOfTickCombatEligibleMemberCount = 0;
+  summary.endOfTickZeroHitMemberCount = 0;
+  summary.newlyZeroHitMemberCount = 0;
+  summary.eligibleSelectedTargetCount = 0;
+  summary.eligibleCommittingAttackCount = 0;
+  summary.eligibleRecoveringAttackCount = 0;
+  summary.eligibleReadyGuardCount = 0;
+  summary.eligibleRecoveringGuardCount = 0;
   summary.attackAttemptCount = 0;
   summary.invalidatedAttackCount = 0;
   summary.parryCount = 0;
@@ -314,8 +351,10 @@ function resetSummary(
   summary.gateRejectedHitCount = 0;
   summary.appliedHitLoss = 0;
   summary.zeroHitTransitionCount = 0;
-  summary.combatCapableNumerator = 0;
-  summary.combatCapableDenominator = 0;
+  summary.tickStartCombatCapableNumerator = 0;
+  summary.tickStartCombatCapableDenominator = 0;
+  summary.endOfTickCombatCapableNumerator = 0;
+  summary.endOfTickCombatCapableDenominator = 0;
   return summary;
 }
 

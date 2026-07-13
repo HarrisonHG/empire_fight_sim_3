@@ -6,6 +6,7 @@ import {
   advanceIndividualCombatPipelineObservationOneTick,
   type IndividualCombatPipelineStage,
 } from "../../src/sim/individualCombatPipeline";
+import { compareIndividualCombatShadow } from "../../src/sim/individualCombatConsequences";
 import { advanceFormationOneTick } from "../../src/sim/formationBehaviour";
 import {
   advanceSimulationOneTick,
@@ -19,6 +20,7 @@ import type {
 } from "../../src/sim/types";
 
 const MEASURED_TICKS = 30;
+const FULL_LIVE_WARM_UP_TICKS = 5;
 
 describe("integrated individual combat pipeline performance", () => {
   it.each([100, 500, 1_000])(
@@ -60,7 +62,9 @@ interface IntegratedIndividualPerformanceReport {
   readonly defence: StageTimingReport;
   readonly gate: StageTimingReport;
   readonly hitApplication: StageTimingReport;
-  readonly unitAggregation: StageTimingReport;
+  readonly aggregationClarification: StageTimingReport;
+  readonly consequenceProjection: StageTimingReport;
+  readonly shadowComparison: StageTimingReport;
   readonly totalIndividualPipeline: StageTimingReport;
   readonly selectedTargetRecords: number;
   readonly attackAttempts: number;
@@ -75,6 +79,7 @@ interface IntegratedIndividualPerformanceReport {
   readonly zeroHitTransitions: number;
   readonly activeRelationships: number;
   readonly fullSandboxReference: StageTimingReport & {
+    readonly warmUpTicks: number;
     readonly legacyOpportunities: number;
     readonly legacyApplications: number;
     readonly legacyConsequences: number;
@@ -89,6 +94,7 @@ function runIntegratedIndividualPerformance(
   const simulation = createSimulation(scenario);
   const combat = requireCombatSandbox(simulation);
   const stageSamples = createStageSamples();
+  const shadowComparisonSamples = new Float64Array(MEASURED_TICKS);
   const totalSamples = new Float64Array(MEASURED_TICKS);
   let selectedTargetRecords = 0;
   let attackAttempts = 0;
@@ -126,6 +132,15 @@ function runIntegratedIndividualPerformance(
         },
       },
     );
+    const shadowComparisonStartedAt = performance.now();
+    compareIndividualCombatShadow(
+      combat.identityStore,
+      combat.consequenceApplications,
+      result.consequenceSummaries,
+      combat.individualCombatConsequenceProjectionStore,
+    );
+    shadowComparisonSamples[tick] =
+      performance.now() - shadowComparisonStartedAt;
     totalSamples[tick] = performance.now() - startedAt;
     selectedTargetRecords += result.selectedTargetCount;
     attackAttempts += result.attackAttemptCount;
@@ -155,7 +170,9 @@ function runIntegratedIndividualPerformance(
     defence: timingReport(stageSamples.defence),
     gate: timingReport(stageSamples.gate),
     hitApplication: timingReport(stageSamples.globalHits),
-    unitAggregation: timingReport(stageSamples.aggregation),
+    aggregationClarification: timingReport(stageSamples.aggregation),
+    consequenceProjection: timingReport(stageSamples.consequenceProjection),
+    shadowComparison: timingReport(shadowComparisonSamples),
     totalIndividualPipeline: timingReport(totalSamples),
     selectedTargetRecords,
     attackAttempts,
@@ -180,6 +197,9 @@ function runFullSandboxReference(
 ): IntegratedIndividualPerformanceReport["fullSandboxReference"] {
   const simulation = createSimulation(legacyProductionReferenceScenario(entityCount));
   const samples = new Float64Array(MEASURED_TICKS);
+  for (let tick = 0; tick < FULL_LIVE_WARM_UP_TICKS; tick += 1) {
+    advanceSimulationOneTick(simulation);
+  }
   for (let tick = 0; tick < MEASURED_TICKS; tick += 1) {
     const startedAt = performance.now();
     advanceSimulationOneTick(simulation);
@@ -188,6 +208,7 @@ function runFullSandboxReference(
   const combat = requireCombatSandbox(simulation);
   return {
     ...timingReport(samples),
+    warmUpTicks: FULL_LIVE_WARM_UP_TICKS,
     legacyOpportunities: combat.totalOpportunityCount,
     legacyApplications: combat.totalSurvivabilityApplicationCount,
     legacyConsequences: combat.totalConsequenceCount,
@@ -343,6 +364,7 @@ function createStageSamples(): Record<
     gate: new Float64Array(MEASURED_TICKS),
     globalHits: new Float64Array(MEASURED_TICKS),
     aggregation: new Float64Array(MEASURED_TICKS),
+    consequenceProjection: new Float64Array(MEASURED_TICKS),
   };
 }
 
@@ -388,7 +410,9 @@ function assertReport(
     report.defence,
     report.gate,
     report.hitApplication,
-    report.unitAggregation,
+    report.aggregationClarification,
+    report.consequenceProjection,
+    report.shadowComparison,
     report.eligibility,
     report.totalIndividualPipeline,
     report.fullSandboxReference,
