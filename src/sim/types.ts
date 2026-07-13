@@ -8,6 +8,16 @@ import type {
 import type { CombatSurvivabilityStore } from "./combatSurvivability";
 import type { CombatTempoStore } from "./combatTempo";
 import type {
+  IndividualCombatPipelineBuffers,
+  IndividualCombatPipelineStores,
+} from "./individualCombatPipeline";
+import type { IndividualCombatProfileStore } from "./individualCombatProfile";
+import type { IndividualGlobalHitStore } from "./individualGlobalHits";
+import type { IndividualLandedHitGateStore } from "./individualLandedHitGate";
+import type { IndividualMeleeDefenceStore } from "./individualMeleeDefence";
+import type { IndividualMeleeTargetSelectionStore } from "./individualMeleeTargetSelection";
+import type { IndividualCombatActionStore } from "./individualCombatAction";
+import type {
   PersistentMoraleEvent,
   PersistentMoraleStore,
 } from "./persistentMorale";
@@ -228,6 +238,14 @@ export interface CombatSandboxSimulationState {
   readonly identityStore: UnitIdentityStore;
   readonly loadoutStore: UnitLoadoutStore;
   readonly formationStore: FormationBehaviourStore;
+  readonly individualProfileStore: IndividualCombatProfileStore;
+  readonly individualTargetSelectionStore: IndividualMeleeTargetSelectionStore;
+  readonly individualCombatActionStore: IndividualCombatActionStore;
+  readonly individualMeleeDefenceStore: IndividualMeleeDefenceStore;
+  readonly individualLandedHitGateStore: IndividualLandedHitGateStore;
+  readonly individualGlobalHitStore: IndividualGlobalHitStore;
+  readonly individualCombatPipelineStores: IndividualCombatPipelineStores;
+  readonly individualCombatPipelineBuffers: IndividualCombatPipelineBuffers;
   readonly tempoStore: CombatTempoStore;
   readonly survivabilityStore: CombatSurvivabilityStore;
   readonly pressureStore: CombatPressureStore;
@@ -249,10 +267,38 @@ export interface CombatSandboxSimulationState {
   strikeCount: number;
   survivabilityApplicationCount: number;
   consequenceCount: number;
+  individualEligibleMeleeSourceCount: number;
+  individualSelectedTargetCount: number;
+  individualActiveCommitmentCount: number;
+  individualAttackAttemptCount: number;
+  individualInvalidatedAttackCount: number;
+  individualParryCount: number;
+  individualBucklerBlockCount: number;
+  individualShieldBlockCount: number;
+  individualLandedDefenceOutcomeCount: number;
+  individualGateAcceptedHitCount: number;
+  individualGateRejectedHitCount: number;
+  individualAppliedHitLoss: number;
+  individualZeroHitTransitionCount: number;
+  individualActiveGateRelationshipCount: number;
   totalOpportunityCount: number;
   totalStrikeCount: number;
   totalSurvivabilityApplicationCount: number;
   totalConsequenceCount: number;
+  totalIndividualEligibleMeleeSourceCount: number;
+  totalIndividualSelectedTargetCount: number;
+  totalIndividualActiveCommitmentCount: number;
+  totalIndividualAttackAttemptCount: number;
+  totalIndividualInvalidatedAttackCount: number;
+  totalIndividualParryCount: number;
+  totalIndividualBucklerBlockCount: number;
+  totalIndividualShieldBlockCount: number;
+  totalIndividualLandedDefenceOutcomeCount: number;
+  totalIndividualGateAcceptedHitCount: number;
+  totalIndividualGateRejectedHitCount: number;
+  totalIndividualAppliedHitLoss: number;
+  totalIndividualZeroHitTransitionCount: number;
+  totalIndividualActiveGateRelationshipCount: number;
   debugSnapshot: LiveCombatDebugSnapshot;
 }
 

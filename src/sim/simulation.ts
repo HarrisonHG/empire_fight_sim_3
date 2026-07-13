@@ -30,6 +30,13 @@ import {
   getPersistentUnitMoraleState,
 } from "./persistentMorale";
 import {
+  advanceIndividualCombatPipelineObservationOneTick,
+  createIndividualCombatPipelineBuffers,
+  createIndividualCombatPipelineStores,
+  createIndividualCombatProfileStoreFromUnitLoadouts,
+  type IndividualCombatPipelineTickResult,
+} from "./individualCombatPipeline";
+import {
   advanceRoutingContagionOneTick,
   createRoutingContagionStore,
 } from "./routingContagion";
@@ -161,6 +168,15 @@ export function advanceSimulationOneTick(simulation: SimulationState): void {
       combatSandbox.formationStore,
       combatSandbox.moraleMovementStates,
     );
+    const individualCombatResult =
+      advanceIndividualCombatPipelineObservationOneTick(
+        simulation.world,
+        combatSandbox.identityStore,
+        combatSandbox.formationStore,
+        combatSandbox.individualCombatPipelineStores,
+        combatSandbox.individualCombatPipelineBuffers,
+        simulation.tick,
+      );
     advanceCombatPipelineOneTick(
       simulation.world,
       combatSandbox.identityStore,
@@ -226,6 +242,7 @@ export function advanceSimulationOneTick(simulation: SimulationState): void {
     );
     syncMoraleMovementStates(combatSandbox);
     updateCombatCounters(combatSandbox);
+    updateIndividualCombatCounters(combatSandbox, individualCombatResult);
     combatSandbox.debugSnapshot = createCombatDebugSnapshot(combatSandbox);
   }
 
@@ -460,6 +477,19 @@ function createCombatSandbox(
       maxDamageCapacity: unit.maxDamageCapacity,
     })),
   });
+  const individualProfileStore =
+    createIndividualCombatProfileStoreFromUnitLoadouts(
+      identityStore,
+      loadoutStore,
+    );
+  const individualCombatPipelineStores = createIndividualCombatPipelineStores(
+    world,
+    identityStore,
+    formationStore,
+    individualProfileStore,
+  );
+  const individualCombatPipelineBuffers =
+    createIndividualCombatPipelineBuffers();
   const moraleAssessments: CombatMoraleAssessment[] = [];
   collectCombatMoraleAssessments(
     identityStore,
@@ -482,6 +512,16 @@ function createCombatSandbox(
     identityStore,
     loadoutStore,
     formationStore,
+    individualProfileStore,
+    individualTargetSelectionStore:
+      individualCombatPipelineStores.targetSelectionStore,
+    individualCombatActionStore: individualCombatPipelineStores.actionStore,
+    individualMeleeDefenceStore: individualCombatPipelineStores.defenceStore,
+    individualLandedHitGateStore:
+      individualCombatPipelineStores.landedHitGateStore,
+    individualGlobalHitStore: individualCombatPipelineStores.globalHitStore,
+    individualCombatPipelineStores,
+    individualCombatPipelineBuffers,
     tempoStore,
     survivabilityStore,
     pressureStore: createCombatPressureStore(identityStore, formationStore),
@@ -504,10 +544,38 @@ function createCombatSandbox(
     strikeCount: 0,
     survivabilityApplicationCount: 0,
     consequenceCount: 0,
+    individualEligibleMeleeSourceCount: 0,
+    individualSelectedTargetCount: 0,
+    individualActiveCommitmentCount: 0,
+    individualAttackAttemptCount: 0,
+    individualInvalidatedAttackCount: 0,
+    individualParryCount: 0,
+    individualBucklerBlockCount: 0,
+    individualShieldBlockCount: 0,
+    individualLandedDefenceOutcomeCount: 0,
+    individualGateAcceptedHitCount: 0,
+    individualGateRejectedHitCount: 0,
+    individualAppliedHitLoss: 0,
+    individualZeroHitTransitionCount: 0,
+    individualActiveGateRelationshipCount: 0,
     totalOpportunityCount: 0,
     totalStrikeCount: 0,
     totalSurvivabilityApplicationCount: 0,
     totalConsequenceCount: 0,
+    totalIndividualEligibleMeleeSourceCount: 0,
+    totalIndividualSelectedTargetCount: 0,
+    totalIndividualActiveCommitmentCount: 0,
+    totalIndividualAttackAttemptCount: 0,
+    totalIndividualInvalidatedAttackCount: 0,
+    totalIndividualParryCount: 0,
+    totalIndividualBucklerBlockCount: 0,
+    totalIndividualShieldBlockCount: 0,
+    totalIndividualLandedDefenceOutcomeCount: 0,
+    totalIndividualGateAcceptedHitCount: 0,
+    totalIndividualGateRejectedHitCount: 0,
+    totalIndividualAppliedHitLoss: 0,
+    totalIndividualZeroHitTransitionCount: 0,
+    totalIndividualActiveGateRelationshipCount: 0,
     debugSnapshot: createEmptyCombatDebugSnapshot(),
   };
   combatSandbox.debugSnapshot = createCombatDebugSnapshot(combatSandbox);
@@ -730,6 +798,53 @@ function updateCombatCounters(combatSandbox: CombatSandboxSimulationState): void
   combatSandbox.totalSurvivabilityApplicationCount +=
     combatSandbox.survivabilityApplicationCount;
   combatSandbox.totalConsequenceCount += combatSandbox.consequenceCount;
+}
+
+function updateIndividualCombatCounters(
+  combatSandbox: CombatSandboxSimulationState,
+  result: IndividualCombatPipelineTickResult,
+): void {
+  combatSandbox.individualEligibleMeleeSourceCount =
+    result.eligibleMeleeSourceCount;
+  combatSandbox.individualSelectedTargetCount = result.selectedTargetCount;
+  combatSandbox.individualActiveCommitmentCount = result.activeCommitmentCount;
+  combatSandbox.individualAttackAttemptCount = result.attackAttemptCount;
+  combatSandbox.individualInvalidatedAttackCount =
+    result.invalidatedAttackCount;
+  combatSandbox.individualParryCount = result.parryCount;
+  combatSandbox.individualBucklerBlockCount = result.bucklerBlockCount;
+  combatSandbox.individualShieldBlockCount = result.shieldBlockCount;
+  combatSandbox.individualLandedDefenceOutcomeCount =
+    result.landedDefenceOutcomeCount;
+  combatSandbox.individualGateAcceptedHitCount = result.gateAcceptedHitCount;
+  combatSandbox.individualGateRejectedHitCount = result.gateRejectedHitCount;
+  combatSandbox.individualAppliedHitLoss = result.appliedHitLoss;
+  combatSandbox.individualZeroHitTransitionCount =
+    result.zeroHitTransitionCount;
+  combatSandbox.individualActiveGateRelationshipCount =
+    result.activeGateRelationshipCount;
+  combatSandbox.totalIndividualEligibleMeleeSourceCount +=
+    result.eligibleMeleeSourceCount;
+  combatSandbox.totalIndividualSelectedTargetCount += result.selectedTargetCount;
+  combatSandbox.totalIndividualActiveCommitmentCount +=
+    result.activeCommitmentCount;
+  combatSandbox.totalIndividualAttackAttemptCount += result.attackAttemptCount;
+  combatSandbox.totalIndividualInvalidatedAttackCount +=
+    result.invalidatedAttackCount;
+  combatSandbox.totalIndividualParryCount += result.parryCount;
+  combatSandbox.totalIndividualBucklerBlockCount += result.bucklerBlockCount;
+  combatSandbox.totalIndividualShieldBlockCount += result.shieldBlockCount;
+  combatSandbox.totalIndividualLandedDefenceOutcomeCount +=
+    result.landedDefenceOutcomeCount;
+  combatSandbox.totalIndividualGateAcceptedHitCount +=
+    result.gateAcceptedHitCount;
+  combatSandbox.totalIndividualGateRejectedHitCount +=
+    result.gateRejectedHitCount;
+  combatSandbox.totalIndividualAppliedHitLoss += result.appliedHitLoss;
+  combatSandbox.totalIndividualZeroHitTransitionCount +=
+    result.zeroHitTransitionCount;
+  combatSandbox.totalIndividualActiveGateRelationshipCount +=
+    result.activeGateRelationshipCount;
 }
 
 /**

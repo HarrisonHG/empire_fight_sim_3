@@ -1,6 +1,6 @@
 # Milestone 5: Individual Combat State, Defence, and Empire Hit Rules
 
-Status: in progress; 5A, 5B, 5C-1, 5C-2, 5D, and 5E implemented and awaiting review.
+Status: in progress; 5A, 5B, 5C-1, 5C-2, 5D, 5E, and 5F-1 implemented and awaiting review.
 
 ## Product goal
 
@@ -674,15 +674,18 @@ Add active-record count and expiry coverage to performance tests.
 
 ---
 
-## 5F — Production migration and unit aggregation
+## 5F-1 — Integrated individual pipeline in parallel observation mode
 
 ### Purpose
 
-Replace the unit-level prototype combat path in production while preserving the unit-level outputs required by morale.
+Run the complete accepted individual pipeline in the live combat sandbox using
+real formation positions and scenario entities while keeping the legacy
+unit-level combat path authoritative for production pressure, cohesion, morale,
+routing, recovery, and debug snapshots.
 
 ### Deliver
 
-Integrate the individual pipeline:
+Integrate the individual observation pipeline:
 
 ```text
 formation movement
@@ -691,10 +694,85 @@ formation movement
 → defence resolution
 → one-second relationship gate
 → global-hit application
-→ individual combat consequences
-→ unit aggregation
-→ pressure and morale
 ```
+
+Add live sandbox ownership for persistent individual stores and reusable output
+buffers. Do not construct the individual stores every tick.
+
+Add headless counters for selected targets, commitments, attempts, defence
+outcomes, gate accepts/rejections, applied hit loss, zero-hit events, and active
+relationships.
+
+### Boundary
+
+Do not change production combat outcomes, pressure, cohesion, morale, routing,
+recovery, renderer/UI snapshots, or metrics panels. Zero-hit individuals remain
+eligible in this temporary observation slice.
+
+### 5F-1 implementation record (2026-07-13)
+
+- [x] Added `individualCombatPipeline.ts` as a narrow headless orchestration
+  module composing the accepted 5A-5E stages without duplicating their combat
+  rules. The stage order is target selection, combat action advancement,
+  defence arbitration, landed-hit gate, then global-hit application.
+- [x] Added persistent individual-combat stores to the live combat sandbox:
+  individual profiles, melee target selection, combat action, melee defence,
+  landed-hit gate, and global hits.
+- [x] Added sandbox-owned reusable output buffers for selected-target records,
+  action-state events, attack attempts, guard-state events, defence records,
+  gate decisions, gate-accepted landed records, hit applications, and zero-hit
+  events. The sandbox retains the arrays but does not expose them through the
+  renderer/debug snapshot.
+- [x] Initialised individual profiles deterministically from the existing
+  unit/scenario loadout. The explicit mapper converts `unarmed` to individual
+  `unarmed`, one-handed/polearm/pike/thrown/rod/staff directly, `twoHanded` to
+  `greatWeapon`, `bow` to `ranged`, direct shield and armour classes, and
+  legacy `dreadnought` armour to heavy armour plus trusted Dreadnought
+  qualification. Unsupported `dualWield` fails clearly until dual wielding is
+  implemented.
+- [x] Trusted scenario-assigned individuals with all qualifications required by
+  their assigned equipment. XP, purchase costs, prerequisites, backup switching,
+  and dual wielding remain deferred.
+- [x] Ran the observation pipeline once per live combat tick after formation
+  movement established current positions and before the legacy production
+  unit-level combat path. The landed-hit gate receives the current simulation
+  tick explicitly.
+- [x] Kept the accepted unit-level combat, consequence, pressure, morale,
+  routing, recovery, and debug snapshot path intact and authoritative.
+- [x] Added per-tick and cumulative headless counters for eligible melee
+  sources, selected targets, active commitments, attack attempts, invalidated
+  attacks, parries, buckler blocks, shield blocks, landed defence outcomes,
+  gate-accepted hits, gate-rejected hits, applied hit loss, zero-hit
+  transitions, and active gate relationships.
+- [x] Added headless integration tests proving store initialisation, deterministic
+  loadout-to-profile mapping, unsupported legacy value rejection, real-position
+  chain execution, target/action/defence/gate/global-hit handoff, persistent
+  current hits, integrated one-second gate behaviour, independent attacker
+  gates, one-shot zero-hit events, output-buffer reuse, no entity removal,
+  deterministic replay, and unchanged deterministic legacy traces.
+- [x] Added integrated individual-pipeline performance coverage at 100, 500,
+  1,000, and 2,000 entities in ordinary 10- or 20-person units. The benchmark
+  reports target-selection, action, defence, gate, hit-application, and total
+  observation-path timing plus record counts and active relationships. The
+  existing full production path remains reported separately by retained
+  production-path performance tests.
+- [x] Deferred zero-hit combat ineligibility, casualty/dying state, unit combat
+  aggregation, pressure/morale migration, legacy pipeline retirement,
+  renderer/UI/debug snapshot expansion, visual scenarios, healing, calls,
+  projectiles, backup weapon switching, dual wielding, energy, and command
+  behaviour to 5F-2, 5F-3, Milestone 6, or later slices.
+
+---
+
+## 5F-2 — Combat eligibility and unit aggregation
+
+### Purpose
+
+Add the next migration layer after observation mode by deciding which
+individuals remain combat-eligible for the individual pipeline and producing
+deterministic unit-level summaries from individual outcomes.
+
+### Deliver
 
 Add derived unit summaries such as:
 
@@ -709,6 +787,35 @@ Add derived unit summaries such as:
 - shield frontage;
 - line gaps;
 - combat-capable fraction.
+
+Zero-hit filtering may be introduced here only as an eligibility rule and
+handoff for the later casualty lifecycle. Do not implement dying, removal,
+healing, or routing movement here.
+
+---
+
+## 5F-3 — Pressure/morale cutover and legacy retirement
+
+### Purpose
+
+Replace the unit-level prototype combat path in production while preserving the
+unit-level outputs required by morale.
+
+### Deliver
+
+Migrate the production combat chain to:
+
+```text
+formation movement
+→ individual local threat/target selection
+→ attack commitment
+→ defence resolution
+→ one-second relationship gate
+→ global-hit application
+→ individual combat consequences
+→ unit aggregation
+→ pressure and morale
+```
 
 Migrate pressure and morale inputs from prototype unit damage to believable individual results.
 

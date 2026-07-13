@@ -31,6 +31,8 @@ Design doctrine explains intent and boundaries. It is not permission to implemen
 
 If scope is ambiguous, stop and ask rather than broadening the implementation.
 
+If a referenced file in the plans folder is missing, check the completed-plans folder.
+
 If a referenced file is missing, first determine whether it is required for the requested task.
 
 * If required, report the missing file and stop before making changes.

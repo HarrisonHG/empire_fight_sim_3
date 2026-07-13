@@ -1,0 +1,396 @@
+import {
+  advanceIndividualCombatActions,
+  createIndividualCombatActionStore,
+  type IndividualCombatActionStateEvent,
+  type IndividualCombatActionStore,
+  type IndividualMeleeAttackAttemptRecord,
+} from "./individualCombatAction";
+import {
+  createIndividualCombatProfileStore,
+  type IndividualArmourCategory,
+  type IndividualCombatProfileConfig,
+  type IndividualCombatProfileStore,
+  type IndividualShieldCarriedState,
+  type IndividualShieldCategory,
+  type IndividualWeaponCategory,
+} from "./individualCombatProfile";
+import {
+  applyIndividualLandedHits,
+  createIndividualGlobalHitStore,
+  type IndividualGlobalHitStore,
+  type IndividualLandedHitApplicationRecord,
+  type IndividualZeroHitEvent,
+} from "./individualGlobalHits";
+import {
+  createIndividualLandedHitGateStore,
+  filterIndividualLandedHitsThroughGate,
+  type IndividualLandedHitGateDecisionRecord,
+  type IndividualLandedHitGateStore,
+} from "./individualLandedHitGate";
+import {
+  createIndividualMeleeDefenceStore,
+  resolveIndividualMeleeDefences,
+  type IndividualGuardStateEvent,
+  type IndividualMeleeDefenceRecord,
+  type IndividualMeleeDefenceStore,
+} from "./individualMeleeDefence";
+import {
+  advanceIndividualMeleeTargetSelection,
+  createIndividualMeleeTargetSelectionStore,
+  type IndividualMeleeTargetSelectionStore,
+  type IndividualSelectedTargetRecord,
+} from "./individualMeleeTargetSelection";
+import type { FormationBehaviourStore } from "./formationBehaviour";
+import type { WorldState } from "./types";
+import {
+  getUnitIds,
+  getUnitMembers,
+  type UnitIdentityStore,
+} from "./unitIdentity";
+import {
+  getUnitLoadoutSummary,
+  type ArmourClass,
+  type ShieldClass,
+  type UnitLoadoutStore,
+  type WeaponCategory,
+} from "./unitLoadout";
+
+export interface IndividualCombatPipelineStores {
+  readonly profileStore: IndividualCombatProfileStore;
+  readonly targetSelectionStore: IndividualMeleeTargetSelectionStore;
+  readonly actionStore: IndividualCombatActionStore;
+  readonly defenceStore: IndividualMeleeDefenceStore;
+  readonly landedHitGateStore: IndividualLandedHitGateStore;
+  readonly globalHitStore: IndividualGlobalHitStore;
+}
+
+export interface IndividualCombatPipelineBuffers {
+  readonly selectedTargetRecords: IndividualSelectedTargetRecord[];
+  readonly actionStateEvents: IndividualCombatActionStateEvent[];
+  readonly attackAttempts: IndividualMeleeAttackAttemptRecord[];
+  readonly guardStateEvents: IndividualGuardStateEvent[];
+  readonly defenceRecords: IndividualMeleeDefenceRecord[];
+  readonly gateDecisions: IndividualLandedHitGateDecisionRecord[];
+  readonly acceptedLandedRecords: IndividualMeleeDefenceRecord[];
+  readonly hitApplications: IndividualLandedHitApplicationRecord[];
+  readonly zeroHitEvents: IndividualZeroHitEvent[];
+}
+
+export interface IndividualCombatPipelineStageResult {
+  readonly eligibleMeleeSourceCount: number;
+  readonly selectedTargetCount: number;
+  readonly activeCommitmentCount: number;
+  readonly attackAttemptCount: number;
+  readonly invalidatedAttackCount: number;
+  readonly parryCount: number;
+  readonly bucklerBlockCount: number;
+  readonly shieldBlockCount: number;
+  readonly landedDefenceOutcomeCount: number;
+  readonly gateAcceptedHitCount: number;
+  readonly gateRejectedHitCount: number;
+  readonly appliedHitLoss: number;
+  readonly zeroHitTransitionCount: number;
+  readonly activeGateRelationshipCount: number;
+}
+
+export interface IndividualCombatPipelineTickResult
+  extends IndividualCombatPipelineStageResult {
+  readonly selectedTargetRecords: readonly IndividualSelectedTargetRecord[];
+  readonly actionStateEvents: readonly IndividualCombatActionStateEvent[];
+  readonly attackAttempts: readonly IndividualMeleeAttackAttemptRecord[];
+  readonly guardStateEvents: readonly IndividualGuardStateEvent[];
+  readonly defenceRecords: readonly IndividualMeleeDefenceRecord[];
+  readonly gateDecisions: readonly IndividualLandedHitGateDecisionRecord[];
+  readonly acceptedLandedRecords: readonly IndividualMeleeDefenceRecord[];
+  readonly hitApplications: readonly IndividualLandedHitApplicationRecord[];
+  readonly zeroHitEvents: readonly IndividualZeroHitEvent[];
+}
+
+export type IndividualCombatPipelineStage =
+  | "targetSelection"
+  | "action"
+  | "defence"
+  | "gate"
+  | "globalHits";
+
+export type IndividualCombatPipelineStageRunner = <T>(
+  stage: IndividualCombatPipelineStage,
+  run: () => T,
+) => T;
+
+export interface IndividualCombatPipelineAdvanceOptions {
+  readonly runStage?: IndividualCombatPipelineStageRunner;
+}
+
+export function createIndividualCombatPipelineStores(
+  world: WorldState,
+  identityStore: UnitIdentityStore,
+  formationStore: FormationBehaviourStore,
+  profileStore: IndividualCombatProfileStore,
+): IndividualCombatPipelineStores {
+  return {
+    profileStore,
+    targetSelectionStore: createIndividualMeleeTargetSelectionStore({
+      entityCount: world.entityCount,
+      bounds: world.bounds,
+    }),
+    actionStore: createIndividualCombatActionStore(
+      identityStore,
+      formationStore,
+      profileStore,
+      { entityCount: world.entityCount },
+    ),
+    defenceStore: createIndividualMeleeDefenceStore({
+      entityCount: world.entityCount,
+    }),
+    landedHitGateStore: createIndividualLandedHitGateStore({
+      entityCount: world.entityCount,
+    }),
+    globalHitStore: createIndividualGlobalHitStore(profileStore, {
+      entityCount: world.entityCount,
+    }),
+  };
+}
+
+export function createIndividualCombatPipelineBuffers(): IndividualCombatPipelineBuffers {
+  return {
+    selectedTargetRecords: [],
+    actionStateEvents: [],
+    attackAttempts: [],
+    guardStateEvents: [],
+    defenceRecords: [],
+    gateDecisions: [],
+    acceptedLandedRecords: [],
+    hitApplications: [],
+    zeroHitEvents: [],
+  };
+}
+
+export function advanceIndividualCombatPipelineObservationOneTick(
+  world: WorldState,
+  identityStore: UnitIdentityStore,
+  formationStore: FormationBehaviourStore,
+  stores: IndividualCombatPipelineStores,
+  buffers: IndividualCombatPipelineBuffers,
+  currentTick: number,
+  options: IndividualCombatPipelineAdvanceOptions = {},
+): IndividualCombatPipelineTickResult {
+  const runStage = options.runStage ?? runStageDirectly;
+  const targetResult = runStage("targetSelection", () =>
+    advanceIndividualMeleeTargetSelection(
+      world,
+      identityStore,
+      formationStore,
+      stores.profileStore,
+      stores.targetSelectionStore,
+      buffers.selectedTargetRecords,
+    ),
+  );
+  const actionResult = runStage("action", () =>
+    advanceIndividualCombatActions(
+      world,
+      identityStore,
+      formationStore,
+      stores.profileStore,
+      targetResult.records,
+      stores.actionStore,
+      buffers.attackAttempts,
+      buffers.actionStateEvents,
+    ),
+  );
+  const defenceResult = runStage("defence", () =>
+    resolveIndividualMeleeDefences(
+      world,
+      identityStore,
+      stores.actionStore,
+      stores.profileStore,
+      stores.defenceStore,
+      actionResult.attackAttempts,
+      buffers.defenceRecords,
+      buffers.guardStateEvents,
+    ),
+  );
+  const gateResult = runStage("gate", () =>
+    filterIndividualLandedHitsThroughGate(
+      stores.landedHitGateStore,
+      currentTick,
+      defenceResult.records,
+      buffers.gateDecisions,
+      buffers.acceptedLandedRecords,
+    ),
+  );
+  const hitResult = runStage("globalHits", () =>
+    applyIndividualLandedHits(
+      stores.globalHitStore,
+      gateResult.acceptedRecords,
+      buffers.hitApplications,
+      buffers.zeroHitEvents,
+    ),
+  );
+
+  return {
+    selectedTargetRecords: targetResult.records,
+    actionStateEvents: actionResult.actionStateEvents,
+    attackAttempts: actionResult.attackAttempts,
+    guardStateEvents: defenceResult.guardStateEvents,
+    defenceRecords: defenceResult.records,
+    gateDecisions: gateResult.decisions,
+    acceptedLandedRecords: gateResult.acceptedRecords,
+    hitApplications: hitResult.applications,
+    zeroHitEvents: hitResult.zeroHitEvents,
+    eligibleMeleeSourceCount: targetResult.queryCount,
+    selectedTargetCount: targetResult.activeTargetCount,
+    activeCommitmentCount: actionResult.activeCommitmentCount,
+    attackAttemptCount: actionResult.attackAttempts.length,
+    invalidatedAttackCount: actionResult.invalidatedAttemptCount,
+    parryCount: defenceResult.parryCount,
+    bucklerBlockCount: defenceResult.bucklerBlockCount,
+    shieldBlockCount: defenceResult.shieldBlockCount,
+    landedDefenceOutcomeCount: defenceResult.landedCount,
+    gateAcceptedHitCount: gateResult.acceptedCount,
+    gateRejectedHitCount: gateResult.rejectedCount,
+    appliedHitLoss: hitResult.totalAppliedHitLoss,
+    zeroHitTransitionCount: hitResult.zeroHitEvents.length,
+    activeGateRelationshipCount: gateResult.activeRelationshipCount,
+  };
+}
+
+export function createIndividualCombatProfileStoreFromUnitLoadouts(
+  identityStore: UnitIdentityStore,
+  loadoutStore: UnitLoadoutStore,
+): IndividualCombatProfileStore {
+  if (identityStore.entityCount !== loadoutStore.entityCount) {
+    throw new RangeError(
+      "Individual combat profile mapping requires matching identity and loadout entity counts.",
+    );
+  }
+  const profiles = new Array<IndividualCombatProfileConfig>(
+    identityStore.entityCount,
+  );
+  const unitIds = getUnitIds(identityStore);
+  for (let unitIndex = 0; unitIndex < unitIds.length; unitIndex += 1) {
+    const unitId = unitIds[unitIndex]!;
+    const loadout = getUnitLoadoutSummary(loadoutStore, unitId);
+    const weapon = mapLegacyWeaponCategory(loadout.weaponCategory);
+    const armour = mapLegacyArmourClass(loadout.armourClass);
+    const shield = mapLegacyShieldClass(loadout.shieldClass);
+    const shieldCarriedState = getMappedShieldCarriedState(shield, weapon);
+    const hasDreadnought = loadout.armourClass === "dreadnought";
+    const members = getUnitMembers(identityStore, unitId);
+    for (let memberIndex = 0; memberIndex < members.length; memberIndex += 1) {
+      const entityId = members[memberIndex]!;
+      profiles[entityId] = {
+        entityId,
+        primaryWeapon: weapon,
+        shieldCategory: shield,
+        shieldCarriedState,
+        armourCategory: armour,
+        hasQualifyingHelmet: false,
+        qualifications: {
+          hasWeaponMaster: true,
+          hasShield: true,
+          hasMarksman: true,
+          hasThrown: true,
+          hasAmbidexterity: true,
+          enduranceLevels: 0,
+          fortitudeLevels: 0,
+          hasDreadnought,
+        },
+        magicalCapabilities: {
+          canUseRod: true,
+          canUseStaff: true,
+          canWearMageArmour: true,
+          canDeliverCombatMagic: true,
+        },
+      };
+    }
+  }
+  return createIndividualCombatProfileStore({
+    entityCount: identityStore.entityCount,
+    profiles,
+  });
+}
+
+function mapLegacyWeaponCategory(
+  weaponCategory: WeaponCategory,
+): IndividualWeaponCategory {
+  switch (weaponCategory) {
+    case "unarmed":
+      return "unarmed";
+    case "oneHanded":
+      return "oneHanded";
+    case "twoHanded":
+      return "greatWeapon";
+    case "polearm":
+      return "polearm";
+    case "pike":
+      return "pike";
+    case "bow":
+      return "ranged";
+    case "thrown":
+      return "thrown";
+    case "rod":
+      return "rod";
+    case "staff":
+      return "staff";
+    case "dualWield":
+      throw new RangeError(
+        "Legacy dualWield loadout cannot map to an individual combat profile until dual wielding is implemented.",
+      );
+    default:
+      return assertNever(weaponCategory);
+  }
+}
+
+function mapLegacyArmourClass(armourClass: ArmourClass): IndividualArmourCategory {
+  switch (armourClass) {
+    case "none":
+      return "none";
+    case "light":
+      return "light";
+    case "medium":
+      return "medium";
+    case "heavy":
+      return "heavy";
+    case "mageArmour":
+      return "mageArmour";
+    case "dreadnought":
+      return "heavy";
+    default:
+      return assertNever(armourClass);
+  }
+}
+
+function mapLegacyShieldClass(shieldClass: ShieldClass): IndividualShieldCategory {
+  switch (shieldClass) {
+    case "none":
+      return "none";
+    case "buckler":
+      return "buckler";
+    case "shield":
+      return "shield";
+    default:
+      return assertNever(shieldClass);
+  }
+}
+
+function getMappedShieldCarriedState(
+  shield: IndividualShieldCategory,
+  weapon: IndividualWeaponCategory,
+): IndividualShieldCarriedState {
+  if (shield === "none") return "none";
+  return weapon === "greatWeapon" || weapon === "polearm" || weapon === "pike"
+    ? "slung"
+    : "held";
+}
+
+function runStageDirectly<T>(
+  _stage: IndividualCombatPipelineStage,
+  run: () => T,
+): T {
+  return run();
+}
+
+function assertNever(value: never): never {
+  throw new RangeError(`Unsupported legacy combat loadout value: ${String(value)}.`);
+}
