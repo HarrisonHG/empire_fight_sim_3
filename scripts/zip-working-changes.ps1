@@ -1,6 +1,10 @@
 $zipPath = Join-Path (Get-Location) "codex-changes.zip"
 $stagePath = Join-Path $env:TEMP ("codex-changes-" + [guid]::NewGuid())
 
+if (Test-Path -LiteralPath $zipPath -PathType Leaf) {
+    Remove-Item -LiteralPath $zipPath -Force
+}
+
 $files = @(
     git diff --name-only --diff-filter=ACMRTUXB HEAD
     git ls-files --others --exclude-standard
