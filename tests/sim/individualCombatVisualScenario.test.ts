@@ -11,12 +11,24 @@ import {
   INDIVIDUAL_COMBAT_VISUAL_WORLD_WIDTH,
 } from "../../src/content/individualCombatVisualScenario";
 import { findVisualTestEntry } from "../../src/content/visualTestRegistry";
+import { LIVE_COMBAT_SCENARIO } from "../../src/content/liveCombatScenario";
+import { quantizeEightDirection } from "../../src/sim/eightDirection";
 import type { IndividualMeleeAttackAttemptRecord } from "../../src/sim/individualCombatAction";
+import {
+  getActiveMeleeWeaponCategory,
+  getIndividualCombatFacing,
+} from "../../src/sim/individualCombatAction";
+import {
+  getIndividualCombatProfile,
+  type IndividualCombatProfile,
+  type IndividualWeaponCategory,
+} from "../../src/sim/individualCombatProfile";
 import {
   getIndividualCurrentGlobalHits,
   getIndividualMaximumGlobalHits,
 } from "../../src/sim/individualGlobalHits";
 import type { IndividualLandedHitGateDecisionRecord } from "../../src/sim/individualLandedHitGate";
+import { getActiveMeleeDistances } from "../../src/sim/individualMeleeTargetSelection";
 import type { IndividualMeleeDefenceRecord } from "../../src/sim/individualMeleeDefence";
 import {
   advanceSimulationOneTick,
@@ -59,10 +71,82 @@ describe("individual combat visual regression scenario", () => {
 
     expect(topRow).toEqual([1, 2, 3, 4]);
     expect(bottomRow).toEqual([5, 6, 7]);
-    expect(INDIVIDUAL_COMBAT_VISUAL_CHAMBER_LEGEND_LINES).toEqual([
+    expect(INDIVIDUAL_COMBAT_VISUAL_CHAMBER_LEGEND_LINES.slice(0, 2)).toEqual([
       "Top row: 1 Parry · 2 Shield · 3 Guard overwhelm · 4 Reach",
       "Bottom row: 5 Armour · 6 Gate · 7 Independent attackers",
     ]);
+    expect(INDIVIDUAL_COMBAT_VISUAL_CHAMBER_LEGEND_LINES.join("\n")).toContain(
+      "facing arrow",
+    );
+    expect(INDIVIDUAL_COMBAT_VISUAL_CHAMBER_LEGEND_LINES.join("\n")).toContain(
+      "mageArmour",
+    );
+  });
+
+  it("emits combat visual snapshots from authoritative inspected facing and profiles", () => {
+    const simulation = createSimulation(INDIVIDUAL_COMBAT_VISUAL_SCENARIO);
+    const combat = requireCombatSandbox(simulation);
+    const snapshot = createInitialSnapshot(simulation);
+    const visuals = snapshot.combatDebug?.individualCombatVisuals ?? [];
+
+    expect(visuals.map((visual) => visual.entityId)).toEqual(
+      INDIVIDUAL_COMBAT_INSPECTED_ENTITY_IDS,
+    );
+    expect(visuals).toHaveLength(
+      snapshot.combatDebug?.inspectedIndividuals.length ?? 0,
+    );
+
+    for (const visual of visuals) {
+      const profile = getIndividualCombatProfile(
+        combat.individualProfileStore,
+        visual.entityId,
+      );
+      const facing = getIndividualCombatFacing(
+        combat.individualCombatActionStore,
+        visual.entityId,
+      );
+      const weaponCategory = getActiveMeleeWeaponCategory(
+        combat.individualCombatActionStore,
+        visual.entityId,
+      );
+      const distances = getActiveMeleeDistances(profile);
+
+      expect(visual).toMatchObject({
+        facingOctant: quantizeEightDirection(facing.x, facing.y).octantIndex,
+        weaponCategory,
+        weaponThreatDistance: distances.threat,
+        weaponPreferredMinimumDistance: distances.preferredMinimum,
+        attackArcOctants: 3,
+        shieldCategory: profile.shieldCategory,
+        shieldHeld: profile.shieldCarriedState === "held",
+        armourCategory: profile.armourCategory,
+      });
+    }
+
+    expect(visuals.find((visual) => visual.entityId === 0)?.facingOctant).toBe(0);
+    expect(visuals.find((visual) => visual.entityId === 1)?.facingOctant).toBe(4);
+  });
+
+  it("emits no combat visual entries for normal scenarios without inspection", () => {
+    const simulation = createSimulation(LIVE_COMBAT_SCENARIO);
+
+    expect(createInitialSnapshot(simulation).combatDebug?.individualCombatVisuals)
+      .toEqual([]);
+    advanceSimulationOneTick(simulation);
+    expect(createPositionSnapshot(simulation).combatDebug?.individualCombatVisuals)
+      .toEqual([]);
+  });
+
+  it("uses authoritative weapon distances for reach overlay ordering", () => {
+    const dagger = getActiveMeleeDistances(profileForWeapon("dagger", 1));
+    const oneHanded = getActiveMeleeDistances(profileForWeapon("oneHanded", 2));
+    const polearm = getActiveMeleeDistances(profileForWeapon("polearm", 4));
+    const pike = getActiveMeleeDistances(profileForWeapon("pike", 5));
+
+    expect(pike.threat).toBeGreaterThan(polearm.threat);
+    expect(polearm.threat).toBeGreaterThan(oneHanded.threat);
+    expect(dagger.threat).toBeLessThan(oneHanded.threat);
+    expect(dagger.preferredMinimum).toBe(0);
   });
 
   it("demonstrates all individual-combat chambers through accepted systems", () => {
@@ -497,6 +581,42 @@ function rowLegendChamberIds(centreY: number): readonly number[] {
     .filter((chamber) => chamber.centreY === centreY)
     .sort((left, right) => left.centreX - right.centreX)
     .map((chamber) => chamber.id);
+}
+
+function profileForWeapon(
+  primaryWeapon: IndividualWeaponCategory,
+  reach: number,
+): IndividualCombatProfile {
+  return {
+    entityId: 0,
+    primaryWeapon,
+    supportedAttackModes: ["melee"],
+    reach,
+    handRequirement: primaryWeapon === "dagger" || primaryWeapon === "oneHanded"
+      ? "one"
+      : "two",
+    shieldCategory: "none",
+    shieldCarriedState: "none",
+    armourCategory: "none",
+    hasQualifyingHelmet: false,
+    qualifications: {
+      hasWeaponMaster: false,
+      hasShield: false,
+      hasMarksman: false,
+      hasThrown: false,
+      hasAmbidexterity: false,
+      enduranceLevels: 0,
+      fortitudeLevels: 0,
+      hasDreadnought: false,
+    },
+    magicalCapabilities: {
+      canUseRod: false,
+      canUseStaff: false,
+      canWearMageArmour: false,
+      canDeliverCombatMagic: false,
+    },
+    temporaryAlwaysOnHitModifier: 0,
+  };
 }
 
 function requireCombatSandbox(simulation: SimulationState) {

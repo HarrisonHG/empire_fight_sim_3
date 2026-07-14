@@ -1,6 +1,7 @@
 import { MILESTONE_3_COMBAT_FOUNDATION_SCENARIO } from "./liveCombatScenario";
 import {
   INDIVIDUAL_COMBAT_VISUAL_CHAMBER_LEGEND_LINES,
+  INDIVIDUAL_COMBAT_VISUAL_CHAMBERS,
   INDIVIDUAL_COMBAT_VISUAL_SCENARIO,
   INDIVIDUAL_COMBAT_VISUAL_SCENARIO_ID,
 } from "./individualCombatVisualScenario";
@@ -15,11 +16,18 @@ export interface VisualTestEntry {
   readonly purpose: string;
   readonly expectedObservations: readonly string[];
   readonly legendLines?: readonly string[];
+  readonly worldLabels?: readonly VisualTestWorldLabel[];
   readonly recommendedTickRange: Readonly<{
     readonly start: number;
     readonly end: number;
   }>;
   readonly scenario: SimulationScenario;
+}
+
+export interface VisualTestWorldLabel {
+  readonly text: string;
+  readonly x: number;
+  readonly y: number;
 }
 
 export const VISUAL_TEST_REGISTRY: readonly VisualTestEntry[] = Object.freeze([
@@ -69,6 +77,13 @@ export const VISUAL_TEST_REGISTRY: readonly VisualTestEntry[] = Object.freeze([
       "Separate attackers can each land one accepted hit on the same target; zero-hit fighters remain standing until the casualty milestone.",
     ]),
     legendLines: INDIVIDUAL_COMBAT_VISUAL_CHAMBER_LEGEND_LINES,
+    worldLabels: INDIVIDUAL_COMBAT_VISUAL_CHAMBERS.map((chamber) =>
+      Object.freeze({
+        text: `${chamber.id} ${chamber.label}`,
+        x: chamber.centreX,
+        y: chamber.centreY - 48,
+      }),
+    ),
     recommendedTickRange: Object.freeze({ start: 0, end: 80 }),
     scenario: INDIVIDUAL_COMBAT_VISUAL_SCENARIO,
   }),

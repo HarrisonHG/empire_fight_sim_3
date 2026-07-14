@@ -25,6 +25,8 @@ export const INDIVIDUAL_COMBAT_AREA_LABELS = Object.freeze([
 export const INDIVIDUAL_COMBAT_VISUAL_CHAMBER_LEGEND_LINES = Object.freeze([
   "Top row: 1 Parry · 2 Shield · 3 Guard overwhelm · 4 Reach",
   "Bottom row: 5 Armour · 6 Gate · 7 Independent attackers",
+  "Glyphs: facing arrow · weapon vector · faint maximum reach overlay · dashed preferred-distance marker",
+  "Defence: buckler narrow held arc · shield wider held arc · armour rings show none/light/medium/heavy/mageArmour",
 ] as const);
 
 export interface IndividualCombatVisualChamberMetadata {

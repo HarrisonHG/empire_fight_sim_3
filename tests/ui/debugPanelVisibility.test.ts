@@ -17,6 +17,13 @@ import {
   describeDebugPanelVisibility,
   toggleDebugPanelVisibility,
 } from "../../src/ui/debugPanelVisibility";
+import {
+  areReachOverlaysVisible,
+  createInitialReachOverlayVisibilityState,
+  reachOverlayAriaPressed,
+  reachOverlayToggleLabel,
+  toggleReachOverlayVisibility,
+} from "../../src/ui/reachOverlayVisibility";
 
 describe("debug panel visibility UI state", () => {
   it("starts shown for a newly created scenario UI", () => {
@@ -110,6 +117,28 @@ describe("debug panel visibility UI state", () => {
     visibility = toggleDebugPanelVisibility(visibility);
 
     expect(visibility).toBe("shown");
+    expect(simulation.tick).toBe(0);
+    expect(createInitialSnapshot(simulation)).toEqual(before);
+  });
+
+  it("toggles reach overlay renderer visibility state only", () => {
+    let reachState = createInitialReachOverlayVisibilityState();
+    const simulation = createSimulation(INDIVIDUAL_COMBAT_VISUAL_SCENARIO);
+    const before = createInitialSnapshot(simulation);
+
+    expect(reachState).toBe("shown");
+    expect(reachOverlayToggleLabel(reachState)).toBe("Hide reach overlays");
+    expect(reachOverlayAriaPressed(reachState)).toBe("true");
+    expect(areReachOverlaysVisible(reachState)).toBe(true);
+
+    reachState = toggleReachOverlayVisibility(reachState);
+    expect(reachOverlayToggleLabel(reachState)).toBe("Show reach overlays");
+    expect(reachOverlayAriaPressed(reachState)).toBe("false");
+    expect(areReachOverlaysVisible(reachState)).toBe(false);
+
+    reachState = toggleReachOverlayVisibility(reachState);
+    expect(reachState).toBe("shown");
+    expect(areReachOverlaysVisible(reachState)).toBe(true);
     expect(simulation.tick).toBe(0);
     expect(createInitialSnapshot(simulation)).toEqual(before);
   });

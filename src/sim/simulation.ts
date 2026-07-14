@@ -66,8 +66,10 @@ import {
 } from "./individualMeleeDefence";
 import {
   NO_INDIVIDUAL_TARGET,
+  getActiveMeleeDistances,
   getSelectedTargetEntityId,
 } from "./individualMeleeTargetSelection";
+import { quantizeEightDirection } from "./eightDirection";
 import {
   getIndividualCurrentGlobalHits,
   getIndividualMaximumGlobalHits,
@@ -98,6 +100,7 @@ import type {
   LiveCombatDebugIndividualSnapshot,
   LiveCombatDebugLandedHitGateOutcome,
   LiveCombatDebugUnitSnapshot,
+  IndividualCombatVisualState,
   PositionSimulationSnapshot,
   SimulationScenario,
   SimulationState,
@@ -1249,6 +1252,7 @@ function createEmptyCombatDebugSnapshot(): LiveCombatDebugSnapshot {
     totalNewlyZeroMemberCount: 0,
     units: [],
     inspectedIndividuals: [],
+    individualCombatVisuals: [],
   };
 }
 
@@ -1333,6 +1337,7 @@ function createCombatDebugSnapshot(
     totalNewlyZeroMemberCount: combatSandbox.totalIndividualNewlyZeroHitMemberCount,
     units,
     inspectedIndividuals: collectInspectedIndividualSnapshots(combatSandbox),
+    individualCombatVisuals: collectIndividualCombatVisualStates(combatSandbox),
   };
 }
 
@@ -1445,6 +1450,45 @@ function collectInspectedIndividualSnapshots(
         combatSandbox,
         entityId,
       ),
+    });
+  }
+  return out;
+}
+
+function collectIndividualCombatVisualStates(
+  combatSandbox: CombatSandboxSimulationState,
+): readonly IndividualCombatVisualState[] {
+  const out: IndividualCombatVisualState[] = [];
+  for (
+    let index = 0;
+    index < combatSandbox.inspectedEntityIds.length;
+    index += 1
+  ) {
+    const entityId = combatSandbox.inspectedEntityIds[index]!;
+    const facing = getIndividualCombatFacing(
+      combatSandbox.individualCombatActionStore,
+      entityId,
+    );
+    const facingOctant = quantizeEightDirection(facing.x, facing.y).octantIndex;
+    const profile = getIndividualCombatProfile(
+      combatSandbox.individualProfileStore,
+      entityId,
+    );
+    const weaponCategory = getActiveMeleeWeaponCategory(
+      combatSandbox.individualCombatActionStore,
+      entityId,
+    );
+    const distances = getActiveMeleeDistances(profile);
+    out.push({
+      entityId,
+      facingOctant,
+      weaponCategory,
+      weaponThreatDistance: distances.threat,
+      weaponPreferredMinimumDistance: distances.preferredMinimum,
+      attackArcOctants: 3,
+      shieldCategory: profile.shieldCategory,
+      shieldHeld: profile.shieldCarriedState === "held",
+      armourCategory: profile.armourCategory,
     });
   }
   return out;
@@ -1674,6 +1718,7 @@ function createLegacyCombatFoundationDebugSnapshot(
     totalNewlyZeroMemberCount: 0,
     units,
     inspectedIndividuals: [],
+    individualCombatVisuals: [],
   };
 }
 

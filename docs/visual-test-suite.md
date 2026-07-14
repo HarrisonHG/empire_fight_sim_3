@@ -39,6 +39,12 @@ without resizing the canvas, pausing, resetting, or changing simulation state.
 The button remains visible, changes to **Show debug panels**, and restores both
 panels with retained inspection history intact.
 
+Individual-combat visual-test pages also include a **Hide reach overlays** /
+**Show reach overlays** control. This is renderer/UI state only: it hides or
+shows the faint weapon reach cones and preferred-distance markers without
+changing the simulation, worker state, snapshots, or retained inspection
+history.
+
 ## Registry ownership
 
 The stable registry is `src/content/visualTestRegistry.ts`. Each entry owns:
@@ -93,6 +99,37 @@ Legend:
 Top row: 1 Parry · 2 Shield · 3 Guard overwhelm · 4 Reach
 Bottom row: 5 Armour · 6 Gate · 7 Independent attackers
 ```
+
+### Individual Combat Debug Glyphs
+
+The individual-combat route renders deterministic debug combat glyphs for the
+explicitly inspected fighters only. These symbols are not final equipment
+sprites and do not add a second combat authority; they are derived from the
+authoritative individual-combat profile, action, defence, and threat-distance
+state already present in the simulation snapshot.
+
+Visual grammar:
+
+- facing: a bright triangular nose anchored at the entity centre and aligned to
+  the authoritative eight-direction facing octant;
+- weapon: a simple vector in the facing direction; unarmed has no weapon line,
+  dagger is very short, one-handed is short, great weapon is medium with a
+  broad terminal marker, polearm is long and pointed, pike is longest and
+  narrow-pointed, thrown has a small projectile marker, ranged has a compact
+  bow-like arc, rod has a circular terminal marker, and staff is double-ended;
+- reach: a faint forward cone uses world-space authoritative threat distance
+  and attack arc; a dashed inner marker shows preferred minimum distance when
+  that value is greater than zero;
+- shield: held bucklers show a narrow frontal arc and held full shields show a
+  wider frontal arc. Slung or absent shields draw no active shield coverage;
+- armour: diagnostic body rings distinguish none, light, medium, heavy, and
+  mageArmour. These rings do not imply passive damage mitigation or health.
+
+Milestone 5 human inspection should judge each chamber using the facing,
+weapon, reach, shield, and armour glyphs together with the metrics/individual
+inspection table. Exact equipment artwork, richer sprites, handedness
+presentation, animation, and bow/crossbow appearance remain later
+renderer/content work.
 
 | Area | Label | Useful ticks | Expected observation |
 | --- | --- | ---: | --- |

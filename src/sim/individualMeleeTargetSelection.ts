@@ -310,7 +310,7 @@ export function advanceIndividualMeleeTargetSelection(
   return { records: out, queryCount, activeTargetCount };
 }
 
-function getActiveMeleeDistances(profile: IndividualCombatProfile): {
+export function getActiveMeleeDistances(profile: IndividualCombatProfile): {
   readonly threat: number;
   readonly preferredMinimum: number;
 } {

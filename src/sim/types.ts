@@ -21,6 +21,7 @@ import type {
 } from "./individualCombatConsequences";
 import type { IndividualCombatEligibilitySnapshot } from "./individualCombatEligibility";
 import type {
+  IndividualArmourCategory,
   IndividualCombatProfileStore,
   IndividualShieldCarriedState,
   IndividualShieldCategory,
@@ -297,6 +298,18 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly reachedZeroHitsThisTick: boolean;
 }
 
+export interface IndividualCombatVisualState {
+  readonly entityId: number;
+  readonly facingOctant: number;
+  readonly weaponCategory: IndividualWeaponCategory;
+  readonly weaponThreatDistance: number;
+  readonly weaponPreferredMinimumDistance: number;
+  readonly attackArcOctants: number;
+  readonly shieldCategory: IndividualShieldCategory;
+  readonly shieldHeld: boolean;
+  readonly armourCategory: IndividualArmourCategory;
+}
+
 /** Compact, render-safe inspection state for the production combat sandbox. */
 export interface LiveCombatDebugSnapshot {
   readonly attackAttemptCount: number;
@@ -316,6 +329,7 @@ export interface LiveCombatDebugSnapshot {
   readonly totalNewlyZeroMemberCount: number;
   readonly units: readonly LiveCombatDebugUnitSnapshot[];
   readonly inspectedIndividuals: readonly LiveCombatDebugIndividualSnapshot[];
+  readonly individualCombatVisuals: readonly IndividualCombatVisualState[];
 }
 
 /**

@@ -1376,6 +1376,37 @@ defence arcs, hit rules, pressure, morale, movement, or casualty behaviour.
   labels/state, retained-history preservation, no snapshot/tick impact,
   non-visual route handling, and legend alignment with chamber metadata.
 
+### 5G-3 combat-readability spike (2026-07-14)
+
+- [x] Added render-safe `IndividualCombatVisualState` records to live combat
+  debug snapshots for explicitly inspected entities only. Normal scenarios with
+  no inspected entities emit no per-entity combat visual entries.
+- [x] Combat visual records expose only entity ID, authoritative facing octant,
+  active weapon category, world-space weapon threat and preferred-minimum
+  distances, accepted 3-octant attack arc width, shield category/held state,
+  and armour category.
+- [x] Added deterministic debug glyph rendering for inspected fighters:
+  eight-direction facing nose, category-distinct weapon vector, faint
+  world-space maximum-reach cone, dashed preferred-distance marker, held
+  buckler/shield frontal arcs, and diagnostic armour rings.
+- [x] Added a UI/render-only **Hide reach overlays** / **Show reach overlays**
+  control for visual-test scenarios. It toggles only the reach overlay layer;
+  no worker message, snapshot field, simulation state, combat mechanic,
+  renderer geometry, or event timing changes.
+- [x] Rendered compact world-space chamber labels from exported chamber
+  metadata. Labels are content/test description only and are not simulation
+  snapshot fields.
+- [x] Extended the scenario information legend with the chamber grid and visual
+  grammar for facing arrows, weapon vectors, reach overlays, preferred-distance
+  markers, buckler/shield arcs, and armour rings.
+- [x] Added tests for authoritative combat visual snapshots, stationary facing,
+  weapon glyph exhaustiveness and relative lengths, preferred-distance absence
+  for zero-distance weapons, shield coverage/held-state mapping, armour style
+  mapping, reach-toggle state, normal no-inspection scenarios, unchanged replay
+  and chamber event ticks, and the `src/sim` dependency boundary.
+- [x] These glyphs remain debug symbols, not finished equipment sprites. Exact
+  equipment presentation remains deferred to later renderer/content work.
+
 ---
 
 # Expected final tick order

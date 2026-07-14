@@ -13,6 +13,11 @@ import {
   type DebugPanelVisibilityState,
 } from "./ui/debugPanelVisibility";
 import {
+  areReachOverlaysVisible,
+  createInitialReachOverlayVisibilityState,
+  type ReachOverlayVisibilityState,
+} from "./ui/reachOverlayVisibility";
+import {
   createVisualTestScenarioPanel,
   renderVisualTestMenu,
 } from "./ui/VisualTestNavigation";
@@ -47,6 +52,7 @@ async function startApplication(
   visualTestEntry?: (typeof VISUAL_TEST_REGISTRY)[number],
 ): Promise<void> {
   const renderer = await PixiEntityRenderer.create(host);
+  renderer.setWorldLabels(visualTestEntry?.worldLabels ?? []);
   const workerClient = new SimulationWorkerClient();
   const metricsPanel = new MetricsPanel();
   const visualTestScenarioPanel =
@@ -63,13 +69,27 @@ async function startApplication(
       visualTestScenarioPanel.hidden = hidden;
     }
   };
-  const controls = new Controls(workerClient, {
-    getState: () => debugPanelVisibility,
-    setState: (state) => {
-      debugPanelVisibility = state;
-      applyDebugPanelVisibility(state);
+  let reachOverlayVisibility = createInitialReachOverlayVisibilityState();
+  const controls = new Controls(
+    workerClient,
+    {
+      getState: () => debugPanelVisibility,
+      setState: (state) => {
+        debugPanelVisibility = state;
+        applyDebugPanelVisibility(state);
+      },
     },
-  });
+    visualTestEntry === undefined
+      ? undefined
+      : {
+          getState: () => reachOverlayVisibility,
+          setState: (state: ReachOverlayVisibilityState) => {
+            reachOverlayVisibility = state;
+            renderer.setReachOverlayVisible(areReachOverlaysVisible(state));
+          },
+        },
+  );
+  renderer.setReachOverlayVisible(areReachOverlaysVisible(reachOverlayVisibility));
   const interfaceLayer = document.createElement("div");
   interfaceLayer.className = "interface-layer";
   interfaceLayer.append(controls.element, metricsPanel.element);

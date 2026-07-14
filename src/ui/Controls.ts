@@ -6,10 +6,21 @@ import {
   toggleDebugPanelVisibility,
   type DebugPanelVisibilityState,
 } from "./debugPanelVisibility";
+import {
+  reachOverlayAriaPressed,
+  reachOverlayToggleLabel,
+  toggleReachOverlayVisibility,
+  type ReachOverlayVisibilityState,
+} from "./reachOverlayVisibility";
 
 export interface DebugPanelVisibilityBinding {
   readonly getState: () => DebugPanelVisibilityState;
   readonly setState: (state: DebugPanelVisibilityState) => void;
+}
+
+export interface ReachOverlayVisibilityBinding {
+  readonly getState: () => ReachOverlayVisibilityState;
+  readonly setState: (state: ReachOverlayVisibilityState) => void;
 }
 
 export class Controls {
@@ -22,10 +33,15 @@ export class Controls {
     "Hide debug panels",
     "debug-panels-toggle",
   );
+  private readonly reachOverlaysButton = createButton(
+    "Hide reach overlays",
+    "reach-overlays-toggle",
+  );
 
   public constructor(
     private readonly workerClient: SimulationWorkerClient,
     private readonly debugPanelVisibility?: DebugPanelVisibilityBinding,
+    private readonly reachOverlayVisibility?: ReachOverlayVisibilityBinding,
   ) {
     this.element = document.createElement("section");
     this.element.className = "controls";
@@ -36,12 +52,20 @@ export class Controls {
       this.stepButton,
       this.debugPanelsButton,
     );
+    if (this.reachOverlayVisibility !== undefined) {
+      this.element.append(this.reachOverlaysButton);
+    }
 
     this.pauseButton.addEventListener("click", this.handlePause);
     this.resumeButton.addEventListener("click", this.handleResume);
     this.stepButton.addEventListener("click", this.handleStep);
     this.debugPanelsButton.addEventListener("click", this.handleToggleDebugPanels);
+    this.reachOverlaysButton.addEventListener(
+      "click",
+      this.handleToggleReachOverlays,
+    );
     this.updateDebugPanelButton();
+    this.updateReachOverlayButton();
     this.updateWorkerStatus("idle");
   }
 
@@ -58,6 +82,10 @@ export class Controls {
     this.debugPanelsButton.removeEventListener(
       "click",
       this.handleToggleDebugPanels,
+    );
+    this.reachOverlaysButton.removeEventListener(
+      "click",
+      this.handleToggleReachOverlays,
     );
     this.element.remove();
   }
@@ -83,12 +111,34 @@ export class Controls {
     this.updateDebugPanelButton();
   };
 
+  private readonly handleToggleReachOverlays = (): void => {
+    const binding = this.reachOverlayVisibility;
+    if (binding === undefined) {
+      return;
+    }
+    binding.setState(toggleReachOverlayVisibility(binding.getState()));
+    this.updateReachOverlayButton();
+  };
+
   private updateDebugPanelButton(): void {
     const state = this.debugPanelVisibility?.getState() ?? "shown";
     this.debugPanelsButton.textContent = debugPanelToggleLabel(state);
     this.debugPanelsButton.setAttribute(
       "aria-expanded",
       debugPanelAriaExpanded(state),
+    );
+  }
+
+  private updateReachOverlayButton(): void {
+    const binding = this.reachOverlayVisibility;
+    if (binding === undefined) {
+      return;
+    }
+    const state = binding.getState();
+    this.reachOverlaysButton.textContent = reachOverlayToggleLabel(state);
+    this.reachOverlaysButton.setAttribute(
+      "aria-pressed",
+      reachOverlayAriaPressed(state),
     );
   }
 }
