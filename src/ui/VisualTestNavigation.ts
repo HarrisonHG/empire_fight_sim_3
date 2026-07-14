@@ -69,6 +69,13 @@ export function createVisualTestScenarioPanel(
     item.textContent = observation;
     observations.append(item);
   }
-  panel.append(backLink, heading, meta, observations);
+  panel.append(backLink, heading, meta);
+  if (entry.legendLines !== undefined) {
+    const legend = document.createElement("p");
+    legend.className = "visual-test-scenario-legend";
+    legend.textContent = entry.legendLines.join("\n");
+    panel.append(legend);
+  }
+  panel.append(observations);
   return panel;
 }

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   INDIVIDUAL_COMBAT_INSPECTED_ENTITY_IDS,
   INDIVIDUAL_COMBAT_LOCAL_INTERACTION_RANGE,
+  INDIVIDUAL_COMBAT_VISUAL_CHAMBER_LEGEND_LINES,
   INDIVIDUAL_COMBAT_VISUAL_CHAMBERS,
   INDIVIDUAL_COMBAT_VISUAL_SCENARIO,
   INDIVIDUAL_COMBAT_VISUAL_SCENARIO_ID,
@@ -50,6 +51,18 @@ describe("individual combat visual regression scenario", () => {
     expect(INDIVIDUAL_COMBAT_VISUAL_WORLD_HEIGHT).toBe(580);
     expect(INDIVIDUAL_COMBAT_VISUAL_CHAMBERS.map((chamber) => chamber.entityIds))
       .toEqual([[0, 1], [2, 3], [4, 5, 6], [7, 8, 9, 10], [11, 12, 13, 14], [15, 16], [17, 18, 19]]);
+  });
+
+  it("keeps the compact chamber legend aligned with exported chamber metadata", () => {
+    const topRow = rowLegendChamberIds(140);
+    const bottomRow = rowLegendChamberIds(440);
+
+    expect(topRow).toEqual([1, 2, 3, 4]);
+    expect(bottomRow).toEqual([5, 6, 7]);
+    expect(INDIVIDUAL_COMBAT_VISUAL_CHAMBER_LEGEND_LINES).toEqual([
+      "Top row: 1 Parry · 2 Shield · 3 Guard overwhelm · 4 Reach",
+      "Bottom row: 5 Armour · 6 Gate · 7 Independent attackers",
+    ]);
   });
 
   it("demonstrates all individual-combat chambers through accepted systems", () => {
@@ -477,6 +490,13 @@ function minimumChamberCentreDistance(): number {
     }
   }
   return minimum;
+}
+
+function rowLegendChamberIds(centreY: number): readonly number[] {
+  return INDIVIDUAL_COMBAT_VISUAL_CHAMBERS
+    .filter((chamber) => chamber.centreY === centreY)
+    .sort((left, right) => left.centreX - right.centreX)
+    .map((chamber) => chamber.id);
 }
 
 function requireCombatSandbox(simulation: SimulationState) {

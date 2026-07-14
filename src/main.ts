@@ -8,6 +8,11 @@ import { Controls } from "./ui/Controls";
 import { MetricsPanel } from "./ui/MetricsPanel";
 import { resolveApplicationRoute } from "./ui/applicationRoute";
 import {
+  createInitialDebugPanelVisibilityState,
+  shouldHideDebugPanels,
+  type DebugPanelVisibilityState,
+} from "./ui/debugPanelVisibility";
+import {
   createVisualTestScenarioPanel,
   renderVisualTestMenu,
 } from "./ui/VisualTestNavigation";
@@ -43,14 +48,35 @@ async function startApplication(
 ): Promise<void> {
   const renderer = await PixiEntityRenderer.create(host);
   const workerClient = new SimulationWorkerClient();
-  const controls = new Controls(workerClient);
   const metricsPanel = new MetricsPanel();
+  const visualTestScenarioPanel =
+    visualTestEntry === undefined
+      ? undefined
+      : createVisualTestScenarioPanel(visualTestEntry);
+  let debugPanelVisibility = createInitialDebugPanelVisibilityState();
+  const applyDebugPanelVisibility = (
+    state: DebugPanelVisibilityState,
+  ): void => {
+    const hidden = shouldHideDebugPanels(state);
+    metricsPanel.element.hidden = hidden;
+    if (visualTestScenarioPanel !== undefined) {
+      visualTestScenarioPanel.hidden = hidden;
+    }
+  };
+  const controls = new Controls(workerClient, {
+    getState: () => debugPanelVisibility,
+    setState: (state) => {
+      debugPanelVisibility = state;
+      applyDebugPanelVisibility(state);
+    },
+  });
   const interfaceLayer = document.createElement("div");
   interfaceLayer.className = "interface-layer";
   interfaceLayer.append(controls.element, metricsPanel.element);
-  if (visualTestEntry !== undefined) {
-    interfaceLayer.append(createVisualTestScenarioPanel(visualTestEntry));
+  if (visualTestScenarioPanel !== undefined) {
+    interfaceLayer.append(visualTestScenarioPanel);
   }
+  applyDebugPanelVisibility(debugPanelVisibility);
   host.append(interfaceLayer);
 
   const unsubscribe = workerClient.subscribe((message) => {

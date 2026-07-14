@@ -33,6 +33,12 @@ Unknown scenario IDs show a clear error followed by the full menu. Scenario
 pages include a **Back to visual test menu** link and start paused at tick 0;
 use Resume or Step after reading the expected observations.
 
+Scenario pages include a **Hide debug panels** control in the simulation
+controls. It hides the metrics panel and visual-test scenario-information panel
+without resizing the canvas, pausing, resetting, or changing simulation state.
+The button remains visible, changes to **Show debug panels**, and restores both
+panels with retained inspection history intact.
+
 ## Registry ownership
 
 The stable registry is `src/content/visualTestRegistry.ts`. Each entry owns:
@@ -80,6 +86,13 @@ labelled chambers in a landscape-friendly grid within a 1200 by 580 world:
 Chamber centres are separated by at least 300 units. Automated coverage checks
 that all cross-chamber entity distances remain greater than the 192-unit local
 interaction range throughout the useful inspection window.
+
+Legend:
+
+```text
+Top row: 1 Parry · 2 Shield · 3 Guard overwhelm · 4 Reach
+Bottom row: 5 Armour · 6 Gate · 7 Independent attackers
+```
 
 | Area | Label | Useful ticks | Expected observation |
 | --- | --- | ---: | --- |

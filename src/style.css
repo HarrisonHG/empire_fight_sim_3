@@ -62,6 +62,12 @@ body {
   margin: 4px 0;
 }
 
+.visual-test-scenario-legend {
+  color: #cbd5e1;
+  font-size: 0.85rem;
+  white-space: pre-line;
+}
+
 .visual-test-scenario-panel a,
 .visual-test-menu a {
   color: #93c5fd;

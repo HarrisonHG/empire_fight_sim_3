@@ -22,6 +22,10 @@ export const INDIVIDUAL_COMBAT_AREA_LABELS = Object.freeze([
   "One-second relationship gate",
   "Independent attackers",
 ] as const);
+export const INDIVIDUAL_COMBAT_VISUAL_CHAMBER_LEGEND_LINES = Object.freeze([
+  "Top row: 1 Parry · 2 Shield · 3 Guard overwhelm · 4 Reach",
+  "Bottom row: 5 Armour · 6 Gate · 7 Independent attackers",
+] as const);
 
 export interface IndividualCombatVisualChamberMetadata {
   readonly id: number;
@@ -31,14 +35,17 @@ export interface IndividualCombatVisualChamberMetadata {
   readonly centreY: number;
 }
 
+const FIRST_CHAMBER_CENTRE_X = 150;
+const FIRST_CHAMBER_CENTRE_Y = 140;
+
 export const INDIVIDUAL_COMBAT_VISUAL_CHAMBERS = Object.freeze([
-  chamberMetadata(1, "First frontal defence", [0, 1], 150, 140),
-  chamberMetadata(2, "Held shield defence", [2, 3], 450, 140),
-  chamberMetadata(3, "Two attackers overwhelm guard", [4, 5, 6], 750, 140),
-  chamberMetadata(4, "Weapon reach", [7, 8, 9, 10], 1_050, 140),
-  chamberMetadata(5, "Armour and global hits", [11, 12, 13, 14], 150, 440),
-  chamberMetadata(6, "One-second relationship gate", [15, 16], 450, 440),
-  chamberMetadata(7, "Independent attackers", [17, 18, 19], 750, 440),
+  chamberMetadata(1, "First frontal defence", [0, 1], 0, 0),
+  chamberMetadata(2, "Held shield defence", [2, 3], 1, 0),
+  chamberMetadata(3, "Two attackers overwhelm guard", [4, 5, 6], 2, 0),
+  chamberMetadata(4, "Weapon reach", [7, 8, 9, 10], 3, 0),
+  chamberMetadata(5, "Armour and global hits", [11, 12, 13, 14], 0, 1),
+  chamberMetadata(6, "One-second relationship gate", [15, 16], 1, 1),
+  chamberMetadata(7, "Independent attackers", [17, 18, 19], 2, 1),
 ] as const);
 
 export const INDIVIDUAL_COMBAT_VISUAL_SCENARIO: SimulationScenario =
@@ -196,14 +203,16 @@ function chamberMetadata(
   id: number,
   label: (typeof INDIVIDUAL_COMBAT_AREA_LABELS)[number],
   entityIds: readonly number[],
-  centreX: number,
-  centreY: number,
+  column: number,
+  row: number,
 ): IndividualCombatVisualChamberMetadata {
   return Object.freeze({
     id,
     label,
     entityIds: Object.freeze([...entityIds]),
-    centreX,
-    centreY,
+    centreX:
+      FIRST_CHAMBER_CENTRE_X + column * INDIVIDUAL_COMBAT_AREA_SPACING,
+    centreY:
+      FIRST_CHAMBER_CENTRE_Y + row * INDIVIDUAL_COMBAT_AREA_SPACING,
   });
 }

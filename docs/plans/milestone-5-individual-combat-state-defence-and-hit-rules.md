@@ -1353,6 +1353,29 @@ defence arcs, hit rules, pressure, morale, movement, or casualty behaviour.
   evidence, tick-0 retention clearing, omitted inspection rows, unit labels,
   and deterministic replay.
 
+### 5G-3 overlay visibility correction (2026-07-14)
+
+- [x] Added an accessible UI-only **Hide debug panels** / **Show debug panels**
+  control to the existing simulation controls. It uses `aria-expanded` to
+  expose whether the debug panels are currently shown.
+- [x] Hiding debug panels applies only to the metrics panel and visual-test
+  scenario-information panel. The simulation controls and canvas remain visible,
+  and no worker message, snapshot field, simulation state, combat mechanic,
+  renderer behaviour, scenario geometry, or event timing changes.
+- [x] Showing debug panels restores both panels with retained individual
+  inspection history intact. The visibility state defaults to shown when a new
+  route/scenario UI is created.
+- [x] Added the compact individual-combat chamber legend to the visual-test
+  scenario panel:
+  `Top row: 1 Parry · 2 Shield · 3 Guard overwhelm · 4 Reach` and
+  `Bottom row: 5 Armour · 6 Gate · 7 Independent attackers`.
+- [x] Kept `INDIVIDUAL_COMBAT_AREA_SPACING` and now derives the 300-unit
+  chamber-centre grid from it, so the layout constant is no longer dead or
+  misleading.
+- [x] Added UI/state tests for overlay hide/show behaviour, accessibility
+  labels/state, retained-history preservation, no snapshot/tick impact,
+  non-visual route handling, and legend alignment with chamber metadata.
+
 ---
 
 # Expected final tick order
