@@ -20,7 +20,12 @@ import type {
   IndividualCombatUnitConsequenceSummary,
 } from "./individualCombatConsequences";
 import type { IndividualCombatEligibilitySnapshot } from "./individualCombatEligibility";
-import type { IndividualCombatProfileStore } from "./individualCombatProfile";
+import type {
+  IndividualCombatProfileStore,
+  IndividualShieldCarriedState,
+  IndividualShieldCategory,
+  IndividualWeaponCategory,
+} from "./individualCombatProfile";
 import type { IndividualGlobalHitStore } from "./individualGlobalHits";
 import type { IndividualLandedHitGateStore } from "./individualLandedHitGate";
 import type { IndividualMeleeDefenceStore } from "./individualMeleeDefence";
@@ -110,6 +115,8 @@ export interface CombatSandboxScenario {
   readonly kind: "liveCombatSandbox";
   readonly units: readonly CombatSandboxUnitScenario[];
   readonly appliedDamagePressureScale: number;
+  /** Optional bounded debug list; normal scenarios omit per-entity inspection. */
+  readonly inspectedEntityIds?: readonly number[];
 }
 
 /** Explicit non-combat setup used only by retained formation visual tests. */
@@ -237,6 +244,59 @@ export interface LiveCombatDebugUnitSnapshot {
   readonly newlyZeroMembers: number;
 }
 
+export type LiveCombatDebugAttackOutcome =
+  | "none"
+  | "attempted"
+  | "invalidated";
+
+export type LiveCombatDebugDefenceOutcome =
+  | "none"
+  | "parried"
+  | "bucklerBlocked"
+  | "shieldBlocked"
+  | "landed";
+
+export type LiveCombatDebugLandedHitGateOutcome =
+  | "none"
+  | "accepted"
+  | "rejected";
+
+export interface LiveCombatDebugFacingSnapshot {
+  readonly x: -1 | 0 | 1;
+  readonly y: -1 | 0 | 1;
+}
+
+export interface LiveCombatDebugIndividualSnapshot {
+  readonly entityId: number;
+  readonly unitId: number;
+  readonly tickStartCombatEligible: boolean;
+  readonly selectedTargetEntityId: number | null;
+  readonly selectedTargetDistanceSquared: number | null;
+  readonly selectedTargetWithinPreferredDistance: boolean | null;
+  readonly actionState: "ready" | "committingAttack" | "recoveringAttack";
+  readonly lockedTargetEntityId: number | null;
+  readonly facing: LiveCombatDebugFacingSnapshot;
+  readonly commitmentTicksRemaining: number;
+  readonly attackRecoveryTicksRemaining: number;
+  readonly guardState: "ready" | "recovering";
+  readonly defenceRecoveryTicksRemaining: number;
+  readonly activeWeapon: IndividualWeaponCategory;
+  readonly shieldCategory: IndividualShieldCategory;
+  readonly shieldCarriedState: IndividualShieldCarriedState;
+  readonly currentGlobalHits: number;
+  readonly maximumGlobalHits: number;
+  readonly thisTickAttackOutcome: LiveCombatDebugAttackOutcome;
+  readonly thisTickDefenceOutcome: LiveCombatDebugDefenceOutcome;
+  readonly thisTickOutgoingDefenceOutcome: LiveCombatDebugDefenceOutcome;
+  readonly thisTickLandedHitGateOutcome: LiveCombatDebugLandedHitGateOutcome;
+  readonly thisTickIncomingParryCount: number;
+  readonly thisTickIncomingBucklerBlockCount: number;
+  readonly thisTickIncomingShieldBlockCount: number;
+  readonly thisTickIncomingLandedCount: number;
+  readonly thisTickAppliedHitLoss: number;
+  readonly reachedZeroHitsThisTick: boolean;
+}
+
 /** Compact, render-safe inspection state for the production combat sandbox. */
 export interface LiveCombatDebugSnapshot {
   readonly attackAttemptCount: number;
@@ -255,6 +315,7 @@ export interface LiveCombatDebugSnapshot {
   readonly totalAppliedHitLoss: number;
   readonly totalNewlyZeroMemberCount: number;
   readonly units: readonly LiveCombatDebugUnitSnapshot[];
+  readonly inspectedIndividuals: readonly LiveCombatDebugIndividualSnapshot[];
 }
 
 /**
@@ -279,6 +340,8 @@ export interface CombatSandboxSimulationState {
   readonly individualCombatConsequenceSummaries: readonly IndividualCombatUnitConsequenceSummary[];
   readonly individualCombatPipelineStores: IndividualCombatPipelineStores;
   readonly individualCombatPipelineBuffers: IndividualCombatPipelineBuffers;
+  readonly inspectedEntityIds: readonly number[];
+  readonly inspectedIndividuals: LiveCombatDebugIndividualSnapshot[];
   readonly pressureStore: CombatPressureStore;
   readonly routingContagionStore: RoutingContagionStore;
   readonly recoveryThreatStore: RecoveryThreatStore;

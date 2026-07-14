@@ -1,11 +1,10 @@
-import type { CombatMoraleAssessment } from "./combatMorale";
+import {
+  isBreakRiskCombatShock,
+  type CombatMoraleAssessment,
+} from "./combatMorale";
 import type { UnitPressureUpdate } from "./combatPressure";
 import type { UnitRoutingContagionSummary } from "./routingContagion";
 import type { MoraleMovementState } from "./moraleMovement";
-import {
-  getUnitAccumulatedDamage,
-  type CombatSurvivabilityStore,
-} from "./combatSurvivability";
 import {
   getIndividualConfidence,
   getIndividualRole,
@@ -58,8 +57,6 @@ export interface PersistentMoraleTickResult {
 }
 
 export interface PersistentMoraleContext {
-  /** Existing survivability ownership; read-only accumulated damage history. */
-  readonly survivabilityStore?: CombatSurvivabilityStore;
   /** Latest 4B source summaries in deterministic unit order. */
   readonly pressureUpdates?: readonly UnitPressureUpdate[];
   /** Latest 4F effects, used only to preserve fresh-pressure recovery gates. */
@@ -194,9 +191,6 @@ export function advancePersistentMoraleOneTick(
       unitId,
       getUnitMembers(identityStore, unitId),
       assessment,
-      context.survivabilityStore === undefined
-        ? 0
-        : getUnitAccumulatedDamage(context.survivabilityStore, unitId),
     );
     const pressureUpdate = context.pressureUpdates?.[unitIndex];
     const hasFreshPressure =
@@ -218,7 +212,7 @@ export function advancePersistentMoraleOneTick(
         : updateRoutingRisk(
             internal.routingRisk[unitIndex]!,
             candidateState,
-            profile.recentCapacityReached,
+            profile.recentCombatShockBreakRisk,
           );
     const nextState = determineNextState(
       internal,
@@ -405,7 +399,7 @@ interface UnitMoraleProfile {
   readonly confidence: number;
   readonly cohesion: number;
   readonly maximumCohesion: number;
-  readonly recentCapacityReached: boolean;
+  readonly recentCombatShockBreakRisk: boolean;
 }
 
 function collectUnitMoraleProfile(
@@ -413,7 +407,6 @@ function collectUnitMoraleProfile(
   unitId: UnitId,
   members: readonly number[],
   assessment: CombatMoraleAssessment,
-  accumulatedDamage: number,
 ): UnitMoraleProfile {
   let confidenceTotal = 0;
   let experienceTotal = 0;
@@ -427,9 +420,10 @@ function collectUnitMoraleProfile(
   const confidence = Math.trunc(confidenceTotal / members.length);
   const experienceAdjustment = Math.trunc(experienceTotal / members.length);
   let stressScore = Math.trunc(assessment.pressureAverage);
-  stressScore += Math.min(30, accumulatedDamage * 2);
-  stressScore += Math.min(20, assessment.recentCohesionDamageValue * 4);
-  if (assessment.recentCapacityReached) stressScore += 40;
+  stressScore += Math.min(20, assessment.recentCombatShockValue * 4);
+  if (isBreakRiskCombatShock(assessment.recentCombatShockSource)) {
+    stressScore += 40;
+  }
   if (assessment.cohesion < 700) stressScore += 10;
   if (assessment.cohesion < 400) stressScore += 20;
   if (assessment.cohesion < 200) stressScore += 20;
@@ -447,7 +441,9 @@ function collectUnitMoraleProfile(
     confidence,
     cohesion: assessment.cohesion,
     maximumCohesion: getUnitMaximumCohesion(formationStore, unitId),
-    recentCapacityReached: assessment.recentCapacityReached,
+    recentCombatShockBreakRisk: isBreakRiskCombatShock(
+      assessment.recentCombatShockSource,
+    ),
   };
 }
 
@@ -581,13 +577,13 @@ function requiredUpwardTicks(
   const confidenceAdjustment =
     profile.confidence >= 750 ? 1 : profile.confidence < 250 ? -1 : 0;
   const cohesionAdjustment = profile.cohesion < 400 ? -1 : 0;
-  const capacityAdjustment = profile.recentCapacityReached ? -1 : 0;
+  const combatShockAdjustment = profile.recentCombatShockBreakRisk ? -1 : 0;
   const result =
     base +
     profile.experienceAdjustment +
     confidenceAdjustment +
     cohesionAdjustment +
-    capacityAdjustment;
+    combatShockAdjustment;
   return result > 0 ? result : 1;
 }
 
@@ -629,11 +625,11 @@ function nextDeescalatingState(
 function updateRoutingRisk(
   current: number,
   candidateState: PersistentUnitMoraleState,
-  recentCapacityReached: boolean,
+  recentCombatShockBreakRisk: boolean,
 ): number {
   const rank = moraleStateRank(candidateState);
   if (rank >= 4) {
-    return increaseBounded(current, recentCapacityReached ? 14 : 10);
+    return increaseBounded(current, recentCombatShockBreakRisk ? 14 : 10);
   }
   if (rank >= 3) return increaseBounded(current, 5);
   if (rank >= 2) return increaseBounded(current, 1);
@@ -647,8 +643,8 @@ function decreaseBounded(current: number, amount: number): number {
 function inferFreshPressure(assessment: CombatMoraleAssessment): boolean {
   return (
     assessment.moraleState !== "steady" ||
-    assessment.recentCohesionDamageValue > 0 ||
-    assessment.recentCapacityReached
+    assessment.recentCombatShockValue > 0 ||
+    isBreakRiskCombatShock(assessment.recentCombatShockSource)
   );
 }
 
@@ -698,15 +694,6 @@ function validateContext(
   identityStore: UnitIdentityStore,
   context: PersistentMoraleContext,
 ): void {
-  if (
-    context.survivabilityStore !== undefined &&
-    (context.survivabilityStore.entityCount !== identityStore.entityCount ||
-      context.survivabilityStore.unitCount !== identityStore.unitCount)
-  ) {
-    throw new RangeError(
-      "Combat survivability store must match unit identity entity and unit counts.",
-    );
-  }
   if (
     context.pressureUpdates !== undefined &&
     context.pressureUpdates.length !== identityStore.unitCount

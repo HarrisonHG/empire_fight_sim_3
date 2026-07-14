@@ -332,7 +332,6 @@ function runRepresentativeCombatPerformanceScenario(): RepresentativeCombatPerfo
       persistentMoraleStore,
       moraleEvents,
       {
-        survivabilityStore: harness.survivability,
         pressureUpdates,
         routingContagionSummaries: contagionResult.summaries,
         recoveryThreatSummaries,

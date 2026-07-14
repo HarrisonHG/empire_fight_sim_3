@@ -22,8 +22,14 @@ export type CombatMoraleReasonCode =
   | "pressureAverage"
   | "pressureMaximum"
   | "lowCohesion"
-  | "recentCohesionDamage"
-  | "capacityReached";
+  | "combatShock"
+  | "combatShockBreakRisk";
+
+export type CombatMoraleShockSource =
+  | "none"
+  | "individualZeroHit"
+  | "legacyConsequence"
+  | "legacyCapacityReached";
 
 export interface CombatMoraleAssessment {
   readonly unitId: UnitId;
@@ -32,8 +38,8 @@ export interface CombatMoraleAssessment {
   readonly pressureAverage: number;
   readonly pressureMaximum: number;
   readonly cohesion: number;
-  readonly recentCohesionDamageValue: number;
-  readonly recentCapacityReached: boolean;
+  readonly recentCombatShockValue: number;
+  readonly recentCombatShockSource: CombatMoraleShockSource;
   readonly moraleState: CombatMoraleState;
   readonly breakRiskReasonCodes: readonly CombatMoraleReasonCode[];
 }
@@ -138,8 +144,8 @@ function assessValidatedUnitCombatMorale(
     pressure.average,
     pressure.maximum,
     cohesion,
-    recentContext.cohesionDamageValue,
-    recentContext.capacityReached,
+    recentContext.combatShockValue,
+    recentContext.combatShockSource,
   );
 
   return {
@@ -149,14 +155,14 @@ function assessValidatedUnitCombatMorale(
     pressureAverage: pressure.average,
     pressureMaximum: pressure.maximum,
     cohesion,
-    recentCohesionDamageValue: recentContext.cohesionDamageValue,
-    recentCapacityReached: recentContext.capacityReached,
+    recentCombatShockValue: recentContext.combatShockValue,
+    recentCombatShockSource: recentContext.combatShockSource,
     moraleState: determineMoraleState(
       pressure.average,
       pressure.maximum,
       cohesion,
-      recentContext.cohesionDamageValue,
-      recentContext.capacityReached,
+      recentContext.combatShockValue,
+      recentContext.combatShockSource,
     ),
     breakRiskReasonCodes: reasonCodes,
   };
@@ -171,15 +177,16 @@ function assessValidatedUnitCombatMoraleFromIndividualContext(
   const memberEntityIds = getUnitMembers(identityStore, unitId);
   const pressure = computePressureSummary(formationStore, memberEntityIds);
   const cohesion = getUnitCohesion(formationStore, unitId);
-  const recentCohesionDamageValue =
+  const recentCombatShockValue =
     recentContext?.incomingZeroHitTransitions ?? 0;
-  const recentCapacityReached = recentCohesionDamageValue > 0;
+  const recentCombatShockSource: CombatMoraleShockSource =
+    recentCombatShockValue > 0 ? "individualZeroHit" : "none";
   const reasonCodes = collectReasonCodes(
     pressure.average,
     pressure.maximum,
     cohesion,
-    recentCohesionDamageValue,
-    recentCapacityReached,
+    recentCombatShockValue,
+    recentCombatShockSource,
   );
 
   return {
@@ -189,14 +196,14 @@ function assessValidatedUnitCombatMoraleFromIndividualContext(
     pressureAverage: pressure.average,
     pressureMaximum: pressure.maximum,
     cohesion,
-    recentCohesionDamageValue,
-    recentCapacityReached,
+    recentCombatShockValue,
+    recentCombatShockSource,
     moraleState: determineMoraleState(
       pressure.average,
       pressure.maximum,
       cohesion,
-      recentCohesionDamageValue,
-      recentCapacityReached,
+      recentCombatShockValue,
+      recentCombatShockSource,
     ),
     breakRiskReasonCodes: reasonCodes,
   };
@@ -234,10 +241,10 @@ function computeRecentContext(
   unitId: UnitId,
   recentConsequences: readonly CombatConsequenceApplication[],
 ): {
-  readonly cohesionDamageValue: number;
-  readonly capacityReached: boolean;
+  readonly combatShockValue: number;
+  readonly combatShockSource: CombatMoraleShockSource;
 } {
-  let cohesionDamageValue = 0;
+  let combatShockValue = 0;
   let capacityReached = false;
 
   for (let index = 0; index < recentConsequences.length; index += 1) {
@@ -246,31 +253,38 @@ function computeRecentContext(
       continue;
     }
 
-    cohesionDamageValue = addSafeNonNegativeInteger(
-      cohesionDamageValue,
+    combatShockValue = addSafeNonNegativeInteger(
+      combatShockValue,
       consequence.cohesionDamageValue,
-      "recentCohesionDamageValue",
+      "recentCombatShockValue",
     );
     if (consequence.capacityReached) {
       capacityReached = true;
     }
   }
 
-  return { cohesionDamageValue, capacityReached };
+  return {
+    combatShockValue,
+    combatShockSource: capacityReached
+      ? "legacyCapacityReached"
+      : combatShockValue > 0
+        ? "legacyConsequence"
+        : "none",
+  };
 }
 
 function determineMoraleState(
   pressureAverage: number,
   pressureMaximum: number,
   cohesion: number,
-  recentCohesionDamageValue: number,
-  recentCapacityReached: boolean,
+  recentCombatShockValue: number,
+  recentCombatShockSource: CombatMoraleShockSource,
 ): CombatMoraleState {
   if (
     pressureAverage >= BREAK_RISK_AVERAGE_THRESHOLD ||
     pressureMaximum >= BREAK_RISK_MAXIMUM_THRESHOLD ||
     cohesion <= BREAK_RISK_COHESION_THRESHOLD ||
-    recentCapacityReached
+    isBreakRiskCombatShock(recentCombatShockSource)
   ) {
     return "breakRisk";
   }
@@ -284,7 +298,7 @@ function determineMoraleState(
   if (
     pressureAverage >= PRESSURED_AVERAGE_THRESHOLD ||
     pressureMaximum >= PRESSURED_MAXIMUM_THRESHOLD ||
-    recentCohesionDamageValue > 0 ||
+    recentCombatShockValue > 0 ||
     cohesion <= PRESSURED_COHESION_THRESHOLD
   ) {
     return "pressured";
@@ -296,8 +310,8 @@ function collectReasonCodes(
   pressureAverage: number,
   pressureMaximum: number,
   cohesion: number,
-  recentCohesionDamageValue: number,
-  recentCapacityReached: boolean,
+  recentCombatShockValue: number,
+  recentCombatShockSource: CombatMoraleShockSource,
 ): readonly CombatMoraleReasonCode[] {
   const reasonCodes: CombatMoraleReasonCode[] = [];
   if (pressureAverage >= PRESSURED_AVERAGE_THRESHOLD) {
@@ -309,13 +323,19 @@ function collectReasonCodes(
   if (cohesion <= PRESSURED_COHESION_THRESHOLD) {
     reasonCodes.push("lowCohesion");
   }
-  if (recentCohesionDamageValue > 0) {
-    reasonCodes.push("recentCohesionDamage");
+  if (recentCombatShockValue > 0) {
+    reasonCodes.push("combatShock");
   }
-  if (recentCapacityReached) {
-    reasonCodes.push("capacityReached");
+  if (isBreakRiskCombatShock(recentCombatShockSource)) {
+    reasonCodes.push("combatShockBreakRisk");
   }
   return reasonCodes;
+}
+
+export function isBreakRiskCombatShock(
+  source: CombatMoraleShockSource,
+): boolean {
+  return source === "individualZeroHit" || source === "legacyCapacityReached";
 }
 
 function validateCombatMoraleInputs(

@@ -573,7 +573,7 @@ entity-to-entity minimum-distance assertion or an explicit footprint margin.
 ## DC-019 - Individual morale shock naming still mirrors cohesion terminology
 
 **Area:** Combat morale/debug naming
-**Status:** noted
+**Status:** resolved
 
 Milestone 5F-3B2 moved production pressure and morale to individual-combat
 consequence summaries, but kept the accepted morale assessment API stable.
@@ -594,6 +594,15 @@ fully consolidated.
 **Likely milestone**
 
 Milestone 5G.
+
+**Resolution (Milestone 5G-2, 2026-07-14)**
+
+Renamed morale assessment context from cohesion/capacity terms to
+`recentCombatShockValue` plus `recentCombatShockSource`. The individual path
+now identifies zero-hit transition shock explicitly, while archived Milestone 3
+capacity events map into `legacyCapacityReached`. Persistent morale no longer
+accepts a survivability-store context, and the accepted threshold behaviour was
+kept unchanged.
 
 ---
 

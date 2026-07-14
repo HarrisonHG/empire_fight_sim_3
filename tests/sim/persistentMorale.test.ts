@@ -412,7 +412,6 @@ describe("persistent unit morale", () => {
     setTargetPressure(harness, 0);
     for (let tick = 0; tick < 400; tick += 1) {
       advance(harness, [], {
-        survivabilityStore: survivability,
         recoveryThreatSummaries: recoveryThreats(false),
       });
       if (getPersistentUnitMorale(harness.store, TARGET_UNIT_ID).state === "recovering") {

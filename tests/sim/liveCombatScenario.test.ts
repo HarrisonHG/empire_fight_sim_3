@@ -7,15 +7,41 @@ import {
   getUnitMovementStyle,
 } from "../../src/sim/formationBehaviour";
 import {
+  getActiveMeleeWeaponCategory,
+  getAttackCommitmentTicksRemaining,
+  getAttackRecoveryTicksRemaining,
+  getIndividualCombatActionState,
+  getIndividualCombatFacing,
+  getLockedAttackTargetEntityId,
+} from "../../src/sim/individualCombatAction";
+import { isIndividualCombatEligible } from "../../src/sim/individualCombatEligibility";
+import {
+  getIndividualCurrentGlobalHits,
+  getIndividualMaximumGlobalHits,
+} from "../../src/sim/individualGlobalHits";
+import {
+  getDefenceRecoveryTicksRemaining,
+  getIndividualGuardState,
+} from "../../src/sim/individualMeleeDefence";
+import {
+  NO_INDIVIDUAL_TARGET,
+  getSelectedTargetEntityId,
+} from "../../src/sim/individualMeleeTargetSelection";
+import {
   advanceSimulationOneTick,
   createInitialSnapshot,
   createPositionSnapshot,
   createSimulation,
 } from "../../src/sim/simulation";
 import { getPersistentUnitMorale } from "../../src/sim/persistentMorale";
-import type { SimulationState } from "../../src/sim/types";
+import type {
+  LiveCombatDebugIndividualSnapshot,
+  SimulationScenario,
+  SimulationState,
+} from "../../src/sim/types";
 import {
   getFactionIdForUnit,
+  getUnitIdForEntity,
   getUnitIds,
   getUnitMembers,
 } from "../../src/sim/unitIdentity";
@@ -44,6 +70,7 @@ describe("live combat scenario", () => {
     expect(getUnitMembers(firstCombat.identityStore, 1)).toHaveLength(20);
     expect(getUnitMembers(firstCombat.identityStore, 2)).toHaveLength(15);
     expect(firstSnapshot.combatDebug?.units).toHaveLength(2);
+    expect(firstSnapshot.combatDebug?.inspectedIndividuals).toEqual([]);
 
     const configuredUnits = LIVE_COMBAT_SCENARIO.combatSandbox?.units;
     if (configuredUnits === undefined) {
@@ -82,6 +109,107 @@ describe("live combat scenario", () => {
       Array.from(second.world.positionsY),
     );
     expect(firstCombat.debugSnapshot).toEqual(secondCombat.debugSnapshot);
+  });
+
+  it("validates configured inspection entity IDs", () => {
+    expect(() =>
+      createSimulation(liveCombatWithInspectedEntities([0, 0])),
+    ).toThrow(RangeError);
+    expect(() =>
+      createSimulation(liveCombatWithInspectedEntities([35])),
+    ).toThrow(RangeError);
+  });
+
+  it("omits individual inspection snapshots unless explicitly configured", () => {
+    const simulation = createSimulation(LIVE_COMBAT_SCENARIO);
+
+    expect(createInitialSnapshot(simulation).combatDebug?.inspectedIndividuals)
+      .toEqual([]);
+    advanceSimulationOneTick(simulation);
+    expect(createPositionSnapshot(simulation).combatDebug?.inspectedIndividuals)
+      .toEqual([]);
+  });
+
+  it("snapshots only configured individuals from authoritative stores and current-tick records", () => {
+    const inspectedEntityIds = [0, 1, 2, 3, 4, 20, 21, 22, 23, 24];
+    const simulation = createSimulation(
+      liveCombatWithInspectedEntities(inspectedEntityIds),
+    );
+    let inspected: readonly LiveCombatDebugIndividualSnapshot[] = [];
+
+    for (let tick = 0; tick < CONTACT_RUN_TICKS; tick += 1) {
+      advanceSimulationOneTick(simulation);
+      inspected =
+        createPositionSnapshot(simulation).combatDebug?.inspectedIndividuals ??
+        [];
+      if (
+        inspected.some(
+          (individual) =>
+            individual.thisTickAttackOutcome !== "none" ||
+            individual.thisTickDefenceOutcome !== "none" ||
+            individual.thisTickAppliedHitLoss > 0 ||
+            individual.reachedZeroHitsThisTick,
+        )
+      ) {
+        break;
+      }
+    }
+
+    expect(inspected.map((individual) => individual.entityId)).toEqual(
+      inspectedEntityIds,
+    );
+    expect(
+      inspected.some(
+        (individual) =>
+          individual.thisTickAttackOutcome !== "none" ||
+          individual.thisTickDefenceOutcome !== "none" ||
+          individual.thisTickAppliedHitLoss > 0,
+      ),
+    ).toBe(true);
+    for (const individual of inspected) {
+      expectInspectedIndividualMatchesAuthority(simulation, individual);
+    }
+  });
+
+  it("clears stale individual inspection outcomes on the next tick", () => {
+    const simulation = createSimulation(liveCombatWithInspectedEntities([0]));
+    const combat = requireCombatSandbox(simulation);
+    combat.individualCombatPipelineBuffers.attackAttempts.push({
+      attackerEntityId: 0,
+      outcome: "attempted",
+    } as never);
+    combat.individualCombatPipelineBuffers.defenceRecords.push({
+      defenderEntityId: 0,
+      outcome: "landed",
+    } as never);
+    combat.individualCombatPipelineBuffers.hitApplications.push({
+      targetEntityId: 0,
+      appliedHitLoss: 1,
+    } as never);
+    combat.individualCombatPipelineBuffers.zeroHitEvents.push({
+      entityId: 0,
+    } as never);
+
+    advanceSimulationOneTick(simulation);
+
+    expect(createPositionSnapshot(simulation).combatDebug?.inspectedIndividuals)
+      .toEqual([
+        expect.objectContaining({
+          entityId: 0,
+          thisTickAttackOutcome: "none",
+          thisTickDefenceOutcome: "none",
+          thisTickAppliedHitLoss: 0,
+          reachedZeroHitsThisTick: false,
+        }),
+      ]);
+  });
+
+  it("replays configured inspection snapshots deterministically", () => {
+    const scenario = liveCombatWithInspectedEntities([0, 1, 20, 21]);
+    const first = runScenario(scenario, CONTACT_RUN_TICKS);
+    const second = runScenario(scenario, CONTACT_RUN_TICKS);
+
+    expect(summarizeLiveCombat(first)).toEqual(summarizeLiveCombat(second));
   });
 
   it("advances opposing formed lines into persistent combat without interleaving or removal", () => {
@@ -274,11 +402,34 @@ describe("live combat scenario", () => {
 });
 
 function runLiveCombat(tickCount: number): SimulationState {
-  const simulation = createSimulation(LIVE_COMBAT_SCENARIO);
+  return runScenario(LIVE_COMBAT_SCENARIO, tickCount);
+}
+
+function runScenario(
+  scenario: SimulationScenario,
+  tickCount: number,
+): SimulationState {
+  const simulation = createSimulation(scenario);
   for (let tick = 0; tick < tickCount; tick += 1) {
     advanceSimulationOneTick(simulation);
   }
   return simulation;
+}
+
+function liveCombatWithInspectedEntities(
+  inspectedEntityIds: readonly number[],
+): SimulationScenario {
+  const combatSandbox = LIVE_COMBAT_SCENARIO.combatSandbox;
+  if (combatSandbox === undefined) {
+    throw new Error("Live scenario is missing combat sandbox data.");
+  }
+  return {
+    ...LIVE_COMBAT_SCENARIO,
+    combatSandbox: {
+      ...combatSandbox,
+      inspectedEntityIds,
+    },
+  };
 }
 
 function requireCombatSandbox(simulation: SimulationState) {
@@ -303,6 +454,127 @@ function summarizeLiveCombat(simulation: SimulationState): unknown {
       memberCount: getUnitMembers(combat.identityStore, unitId).length,
     })),
   };
+}
+
+function expectInspectedIndividualMatchesAuthority(
+  simulation: SimulationState,
+  individual: LiveCombatDebugIndividualSnapshot,
+): void {
+  const combat = requireCombatSandbox(simulation);
+  const selectedTargetEntityId = getSelectedTargetEntityId(
+    combat.individualTargetSelectionStore,
+    individual.entityId,
+  );
+  const lockedTargetEntityId = getLockedAttackTargetEntityId(
+    combat.individualCombatActionStore,
+    individual.entityId,
+  );
+
+  expect(individual).toMatchObject({
+    unitId: getUnitIdForEntity(combat.identityStore, individual.entityId),
+    tickStartCombatEligible: isIndividualCombatEligible(
+      combat.individualCombatEligibilitySnapshot,
+      individual.entityId,
+    ),
+    selectedTargetEntityId:
+      selectedTargetEntityId === NO_INDIVIDUAL_TARGET
+        ? null
+        : selectedTargetEntityId,
+    actionState: getIndividualCombatActionState(
+      combat.individualCombatActionStore,
+      individual.entityId,
+    ),
+    lockedTargetEntityId:
+      lockedTargetEntityId === NO_INDIVIDUAL_TARGET
+        ? null
+        : lockedTargetEntityId,
+    facing: getIndividualCombatFacing(
+      combat.individualCombatActionStore,
+      individual.entityId,
+    ),
+    commitmentTicksRemaining: getAttackCommitmentTicksRemaining(
+      combat.individualCombatActionStore,
+      individual.entityId,
+    ),
+    attackRecoveryTicksRemaining: getAttackRecoveryTicksRemaining(
+      combat.individualCombatActionStore,
+      individual.entityId,
+    ),
+    guardState: getIndividualGuardState(
+      combat.individualMeleeDefenceStore,
+      individual.entityId,
+    ),
+    defenceRecoveryTicksRemaining: getDefenceRecoveryTicksRemaining(
+      combat.individualMeleeDefenceStore,
+      individual.entityId,
+    ),
+    activeWeapon: getActiveMeleeWeaponCategory(
+      combat.individualCombatActionStore,
+      individual.entityId,
+    ),
+    currentGlobalHits: getIndividualCurrentGlobalHits(
+      combat.individualGlobalHitStore,
+      individual.entityId,
+    ),
+    maximumGlobalHits: getIndividualMaximumGlobalHits(
+      combat.individualGlobalHitStore,
+      individual.entityId,
+    ),
+    thisTickAttackOutcome: inspectedAttackOutcome(combat, individual.entityId),
+    thisTickDefenceOutcome: inspectedDefenceOutcome(combat, individual.entityId),
+    thisTickAppliedHitLoss: inspectedAppliedHitLoss(combat, individual.entityId),
+    reachedZeroHitsThisTick: inspectedReachedZero(combat, individual.entityId),
+  });
+}
+
+function inspectedAttackOutcome(
+  combat: ReturnType<typeof requireCombatSandbox>,
+  entityId: number,
+): LiveCombatDebugIndividualSnapshot["thisTickAttackOutcome"] {
+  let outcome: LiveCombatDebugIndividualSnapshot["thisTickAttackOutcome"] =
+    "none";
+  for (const attempt of combat.individualCombatPipelineBuffers.attackAttempts) {
+    if (attempt.attackerEntityId === entityId) {
+      outcome = attempt.outcome;
+    }
+  }
+  return outcome;
+}
+
+function inspectedDefenceOutcome(
+  combat: ReturnType<typeof requireCombatSandbox>,
+  entityId: number,
+): LiveCombatDebugIndividualSnapshot["thisTickDefenceOutcome"] {
+  let outcome: LiveCombatDebugIndividualSnapshot["thisTickDefenceOutcome"] =
+    "none";
+  for (const record of combat.individualCombatPipelineBuffers.defenceRecords) {
+    if (record.defenderEntityId === entityId) {
+      outcome = record.outcome;
+    }
+  }
+  return outcome;
+}
+
+function inspectedAppliedHitLoss(
+  combat: ReturnType<typeof requireCombatSandbox>,
+  entityId: number,
+): number {
+  let appliedHitLoss = 0;
+  for (const application of combat.individualCombatPipelineBuffers.hitApplications) {
+    if (application.targetEntityId === entityId) {
+      appliedHitLoss += application.appliedHitLoss;
+    }
+  }
+  return appliedHitLoss;
+}
+
+function inspectedReachedZero(
+  combat: ReturnType<typeof requireCombatSandbox>,
+  entityId: number,
+): boolean {
+  return combat.individualCombatPipelineBuffers.zeroHitEvents.some(
+    (event) => event.entityId === entityId,
+  );
 }
 
 function expectNoHostileLineCrossing(

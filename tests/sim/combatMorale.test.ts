@@ -73,8 +73,8 @@ describe("combat morale assessments", () => {
       pressureAverage: 0,
       pressureMaximum: 0,
       cohesion: 1_000,
-      recentCohesionDamageValue: 0,
-      recentCapacityReached: false,
+      recentCombatShockValue: 0,
+      recentCombatShockSource: "none",
       moraleState: "steady",
       breakRiskReasonCodes: [],
     });
@@ -185,7 +185,7 @@ describe("combat morale assessments", () => {
     });
   });
 
-  it("uses recent consequence cohesion damage as pressured context", () => {
+  it("uses recent consequence combat shock as pressured context", () => {
     const harness = createMoraleHarness({});
     const recentConsequences = [
       consequenceRecord({ targetUnitId: 20, cohesionDamageValue: 3 }),
@@ -199,10 +199,10 @@ describe("combat morale assessments", () => {
     );
 
     expect(assessment).toMatchObject({
-      recentCohesionDamageValue: 3,
-      recentCapacityReached: false,
+      recentCombatShockValue: 3,
+      recentCombatShockSource: "legacyConsequence",
       moraleState: "pressured",
-      breakRiskReasonCodes: ["recentCohesionDamage"],
+      breakRiskReasonCodes: ["combatShock"],
     });
   });
 
@@ -220,14 +220,14 @@ describe("combat morale assessments", () => {
     );
 
     expect(assessment).toMatchObject({
-      recentCohesionDamageValue: 0,
-      recentCapacityReached: false,
+      recentCombatShockValue: 0,
+      recentCombatShockSource: "none",
       moraleState: "steady",
       breakRiskReasonCodes: [],
     });
   });
 
-  it("uses capacityReached as break risk context", () => {
+  it("maps archived capacity events as break-risk combat shock context", () => {
     const harness = createMoraleHarness({});
     const recentConsequences = [
       consequenceRecord({
@@ -245,10 +245,10 @@ describe("combat morale assessments", () => {
     );
 
     expect(assessment).toMatchObject({
-      recentCohesionDamageValue: 1,
-      recentCapacityReached: true,
+      recentCombatShockValue: 1,
+      recentCombatShockSource: "legacyCapacityReached",
       moraleState: "breakRisk",
-      breakRiskReasonCodes: ["recentCohesionDamage", "capacityReached"],
+      breakRiskReasonCodes: ["combatShock", "combatShockBreakRisk"],
     });
   });
 
@@ -269,10 +269,10 @@ describe("combat morale assessments", () => {
 
     expect(result.assessments.find((assessment) => assessment.unitId === 20))
       .toMatchObject({
-        recentCohesionDamageValue: 1,
-        recentCapacityReached: true,
+        recentCombatShockValue: 1,
+        recentCombatShockSource: "individualZeroHit",
         moraleState: "breakRisk",
-        breakRiskReasonCodes: ["recentCohesionDamage", "capacityReached"],
+        breakRiskReasonCodes: ["combatShock", "combatShockBreakRisk"],
       });
     expect(getUnitAccumulatedDamage(harness.survivability, 20)).toBe(0);
     expect(isUnitDamageCapacityReached(harness.survivability, 20)).toBe(false);
@@ -301,8 +301,8 @@ describe("combat morale assessments", () => {
         "pressureAverage",
         "pressureMaximum",
         "lowCohesion",
-        "recentCohesionDamage",
-        "capacityReached",
+        "combatShock",
+        "combatShockBreakRisk",
       ],
     });
   });
@@ -355,7 +355,7 @@ describe("combat morale assessments", () => {
     expect(out[1]).toMatchObject({
       unitId: 20,
       moraleState: "pressured",
-      recentCohesionDamageValue: 1,
+      recentCombatShockValue: 1,
     });
   });
 
@@ -450,8 +450,8 @@ describe("combat morale assessments", () => {
       "pressureAverage",
       "pressureMaximum",
       "pressureTotal",
-      "recentCapacityReached",
-      "recentCohesionDamageValue",
+      "recentCombatShockSource",
+      "recentCombatShockValue",
       "unitId",
     ]);
     expect(JSON.stringify(assessment)).not.toMatch(
@@ -641,10 +641,10 @@ function staleAssessmentRecord(): CombatMoraleAssessment {
     pressureAverage: 999,
     pressureMaximum: 999,
     cohesion: 999,
-    recentCohesionDamageValue: 999,
-    recentCapacityReached: true,
+    recentCombatShockValue: 999,
+    recentCombatShockSource: "legacyCapacityReached",
     moraleState: "breakRisk",
-    breakRiskReasonCodes: ["capacityReached"],
+    breakRiskReasonCodes: ["combatShockBreakRisk"],
   };
 }
 

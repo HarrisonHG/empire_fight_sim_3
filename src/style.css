@@ -159,3 +159,27 @@ body {
 [data-testid="combat-unit-state"] {
   white-space: pre-wrap;
 }
+
+[data-testid="individual-inspection"] {
+  text-align: left;
+}
+
+.individual-inspection-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.72rem;
+  line-height: 1.2;
+}
+
+.individual-inspection-table th,
+.individual-inspection-table td {
+  padding: 2px 4px;
+  border-top: 1px solid rgb(71 85 105 / 70%);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.individual-inspection-table th {
+  color: #cbd5e1;
+  font-weight: 600;
+}

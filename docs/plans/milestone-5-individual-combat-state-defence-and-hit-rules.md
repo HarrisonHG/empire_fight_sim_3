@@ -1,6 +1,6 @@
 # Milestone 5: Individual Combat State, Defence, and Empire Hit Rules
 
-Status: in progress; 5A, 5B, 5C-1, 5C-2, 5D, 5E, 5F-1, 5F-2, 5F-3A, 5F-3B1, and 5F-3B2 implemented and awaiting review.
+Status: in progress; 5A, 5B, 5C-1, 5C-2, 5D, 5E, 5F-1, 5F-2, 5F-3A, 5F-3B1, 5F-3B2, 5G-1, 5G-2, and 5G-3 implemented and awaiting review. Milestone 5 remains unaccepted pending human inspection of `/test?scenario=individual-combat`.
 
 ## Product goal
 
@@ -1144,6 +1144,188 @@ Suggested isolated lanes:
 7. separate attackers may each damage one target.
 
 The visual test should expose attack, defence, guard, current hits, and target state through the existing debug harness.
+
+---
+
+## 5G-1 — Authority-live performance harness correction
+
+### Purpose
+
+Correct the Milestone 5F-3B2 authority-live performance interpretation before
+making optimisation decisions.
+
+### 5G-1 implementation record (2026-07-13)
+
+- [x] Split the live benchmark into two explicitly named measurements:
+  `exactProductionTick`, which measures `advanceSimulationOneTick(simulation)`
+  including counters, debug snapshots, and tick increment; and
+  `instrumentedCoreStages`, which shares the production combat-sandbox tick
+  helper but reports stage boundaries without calling their sum a complete
+  production tick.
+- [x] Added a structural exact-vs-instrumented replay check proving the shared
+  instrumented path reaches the same deterministic state as production for the
+  measured authority fields.
+- [x] Added optional formation diagnostics for blocker-grid builds, blocker
+  detection query/candidate counts, unique candidate units, hostile-contact
+  query/candidate counts, same-unit overtaking comparisons, member slot
+  evaluations, routing/recovering unit counts, and routing pass-through
+  interactions. The only timing hook inside formation is around the existing
+  blocker-grid build boundary; no per-member timing calls were added.
+- [x] Replaced the compressed 2,000-person authority case as the representative
+  layout. The representative case is now `100 units × 20 members`, lane spacing
+  240, world bounds `260 × 12280`, and minimum adjacent-lane entity separation
+  200, which is above the current 192 local hostile/recovery interaction range.
+- [x] Retained the old compressed geometry as
+  `denseOverlappingFormations`: `100 units × 20 members`, lane spacing 24,
+  world bounds `380 × 520`, minimum adjacent-lane entity separation 0. It is a
+  stress regression for overlapping lateral footprints and broad blocker/
+  pass-through arbitration, not the expected ordinary battle layout.
+- [x] Representative separated 2,000-entity exact production tick results on
+  this machine:
+  - run 1: mean 19.68 ms, max 41.55 ms, p95 30.77 ms;
+  - run 2: mean 21.10 ms, max 43.78 ms, p95 32.04 ms.
+- [x] Representative separated instrumented core results identified formation
+  as the largest stage but under the 50 ms p95 decision line:
+  - run 1 p95s: formation 19.74 ms, individual pipeline 6.24 ms, pressure/
+    cohesion 0.34 ms, routing contagion 0.62 ms, recovery threat 0.79 ms,
+    morale/persistence 0.69 ms, counters/debug 0.04 ms;
+  - run 2 p95s: formation 18.93 ms, individual pipeline 5.66 ms, pressure/
+    cohesion 0.32 ms, routing contagion 0.62 ms, recovery threat 0.78 ms,
+    morale/persistence 0.70 ms, counters/debug 0.04 ms.
+- [x] Dense overlapping stress exact production tick results on this machine:
+  - run 1: mean 80.92 ms, max 157.87 ms, p95 124.47 ms;
+  - run 2: mean 67.00 ms, max 102.13 ms, p95 88.85 ms.
+- [x] Dense overlapping diagnosis: formation p95 remained about 60.6-63.2 ms,
+  routing contagion about 10.3-11.2 ms, recovery threat about 9.0-11.5 ms,
+  and individual pipeline about 8.1-8.3 ms. Compared with representative
+  geometry, blocker detection candidate entities rose from 32,760 to 99,305,
+  unique candidate units from 819 to 9,135, and routing pass-through
+  interactions from 0 to 2,264 over the measured window. Same-unit overtaking
+  comparisons did not explain the regression; representative recorded 312,360
+  versus dense 290,700.
+- [x] Decision: the previous 80 ms formation result was caused by the dense
+  overlapping geometry being presented as ordinary battle geometry. The
+  corrected representative exact production tick is below 50 ms p95 in both
+  required runs, so no optimisation was justified in 5G-1. The dense case stays
+  as a stress regression.
+- [x] Deferred casualty/dying/removal, renderer work, the
+  `/test?scenario=individual-combat` visual suite, and combat mechanics changes
+  to later 5G slices.
+
+---
+
+## 5G-2 — State, naming, and inspection-API consolidation
+
+### Purpose
+
+Consolidate accepted authority-live state naming and add bounded inspection
+without changing combat mechanics, timings, pressure, morale thresholds,
+movement, or production performance behaviour.
+
+### 5G-2 implementation record (2026-07-14)
+
+- [x] Changed the exact-versus-instrumented replay check to use actual no-op
+  combat-sandbox stage instrumentation plus `FormationTickDiagnostics`.
+  The check counts all stage callbacks and proves diagnostics/timing callbacks
+  leave the authoritative state identical to `advanceSimulationOneTick`.
+- [x] Renamed formation diagnostics from `memberSlotCorrections` to
+  `memberSlotEvaluations`. The counter still records the same slot-evaluation
+  behaviour as before.
+- [x] Removed `survivabilityStore` from `PersistentMoraleContext`. Persistent
+  morale now reads pressure, cohesion, recovery threat, routing contagion, and
+  combat-shock assessment fields only; archived survivability state remains
+  isolated to the Milestone 3 fixture.
+- [x] Replaced morale assessment `recentCohesionDamageValue`/
+  `recentCapacityReached` with `recentCombatShockValue` and
+  `recentCombatShockSource`. The source model is:
+  `none`, `individualZeroHit`, `legacyConsequence`, and
+  `legacyCapacityReached`.
+- [x] Preserved morale calculations and thresholds. Individual zero-hit
+  transitions still produce break-risk shock; archived capacity events map to
+  `legacyCapacityReached`; non-capacity archived consequence shock remains a
+  pressured-context signal.
+- [x] Added optional scenario-configured `inspectedEntityIds` to the production
+  combat sandbox. Normal scenarios omit it and emit no per-entity inspection
+  entries.
+- [x] Inspection IDs validate as unique in-range entity IDs. Snapshot output is
+  bounded strictly to the configured IDs and reuses the combat sandbox
+  `inspectedIndividuals` array.
+- [x] Each inspected individual exposes compact render-safe state: entity/unit
+  IDs, tick-start eligibility, selected/locked targets, action/guard state,
+  facing, commitment and recovery ticks, active weapon, shield category/state,
+  current/maximum global hits, this-tick attack/defence outcome, this-tick
+  applied hit loss, and whether zero hits was reached this tick.
+- [x] Kept `UnitLoadoutStore` as static scenario input used to derive
+  individual profiles. It is not runtime combat authority.
+- [x] Archived legacy sandbox debug snapshots intentionally emit no individual
+  inspection state.
+- [x] Added tests for omitted inspection config, validation failures,
+  authoritative store/current-tick record matching, stale per-tick outcome
+  clearing, deterministic replay with inspection configured, renamed diagnostic
+  semantics, and individual/archived morale trace behaviour under the new
+  shock naming.
+- [x] Added a representative exact-production timing report comparing
+  inspection disabled with a four-entity bounded inspection set. It uses
+  structural assertions only and no machine-dependent threshold.
+- [x] Resolved deferred concern DC-019. Remaining 5G work is the postponed
+  individual-combat visual scenario and later casualty/dying/removal handoff,
+  not additional naming churn.
+
+---
+
+## 5G-3 — Individual-combat visual regression suite
+
+### Purpose
+
+Retain a human-inspection visual regression route for accepted individual
+combat behaviour without changing combat mechanics, timings, targeting,
+defence arcs, hit rules, pressure, morale, movement, or casualty behaviour.
+
+### 5G-3 implementation record (2026-07-14)
+
+- [x] Added stable route `/test?scenario=individual-combat` through the
+  existing visual-test registry and menu.
+- [x] Added `individualCombatVisualScenario.ts` as deterministic content only.
+  It uses seven spatially isolated labelled chambers with one-member diagnostic
+  units. Chamber spacing is 300 world units; automated coverage checks the
+  minimum cross-area entity distance remains greater than the 192-unit local
+  interaction range through the inspection window.
+- [x] Scenario starts from the existing visual-test route path, which pauses
+  immediately after the worker start and exposes the tick-0 initial snapshot.
+- [x] Demonstration chambers:
+  - First frontal defence: polearm attacker versus ready weapon defender;
+    first valid frontal strike is parried.
+  - Held shield defence: polearm attacker versus held full shield; first
+    strike is shield-blocked.
+  - Two attackers overwhelm guard: one defender prevents one strike and another
+    strike lands while guard is recovering.
+  - Weapon reach: polearm and one-handed attackers commit in comparable
+    geometry; the polearm attack starts from farther away.
+  - Armour and global hits: equivalent accepted strikes hit unarmoured and
+    heavy-armoured targets; heavy armour has more maximum hits and each strike
+    removes exactly one hit.
+  - One-second relationship gate: same-pair accepted hits are at least 20
+    simulation ticks apart; intervening landed outcomes are rejected and apply
+    no hit loss.
+  - Independent attackers: two attackers each apply one accepted hit to the
+    same target; the target reaches zero hits, remains an entity/member, and
+    becomes combat-ineligible next tick.
+- [x] Extended bounded individual inspection snapshots with attacker-side
+  outgoing defence outcome, landed-hit gate outcome, selected-target
+  preferred-distance fields, and current-tick incoming defence/landed counts.
+  These are derived only for explicitly configured inspected entities from
+  existing pipeline records.
+- [x] Extended the metrics/debug panel with a compact individual table when
+  `inspectedIndividuals` is non-empty. The table retains the last non-empty
+  inspection event and tick per inspected entity as UI-only state; it clears
+  on tick 0 and when no inspected entries are present.
+- [x] Added deterministic headless tests for every chamber, current-tick
+  inspection clearing, area isolation, zero-hit non-removal/next-tick
+  ineligibility, and replay determinism.
+- [x] Updated `docs/visual-test-suite.md` with the stable URL, chamber labels,
+  expected observations, useful ticks, zero-hit-standing note, and DC-017
+  richer-presentation deferral.
+- [x] Milestone 5 remains pending human inspection of the retained route.
 
 ---
 

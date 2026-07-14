@@ -104,6 +104,53 @@ export interface FormationTickResult {
   readonly routingPassThroughInteractions: readonly RoutingPassThroughInteraction[];
 }
 
+export interface FormationTickDiagnostics {
+  runStage?<T>(stage: "blockerGridBuild", run: () => T): T;
+  blockerGridBuilds: number;
+  blockerDetectionQueries: number;
+  blockerDetectionCandidateEntities: number;
+  blockerDetectionUniqueCandidateUnits: number;
+  hostileContactQueries: number;
+  hostileContactCandidateEntities: number;
+  sameUnitOvertakingComparisons: number;
+  memberSlotEvaluations: number;
+  routingUnitCount: number;
+  recoveringUnitCount: number;
+  routingPassThroughInteractions: number;
+}
+
+export function createFormationTickDiagnostics(): FormationTickDiagnostics {
+  return {
+    blockerGridBuilds: 0,
+    blockerDetectionQueries: 0,
+    blockerDetectionCandidateEntities: 0,
+    blockerDetectionUniqueCandidateUnits: 0,
+    hostileContactQueries: 0,
+    hostileContactCandidateEntities: 0,
+    sameUnitOvertakingComparisons: 0,
+    memberSlotEvaluations: 0,
+    routingUnitCount: 0,
+    recoveringUnitCount: 0,
+    routingPassThroughInteractions: 0,
+  };
+}
+
+export function resetFormationTickDiagnostics(
+  diagnostics: FormationTickDiagnostics,
+): void {
+  diagnostics.blockerGridBuilds = 0;
+  diagnostics.blockerDetectionQueries = 0;
+  diagnostics.blockerDetectionCandidateEntities = 0;
+  diagnostics.blockerDetectionUniqueCandidateUnits = 0;
+  diagnostics.hostileContactQueries = 0;
+  diagnostics.hostileContactCandidateEntities = 0;
+  diagnostics.sameUnitOvertakingComparisons = 0;
+  diagnostics.memberSlotEvaluations = 0;
+  diagnostics.routingUnitCount = 0;
+  diagnostics.recoveringUnitCount = 0;
+  diagnostics.routingPassThroughInteractions = 0;
+}
+
 interface InternalFormationBehaviourStore extends FormationBehaviourStore {
   readonly unitIndexById: ReadonlyMap<UnitId, number>;
   readonly anchorX: Int32Array;
@@ -561,6 +608,7 @@ export function advanceFormationOneTick(
   identityStore: UnitIdentityStore,
   store: FormationBehaviourStore,
   moraleMovementStates?: UnitMoraleMovementStateSource,
+  diagnostics?: FormationTickDiagnostics,
 ): FormationTickResult {
   const internal = asInternal(store);
   validateWorldForBehaviour(world, internal, identityStore);
@@ -569,9 +617,23 @@ export function advanceFormationOneTick(
   internal.routingPassThroughCount = 0;
   const unitIds = getUnitIds(identityStore);
   const blockerGrid =
-    unitIds.length > 1 ? prepareBlockerGrid(internal, world) : undefined;
+    unitIds.length > 1
+      ? runFormationDiagnosticStage(diagnostics, "blockerGridBuild", () =>
+          prepareBlockerGrid(internal, world),
+        )
+      : undefined;
+  if (blockerGrid !== undefined) {
+    diagnostics !== undefined && (diagnostics.blockerGridBuilds += 1);
+  }
   if (blockerGrid === undefined) {
     snapshotFormationTickStart(internal, world);
+  }
+  if (diagnostics !== undefined && moraleMovementStates !== undefined) {
+    for (let unitIndex = 0; unitIndex < unitIds.length; unitIndex += 1) {
+      const state = moraleMovementStates.get(unitIds[unitIndex]!);
+      if (state === "routing") diagnostics.routingUnitCount += 1;
+      if (state === "recovering") diagnostics.recoveringUnitCount += 1;
+    }
   }
   prepareRoutingHeadings(
     world,
@@ -594,7 +656,12 @@ export function advanceFormationOneTick(
       storeUnitIndex,
       moraleMovementStates?.get(unitId) ?? "steady",
       events,
+      diagnostics,
     );
+  }
+  if (diagnostics !== undefined) {
+    diagnostics.routingPassThroughInteractions =
+      internal.routingPassThroughCount;
   }
 
   return {
@@ -603,6 +670,16 @@ export function advanceFormationOneTick(
       internal,
     ),
   };
+}
+
+function runFormationDiagnosticStage<T>(
+  diagnostics: FormationTickDiagnostics | undefined,
+  stage: "blockerGridBuild",
+  run: () => T,
+): T {
+  return diagnostics?.runStage === undefined
+    ? run()
+    : diagnostics.runStage(stage, run);
 }
 
 function processUnit(
@@ -614,6 +691,7 @@ function processUnit(
   unitIndex: number,
   moraleMovementState: MoraleMovementState,
   events: FormationEvent[],
+  diagnostics: FormationTickDiagnostics | undefined,
 ): void {
   const storedOrder = store.orders[unitIndex]!;
   // 4G recovery preserves but temporarily suspends the configured order.
@@ -641,6 +719,7 @@ function processUnit(
       unitId,
       unitIndex,
       events,
+      diagnostics,
     );
     return;
   }
@@ -665,6 +744,7 @@ function processUnit(
     unitIndex,
     isAdvancing,
     moraleMovementState,
+    diagnostics,
   );
   store.unitMovementStyle[unitIndex] = style;
   if (store.lastEmittedUnitStyle[unitIndex] !== style) {
@@ -734,6 +814,7 @@ function processUnit(
   let maxForwardProgress = -Number.MAX_SAFE_INTEGER;
   for (let index = 0; index < members.length; index += 1) {
     const entityId = members[index]!;
+    diagnostics !== undefined && (diagnostics.memberSlotEvaluations += 1);
     const fp = forwardProgress(
       world.positionsX[entityId]!,
       world.positionsY[entityId]!,
@@ -898,6 +979,7 @@ function processUnit(
       memberMaxStep,
       forwardStep,
       hostileContactGap,
+      diagnostics,
     );
     if (forwardStep > hostileContactForwardLimit) {
       const reduction = forwardStep - hostileContactForwardLimit;
@@ -912,6 +994,8 @@ function processUnit(
     for (let otherIndex = 0; otherIndex < members.length; otherIndex += 1) {
       const otherId = members[otherIndex]!;
       if (otherId === entityId) continue;
+      diagnostics !== undefined &&
+        (diagnostics.sameUnitOvertakingComparisons += 1);
       const otherRow = store.slotRow[otherId]!;
       if (otherRow >= slotRow) continue;
 
@@ -1156,6 +1240,7 @@ function processRoutingUnit(
   unitId: UnitId,
   unitIndex: number,
   events: FormationEvent[],
+  diagnostics: FormationTickDiagnostics | undefined,
 ): void {
   const routeHeadingX = store.routingHeadingX[unitIndex]!;
   const routeHeadingY = store.routingHeadingY[unitIndex]!;
@@ -1187,6 +1272,7 @@ function processRoutingUnit(
     perpY,
     spacing,
     unitSpeed,
+    diagnostics,
   );
   store.anchorX[unitIndex] = clampWorldCoordinate(
     store.anchorX[unitIndex]! + routeHeadingX * anchorForwardStep,
@@ -1214,6 +1300,8 @@ function processRoutingUnit(
       spacing,
       memberMaxStep,
       requestedForwardStep,
+      undefined,
+      diagnostics,
     );
     const currentX = world.positionsX[entityId]!;
     const currentY = world.positionsY[entityId]!;
@@ -1285,6 +1373,7 @@ function getRoutingAnchorForwardStep(
   perpY: number,
   spacing: number,
   requestedAnchorStep: number,
+  diagnostics?: FormationTickDiagnostics,
 ): number {
   let allowedAnchorStep = requestedAnchorStep;
   for (let memberIndex = 0; memberIndex < members.length; memberIndex += 1) {
@@ -1306,6 +1395,8 @@ function getRoutingAnchorForwardStep(
       spacing,
       hostileQueryStep,
       requestedAnchorStep,
+      undefined,
+      diagnostics,
     );
     if (allowedMemberAnchorStep < allowedAnchorStep) {
       allowedAnchorStep = allowedMemberAnchorStep;
@@ -1755,6 +1846,7 @@ function getHostileContactForwardStepLimit(
   memberMaxStep: number,
   requestedForwardStep: number,
   contactGap = FRONT_CONTACT_GAP,
+  diagnostics?: FormationTickDiagnostics,
 ): number {
   if (blockerGrid === undefined || requestedForwardStep <= 0) {
     return requestedForwardStep;
@@ -1774,6 +1866,10 @@ function getHostileContactForwardStepLimit(
     queryRadius,
     store.scratchNearbyEntityIds,
   );
+  if (diagnostics !== undefined) {
+    diagnostics.hostileContactQueries += 1;
+    diagnostics.hostileContactCandidateEntities += nearbyEntityIds.length;
+  }
   let maximumForwardStep = requestedForwardStep;
 
   for (let index = 0; index < nearbyEntityIds.length; index += 1) {
@@ -1906,6 +2002,7 @@ function chooseUnitMovementStyle(
   unitIndex: number,
   isAdvancing: boolean,
   moraleMovementState: MoraleMovementState,
+  diagnostics: FormationTickDiagnostics | undefined,
 ): UnitMovementStyle {
   if (!isAdvancing) {
     store.styleCommitmentTicksRemaining[unitIndex] = 0;
@@ -1925,6 +2022,7 @@ function chooseUnitMovementStyle(
     blockerGrid,
     unitId,
     unitIndex,
+    diagnostics,
   );
   if (blocker === undefined) {
     clearActiveBlocker(store, unitIndex);
@@ -2033,6 +2131,7 @@ function detectForwardBlocker(
   blockerGrid: SpatialGrid,
   unitId: UnitId,
   unitIndex: number,
+  diagnostics: FormationTickDiagnostics | undefined,
 ): ForwardBlocker | undefined {
   const anchorX = store.anchorX[unitIndex]!;
   const anchorY = store.anchorY[unitIndex]!;
@@ -2060,6 +2159,11 @@ function detectForwardBlocker(
     nearbyEntityIds,
     store.scratchCandidateUnitIds,
   );
+  if (diagnostics !== undefined) {
+    diagnostics.blockerDetectionQueries += 1;
+    diagnostics.blockerDetectionCandidateEntities += nearbyEntityIds.length;
+    diagnostics.blockerDetectionUniqueCandidateUnits += candidateUnitIds.length;
+  }
   const sourceFactionId = getFactionIdForUnit(identityStore, unitId);
   let selectedBlocker: ForwardBlocker | undefined;
 

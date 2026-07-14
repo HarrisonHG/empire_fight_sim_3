@@ -1,4 +1,7 @@
-import type { SimulationSnapshot } from "../sim/types";
+import type {
+  LiveCombatDebugIndividualSnapshot,
+  SimulationSnapshot,
+} from "../sim/types";
 import type {
   MetricsWorkerMessage,
   StateWorkerMessage,
@@ -18,6 +21,10 @@ export class MetricsPanel {
     "combat-total-counts",
   );
   private readonly combatUnitStateValue = createMetricValue("combat-unit-state");
+  private readonly individualInspectionValue = createMetricValue(
+    "individual-inspection",
+  );
+  private readonly retainedInspectionEvents = new Map<number, string>();
   private frameRequest: number | undefined;
   private sampleStartedAt: number | undefined;
   private sampledFrames = 0;
@@ -36,6 +43,7 @@ export class MetricsPanel {
       createMetricRow("Combat tick", this.combatTickCountsValue),
       createMetricRow("Combat total", this.combatTotalCountsValue),
       createMetricRow("Unit state", this.combatUnitStateValue),
+      createMetricRow("Individuals", this.individualInspectionValue),
     );
     this.element.append(metrics);
 
@@ -63,6 +71,10 @@ export class MetricsPanel {
         )
         .join("\n");
       return;
+    }
+
+    if (snapshot.tick === 0) {
+      this.retainedInspectionEvents.clear();
     }
 
     this.combatTickCountsValue.textContent = formatCombatCounts({
@@ -93,6 +105,10 @@ export class MetricsPanel {
           `(assessment ${unit.assessmentMoraleState}/P ${formatCombatNumber(unit.assessmentPressureAverage)})`,
       )
       .join("\n");
+    this.renderIndividualInspection(
+      snapshot.tick,
+      combatDebug.inspectedIndividuals,
+    );
   }
 
   public updateWorkerMetrics(message: MetricsWorkerMessage): void {
@@ -139,6 +155,76 @@ export class MetricsPanel {
     this.combatTickCountsValue.textContent = "--";
     this.combatTotalCountsValue.textContent = "--";
     this.combatUnitStateValue.textContent = "--";
+    this.individualInspectionValue.textContent = "--";
+    this.retainedInspectionEvents.clear();
+  }
+
+  private renderIndividualInspection(
+    tick: number,
+    individuals: readonly LiveCombatDebugIndividualSnapshot[],
+  ): void {
+    if (individuals.length === 0) {
+      this.individualInspectionValue.textContent = "--";
+      this.retainedInspectionEvents.clear();
+      return;
+    }
+
+    for (const individual of individuals) {
+      const eventSummary = formatInspectionEvent(individual);
+      if (eventSummary !== "") {
+        this.retainedInspectionEvents.set(
+          individual.entityId,
+          `t${tick} ${eventSummary}`,
+        );
+      }
+    }
+
+    const table = document.createElement("table");
+    table.className = "individual-inspection-table";
+    const header = document.createElement("thead");
+    const headerRow = document.createElement("tr");
+    for (const label of [
+      "E/U",
+      "Elig",
+      "Target",
+      "Action",
+      "Guard",
+      "Face",
+      "Kit",
+      "Hits",
+      "Latest",
+      "In",
+      "Loss",
+    ]) {
+      const cell = document.createElement("th");
+      cell.textContent = label;
+      headerRow.append(cell);
+    }
+    header.append(headerRow);
+    const body = document.createElement("tbody");
+    for (const individual of individuals) {
+      const row = document.createElement("tr");
+      for (const value of [
+        `E${individual.entityId}/U${individual.unitId}`,
+        individual.tickStartCombatEligible ? "Y" : "N",
+        formatTarget(individual),
+        formatAction(individual),
+        formatGuard(individual),
+        `${individual.facing.x},${individual.facing.y}`,
+        `${individual.activeWeapon}/${individual.shieldCategory}`,
+        `${individual.currentGlobalHits}/${individual.maximumGlobalHits}`,
+        this.retainedInspectionEvents.get(individual.entityId) ?? "",
+        formatIncomingCounts(individual),
+        individual.thisTickAppliedHitLoss.toString(),
+      ]) {
+        const cell = document.createElement("td");
+        cell.textContent = value;
+        row.append(cell);
+      }
+      body.append(row);
+    }
+    table.append(header, body);
+    this.individualInspectionValue.replaceChildren(table);
   }
 }
 
@@ -174,4 +260,66 @@ function formatCombatCounts(counts: {
 
 function formatCombatNumber(value: number): string {
   return Number.isInteger(value) ? value.toString() : value.toFixed(2);
+}
+
+function formatTarget(individual: LiveCombatDebugIndividualSnapshot): string {
+  const selected =
+    individual.selectedTargetEntityId === null
+      ? "-"
+      : `S${individual.selectedTargetEntityId}`;
+  const locked =
+    individual.lockedTargetEntityId === null
+      ? "-"
+      : `L${individual.lockedTargetEntityId}`;
+  const preferred =
+    individual.selectedTargetWithinPreferredDistance === null
+      ? "-"
+      : individual.selectedTargetWithinPreferredDistance
+        ? "pref"
+        : "close";
+  return `${selected}/${locked}/${preferred}`;
+}
+
+function formatAction(individual: LiveCombatDebugIndividualSnapshot): string {
+  return `${individual.actionState} ${individual.commitmentTicksRemaining}/${individual.attackRecoveryTicksRemaining}`;
+}
+
+function formatGuard(individual: LiveCombatDebugIndividualSnapshot): string {
+  return `${individual.guardState} ${individual.defenceRecoveryTicksRemaining}`;
+}
+
+function formatInspectionEvent(
+  individual: LiveCombatDebugIndividualSnapshot,
+): string {
+  const parts: string[] = [];
+  if (individual.thisTickAttackOutcome !== "none") {
+    parts.push(`atk:${individual.thisTickAttackOutcome}`);
+  }
+  if (individual.thisTickOutgoingDefenceOutcome !== "none") {
+    parts.push(`out:${individual.thisTickOutgoingDefenceOutcome}`);
+  }
+  if (individual.thisTickDefenceOutcome !== "none") {
+    parts.push(`def:${individual.thisTickDefenceOutcome}`);
+  }
+  if (individual.thisTickLandedHitGateOutcome !== "none") {
+    parts.push(`gate:${individual.thisTickLandedHitGateOutcome}`);
+  }
+  if (individual.thisTickAppliedHitLoss > 0) {
+    parts.push(`loss:${individual.thisTickAppliedHitLoss}`);
+  }
+  if (individual.reachedZeroHitsThisTick) {
+    parts.push("zero");
+  }
+  return parts.join(" ");
+}
+
+function formatIncomingCounts(
+  individual: LiveCombatDebugIndividualSnapshot,
+): string {
+  return (
+    `P${individual.thisTickIncomingParryCount}/` +
+    `B${individual.thisTickIncomingBucklerBlockCount}/` +
+    `S${individual.thisTickIncomingShieldBlockCount}/` +
+    `L${individual.thisTickIncomingLandedCount}`
+  );
 }

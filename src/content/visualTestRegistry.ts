@@ -1,4 +1,8 @@
 import { MILESTONE_3_COMBAT_FOUNDATION_SCENARIO } from "./liveCombatScenario";
+import {
+  INDIVIDUAL_COMBAT_VISUAL_SCENARIO,
+  INDIVIDUAL_COMBAT_VISUAL_SCENARIO_ID,
+} from "./individualCombatVisualScenario";
 import { MILESTONE_4_VISUAL_SCENARIO } from "./milestone4VisualScenario";
 import { MOVEMENT_BEHAVIOUR_SCENARIO } from "./movementBehaviourScenario";
 import type { SimulationScenario } from "../sim/types";
@@ -46,6 +50,24 @@ export const VISUAL_TEST_REGISTRY: readonly VisualTestEntry[] = Object.freeze([
     ]),
     recommendedTickRange: Object.freeze({ start: 0, end: 420 }),
     scenario: MILESTONE_3_COMBAT_FOUNDATION_SCENARIO,
+  }),
+  Object.freeze({
+    id: INDIVIDUAL_COMBAT_VISUAL_SCENARIO_ID,
+    title: "Individual combat regression",
+    milestone: "Milestone 5 pending human inspection",
+    purpose:
+      "Retains deterministic individual-combat chambers for defence, reach, armour hits, landed-hit gates, and zero-hit eligibility.",
+    expectedObservations: Object.freeze([
+      "The first frontal weapon defence parries a polearm attack.",
+      "A held full shield blocks the first frontal attack.",
+      "Two attackers make one defender prevent one strike while another lands through the guard opening.",
+      "The polearm attacker commits from farther away than the one-handed attacker.",
+      "Heavy armour starts with more global hits while ordinary accepted strikes remove one hit.",
+      "Same-pair landed outcomes faster than one second are gate-rejected and do not remove hits.",
+      "Separate attackers can each land one accepted hit on the same target; zero-hit fighters remain standing until the casualty milestone.",
+    ]),
+    recommendedTickRange: Object.freeze({ start: 0, end: 80 }),
+    scenario: INDIVIDUAL_COMBAT_VISUAL_SCENARIO,
   }),
   Object.freeze({
     id: "morale-inspection",

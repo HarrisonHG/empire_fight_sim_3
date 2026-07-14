@@ -212,7 +212,6 @@ function runOrdinaryUnitFullPath(): OrdinaryFullPathReport {
       persistent,
       [],
       {
-        survivabilityStore: harness.survivability,
         pressureUpdates,
         routingContagionSummaries: contagionResult.summaries,
         recoveryThreatSummaries,

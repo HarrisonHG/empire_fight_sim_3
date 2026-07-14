@@ -444,8 +444,8 @@ describe("combat foundation integration", () => {
       pressureTotal: 0,
       pressureAverage: 0,
       pressureMaximum: 0,
-      recentCohesionDamageValue: 0,
-      recentCapacityReached: false,
+      recentCombatShockValue: 0,
+      recentCombatShockSource: "none",
       moraleState: "steady",
       breakRiskReasonCodes: [],
     });
@@ -455,10 +455,10 @@ describe("combat foundation integration", () => {
       pressureTotal: 10,
       pressureAverage: 10,
       pressureMaximum: 10,
-      recentCohesionDamageValue: 1,
-      recentCapacityReached: false,
+      recentCombatShockValue: 1,
+      recentCombatShockSource: "legacyConsequence",
       moraleState: "pressured",
-      breakRiskReasonCodes: ["recentCohesionDamage"],
+      breakRiskReasonCodes: ["combatShock"],
     });
   });
 

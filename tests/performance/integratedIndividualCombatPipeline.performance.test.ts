@@ -3,23 +3,16 @@ import { performance } from "node:perf_hooks";
 import { describe, expect, it } from "vitest";
 
 import {
-  advanceIndividualCombatPipelineOneTick,
-  type IndividualCombatPipelineStage,
-} from "../../src/sim/individualCombatPipeline";
+  createFormationTickDiagnostics,
+  resetFormationTickDiagnostics,
+  type FormationTickDiagnostics,
+} from "../../src/sim/formationBehaviour";
+import { LOCAL_HOSTILE_THREAT_RADIUS } from "../../src/sim/moraleMovement";
 import {
-  collectCombatMoraleAssessmentsFromIndividualConsequences,
-} from "../../src/sim/combatMorale";
-import { advanceIndividualCombatPressureOneTick } from "../../src/sim/combatPressure";
-import { advanceFormationOneTick } from "../../src/sim/formationBehaviour";
-import {
-  advancePersistentMoraleOneTick,
-  getPersistentUnitMoraleState,
-} from "../../src/sim/persistentMorale";
-import { advanceRoutingContagionOneTick } from "../../src/sim/routingContagion";
-import { collectRecoveryThreatSummaries } from "../../src/sim/recoveryThreat";
-import {
+  advanceCombatSandboxOneTick,
   advanceSimulationOneTick,
   createSimulation,
+  type CombatSandboxTickStage,
 } from "../../src/sim/simulation";
 import type {
   CombatSandboxUnitScenario,
@@ -27,33 +20,144 @@ import type {
   SimulationScenario,
   SimulationState,
 } from "../../src/sim/types";
-import { getUnitIds } from "../../src/sim/unitIdentity";
+import { getUnitIds, getUnitMembers } from "../../src/sim/unitIdentity";
 
-const MEASURED_TICKS = 30;
-const AUTHORITY_WARM_UP_TICKS = 20;
-const AUTHORITY_MEASURED_TICKS = 100;
+const WARM_UP_TICKS = 20;
+const MEASURED_TICKS = 100;
+const TWO_THOUSAND_ENTITY_TIMEOUT_MS = 120_000;
 
-describe("integrated individual combat pipeline performance", () => {
+type AuthorityGeometry =
+  | "representativeSeparatedBattle"
+  | "denseOverlappingFormations";
+
+describe("integrated individual combat authority performance", () => {
   it.each([100, 500, 1_000])(
-    "reports integrated individual authority path timing for %i entities",
+    "reports exact production and instrumented authority timing for %i representative entities",
     (entityCount) => {
-      const report = runIntegratedIndividualPerformance(entityCount);
-      assertReport(report, entityCount);
+      const report = runAuthorityLivePerformance(
+        "representativeSeparatedBattle",
+        authorityScenario(entityCount, "representativeSeparatedBattle"),
+      );
+
+      assertPerformanceReport(report, entityCount);
+      expect(report.minimumCrossLaneEntitySeparation).toBeGreaterThan(
+        LOCAL_HOSTILE_THREAT_RADIUS,
+      );
       writeReport(report);
     },
-    30_000,
+    TWO_THOUSAND_ENTITY_TIMEOUT_MS,
   );
 
   it(
-    "reports integrated individual authority path timing for 2,000 entities",
+    "reports representative separated authority timing for 2,000 entities",
     () => {
-      const report = runIntegratedIndividualPerformance(2_000);
-      assertReport(report, 2_000);
+      const report = runAuthorityLivePerformance(
+        "representativeSeparatedBattle",
+        authorityScenario(2_000, "representativeSeparatedBattle"),
+      );
+
+      assertPerformanceReport(report, 2_000);
       expect(report.membersPerUnit).toBe(20);
+      expect(report.minimumCrossLaneEntitySeparation).toBeGreaterThan(
+        LOCAL_HOSTILE_THREAT_RADIUS,
+      );
       writeReport(report);
     },
-    30_000,
+    TWO_THOUSAND_ENTITY_TIMEOUT_MS,
   );
+
+  it(
+    "reports representative exact production timing with bounded inspection enabled",
+    () => {
+      const disabledScenario = authorityScenario(
+        2_000,
+        "representativeSeparatedBattle",
+      );
+      const enabledScenario = withInspectedEntityIds(disabledScenario, [
+        0,
+        1,
+        20,
+        21,
+      ]);
+      const disabled = runExactProductionTickReference(disabledScenario);
+      const enabled = runExactProductionTickReference(enabledScenario);
+
+      expect(disabled.minimumCrossLaneEntitySeparation).toBeGreaterThan(
+        LOCAL_HOSTILE_THREAT_RADIUS,
+      );
+      expect(enabled.minimumCrossLaneEntitySeparation).toBeGreaterThan(
+        LOCAL_HOSTILE_THREAT_RADIUS,
+      );
+      assertTiming(disabled.exactProductionTick);
+      assertTiming(enabled.exactProductionTick);
+      process.stdout.write(
+        `\nBounded inspection exact-production timing report\n${JSON.stringify(
+          {
+            entityCount: disabledScenario.entityCount,
+            inspectedEntityIds: enabledScenario.combatSandbox
+              ?.inspectedEntityIds,
+            inspectionDisabled: disabled.exactProductionTick,
+            inspectionEnabled: enabled.exactProductionTick,
+          },
+          null,
+          2,
+        )}\n`,
+      );
+    },
+    TWO_THOUSAND_ENTITY_TIMEOUT_MS,
+  );
+
+  it(
+    "reports dense overlapping stress timing for 2,000 entities",
+    () => {
+      const report = runAuthorityLivePerformance(
+        "denseOverlappingFormations",
+        authorityScenario(2_000, "denseOverlappingFormations"),
+      );
+
+      assertPerformanceReport(report, 2_000);
+      expect(report.minimumCrossLaneEntitySeparation).toBeLessThan(
+        LOCAL_HOSTILE_THREAT_RADIUS,
+      );
+      expect(
+        report.instrumentedCoreStages[0].formationCounters
+          .blockerDetectionCandidateEntities.total,
+      ).toBeGreaterThan(0);
+      writeReport(report);
+    },
+    TWO_THOUSAND_ENTITY_TIMEOUT_MS,
+  );
+
+  it("matches exact production and instrumented core states deterministically", () => {
+    const scenario = authorityScenario(500, "representativeSeparatedBattle");
+    const exact = createSimulation(scenario);
+    const instrumented = createSimulation(scenario);
+    const diagnostics = createFormationTickDiagnostics();
+    const stageCalls = new Map<CombatSandboxTickStage, number>();
+    diagnostics.runStage = (_stage, run) => run();
+
+    for (let tick = 0; tick < 60; tick += 1) {
+      advanceSimulationOneTick(exact);
+      resetFormationTickDiagnostics(diagnostics);
+      advanceNoOpInstrumentedTick(instrumented, diagnostics, stageCalls);
+    }
+
+    expect(summarizeAuthorityState(instrumented)).toEqual(
+      summarizeAuthorityState(exact),
+    );
+    expect(stageCalls).toEqual(
+      new Map<CombatSandboxTickStage, number>([
+        ["formation", 60],
+        ["individualPipeline", 60],
+        ["individualPressureAndCohesion", 60],
+        ["routingContagion", 60],
+        ["recoveryThreat", 60],
+        ["moraleAssessmentAndPersistence", 60],
+        ["countersAndSnapshots", 60],
+      ]),
+    );
+    expect(diagnostics.memberSlotEvaluations).toBeGreaterThan(0);
+  });
 });
 
 interface StageTimingReport {
@@ -62,307 +166,378 @@ interface StageTimingReport {
   readonly p95MillisecondsPerTick: number;
 }
 
-interface IntegratedIndividualPerformanceReport {
+interface CounterReport {
+  readonly total: number;
+  readonly meanPerTick: number;
+  readonly maximumPerTick: number;
+}
+
+interface FormationCounterReport {
+  readonly blockerGridBuilds: CounterReport;
+  readonly blockerDetectionQueries: CounterReport;
+  readonly blockerDetectionCandidateEntities: CounterReport;
+  readonly blockerDetectionUniqueCandidateUnits: CounterReport;
+  readonly hostileContactQueries: CounterReport;
+  readonly hostileContactCandidateEntities: CounterReport;
+  readonly sameUnitOvertakingComparisons: CounterReport;
+  readonly memberSlotEvaluations: CounterReport;
+  readonly routingUnitCount: CounterReport;
+  readonly recoveringUnitCount: CounterReport;
+  readonly routingPassThroughInteractions: CounterReport;
+}
+
+interface ExactProductionTickRun {
+  readonly warmUpTicks: number;
+  readonly measuredTicks: number;
+  readonly exactProductionTick: StageTimingReport;
+  readonly minimumCrossLaneEntitySeparation: number;
+}
+
+interface InstrumentedCoreStageRun {
+  readonly warmUpTicks: number;
+  readonly measuredTicks: number;
+  readonly formation: StageTimingReport;
+  readonly blockerGridBuild: StageTimingReport;
+  readonly individualPipeline: StageTimingReport;
+  readonly individualPressureAndCohesion: StageTimingReport;
+  readonly routingContagion: StageTimingReport;
+  readonly recoveryThreat: StageTimingReport;
+  readonly moraleAssessmentAndPersistence: StageTimingReport;
+  readonly countersAndDebugSnapshots: StageTimingReport;
+  readonly instrumentedCoreStagesWithoutTickIncrement: StageTimingReport;
+  readonly formationCounters: FormationCounterReport;
+  readonly minimumCrossLaneEntitySeparation: number;
+}
+
+interface AuthorityLivePerformanceReport {
+  readonly caseName: AuthorityGeometry;
   readonly entityCount: number;
   readonly unitCount: number;
   readonly membersPerUnit: number;
   readonly worldBounds: SimulationBounds;
-  readonly measuredTicks: number;
-  readonly eligibility: StageTimingReport;
-  readonly targetSelection: StageTimingReport;
-  readonly action: StageTimingReport;
-  readonly defence: StageTimingReport;
-  readonly gate: StageTimingReport;
-  readonly hitApplication: StageTimingReport;
-  readonly aggregationClarification: StageTimingReport;
-  readonly consequenceProjection: StageTimingReport;
-  readonly totalIndividualPipeline: StageTimingReport;
-  readonly selectedTargetRecords: number;
-  readonly attackAttempts: number;
-  readonly invalidatedAttacks: number;
-  readonly parries: number;
-  readonly bucklerBlocks: number;
-  readonly shieldBlocks: number;
-  readonly landedDefenceOutcomes: number;
-  readonly gateAcceptedHits: number;
-  readonly gateRejectedHits: number;
-  readonly appliedHitLoss: number;
-  readonly zeroHitTransitions: number;
-  readonly activeRelationships: number;
-  readonly authorityLiveRuns: readonly [
-    AuthorityLiveStageReference,
-    AuthorityLiveStageReference,
+  readonly laneSpacing: number;
+  readonly relevantLocalInteractionRange: number;
+  readonly minimumCrossLaneEntitySeparation: number;
+  readonly exactProductionTickRuns: readonly [
+    ExactProductionTickRun,
+    ExactProductionTickRun,
+  ];
+  readonly instrumentedCoreStages: readonly [
+    InstrumentedCoreStageRun,
+    InstrumentedCoreStageRun,
   ];
   readonly timingPolicy: string;
 }
 
-interface AuthorityLiveStageReference {
-    readonly warmUpTicks: number;
-    readonly measuredTicks: number;
-    readonly formation: StageTimingReport;
-    readonly individualPipeline: StageTimingReport;
-    readonly individualPressureAndCohesion: StageTimingReport;
-    readonly routingRecoveryAndMorale: StageTimingReport;
-    readonly countersAndSnapshots: StageTimingReport;
-    readonly completeLiveTick: StageTimingReport;
+function runAuthorityLivePerformance(
+  caseName: AuthorityGeometry,
+  scenario: SimulationScenario,
+): AuthorityLivePerformanceReport {
+  const membersPerUnit = membersPerUnitFor(scenario.entityCount);
+  const exactProductionTickRuns = [
+    runExactProductionTickReference(scenario),
+    runExactProductionTickReference(scenario),
+  ] as const;
+  const instrumentedCoreStages = [
+    runInstrumentedCoreStageReference(scenario),
+    runInstrumentedCoreStageReference(scenario),
+  ] as const;
+  const minimumCrossLaneEntitySeparation = Math.min(
+    exactProductionTickRuns[0].minimumCrossLaneEntitySeparation,
+    exactProductionTickRuns[1].minimumCrossLaneEntitySeparation,
+    instrumentedCoreStages[0].minimumCrossLaneEntitySeparation,
+    instrumentedCoreStages[1].minimumCrossLaneEntitySeparation,
+  );
+
+  return {
+    caseName,
+    entityCount: scenario.entityCount,
+    unitCount: scenario.entityCount / membersPerUnit,
+    membersPerUnit,
+    worldBounds: scenario.bounds,
+    laneSpacing: laneSpacingFor(caseName),
+    relevantLocalInteractionRange: LOCAL_HOSTILE_THREAT_RADIUS,
+    minimumCrossLaneEntitySeparation,
+    exactProductionTickRuns,
+    instrumentedCoreStages,
+    timingPolicy:
+      "Structural assertions only; exactProductionTick measures advanceSimulationOneTick. instrumentedCoreStages shares the production combat-sandbox tick helper but reports stage boundaries without calling that sum a complete live tick.",
+  };
 }
 
-function runIntegratedIndividualPerformance(
-  entityCount: number,
-): IntegratedIndividualPerformanceReport {
-  const scenario = ordinaryUnitScenario(entityCount);
+function runExactProductionTickReference(
+  scenario: SimulationScenario,
+): ExactProductionTickRun {
   const simulation = createSimulation(scenario);
-  const combat = requireCombatSandbox(simulation);
-  const stageSamples = createStageSamples();
-  const totalSamples = new Float64Array(MEASURED_TICKS);
-  let selectedTargetRecords = 0;
-  let attackAttempts = 0;
-  let invalidatedAttacks = 0;
-  let parries = 0;
-  let bucklerBlocks = 0;
-  let shieldBlocks = 0;
-  let landedDefenceOutcomes = 0;
-  let gateAcceptedHits = 0;
-  let gateRejectedHits = 0;
-  let appliedHitLoss = 0;
-  let zeroHitTransitions = 0;
-  let activeRelationships = 0;
+  const laneMembers = collectLaneMembers(simulation, scenario);
+  const samples = new Float64Array(MEASURED_TICKS);
+  let minimumCrossLaneEntitySeparation =
+    computeAdjacentLaneMinimumSeparation(simulation, laneMembers);
+
+  for (let tick = 0; tick < WARM_UP_TICKS; tick += 1) {
+    advanceSimulationOneTick(simulation);
+  }
 
   for (let tick = 0; tick < MEASURED_TICKS; tick += 1) {
-    advanceFormationOneTick(
-      simulation.world,
-      combat.identityStore,
-      combat.formationStore,
-    );
     const startedAt = performance.now();
-    const result = advanceIndividualCombatPipelineOneTick(
+    advanceSimulationOneTick(simulation);
+    samples[tick] = performance.now() - startedAt;
+    minimumCrossLaneEntitySeparation = Math.min(
+      minimumCrossLaneEntitySeparation,
+      computeAdjacentLaneMinimumSeparation(simulation, laneMembers),
+    );
+  }
+
+  expect(simulation.world.entityCount).toBe(scenario.entityCount);
+  return {
+    warmUpTicks: WARM_UP_TICKS,
+    measuredTicks: MEASURED_TICKS,
+    exactProductionTick: timingReport(samples),
+    minimumCrossLaneEntitySeparation,
+  };
+}
+
+function runInstrumentedCoreStageReference(
+  scenario: SimulationScenario,
+): InstrumentedCoreStageRun {
+  const simulation = createSimulation(scenario);
+  const laneMembers = collectLaneMembers(simulation, scenario);
+  const stageSamples = createCombatSandboxStageSamples();
+  const blockerGridBuildSamples = new Float64Array(MEASURED_TICKS);
+  const totalSamples = new Float64Array(MEASURED_TICKS);
+  const diagnostics = createFormationTickDiagnostics();
+  const counterSamples = createFormationCounterSamples();
+  let sampleIndex = 0;
+  let minimumCrossLaneEntitySeparation =
+    computeAdjacentLaneMinimumSeparation(simulation, laneMembers);
+
+  diagnostics.runStage = (stage, run) => {
+    const startedAt = performance.now();
+    const result = run();
+    if (stage === "blockerGridBuild") {
+      blockerGridBuildSamples[sampleIndex]! += performance.now() - startedAt;
+    }
+    return result;
+  };
+
+  for (let tick = 0; tick < WARM_UP_TICKS; tick += 1) {
+    advanceSimulationOneTick(simulation);
+  }
+
+  for (let tick = 0; tick < MEASURED_TICKS; tick += 1) {
+    resetFormationTickDiagnostics(diagnostics);
+    sampleIndex = tick;
+    const startedAt = performance.now();
+    advanceCombatSandboxOneTick(
       simulation.world,
-      combat.identityStore,
-      combat.formationStore,
-      combat.individualCombatPipelineStores,
-      combat.individualCombatPipelineBuffers,
-      tick,
+      requireCombatSandbox(simulation),
+      simulation.tick,
       {
+        formationDiagnostics: diagnostics,
         runStage: (stage, run) => {
           const stageStartedAt = performance.now();
-          const stageResult = run();
-          stageSamples[stage][tick] = performance.now() - stageStartedAt;
-          return stageResult;
+          const result = run();
+          stageSamples[stage]![tick]! += performance.now() - stageStartedAt;
+          return result;
         },
       },
     );
     totalSamples[tick] = performance.now() - startedAt;
-    selectedTargetRecords += result.selectedTargetCount;
-    attackAttempts += result.attackAttemptCount;
-    invalidatedAttacks += result.invalidatedAttackCount;
-    parries += result.parryCount;
-    bucklerBlocks += result.bucklerBlockCount;
-    shieldBlocks += result.shieldBlockCount;
-    landedDefenceOutcomes += result.landedDefenceOutcomeCount;
-    gateAcceptedHits += result.gateAcceptedHitCount;
-    gateRejectedHits += result.gateRejectedHitCount;
-    appliedHitLoss += result.appliedHitLoss;
-    zeroHitTransitions += result.zeroHitTransitionCount;
-    activeRelationships = result.activeGateRelationshipCount;
-  }
-
-  const authorityLiveRuns = [
-    runAuthorityLiveStageReference(entityCount),
-    runAuthorityLiveStageReference(entityCount),
-  ] as const;
-  const membersPerUnit = membersPerUnitFor(entityCount);
-  return {
-    entityCount,
-    unitCount: entityCount / membersPerUnit,
-    membersPerUnit,
-    worldBounds: scenario.bounds,
-    measuredTicks: MEASURED_TICKS,
-    eligibility: timingReport(stageSamples.eligibility),
-    targetSelection: timingReport(stageSamples.targetSelection),
-    action: timingReport(stageSamples.action),
-    defence: timingReport(stageSamples.defence),
-    gate: timingReport(stageSamples.gate),
-    hitApplication: timingReport(stageSamples.globalHits),
-    aggregationClarification: timingReport(stageSamples.aggregation),
-    consequenceProjection: timingReport(stageSamples.consequenceProjection),
-    totalIndividualPipeline: timingReport(totalSamples),
-    selectedTargetRecords,
-    attackAttempts,
-    invalidatedAttacks,
-    parries,
-    bucklerBlocks,
-    shieldBlocks,
-    landedDefenceOutcomes,
-    gateAcceptedHits,
-    gateRejectedHits,
-    appliedHitLoss,
-    zeroHitTransitions,
-    activeRelationships,
-    authorityLiveRuns,
-    timingPolicy:
-      "Structural assertions only; real formation/world state and persistent individual stores are used. Production combat authority is the individual path only.",
-  };
-}
-
-function runAuthorityLiveStageReference(
-  entityCount: number,
-): AuthorityLiveStageReference {
-  const simulation = createSimulation(authorityLiveReferenceScenario(entityCount));
-  const samples = {
-    formation: new Float64Array(AUTHORITY_MEASURED_TICKS),
-    individualPipeline: new Float64Array(AUTHORITY_MEASURED_TICKS),
-    individualPressureAndCohesion: new Float64Array(AUTHORITY_MEASURED_TICKS),
-    routingRecoveryAndMorale: new Float64Array(AUTHORITY_MEASURED_TICKS),
-    countersAndSnapshots: new Float64Array(AUTHORITY_MEASURED_TICKS),
-    completeLiveTick: new Float64Array(AUTHORITY_MEASURED_TICKS),
-  };
-
-  for (let tick = 0; tick < AUTHORITY_WARM_UP_TICKS; tick += 1) {
-    advanceSimulationOneTick(simulation);
-  }
-  for (let tick = 0; tick < AUTHORITY_MEASURED_TICKS; tick += 1) {
-    const combat = requireCombatSandbox(simulation);
-    const tickStartedAt = performance.now();
-    let startedAt = performance.now();
-    const formationResult = advanceFormationOneTick(
-      simulation.world,
-      combat.identityStore,
-      combat.formationStore,
-      combat.moraleMovementStates,
-    );
-    samples.formation[tick] = performance.now() - startedAt;
-
-    startedAt = performance.now();
-    const individualCombatResult = advanceIndividualCombatPipelineOneTick(
-      simulation.world,
-      combat.identityStore,
-      combat.formationStore,
-      combat.individualCombatPipelineStores,
-      combat.individualCombatPipelineBuffers,
-      simulation.tick,
-    );
-    samples.individualPipeline[tick] = performance.now() - startedAt;
-
-    startedAt = performance.now();
-    advanceIndividualCombatPressureOneTick(
-      combat.identityStore,
-      combat.formationStore,
-      individualCombatResult.consequenceSummaries,
-      combat.pressureStore,
-      combat.pressureUpdates,
-      {
-        appliedDamagePressureScale: combat.appliedDamagePressureScale,
-      },
-      combat.moraleMovementStates,
-    );
-    samples.individualPressureAndCohesion[tick] = performance.now() - startedAt;
-
-    startedAt = performance.now();
-    advanceRoutingContagionOneTick(
-      simulation.world,
-      combat.identityStore,
-      combat.formationStore,
-      combat.moraleMovementStates,
-      formationResult.routingPassThroughInteractions,
-      combat.routingContagionStore,
-      combat.routingContagionSummaries,
-    );
-    collectRecoveryThreatSummaries(
-      simulation.world,
-      combat.identityStore,
-      combat.formationStore,
-      combat.recoveryThreatStore,
-      combat.recoveryThreatSummaries,
-    );
-
-    collectCombatMoraleAssessmentsFromIndividualConsequences(
-      combat.identityStore,
-      combat.formationStore,
-      individualCombatResult.consequenceSummaries,
-      combat.moraleAssessments,
-    );
-    advancePersistentMoraleOneTick(
-      combat.identityStore,
-      combat.formationStore,
-      combat.moraleAssessments,
-      combat.persistentMoraleStore,
-      combat.moraleEvents,
-      {
-        pressureUpdates: combat.pressureUpdates,
-        routingContagionSummaries: combat.routingContagionSummaries,
-        recoveryThreatSummaries: combat.recoveryThreatSummaries,
-      },
-    );
-    syncMoraleMovementStatesForPerf(combat);
-    samples.routingRecoveryAndMorale[tick] =
-      performance.now() - startedAt;
-
-    startedAt = performance.now();
-    expect(individualCombatResult.attackAttemptCount).toBeGreaterThanOrEqual(0);
-    samples.countersAndSnapshots[tick] = performance.now() - startedAt;
-    samples.completeLiveTick[tick] = performance.now() - tickStartedAt;
     simulation.tick += 1;
+    recordFormationCounters(counterSamples, diagnostics, tick);
+    minimumCrossLaneEntitySeparation = Math.min(
+      minimumCrossLaneEntitySeparation,
+      computeAdjacentLaneMinimumSeparation(simulation, laneMembers),
+    );
   }
 
   return {
-    warmUpTicks: AUTHORITY_WARM_UP_TICKS,
-    measuredTicks: AUTHORITY_MEASURED_TICKS,
-    formation: timingReport(samples.formation),
-    individualPipeline: timingReport(samples.individualPipeline),
+    warmUpTicks: WARM_UP_TICKS,
+    measuredTicks: MEASURED_TICKS,
+    formation: timingReport(stageSamples.formation),
+    blockerGridBuild: timingReport(blockerGridBuildSamples),
+    individualPipeline: timingReport(stageSamples.individualPipeline),
     individualPressureAndCohesion: timingReport(
-      samples.individualPressureAndCohesion,
+      stageSamples.individualPressureAndCohesion,
     ),
-    routingRecoveryAndMorale: timingReport(
-      samples.routingRecoveryAndMorale,
+    routingContagion: timingReport(stageSamples.routingContagion),
+    recoveryThreat: timingReport(stageSamples.recoveryThreat),
+    moraleAssessmentAndPersistence: timingReport(
+      stageSamples.moraleAssessmentAndPersistence,
     ),
-    countersAndSnapshots: timingReport(samples.countersAndSnapshots),
-    completeLiveTick: timingReport(samples.completeLiveTick),
+    countersAndDebugSnapshots: timingReport(stageSamples.countersAndSnapshots),
+    instrumentedCoreStagesWithoutTickIncrement: timingReport(totalSamples),
+    formationCounters: summarizeFormationCounters(counterSamples),
+    minimumCrossLaneEntitySeparation,
   };
 }
 
-function syncMoraleMovementStatesForPerf(
-  combat: ReturnType<typeof requireCombatSandbox>,
+function advanceNoOpInstrumentedTick(
+  simulation: SimulationState,
+  diagnostics: FormationTickDiagnostics,
+  stageCalls: Map<CombatSandboxTickStage, number>,
 ): void {
-  const unitIds = getUnitIds(combat.identityStore);
-  for (let index = 0; index < unitIds.length; index += 1) {
-    const unitId = unitIds[index]!;
-    combat.moraleMovementStates.set(
-      unitId,
-      getPersistentUnitMoraleState(combat.persistentMoraleStore, unitId),
-    );
-  }
+  advanceCombatSandboxOneTick(
+    simulation.world,
+    requireCombatSandbox(simulation),
+    simulation.tick,
+    {
+      formationDiagnostics: diagnostics,
+      runStage: (stage, run) => {
+        stageCalls.set(stage, (stageCalls.get(stage) ?? 0) + 1);
+        return run();
+      },
+    },
+  );
+  simulation.tick += 1;
 }
 
-function ordinaryUnitScenario(entityCount: number): SimulationScenario {
+function createCombatSandboxStageSamples(): Record<
+  CombatSandboxTickStage,
+  Float64Array
+> {
+  return {
+    formation: new Float64Array(MEASURED_TICKS),
+    individualPipeline: new Float64Array(MEASURED_TICKS),
+    individualPressureAndCohesion: new Float64Array(MEASURED_TICKS),
+    routingContagion: new Float64Array(MEASURED_TICKS),
+    recoveryThreat: new Float64Array(MEASURED_TICKS),
+    moraleAssessmentAndPersistence: new Float64Array(MEASURED_TICKS),
+    countersAndSnapshots: new Float64Array(MEASURED_TICKS),
+  };
+}
+
+function createFormationCounterSamples(): Record<
+  keyof Omit<FormationTickDiagnostics, "runStage">,
+  Float64Array
+> {
+  return {
+    blockerGridBuilds: new Float64Array(MEASURED_TICKS),
+    blockerDetectionQueries: new Float64Array(MEASURED_TICKS),
+    blockerDetectionCandidateEntities: new Float64Array(MEASURED_TICKS),
+    blockerDetectionUniqueCandidateUnits: new Float64Array(MEASURED_TICKS),
+    hostileContactQueries: new Float64Array(MEASURED_TICKS),
+    hostileContactCandidateEntities: new Float64Array(MEASURED_TICKS),
+    sameUnitOvertakingComparisons: new Float64Array(MEASURED_TICKS),
+    memberSlotEvaluations: new Float64Array(MEASURED_TICKS),
+    routingUnitCount: new Float64Array(MEASURED_TICKS),
+    recoveringUnitCount: new Float64Array(MEASURED_TICKS),
+    routingPassThroughInteractions: new Float64Array(MEASURED_TICKS),
+  };
+}
+
+function recordFormationCounters(
+  samples: Record<keyof Omit<FormationTickDiagnostics, "runStage">, Float64Array>,
+  diagnostics: FormationTickDiagnostics,
+  tick: number,
+): void {
+  samples.blockerGridBuilds[tick] = diagnostics.blockerGridBuilds;
+  samples.blockerDetectionQueries[tick] = diagnostics.blockerDetectionQueries;
+  samples.blockerDetectionCandidateEntities[tick] =
+    diagnostics.blockerDetectionCandidateEntities;
+  samples.blockerDetectionUniqueCandidateUnits[tick] =
+    diagnostics.blockerDetectionUniqueCandidateUnits;
+  samples.hostileContactQueries[tick] = diagnostics.hostileContactQueries;
+  samples.hostileContactCandidateEntities[tick] =
+    diagnostics.hostileContactCandidateEntities;
+  samples.sameUnitOvertakingComparisons[tick] =
+    diagnostics.sameUnitOvertakingComparisons;
+  samples.memberSlotEvaluations[tick] = diagnostics.memberSlotEvaluations;
+  samples.routingUnitCount[tick] = diagnostics.routingUnitCount;
+  samples.recoveringUnitCount[tick] = diagnostics.recoveringUnitCount;
+  samples.routingPassThroughInteractions[tick] =
+    diagnostics.routingPassThroughInteractions;
+}
+
+function summarizeFormationCounters(
+  samples: Record<keyof Omit<FormationTickDiagnostics, "runStage">, Float64Array>,
+): FormationCounterReport {
+  return {
+    blockerGridBuilds: counterReport(samples.blockerGridBuilds),
+    blockerDetectionQueries: counterReport(samples.blockerDetectionQueries),
+    blockerDetectionCandidateEntities: counterReport(
+      samples.blockerDetectionCandidateEntities,
+    ),
+    blockerDetectionUniqueCandidateUnits: counterReport(
+      samples.blockerDetectionUniqueCandidateUnits,
+    ),
+    hostileContactQueries: counterReport(samples.hostileContactQueries),
+    hostileContactCandidateEntities: counterReport(
+      samples.hostileContactCandidateEntities,
+    ),
+    sameUnitOvertakingComparisons: counterReport(
+      samples.sameUnitOvertakingComparisons,
+    ),
+    memberSlotEvaluations: counterReport(samples.memberSlotEvaluations),
+    routingUnitCount: counterReport(samples.routingUnitCount),
+    recoveringUnitCount: counterReport(samples.recoveringUnitCount),
+    routingPassThroughInteractions: counterReport(
+      samples.routingPassThroughInteractions,
+    ),
+  };
+}
+
+function counterReport(samples: Float64Array): CounterReport {
+  let total = 0;
+  let maximum = 0;
+  for (let index = 0; index < samples.length; index += 1) {
+    const sample = samples[index]!;
+    total += sample;
+    maximum = Math.max(maximum, sample);
+  }
+  return {
+    total,
+    meanPerTick: total / samples.length,
+    maximumPerTick: maximum,
+  };
+}
+
+function authorityScenario(
+  entityCount: number,
+  geometry: AuthorityGeometry,
+): SimulationScenario {
   const membersPerUnit = membersPerUnitFor(entityCount);
   expect(entityCount % (membersPerUnit * 2)).toBe(0);
   const unitCount = entityCount / membersPerUnit;
   const pairCount = unitCount / 2;
-  const worldBounds = {
-    width: pairCount * 44 + 96,
-    height: 320,
-  };
+  const laneSpacing = laneSpacingFor(geometry);
+  const denseRows = 10;
+  const denseColumnSpacing = 44;
   const units: CombatSandboxUnitScenario[] = [];
+  const worldBounds =
+    geometry === "denseOverlappingFormations"
+      ? {
+          width: Math.ceil(pairCount / denseRows) * denseColumnSpacing + 160,
+          height: 120 + denseRows * laneSpacing + 160,
+        }
+      : {
+          width: 260,
+          height: 120 + pairCount * laneSpacing + 160,
+        };
+
   for (let pairIndex = 0; pairIndex < pairCount; pairIndex += 1) {
-    const y = 40 + (pairIndex % 10) * 24;
-    const laneX = 48 + Math.floor(pairIndex / 10) * 44;
+    const row =
+      geometry === "denseOverlappingFormations"
+        ? pairIndex % denseRows
+        : pairIndex;
+    const column =
+      geometry === "denseOverlappingFormations"
+        ? Math.floor(pairIndex / denseRows)
+        : 0;
+    const y = 120 + row * laneSpacing;
+    const laneX = 96 + column * denseColumnSpacing;
     const firstUnitId = pairIndex * 2 + 1;
     const secondUnitId = firstUnitId + 1;
     units.push(
-      unitConfig(firstUnitId, 1, membersPerUnit, laneX, y, 1, {
-        weaponCategory: "oneHanded",
-        weaponReachBand: "short",
-        shieldClass: "none",
-      }),
-      unitConfig(secondUnitId, 2, membersPerUnit, laneX + 10, y, -1, {
-        weaponCategory: "unarmed",
-        weaponReachBand: "none",
-        shieldClass: "shield",
-      }),
+      unitConfig(firstUnitId, 1, membersPerUnit, laneX, y, 1),
+      unitConfig(secondUnitId, 2, membersPerUnit, laneX + 10, y, -1),
     );
   }
+
   return {
-    seed: 0x5f10 + entityCount,
+    seed:
+      (geometry === "denseOverlappingFormations" ? 0x5f30 : 0x5f20) +
+      entityCount,
     entityCount,
     bounds: worldBounds,
     minSpeedUnitsPerTick: 1,
@@ -375,50 +550,25 @@ function ordinaryUnitScenario(entityCount: number): SimulationScenario {
   };
 }
 
-function authorityLiveReferenceScenario(entityCount: number): SimulationScenario {
-  const membersPerUnit = membersPerUnitFor(entityCount);
-  expect(entityCount % (membersPerUnit * 2)).toBe(0);
-  const unitCount = entityCount / membersPerUnit;
-  const pairCount = unitCount / 2;
-  const worldBounds = {
-    width: pairCount * 44 + 96,
-    height: 320,
-  };
-  const units: CombatSandboxUnitScenario[] = [];
-  for (let pairIndex = 0; pairIndex < pairCount; pairIndex += 1) {
-    const y = 40 + (pairIndex % 10) * 24;
-    const laneX = 48 + Math.floor(pairIndex / 10) * 44;
-    const firstUnitId = pairIndex * 2 + 1;
-    const secondUnitId = firstUnitId + 1;
-    units.push(
-      unitConfig(firstUnitId, 1, membersPerUnit, laneX, y, 1, {
-        weaponCategory: "oneHanded",
-        weaponReachBand: "short",
-        shieldClass: "none",
-        order: "advance",
-        unitSpeed: 1,
-      }),
-      unitConfig(secondUnitId, 2, membersPerUnit, laneX + 10, y, -1, {
-        weaponCategory: "oneHanded",
-        weaponReachBand: "short",
-        shieldClass: "none",
-        order: "advance",
-        unitSpeed: 1,
-      }),
-    );
+function withInspectedEntityIds(
+  scenario: SimulationScenario,
+  inspectedEntityIds: readonly number[],
+): SimulationScenario {
+  const combatSandbox = scenario.combatSandbox;
+  if (combatSandbox === undefined) {
+    throw new Error("Expected combat sandbox scenario.");
   }
   return {
-    seed: 0x5f20 + entityCount,
-    entityCount,
-    bounds: worldBounds,
-    minSpeedUnitsPerTick: 1,
-    maxSpeedUnitsPerTick: 1,
+    ...scenario,
     combatSandbox: {
-      kind: "liveCombatSandbox",
-      appliedDamagePressureScale: 1,
-      units,
+      ...combatSandbox,
+      inspectedEntityIds,
     },
   };
+}
+
+function laneSpacingFor(geometry: AuthorityGeometry): number {
+  return geometry === "denseOverlappingFormations" ? 24 : 240;
 }
 
 function unitConfig(
@@ -428,11 +578,6 @@ function unitConfig(
   anchorX: number,
   anchorY: number,
   headingX: -1 | 1,
-  overrides: Pick<
-    CombatSandboxUnitScenario,
-    "weaponCategory" | "weaponReachBand" | "shieldClass"
-  > &
-    Partial<Pick<CombatSandboxUnitScenario, "order" | "unitSpeed">>,
 ): CombatSandboxUnitScenario {
   const cols = Math.min(10, memberCount);
   const rows = Math.ceil(memberCount / cols);
@@ -453,14 +598,14 @@ function unitConfig(
     spacing: 4,
     rows,
     cols,
-    unitSpeed: overrides.unitSpeed ?? 0,
-    order: overrides.order ?? "hold",
+    unitSpeed: 1,
+    order: "advance",
     role: "regular",
     memberMaxStep: 1,
-    weaponCategory: overrides.weaponCategory,
-    weaponReachBand: overrides.weaponReachBand,
+    weaponCategory: "oneHanded",
+    weaponReachBand: "short",
     armourClass: "none",
-    shieldClass: overrides.shieldClass,
+    shieldClass: "none",
     attackIntervalTicks: 20,
     maxDamageCapacity: 1_000_000,
   };
@@ -470,20 +615,54 @@ function membersPerUnitFor(entityCount: number): number {
   return entityCount >= 1_000 ? 20 : 10;
 }
 
-function createStageSamples(): Record<
-  IndividualCombatPipelineStage,
-  Float64Array
-> {
-  return {
-    eligibility: new Float64Array(MEASURED_TICKS),
-    targetSelection: new Float64Array(MEASURED_TICKS),
-    action: new Float64Array(MEASURED_TICKS),
-    defence: new Float64Array(MEASURED_TICKS),
-    gate: new Float64Array(MEASURED_TICKS),
-    globalHits: new Float64Array(MEASURED_TICKS),
-    aggregation: new Float64Array(MEASURED_TICKS),
-    consequenceProjection: new Float64Array(MEASURED_TICKS),
-  };
+function collectLaneMembers(
+  simulation: SimulationState,
+  scenario: SimulationScenario,
+): readonly (readonly number[])[] {
+  const combat = requireCombatSandbox(simulation);
+  const units = scenario.combatSandbox?.units;
+  if (units === undefined) {
+    throw new Error("Expected combat sandbox scenario units.");
+  }
+  const lanes: number[][] = [];
+  for (let index = 0; index < units.length; index += 2) {
+    const firstUnit = units[index]!;
+    const secondUnit = units[index + 1]!;
+    lanes.push([
+      ...getUnitMembers(combat.identityStore, firstUnit.unitId),
+      ...getUnitMembers(combat.identityStore, secondUnit.unitId),
+    ]);
+  }
+  return lanes;
+}
+
+function computeAdjacentLaneMinimumSeparation(
+  simulation: SimulationState,
+  laneMembers: readonly (readonly number[])[],
+): number {
+  if (laneMembers.length < 2) {
+    return Number.POSITIVE_INFINITY;
+  }
+  let minimumDistanceSquared = Number.POSITIVE_INFINITY;
+  for (let laneIndex = 0; laneIndex < laneMembers.length - 1; laneIndex += 1) {
+    const currentLane = laneMembers[laneIndex]!;
+    const nextLane = laneMembers[laneIndex + 1]!;
+    for (let currentIndex = 0; currentIndex < currentLane.length; currentIndex += 1) {
+      const currentEntityId = currentLane[currentIndex]!;
+      const currentX = simulation.world.positionsX[currentEntityId]!;
+      const currentY = simulation.world.positionsY[currentEntityId]!;
+      for (let nextIndex = 0; nextIndex < nextLane.length; nextIndex += 1) {
+        const nextEntityId = nextLane[nextIndex]!;
+        const deltaX = simulation.world.positionsX[nextEntityId]! - currentX;
+        const deltaY = simulation.world.positionsY[nextEntityId]! - currentY;
+        const distanceSquared = deltaX * deltaX + deltaY * deltaY;
+        if (distanceSquared < minimumDistanceSquared) {
+          minimumDistanceSquared = distanceSquared;
+        }
+      }
+    }
+  }
+  return Math.sqrt(minimumDistanceSquared);
 }
 
 function timingReport(samples: Float64Array): StageTimingReport {
@@ -503,45 +682,60 @@ function timingReport(samples: Float64Array): StageTimingReport {
   };
 }
 
-function assertReport(
-  report: IntegratedIndividualPerformanceReport,
+function assertPerformanceReport(
+  report: AuthorityLivePerformanceReport,
   entityCount: number,
 ): void {
   expect(report.entityCount).toBe(entityCount);
   expect(report.membersPerUnit).toBeGreaterThanOrEqual(5);
   expect(report.membersPerUnit).toBeLessThanOrEqual(30);
-  expect(report.selectedTargetRecords).toBeGreaterThan(0);
-  expect(report.attackAttempts).toBeGreaterThan(0);
-  expect(report.parries + report.bucklerBlocks + report.shieldBlocks)
-    .toBeGreaterThan(0);
-  expect(report.landedDefenceOutcomes).toBeGreaterThan(0);
-  expect(report.gateAcceptedHits).toBeGreaterThan(0);
-  expect(report.gateRejectedHits).toBeGreaterThan(0);
-  expect(report.appliedHitLoss).toBeGreaterThan(0);
-  expect(report.activeRelationships).toBeGreaterThan(0);
-  for (const timing of [
-    report.targetSelection,
-    report.action,
-    report.defence,
-    report.gate,
-    report.hitApplication,
-    report.aggregationClarification,
-    report.consequenceProjection,
-    report.eligibility,
-    report.totalIndividualPipeline,
-    ...report.authorityLiveRuns.flatMap((run) => [
+  expect(report.minimumCrossLaneEntitySeparation).toBeGreaterThanOrEqual(0);
+  for (const run of report.exactProductionTickRuns) {
+    assertTiming(run.exactProductionTick);
+  }
+  for (const run of report.instrumentedCoreStages) {
+    for (const timing of [
       run.formation,
+      run.blockerGridBuild,
       run.individualPipeline,
       run.individualPressureAndCohesion,
-      run.routingRecoveryAndMorale,
-      run.countersAndSnapshots,
-      run.completeLiveTick,
-    ]),
-  ]) {
-    expect(timing.meanMillisecondsPerTick).toBeGreaterThanOrEqual(0);
-    expect(timing.maximumMillisecondsPerTick).toBeGreaterThanOrEqual(0);
-    expect(timing.p95MillisecondsPerTick).toBeGreaterThanOrEqual(0);
+      run.routingContagion,
+      run.recoveryThreat,
+      run.moraleAssessmentAndPersistence,
+      run.countersAndDebugSnapshots,
+      run.instrumentedCoreStagesWithoutTickIncrement,
+    ]) {
+      assertTiming(timing);
+    }
+    expect(run.formationCounters.memberSlotEvaluations.total).toBeGreaterThan(0);
+    expect(run.formationCounters.sameUnitOvertakingComparisons.total)
+      .toBeGreaterThan(0);
+    expect(run.formationCounters.hostileContactQueries.total)
+      .toBeGreaterThan(0);
   }
+}
+
+function assertTiming(timing: StageTimingReport): void {
+  expect(timing.meanMillisecondsPerTick).toBeGreaterThanOrEqual(0);
+  expect(timing.maximumMillisecondsPerTick).toBeGreaterThanOrEqual(0);
+  expect(timing.p95MillisecondsPerTick).toBeGreaterThanOrEqual(0);
+}
+
+function summarizeAuthorityState(simulation: SimulationState): unknown {
+  const combat = requireCombatSandbox(simulation);
+  const unitIds = getUnitIds(combat.identityStore);
+  return {
+    tick: simulation.tick,
+    entityCount: simulation.world.entityCount,
+    ids: Array.from(simulation.world.ids),
+    positionsX: Array.from(simulation.world.positionsX),
+    positionsY: Array.from(simulation.world.positionsY),
+    debugSnapshot: combat.debugSnapshot,
+    moraleStates: unitIds.map((unitId) => ({
+      unitId,
+      movementState: combat.moraleMovementStates.get(unitId),
+    })),
+  };
 }
 
 function requireCombatSandbox(simulation: SimulationState) {
@@ -551,8 +745,8 @@ function requireCombatSandbox(simulation: SimulationState) {
   return simulation.combatSandbox;
 }
 
-function writeReport(report: IntegratedIndividualPerformanceReport): void {
+function writeReport(report: AuthorityLivePerformanceReport): void {
   process.stdout.write(
-    `\nIntegrated individual combat pipeline performance report\n${JSON.stringify(report, null, 2)}\n`,
+    `\nAuthority-live individual combat performance report\n${JSON.stringify(report, null, 2)}\n`,
   );
 }

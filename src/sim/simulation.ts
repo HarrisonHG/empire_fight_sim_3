@@ -11,6 +11,7 @@ import {
 import {
   advanceFormationOneTick,
   createFormationBehaviourStore,
+  type FormationTickDiagnostics,
   getUnitCohesion,
   getUnitMovementStyle,
 } from "./formationBehaviour";
@@ -39,6 +40,16 @@ import {
   createIndividualCombatProfileStoreFromUnitLoadouts,
   type IndividualCombatPipelineTickResult,
 } from "./individualCombatPipeline";
+import {
+  getActiveMeleeWeaponCategory,
+  getAttackCommitmentTicksRemaining,
+  getAttackRecoveryTicksRemaining,
+  getIndividualCombatActionState,
+  getIndividualCombatFacing,
+  getLockedAttackTargetEntityId,
+} from "./individualCombatAction";
+import { isIndividualCombatEligible } from "./individualCombatEligibility";
+import { getIndividualCombatProfile } from "./individualCombatProfile";
 import { getIndividualCombatUnitSummaries } from "./individualCombatAggregation";
 import {
   advanceRoutingContagionOneTick,
@@ -49,6 +60,18 @@ import {
   createRecoveryThreatStore,
 } from "./recoveryThreat";
 import type { MoraleMovementState } from "./moraleMovement";
+import {
+  getDefenceRecoveryTicksRemaining,
+  getIndividualGuardState,
+} from "./individualMeleeDefence";
+import {
+  NO_INDIVIDUAL_TARGET,
+  getSelectedTargetEntityId,
+} from "./individualMeleeTargetSelection";
+import {
+  getIndividualCurrentGlobalHits,
+  getIndividualMaximumGlobalHits,
+} from "./individualGlobalHits";
 import { SeededRng } from "./rng";
 import {
   createUnitIdentityStore,
@@ -70,6 +93,10 @@ import type {
   InitialSimulationSnapshot,
   LegacyCombatFoundationSimulationState,
   LiveCombatDebugSnapshot,
+  LiveCombatDebugAttackOutcome,
+  LiveCombatDebugDefenceOutcome,
+  LiveCombatDebugIndividualSnapshot,
+  LiveCombatDebugLandedHitGateOutcome,
   LiveCombatDebugUnitSnapshot,
   PositionSimulationSnapshot,
   SimulationScenario,
@@ -79,6 +106,20 @@ import type {
 import { createWorld } from "./world";
 
 export const FIXED_TICKS_PER_SECOND = 20;
+
+export type CombatSandboxTickStage =
+  | "formation"
+  | "individualPipeline"
+  | "individualPressureAndCohesion"
+  | "routingContagion"
+  | "recoveryThreat"
+  | "moraleAssessmentAndPersistence"
+  | "countersAndSnapshots";
+
+export interface CombatSandboxTickInstrumentation {
+  runStage<T>(stage: CombatSandboxTickStage, run: () => T): T;
+  readonly formationDiagnostics?: FormationTickDiagnostics;
+}
 
 interface SnapshotBuffers {
   readonly ids: Uint32Array;
@@ -196,68 +237,11 @@ export function advanceSimulationOneTick(simulation: SimulationState): void {
     // Preserve the Foundation baseline for its standalone movement/perf tests.
     moveWorldOneTick(simulation.world);
   } else if (combatSandbox !== undefined) {
-    const formationResult = advanceFormationOneTick(
+    advanceCombatSandboxOneTick(
       simulation.world,
-      combatSandbox.identityStore,
-      combatSandbox.formationStore,
-      combatSandbox.moraleMovementStates,
-    );
-    const individualCombatResult = advanceIndividualCombatPipelineOneTick(
-      simulation.world,
-      combatSandbox.identityStore,
-      combatSandbox.formationStore,
-      combatSandbox.individualCombatPipelineStores,
-      combatSandbox.individualCombatPipelineBuffers,
+      combatSandbox,
       simulation.tick,
     );
-    advanceIndividualCombatPressureOneTick(
-      combatSandbox.identityStore,
-      combatSandbox.formationStore,
-      individualCombatResult.consequenceSummaries,
-      combatSandbox.pressureStore,
-      combatSandbox.pressureUpdates,
-      {
-        appliedDamagePressureScale: combatSandbox.appliedDamagePressureScale,
-      },
-      combatSandbox.moraleMovementStates,
-    );
-    advanceRoutingContagionOneTick(
-      simulation.world,
-      combatSandbox.identityStore,
-      combatSandbox.formationStore,
-      combatSandbox.moraleMovementStates,
-      formationResult.routingPassThroughInteractions,
-      combatSandbox.routingContagionStore,
-      combatSandbox.routingContagionSummaries,
-    );
-    collectRecoveryThreatSummaries(
-      simulation.world,
-      combatSandbox.identityStore,
-      combatSandbox.formationStore,
-      combatSandbox.recoveryThreatStore,
-      combatSandbox.recoveryThreatSummaries,
-    );
-    collectCombatMoraleAssessmentsFromIndividualConsequences(
-      combatSandbox.identityStore,
-      combatSandbox.formationStore,
-      individualCombatResult.consequenceSummaries,
-      combatSandbox.moraleAssessments,
-    );
-    advancePersistentMoraleOneTick(
-      combatSandbox.identityStore,
-      combatSandbox.formationStore,
-      combatSandbox.moraleAssessments,
-      combatSandbox.persistentMoraleStore,
-      combatSandbox.moraleEvents,
-      {
-        pressureUpdates: combatSandbox.pressureUpdates,
-        routingContagionSummaries: combatSandbox.routingContagionSummaries,
-        recoveryThreatSummaries: combatSandbox.recoveryThreatSummaries,
-      },
-    );
-    syncMoraleMovementStates(combatSandbox);
-    updateIndividualCombatCounters(combatSandbox, individualCombatResult);
-    combatSandbox.debugSnapshot = createCombatDebugSnapshot(combatSandbox);
   } else if (legacyCombatFoundationSandbox !== undefined) {
     advanceLegacyCombatFoundationOneTick(
       simulation.world,
@@ -542,6 +526,8 @@ function createCombatSandbox(
     ),
     individualCombatPipelineStores,
     individualCombatPipelineBuffers,
+    inspectedEntityIds: scenario.inspectedEntityIds?.slice() ?? [],
+    inspectedIndividuals: [],
     pressureStore: createCombatPressureStore(identityStore, formationStore),
     routingContagionStore: createRoutingContagionStore(identityStore),
     recoveryThreatStore: createRecoveryThreatStore(identityStore, world),
@@ -833,6 +819,20 @@ function validateCombatSandboxScenario(
       "Live combat sandbox members must exactly match world entity count.",
     );
   }
+
+  if (scenario.inspectedEntityIds !== undefined) {
+    const inspectedEntityIds = new Set<number>();
+    for (let index = 0; index < scenario.inspectedEntityIds.length; index += 1) {
+      const entityId = scenario.inspectedEntityIds[index]!;
+      assertNonNegativeSafeInteger(entityId, "inspectedEntityId");
+      if (entityId >= world.entityCount || inspectedEntityIds.has(entityId)) {
+        throw new RangeError(
+          "Live combat inspected entity IDs must be unique world entity IDs.",
+        );
+      }
+      inspectedEntityIds.add(entityId);
+    }
+  }
 }
 
 function validateFormationSandboxScenario(
@@ -970,6 +970,94 @@ function createScenarioFactionIdBuffer(
   return identityStore === undefined
     ? undefined
     : createFactionIdBuffer(world, identityStore);
+}
+
+export function advanceCombatSandboxOneTick(
+  world: WorldState,
+  combatSandbox: CombatSandboxSimulationState,
+  tick: number,
+  instrumentation?: CombatSandboxTickInstrumentation,
+): void {
+  const runStage = <T>(stage: CombatSandboxTickStage, run: () => T): T =>
+    instrumentation === undefined ? run() : instrumentation.runStage(stage, run);
+
+  const formationResult = runStage("formation", () =>
+    advanceFormationOneTick(
+      world,
+      combatSandbox.identityStore,
+      combatSandbox.formationStore,
+      combatSandbox.moraleMovementStates,
+      instrumentation?.formationDiagnostics,
+    ),
+  );
+  const individualCombatResult = runStage("individualPipeline", () =>
+    advanceIndividualCombatPipelineOneTick(
+      world,
+      combatSandbox.identityStore,
+      combatSandbox.formationStore,
+      combatSandbox.individualCombatPipelineStores,
+      combatSandbox.individualCombatPipelineBuffers,
+      tick,
+    ),
+  );
+  runStage("individualPressureAndCohesion", () =>
+    advanceIndividualCombatPressureOneTick(
+      combatSandbox.identityStore,
+      combatSandbox.formationStore,
+      individualCombatResult.consequenceSummaries,
+      combatSandbox.pressureStore,
+      combatSandbox.pressureUpdates,
+      {
+        appliedDamagePressureScale: combatSandbox.appliedDamagePressureScale,
+      },
+      combatSandbox.moraleMovementStates,
+    ),
+  );
+  runStage("routingContagion", () =>
+    advanceRoutingContagionOneTick(
+      world,
+      combatSandbox.identityStore,
+      combatSandbox.formationStore,
+      combatSandbox.moraleMovementStates,
+      formationResult.routingPassThroughInteractions,
+      combatSandbox.routingContagionStore,
+      combatSandbox.routingContagionSummaries,
+    ),
+  );
+  runStage("recoveryThreat", () =>
+    collectRecoveryThreatSummaries(
+      world,
+      combatSandbox.identityStore,
+      combatSandbox.formationStore,
+      combatSandbox.recoveryThreatStore,
+      combatSandbox.recoveryThreatSummaries,
+    ),
+  );
+  runStage("moraleAssessmentAndPersistence", () => {
+    collectCombatMoraleAssessmentsFromIndividualConsequences(
+      combatSandbox.identityStore,
+      combatSandbox.formationStore,
+      individualCombatResult.consequenceSummaries,
+      combatSandbox.moraleAssessments,
+    );
+    advancePersistentMoraleOneTick(
+      combatSandbox.identityStore,
+      combatSandbox.formationStore,
+      combatSandbox.moraleAssessments,
+      combatSandbox.persistentMoraleStore,
+      combatSandbox.moraleEvents,
+      {
+        pressureUpdates: combatSandbox.pressureUpdates,
+        routingContagionSummaries: combatSandbox.routingContagionSummaries,
+        recoveryThreatSummaries: combatSandbox.recoveryThreatSummaries,
+      },
+    );
+    syncMoraleMovementStates(combatSandbox);
+  });
+  runStage("countersAndSnapshots", () => {
+    updateIndividualCombatCounters(combatSandbox, individualCombatResult);
+    combatSandbox.debugSnapshot = createCombatDebugSnapshot(combatSandbox);
+  });
 }
 
 function advanceLegacyCombatFoundationOneTick(
@@ -1160,6 +1248,7 @@ function createEmptyCombatDebugSnapshot(): LiveCombatDebugSnapshot {
     totalAppliedHitLoss: 0,
     totalNewlyZeroMemberCount: 0,
     units: [],
+    inspectedIndividuals: [],
   };
 }
 
@@ -1243,7 +1332,262 @@ function createCombatDebugSnapshot(
     totalAppliedHitLoss: combatSandbox.totalIndividualAppliedHitLoss,
     totalNewlyZeroMemberCount: combatSandbox.totalIndividualNewlyZeroHitMemberCount,
     units,
+    inspectedIndividuals: collectInspectedIndividualSnapshots(combatSandbox),
   };
+}
+
+function collectInspectedIndividualSnapshots(
+  combatSandbox: CombatSandboxSimulationState,
+): readonly LiveCombatDebugIndividualSnapshot[] {
+  const out = combatSandbox.inspectedIndividuals;
+  out.length = 0;
+  for (
+    let index = 0;
+    index < combatSandbox.inspectedEntityIds.length;
+    index += 1
+  ) {
+    const entityId = combatSandbox.inspectedEntityIds[index]!;
+    const selectedTargetEntityId = getSelectedTargetEntityId(
+      combatSandbox.individualTargetSelectionStore,
+      entityId,
+    );
+    const lockedTargetEntityId = getLockedAttackTargetEntityId(
+      combatSandbox.individualCombatActionStore,
+      entityId,
+    );
+    const facing = getIndividualCombatFacing(
+      combatSandbox.individualCombatActionStore,
+      entityId,
+    );
+    const profile = getIndividualCombatProfile(
+      combatSandbox.individualProfileStore,
+      entityId,
+    );
+    const selectedTargetRecord = getThisTickSelectedTargetRecord(
+      combatSandbox,
+      entityId,
+    );
+
+    out.push({
+      entityId,
+      unitId: getUnitIdForEntity(combatSandbox.identityStore, entityId),
+      tickStartCombatEligible: isIndividualCombatEligible(
+        combatSandbox.individualCombatEligibilitySnapshot,
+        entityId,
+      ),
+      selectedTargetEntityId:
+        selectedTargetEntityId === NO_INDIVIDUAL_TARGET
+          ? null
+          : selectedTargetEntityId,
+      selectedTargetDistanceSquared:
+        selectedTargetRecord?.targetEntityId === selectedTargetEntityId
+          ? selectedTargetRecord.distanceSquared
+          : null,
+      selectedTargetWithinPreferredDistance:
+        selectedTargetRecord?.targetEntityId === selectedTargetEntityId
+          ? selectedTargetRecord.withinPreferredDistance
+          : null,
+      actionState: getIndividualCombatActionState(
+        combatSandbox.individualCombatActionStore,
+        entityId,
+      ),
+      lockedTargetEntityId:
+        lockedTargetEntityId === NO_INDIVIDUAL_TARGET
+          ? null
+          : lockedTargetEntityId,
+      facing,
+      commitmentTicksRemaining: getAttackCommitmentTicksRemaining(
+        combatSandbox.individualCombatActionStore,
+        entityId,
+      ),
+      attackRecoveryTicksRemaining: getAttackRecoveryTicksRemaining(
+        combatSandbox.individualCombatActionStore,
+        entityId,
+      ),
+      guardState: getIndividualGuardState(
+        combatSandbox.individualMeleeDefenceStore,
+        entityId,
+      ),
+      defenceRecoveryTicksRemaining: getDefenceRecoveryTicksRemaining(
+        combatSandbox.individualMeleeDefenceStore,
+        entityId,
+      ),
+      activeWeapon: getActiveMeleeWeaponCategory(
+        combatSandbox.individualCombatActionStore,
+        entityId,
+      ),
+      shieldCategory: profile.shieldCategory,
+      shieldCarriedState: profile.shieldCarriedState,
+      currentGlobalHits: getIndividualCurrentGlobalHits(
+        combatSandbox.individualGlobalHitStore,
+        entityId,
+      ),
+      maximumGlobalHits: getIndividualMaximumGlobalHits(
+        combatSandbox.individualGlobalHitStore,
+        entityId,
+      ),
+      thisTickAttackOutcome: getThisTickAttackOutcome(combatSandbox, entityId),
+      thisTickDefenceOutcome: getThisTickDefenceOutcome(combatSandbox, entityId),
+      thisTickOutgoingDefenceOutcome: getThisTickOutgoingDefenceOutcome(
+        combatSandbox,
+        entityId,
+      ),
+      thisTickLandedHitGateOutcome: getThisTickLandedHitGateOutcome(
+        combatSandbox,
+        entityId,
+      ),
+      ...getThisTickIncomingDefenceCounts(combatSandbox, entityId),
+      thisTickAppliedHitLoss: getThisTickAppliedHitLoss(
+        combatSandbox,
+        entityId,
+      ),
+      reachedZeroHitsThisTick: reachedZeroHitsThisTick(
+        combatSandbox,
+        entityId,
+      ),
+    });
+  }
+  return out;
+}
+
+function getThisTickSelectedTargetRecord(
+  combatSandbox: CombatSandboxSimulationState,
+  entityId: number,
+):
+  | CombatSandboxSimulationState["individualCombatPipelineBuffers"]["selectedTargetRecords"][number]
+  | undefined {
+  const records =
+    combatSandbox.individualCombatPipelineBuffers.selectedTargetRecords;
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index]!;
+    if (record.sourceEntityId === entityId) {
+      return record;
+    }
+  }
+  return undefined;
+}
+
+function getThisTickAttackOutcome(
+  combatSandbox: CombatSandboxSimulationState,
+  entityId: number,
+): LiveCombatDebugAttackOutcome {
+  let outcome: LiveCombatDebugAttackOutcome = "none";
+  const attempts = combatSandbox.individualCombatPipelineBuffers.attackAttempts;
+  for (let index = 0; index < attempts.length; index += 1) {
+    const attempt = attempts[index]!;
+    if (attempt.attackerEntityId === entityId) {
+      outcome = attempt.outcome;
+    }
+  }
+  return outcome;
+}
+
+function getThisTickDefenceOutcome(
+  combatSandbox: CombatSandboxSimulationState,
+  entityId: number,
+): LiveCombatDebugDefenceOutcome {
+  let outcome: LiveCombatDebugDefenceOutcome = "none";
+  const records = combatSandbox.individualCombatPipelineBuffers.defenceRecords;
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index]!;
+    if (record.defenderEntityId === entityId) {
+      outcome = record.outcome;
+    }
+  }
+  return outcome;
+}
+
+function getThisTickOutgoingDefenceOutcome(
+  combatSandbox: CombatSandboxSimulationState,
+  entityId: number,
+): LiveCombatDebugDefenceOutcome {
+  let outcome: LiveCombatDebugDefenceOutcome = "none";
+  const records = combatSandbox.individualCombatPipelineBuffers.defenceRecords;
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index]!;
+    if (record.attackerEntityId === entityId) {
+      outcome = record.outcome;
+    }
+  }
+  return outcome;
+}
+
+function getThisTickLandedHitGateOutcome(
+  combatSandbox: CombatSandboxSimulationState,
+  entityId: number,
+): LiveCombatDebugLandedHitGateOutcome {
+  let outcome: LiveCombatDebugLandedHitGateOutcome = "none";
+  const decisions = combatSandbox.individualCombatPipelineBuffers.gateDecisions;
+  for (let index = 0; index < decisions.length; index += 1) {
+    const decision = decisions[index]!;
+    if (decision.attackerEntityId === entityId) {
+      outcome = decision.outcome;
+    }
+  }
+  return outcome;
+}
+
+function getThisTickIncomingDefenceCounts(
+  combatSandbox: CombatSandboxSimulationState,
+  entityId: number,
+): Pick<
+  LiveCombatDebugIndividualSnapshot,
+  | "thisTickIncomingParryCount"
+  | "thisTickIncomingBucklerBlockCount"
+  | "thisTickIncomingShieldBlockCount"
+  | "thisTickIncomingLandedCount"
+> {
+  let parries = 0;
+  let bucklerBlocks = 0;
+  let shieldBlocks = 0;
+  let landed = 0;
+  const records = combatSandbox.individualCombatPipelineBuffers.defenceRecords;
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index]!;
+    if (record.defenderEntityId !== entityId) {
+      continue;
+    }
+    if (record.outcome === "parried") parries += 1;
+    else if (record.outcome === "bucklerBlocked") bucklerBlocks += 1;
+    else if (record.outcome === "shieldBlocked") shieldBlocks += 1;
+    else landed += 1;
+  }
+  return {
+    thisTickIncomingParryCount: parries,
+    thisTickIncomingBucklerBlockCount: bucklerBlocks,
+    thisTickIncomingShieldBlockCount: shieldBlocks,
+    thisTickIncomingLandedCount: landed,
+  };
+}
+
+function getThisTickAppliedHitLoss(
+  combatSandbox: CombatSandboxSimulationState,
+  entityId: number,
+): number {
+  let appliedHitLoss = 0;
+  const applications =
+    combatSandbox.individualCombatPipelineBuffers.hitApplications;
+  for (let index = 0; index < applications.length; index += 1) {
+    const application = applications[index]!;
+    if (application.targetEntityId === entityId) {
+      appliedHitLoss += application.appliedHitLoss;
+    }
+  }
+  return appliedHitLoss;
+}
+
+function reachedZeroHitsThisTick(
+  combatSandbox: CombatSandboxSimulationState,
+  entityId: number,
+): boolean {
+  const zeroHitEvents =
+    combatSandbox.individualCombatPipelineBuffers.zeroHitEvents;
+  for (let index = 0; index < zeroHitEvents.length; index += 1) {
+    if (zeroHitEvents[index]!.entityId === entityId) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function createLegacyCombatFoundationDebugSnapshot(
@@ -1329,6 +1673,7 @@ function createLegacyCombatFoundationDebugSnapshot(
     totalAppliedHitLoss: totalAccumulatedDamage,
     totalNewlyZeroMemberCount: 0,
     units,
+    inspectedIndividuals: [],
   };
 }
 
