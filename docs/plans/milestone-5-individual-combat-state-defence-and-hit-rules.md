@@ -1327,6 +1327,32 @@ defence arcs, hit rules, pressure, morale, movement, or casualty behaviour.
   richer-presentation deferral.
 - [x] Milestone 5 remains pending human inspection of the retained route.
 
+### 5G-3 visual-usability correction (2026-07-14)
+
+- [x] Rearranged the retained individual-combat scenario from a vertical strip
+  into a landscape-friendly 4-column by 2-row grid within a 1200 by 580 world.
+  Chamber centres are `(150,140)`, `(450,140)`, `(750,140)`, `(1050,140)`,
+  `(150,440)`, `(450,440)`, and `(750,440)`. Each chamber keeps its previous
+  internal relative entity offsets, preserving accepted event timings and
+  outcomes.
+- [x] Exported explicit chamber metadata with `id`, `label`, `entityIds`,
+  `centreX`, and `centreY` for content/test description only. The isolation
+  test now uses this metadata instead of hard-coded entity-ID range logic.
+- [x] Corrected retained inspection event labels to use the combat-record tick:
+  current records in a post-advance snapshot at tick `N` are retained as
+  `t(N - 1)`.
+- [x] Retained event summaries now include non-zero current-tick incoming
+  evidence, for example `in:P1/B0/S0/L1`, so the two-attacker chamber preserves
+  both one parry and one landed incoming outcome after live current-tick fields
+  have cleared.
+- [x] Made the inspection table more usable in landscape viewports with
+  viewport-relative panel height, vertical debug scrolling, horizontal table
+  scrolling, `width: max-content`, and unit labels in inspected row identity.
+- [x] Added/updated headless tests for unchanged chamber event ticks, metadata
+  driven isolation, exact retained event ticks, two-on-one retained incoming
+  evidence, tick-0 retention clearing, omitted inspection rows, unit labels,
+  and deterministic replay.
+
 ---
 
 # Expected final tick order

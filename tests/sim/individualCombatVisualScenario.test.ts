@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  INDIVIDUAL_COMBAT_AREA_SPACING,
   INDIVIDUAL_COMBAT_INSPECTED_ENTITY_IDS,
   INDIVIDUAL_COMBAT_LOCAL_INTERACTION_RANGE,
+  INDIVIDUAL_COMBAT_VISUAL_CHAMBERS,
   INDIVIDUAL_COMBAT_VISUAL_SCENARIO,
   INDIVIDUAL_COMBAT_VISUAL_SCENARIO_ID,
+  INDIVIDUAL_COMBAT_VISUAL_WORLD_HEIGHT,
+  INDIVIDUAL_COMBAT_VISUAL_WORLD_WIDTH,
 } from "../../src/content/individualCombatVisualScenario";
 import { findVisualTestEntry } from "../../src/content/visualTestRegistry";
 import type { IndividualMeleeAttackAttemptRecord } from "../../src/sim/individualCombatAction";
@@ -40,6 +42,14 @@ describe("individual combat visual regression scenario", () => {
     expect(initial.tick).toBe(0);
     expect(initial.combatDebug?.inspectedIndividuals.map((entry) => entry.entityId))
       .toEqual(INDIVIDUAL_COMBAT_INSPECTED_ENTITY_IDS);
+    expect(INDIVIDUAL_COMBAT_VISUAL_SCENARIO.bounds).toEqual({
+      width: INDIVIDUAL_COMBAT_VISUAL_WORLD_WIDTH,
+      height: INDIVIDUAL_COMBAT_VISUAL_WORLD_HEIGHT,
+    });
+    expect(INDIVIDUAL_COMBAT_VISUAL_WORLD_WIDTH).toBe(1_200);
+    expect(INDIVIDUAL_COMBAT_VISUAL_WORLD_HEIGHT).toBe(580);
+    expect(INDIVIDUAL_COMBAT_VISUAL_CHAMBERS.map((chamber) => chamber.entityIds))
+      .toEqual([[0, 1], [2, 3], [4, 5, 6], [7, 8, 9, 10], [11, 12, 13, 14], [15, 16], [17, 18, 19]]);
   });
 
   it("demonstrates all individual-combat chambers through accepted systems", () => {
@@ -62,6 +72,7 @@ describe("individual combat visual regression scenario", () => {
         outcome: "parried",
       }),
     );
+    expect(firstDefenceTick(trace, 0, 1, "parried")).toBe(5);
     expect(trace.defences).toContainEqual(
       expect.objectContaining({
         attackerEntityId: 2,
@@ -69,20 +80,28 @@ describe("individual combat visual regression scenario", () => {
         outcome: "shieldBlocked",
       }),
     );
-    expect(
-      trace.ticks.some(
-        (tick) =>
-          tick.defences.some(
-            (record) => record.defenderEntityId === 6 && record.outcome === "parried",
-          ) &&
-          tick.defences.some(
-            (record) => record.defenderEntityId === 6 && record.outcome === "landed",
-          ),
-      ),
-    ).toBe(true);
+    expect(firstDefenceTick(trace, 2, 3, "shieldBlocked")).toBe(5);
+    const twoOnOneTick = trace.ticks.find(
+      (tick) =>
+        tick.defences.some(
+          (record) => record.defenderEntityId === 6 && record.outcome === "parried",
+        ) &&
+        tick.defences.some(
+          (record) => record.defenderEntityId === 6 && record.outcome === "landed",
+        ),
+    );
+    expect(twoOnOneTick?.currentTick).toBe(5);
+    expect(twoOnOneTick?.inspected.get(6)).toMatchObject({
+      thisTickIncomingParryCount: 1,
+      thisTickIncomingBucklerBlockCount: 0,
+      thisTickIncomingShieldBlockCount: 0,
+      thisTickIncomingLandedCount: 1,
+    });
 
     const polearmAttempt = firstAttempt(trace, 7, 8);
     const oneHandedAttempt = firstAttempt(trace, 9, 10);
+    expect(firstAttemptTick(trace, 7, 8)).toBe(5);
+    expect(firstAttemptTick(trace, 9, 10)).toBe(3);
     expect(polearmAttempt?.distanceSquaredAtResolution).toBeGreaterThan(
       oneHandedAttempt?.distanceSquaredAtResolution ?? Number.MAX_SAFE_INTEGER,
     );
@@ -109,6 +128,7 @@ describe("individual combat visual regression scenario", () => {
         currentHitsAfter: initialUnarmouredHits - 1,
       }),
     );
+    expect(firstHitApplicationTick(trace, 11, 12)).toBe(3);
     expect(trace.hitApplications).toContainEqual(
       expect.objectContaining({
         attackerEntityId: 13,
@@ -118,6 +138,7 @@ describe("individual combat visual regression scenario", () => {
         currentHitsAfter: initialHeavyHits - 1,
       }),
     );
+    expect(firstHitApplicationTick(trace, 13, 14)).toBe(3);
 
     const samePairGateDecisions = trace.gateDecisions.filter(
       (decision) =>
@@ -127,6 +148,7 @@ describe("individual combat visual regression scenario", () => {
       .filter((decision) => decision.outcome === "accepted")
       .map((decision) => decision.currentTick);
     expect(acceptedSamePairTicks.length).toBeGreaterThanOrEqual(2);
+    expect(acceptedSamePairTicks).toEqual([3, 24]);
     for (let index = 1; index < acceptedSamePairTicks.length; index += 1) {
       expect(acceptedSamePairTicks[index]! - acceptedSamePairTicks[index - 1]!)
         .toBeGreaterThanOrEqual(20);
@@ -150,6 +172,7 @@ describe("individual combat visual regression scenario", () => {
     expect(
       trace.ticks.some(
         (tick) =>
+          tick.currentTick === 3 &&
           tick.gateDecisions.some(
             (decision) =>
               decision.attackerEntityId === 17 &&
@@ -196,9 +219,7 @@ describe("individual combat visual regression scenario", () => {
       reachedZeroHitsThisTick: false,
     });
 
-    expect(INDIVIDUAL_COMBAT_AREA_SPACING).toBeGreaterThan(
-      INDIVIDUAL_COMBAT_LOCAL_INTERACTION_RANGE,
-    );
+    expect(minimumChamberCentreDistance()).toBe(INDIVIDUAL_COMBAT_LOCAL_INTERACTION_RANGE + 108);
     expect(trace.minimumCrossAreaDistance).toBeGreaterThan(
       INDIVIDUAL_COMBAT_LOCAL_INTERACTION_RANGE,
     );
@@ -321,6 +342,50 @@ function firstAttempt(
   );
 }
 
+function firstAttemptTick(
+  trace: ReturnType<typeof collectVisualTrace>,
+  attackerEntityId: number,
+  targetEntityId: number,
+): number | undefined {
+  return trace.ticks.find((tick) =>
+    tick.attackAttempts.some(
+      (record) =>
+        record.attackerEntityId === attackerEntityId &&
+        record.targetEntityId === targetEntityId,
+    ),
+  )?.currentTick;
+}
+
+function firstDefenceTick(
+  trace: ReturnType<typeof collectVisualTrace>,
+  attackerEntityId: number,
+  defenderEntityId: number,
+  outcome: IndividualMeleeDefenceRecord["outcome"],
+): number | undefined {
+  return trace.ticks.find((tick) =>
+    tick.defences.some(
+      (record) =>
+        record.attackerEntityId === attackerEntityId &&
+        record.defenderEntityId === defenderEntityId &&
+        record.outcome === outcome,
+    ),
+  )?.currentTick;
+}
+
+function firstHitApplicationTick(
+  trace: ReturnType<typeof collectVisualTrace>,
+  attackerEntityId: number,
+  targetEntityId: number,
+): number | undefined {
+  return trace.ticks.find((tick) =>
+    tick.hitApplications.some(
+      (record) =>
+        record.attackerEntityId === attackerEntityId &&
+        record.targetEntityId === targetEntityId,
+    ),
+  )?.currentTick;
+}
+
 function runScenario(ticks: number): SimulationState {
   const simulation = createSimulation(INDIVIDUAL_COMBAT_VISUAL_SCENARIO);
   for (let tick = 0; tick < ticks; tick += 1) {
@@ -351,6 +416,7 @@ function summarizeReplay(simulation: SimulationState): unknown {
 }
 
 function computeMinimumCrossAreaDistance(simulation: SimulationState): number {
+  const chamberIndexByEntity = buildChamberIndexByEntity();
   let minimum = Number.POSITIVE_INFINITY;
   for (
     let leftEntityId = 0;
@@ -362,7 +428,10 @@ function computeMinimumCrossAreaDistance(simulation: SimulationState): number {
       rightEntityId < simulation.world.entityCount;
       rightEntityId += 1
     ) {
-      if (areaIndexForEntity(leftEntityId) === areaIndexForEntity(rightEntityId)) {
+      if (
+        chamberIndexByEntity.get(leftEntityId) ===
+        chamberIndexByEntity.get(rightEntityId)
+      ) {
         continue;
       }
       const dx =
@@ -377,14 +446,37 @@ function computeMinimumCrossAreaDistance(simulation: SimulationState): number {
   return minimum;
 }
 
-function areaIndexForEntity(entityId: number): number {
-  if (entityId <= 1) return 0;
-  if (entityId <= 3) return 1;
-  if (entityId <= 6) return 2;
-  if (entityId <= 10) return 3;
-  if (entityId <= 14) return 4;
-  if (entityId <= 16) return 5;
-  return 6;
+function buildChamberIndexByEntity(): ReadonlyMap<number, number> {
+  const mapping = new Map<number, number>();
+  for (let index = 0; index < INDIVIDUAL_COMBAT_VISUAL_CHAMBERS.length; index += 1) {
+    const chamber = INDIVIDUAL_COMBAT_VISUAL_CHAMBERS[index]!;
+    for (const entityId of chamber.entityIds) {
+      mapping.set(entityId, index);
+    }
+  }
+  return mapping;
+}
+
+function minimumChamberCentreDistance(): number {
+  let minimum = Number.POSITIVE_INFINITY;
+  for (
+    let leftIndex = 0;
+    leftIndex < INDIVIDUAL_COMBAT_VISUAL_CHAMBERS.length;
+    leftIndex += 1
+  ) {
+    const left = INDIVIDUAL_COMBAT_VISUAL_CHAMBERS[leftIndex]!;
+    for (
+      let rightIndex = leftIndex + 1;
+      rightIndex < INDIVIDUAL_COMBAT_VISUAL_CHAMBERS.length;
+      rightIndex += 1
+    ) {
+      const right = INDIVIDUAL_COMBAT_VISUAL_CHAMBERS[rightIndex]!;
+      const dx = left.centreX - right.centreX;
+      const dy = left.centreY - right.centreY;
+      minimum = Math.min(minimum, Math.sqrt(dx * dx + dy * dy));
+    }
+  }
+  return minimum;
 }
 
 function requireCombatSandbox(simulation: SimulationState) {

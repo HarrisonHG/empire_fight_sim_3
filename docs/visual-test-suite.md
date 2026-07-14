@@ -27,7 +27,7 @@ Run `npm run dev`, then open:
 | `/test?scenario=movement-behaviour` | Milestone 2 accepted | 0-120 | Formed march, ordered halt, formed detour, loose flow, halt-and-wait, disruptive push-through, and veteran stability versus recruit instability under equal pressure. |
 | `/test?scenario=combat-foundation` | Milestone 3 accepted | 0-420 | Both fronts advance and engage at reach without interpenetrating; combat counters, pressure, and morale update; membership remains unchanged. |
 | `/test?scenario=morale-inspection` | Milestone 4 accepted 2026-07-12 | 0-800 | Recruit breaks first, regular degrades faster than veteran, pass-through disrupts the reserve, routers flee before recovery, recovering units halt and reform, and the veteran pursuit subject returns to steady before the regular. |
-| `/test?scenario=individual-combat` | Milestone 5 pending human inspection | 0-80 | Seven isolated chambers show frontal parry, held shield block, two-on-one guard overwhelm, polearm reach, armour/global-hit totals, one-second same-pair gate rejection, and independent attackers zeroing a target without removal. |
+| `/test?scenario=individual-combat` | Milestone 5 pending human inspection | 0-80 | Seven isolated landscape-grid chambers show frontal parry, held shield block, two-on-one guard overwhelm, polearm reach, armour/global-hit totals, one-second same-pair gate rejection, and independent attackers zeroing a target without removal. |
 
 Unknown scenario IDs show a clear error followed by the full menu. Scenario
 pages include a **Back to visual test menu** link and start paused at tick 0;
@@ -65,8 +65,20 @@ manual human-inspection surface backed by deterministic headless tests.
 ## Individual Combat Regression Chambers
 
 `/test?scenario=individual-combat` starts paused at tick 0. It contains seven
-labelled areas separated by 300 units in world space; automated coverage checks
-that all cross-area entity distances remain greater than the 192-unit local
+labelled chambers in a landscape-friendly grid within a 1200 by 580 world:
+
+| Chamber | Centre | Entities |
+| ---: | --- | --- |
+| 1 | (150, 140) | 0, 1 |
+| 2 | (450, 140) | 2, 3 |
+| 3 | (750, 140) | 4, 5, 6 |
+| 4 | (1050, 140) | 7, 8, 9, 10 |
+| 5 | (150, 440) | 11, 12, 13, 14 |
+| 6 | (450, 440) | 15, 16 |
+| 7 | (750, 440) | 17, 18, 19 |
+
+Chamber centres are separated by at least 300 units. Automated coverage checks
+that all cross-chamber entity distances remain greater than the 192-unit local
 interaction range throughout the useful inspection window.
 
 | Area | Label | Useful ticks | Expected observation |
@@ -82,7 +94,14 @@ interaction range throughout the useful inspection window.
 The individual inspection table is shown only for scenarios with explicit
 `inspectedEntityIds`. It displays compact current authoritative state and a
 UI-only retained latest event per inspected entity. That retained event history
-is not simulation state and clears on scenario load/replay reset. Richer
-sprites, icons, and specialised presentation remain deferred under DC-017.
-Zero-hit entities intentionally remain standing until the later casualty
-milestone.
+is not simulation state and clears on scenario load/replay reset. Retained event
+tick labels use the combat-record tick, so records visible in a post-advance
+position snapshot at tick 6 are labelled `t5`. Retained events include non-zero
+incoming evidence, such as `in:P1/B0/S0/L1`, so the two-on-one chamber preserves
+both the parry and landed incoming counts after current-tick fields clear.
+
+The debug panel constrains its height to the viewport, scrolls vertically when
+the debug content is long, and wraps the individual table in horizontal
+scrolling so the page itself does not overflow. Richer sprites, icons, and
+specialised presentation remain deferred under DC-017. Zero-hit entities
+intentionally remain standing until the later casualty milestone.

@@ -10,6 +10,8 @@ export const INDIVIDUAL_COMBAT_LOCAL_INTERACTION_RANGE = 192;
 export const INDIVIDUAL_COMBAT_INSPECTED_ENTITY_IDS = Object.freeze(
   Array.from({ length: 20 }, (_, entityId) => entityId),
 );
+export const INDIVIDUAL_COMBAT_VISUAL_WORLD_WIDTH = 1_200;
+export const INDIVIDUAL_COMBAT_VISUAL_WORLD_HEIGHT = 580;
 
 export const INDIVIDUAL_COMBAT_AREA_LABELS = Object.freeze([
   "First frontal defence",
@@ -21,15 +23,31 @@ export const INDIVIDUAL_COMBAT_AREA_LABELS = Object.freeze([
   "Independent attackers",
 ] as const);
 
-const FIRST_Y = 120;
+export interface IndividualCombatVisualChamberMetadata {
+  readonly id: number;
+  readonly label: (typeof INDIVIDUAL_COMBAT_AREA_LABELS)[number];
+  readonly entityIds: readonly number[];
+  readonly centreX: number;
+  readonly centreY: number;
+}
+
+export const INDIVIDUAL_COMBAT_VISUAL_CHAMBERS = Object.freeze([
+  chamberMetadata(1, "First frontal defence", [0, 1], 150, 140),
+  chamberMetadata(2, "Held shield defence", [2, 3], 450, 140),
+  chamberMetadata(3, "Two attackers overwhelm guard", [4, 5, 6], 750, 140),
+  chamberMetadata(4, "Weapon reach", [7, 8, 9, 10], 1_050, 140),
+  chamberMetadata(5, "Armour and global hits", [11, 12, 13, 14], 150, 440),
+  chamberMetadata(6, "One-second relationship gate", [15, 16], 450, 440),
+  chamberMetadata(7, "Independent attackers", [17, 18, 19], 750, 440),
+] as const);
 
 export const INDIVIDUAL_COMBAT_VISUAL_SCENARIO: SimulationScenario =
   Object.freeze({
     seed: INDIVIDUAL_COMBAT_VISUAL_SEED,
     entityCount: INDIVIDUAL_COMBAT_INSPECTED_ENTITY_IDS.length,
     bounds: Object.freeze({
-      width: 280,
-      height: FIRST_Y + INDIVIDUAL_COMBAT_AREA_SPACING * 6 + 160,
+      width: INDIVIDUAL_COMBAT_VISUAL_WORLD_WIDTH,
+      height: INDIVIDUAL_COMBAT_VISUAL_WORLD_HEIGHT,
     }),
     minSpeedUnitsPerTick: 1,
     maxSpeedUnitsPerTick: 1,
@@ -38,93 +56,93 @@ export const INDIVIDUAL_COMBAT_VISUAL_SCENARIO: SimulationScenario =
       appliedDamagePressureScale: 1,
       inspectedEntityIds: INDIVIDUAL_COMBAT_INSPECTED_ENTITY_IDS,
       units: Object.freeze([
-        chamberUnit(101, 1, 100, areaY(0), "First defence attacker", {
+        chamberUnit(101, 1, 0, -8, 0, "First defence attacker", {
           weaponCategory: "polearm",
           weaponReachBand: "long",
         }),
-        chamberUnit(102, 2, 116, areaY(0), "First defence parrier", {
+        chamberUnit(102, 2, 0, 8, 0, "First defence parrier", {
           weaponCategory: "oneHanded",
           weaponReachBand: "short",
         }),
 
-        chamberUnit(201, 1, 100, areaY(1), "Shield defence attacker", {
+        chamberUnit(201, 1, 1, -8, 0, "Shield defence attacker", {
           weaponCategory: "polearm",
           weaponReachBand: "long",
         }),
-        chamberUnit(202, 2, 116, areaY(1), "Held shield defender", {
+        chamberUnit(202, 2, 1, 8, 0, "Held shield defender", {
           weaponCategory: "unarmed",
           weaponReachBand: "none",
           shieldClass: "shield",
         }),
 
-        chamberUnit(301, 1, 100, areaY(2) - 4, "Overwhelm attacker A", {
+        chamberUnit(301, 1, 2, -8, -4, "Overwhelm attacker A", {
           weaponCategory: "polearm",
           weaponReachBand: "long",
         }),
-        chamberUnit(302, 1, 100, areaY(2) + 4, "Overwhelm attacker B", {
+        chamberUnit(302, 1, 2, -8, 4, "Overwhelm attacker B", {
           weaponCategory: "polearm",
           weaponReachBand: "long",
         }),
-        chamberUnit(303, 2, 116, areaY(2), "Overwhelmed parrier", {
+        chamberUnit(303, 2, 2, 8, 0, "Overwhelmed parrier", {
           weaponCategory: "oneHanded",
           weaponReachBand: "short",
         }),
 
-        chamberUnit(401, 1, 100, areaY(3) - 10, "Reach polearm attacker", {
+        chamberUnit(401, 1, 3, -9, -10, "Reach polearm attacker", {
           weaponCategory: "polearm",
           weaponReachBand: "long",
         }),
-        chamberUnit(402, 2, 118, areaY(3) - 10, "Reach polearm target", {
+        chamberUnit(402, 2, 3, 9, -10, "Reach polearm target", {
           weaponCategory: "unarmed",
           weaponReachBand: "none",
         }),
-        chamberUnit(403, 1, 100, areaY(3) + 10, "Reach one-handed attacker", {
+        chamberUnit(403, 1, 3, -9, 10, "Reach one-handed attacker", {
           weaponCategory: "oneHanded",
           weaponReachBand: "short",
         }),
-        chamberUnit(404, 2, 110, areaY(3) + 10, "Reach one-handed target", {
+        chamberUnit(404, 2, 3, 1, 10, "Reach one-handed target", {
           weaponCategory: "unarmed",
           weaponReachBand: "none",
         }),
 
-        chamberUnit(501, 1, 100, areaY(4) - 8, "Unarmoured-hit attacker", {
+        chamberUnit(501, 1, 4, -4, -8, "Unarmoured-hit attacker", {
           weaponCategory: "oneHanded",
           weaponReachBand: "short",
         }),
-        chamberUnit(502, 2, 108, areaY(4) - 8, "Unarmoured defender", {
+        chamberUnit(502, 2, 4, 4, -8, "Unarmoured defender", {
           weaponCategory: "unarmed",
           weaponReachBand: "none",
           armourClass: "none",
         }),
-        chamberUnit(503, 1, 100, areaY(4) + 8, "Heavy-hit attacker", {
+        chamberUnit(503, 1, 4, -4, 8, "Heavy-hit attacker", {
           weaponCategory: "oneHanded",
           weaponReachBand: "short",
         }),
-        chamberUnit(504, 2, 108, areaY(4) + 8, "Heavy-armoured defender", {
+        chamberUnit(504, 2, 4, 4, 8, "Heavy-armoured defender", {
           weaponCategory: "unarmed",
           weaponReachBand: "none",
           armourClass: "heavy",
         }),
 
-        chamberUnit(601, 1, 100, areaY(5), "Gate attacker", {
+        chamberUnit(601, 1, 5, -4, 0, "Gate attacker", {
           weaponCategory: "oneHanded",
           weaponReachBand: "short",
         }),
-        chamberUnit(602, 2, 108, areaY(5), "Gate heavy target", {
+        chamberUnit(602, 2, 5, 4, 0, "Gate heavy target", {
           weaponCategory: "unarmed",
           weaponReachBand: "none",
           armourClass: "heavy",
         }),
 
-        chamberUnit(701, 1, 100, areaY(6) - 4, "Independent attacker A", {
+        chamberUnit(701, 1, 6, -4, -4, "Independent attacker A", {
           weaponCategory: "oneHanded",
           weaponReachBand: "short",
         }),
-        chamberUnit(702, 1, 100, areaY(6) + 4, "Independent attacker B", {
+        chamberUnit(702, 1, 6, -4, 4, "Independent attacker B", {
           weaponCategory: "oneHanded",
           weaponReachBand: "short",
         }),
-        chamberUnit(703, 2, 108, areaY(6), "Independent zero-hit target", {
+        chamberUnit(703, 2, 6, 4, 0, "Independent zero-hit target", {
           weaponCategory: "unarmed",
           weaponReachBand: "none",
         }),
@@ -132,18 +150,21 @@ export const INDIVIDUAL_COMBAT_VISUAL_SCENARIO: SimulationScenario =
     }),
   });
 
-function areaY(index: number): number {
-  return FIRST_Y + index * INDIVIDUAL_COMBAT_AREA_SPACING;
-}
-
 function chamberUnit(
   unitId: number,
   factionId: number,
-  x: number,
-  y: number,
+  chamberIndex: number,
+  offsetX: number,
+  offsetY: number,
   label: string,
   overrides: Partial<CombatSandboxUnitScenario>,
 ): CombatSandboxUnitScenario {
+  const chamber = INDIVIDUAL_COMBAT_VISUAL_CHAMBERS[chamberIndex];
+  if (chamber === undefined) {
+    throw new RangeError(`Unknown individual combat visual chamber: ${chamberIndex}`);
+  }
+  const x = chamber.centreX + offsetX;
+  const y = chamber.centreY + offsetY;
   return {
     unitId,
     factionId,
@@ -169,4 +190,20 @@ function chamberUnit(
     label,
     ...overrides,
   };
+}
+
+function chamberMetadata(
+  id: number,
+  label: (typeof INDIVIDUAL_COMBAT_AREA_LABELS)[number],
+  entityIds: readonly number[],
+  centreX: number,
+  centreY: number,
+): IndividualCombatVisualChamberMetadata {
+  return Object.freeze({
+    id,
+    label,
+    entityIds: Object.freeze([...entityIds]),
+    centreX,
+    centreY,
+  });
 }
