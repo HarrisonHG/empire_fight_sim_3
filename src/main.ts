@@ -18,6 +18,11 @@ import {
   type ReachOverlayVisibilityState,
 } from "./ui/reachOverlayVisibility";
 import {
+  areCombatEventsVisible,
+  createInitialCombatEventVisibilityState,
+  type CombatEventVisibilityState,
+} from "./ui/combatEventVisibility";
+import {
   createVisualTestScenarioPanel,
   renderVisualTestMenu,
 } from "./ui/VisualTestNavigation";
@@ -70,6 +75,7 @@ async function startApplication(
     }
   };
   let reachOverlayVisibility = createInitialReachOverlayVisibilityState();
+  let combatEventVisibility = createInitialCombatEventVisibilityState();
   const controls = new Controls(
     workerClient,
     {
@@ -88,8 +94,18 @@ async function startApplication(
             renderer.setReachOverlayVisible(areReachOverlaysVisible(state));
           },
         },
+    visualTestEntry === undefined
+      ? undefined
+      : {
+          getState: () => combatEventVisibility,
+          setState: (state: CombatEventVisibilityState) => {
+            combatEventVisibility = state;
+            renderer.setCombatEventsVisible(areCombatEventsVisible(state));
+          },
+        },
   );
   renderer.setReachOverlayVisible(areReachOverlaysVisible(reachOverlayVisibility));
+  renderer.setCombatEventsVisible(areCombatEventsVisible(combatEventVisibility));
   const interfaceLayer = document.createElement("div");
   interfaceLayer.className = "interface-layer";
   interfaceLayer.append(controls.element, metricsPanel.element);

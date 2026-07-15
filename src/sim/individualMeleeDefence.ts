@@ -45,7 +45,24 @@ export type IndividualMeleeLandedReason =
   | "defenderBusy"
   | "guardRecovering"
   | "outsideDefenceArc"
-  | "noActiveDefence";
+  | "noActiveDefence"
+  | "failedDefence";
+
+export type DefenceCoverageTier =
+  | "none"
+  | "tiny"
+  | "small"
+  | "medium"
+  | "large"
+  | "huge";
+
+export type IndividualMeleeDefenceResolution =
+  | "successfulParry"
+  | "successfulBucklerBlock"
+  | "successfulShieldBlock"
+  | "failedDefence"
+  | "outsideDefenceArc"
+  | "noDefenceSource";
 
 export interface IndividualMeleeDefenceTiming {
   readonly recoveryTicks: number;
@@ -57,6 +74,7 @@ export interface IndividualMeleeDefenceStore {
 
 export interface IndividualMeleeDefenceStoreConfig {
   readonly entityCount: number;
+  readonly battleSeed?: number;
 }
 
 export interface IndividualGuardStateEvent {
@@ -80,6 +98,11 @@ interface IndividualMeleeDefenceRecordBase {
   readonly incomingDirectionOctantIndex: number;
   /** Equipment-and-arc defence available before guard/action-state checks. */
   readonly availableDefenceType: IndividualMeleeDefenceType;
+  readonly defenceCoverageTier?: DefenceCoverageTier;
+  readonly defenceReadinessFixedPoint?: number;
+  readonly calculatedDefenceChanceFixedPoint?: number;
+  readonly deterministicDefenceRollFixedPoint?: number;
+  readonly defenceResolution?: IndividualMeleeDefenceResolution;
   readonly outcome: IndividualMeleeDefenceOutcome;
   readonly defenceRecoveryTicksAssigned: number;
   readonly awkwardDistance: boolean;
@@ -117,6 +140,7 @@ interface InternalIndividualMeleeDefenceStore
   readonly snapshottedShieldCategoryByEntity: IndividualShieldCategory[];
   readonly snapshottedShieldStateByEntity: IndividualShieldCarriedState[];
   readonly attemptScratch: IndividualMeleeAttackAttemptRecord[];
+  readonly battleSeed: number;
 }
 
 export const INDIVIDUAL_MELEE_DEFENCE_TIMING: Readonly<
@@ -127,10 +151,52 @@ export const INDIVIDUAL_MELEE_DEFENCE_TIMING: Readonly<
   shieldBlock: Object.freeze({ recoveryTicks: 4 }),
 });
 
+export const DEFENCE_CHANCE_SCALE = 10_000;
+export const DEFENCE_FULL_READINESS_CHANCE = 9_500;
+
+const DEFENCE_TIER_MINIMUM_CHANCE: Readonly<
+  Record<DefenceCoverageTier, number>
+> = Object.freeze({
+  none: 0,
+  tiny: 1_000,
+  small: 1_500,
+  medium: 2_500,
+  large: 4_000,
+  huge: 5_500,
+});
+
+const DEFENCE_COVERAGE_TIER_RANK: Readonly<
+  Record<DefenceCoverageTier, number>
+> = Object.freeze({
+  none: 0,
+  tiny: 1,
+  small: 2,
+  medium: 3,
+  large: 4,
+  huge: 5,
+});
+
+const WEAPON_DEFENCE_COVERAGE: Readonly<
+  Record<IndividualWeaponCategory, DefenceCoverageTier>
+> = Object.freeze({
+  unarmed: "none",
+  dagger: "tiny",
+  oneHanded: "small",
+  greatWeapon: "small",
+  polearm: "medium",
+  pike: "small",
+  thrown: "none",
+  ranged: "none",
+  rod: "small",
+  staff: "medium",
+});
+
 export function createIndividualMeleeDefenceStore(
   config: IndividualMeleeDefenceStoreConfig,
 ): IndividualMeleeDefenceStore {
   assertPositiveSafeInteger(config.entityCount, "entityCount");
+  const battleSeed = config.battleSeed ?? 0;
+  assertNonNegativeSafeInteger(battleSeed, "battleSeed");
 
   return {
     entityCount: config.entityCount,
@@ -156,6 +222,7 @@ export function createIndividualMeleeDefenceStore(
       config.entityCount,
     ).fill("none"),
     attemptScratch: [],
+    battleSeed,
   } as InternalIndividualMeleeDefenceStore;
 }
 
@@ -187,6 +254,7 @@ export function resolveIndividualMeleeDefences(
   recordsOut: IndividualMeleeDefenceRecord[] = [],
   guardStateEventsOut: IndividualGuardStateEvent[] = [],
   eligibility?: IndividualCombatEligibilitySnapshot,
+  currentTick = 0,
 ): IndividualMeleeDefenceTickResult {
   validateStores(world, identityStore, actionStore, profileStore, defenceStore);
   if (
@@ -215,6 +283,7 @@ export function resolveIndividualMeleeDefences(
         attempt,
         guardStateEventsOut,
         eligibility,
+        currentTick,
       ),
     );
   }
@@ -257,6 +326,7 @@ function resolveAttempt(
   attempt: IndividualMeleeAttackAttemptRecord,
   eventsOut: IndividualGuardStateEvent[],
   eligibility: IndividualCombatEligibilitySnapshot | undefined,
+  currentTick: number,
 ): IndividualMeleeDefenceRecord {
   const defenderEntityId = attempt.targetEntityId;
   const attackerEntityId = attempt.attackerEntityId;
@@ -312,9 +382,6 @@ function resolveAttempt(
   if (!isIndividualCombatEligible(eligibility, defenderEntityId)) {
     return landedRecord(common, "none", "noActiveDefence");
   }
-  if (defenderActionState !== "ready") {
-    return landedRecord(common, availableDefence, "defenderBusy");
-  }
   if (availableDefence === "none") {
     return landedRecord(
       common,
@@ -322,20 +389,54 @@ function resolveAttempt(
       legalActiveDefenceExists ? "outsideDefenceArc" : "noActiveDefence",
     );
   }
-  if (guardStateBeforeResolution !== "ready") {
-    return landedRecord(common, availableDefence, "guardRecovering");
-  }
 
   const recoveryTicks =
     INDIVIDUAL_MELEE_DEFENCE_TIMING[availableDefence].recoveryTicks;
+  const readinessFixedPoint = calculateDefenceReadinessFixedPoint(
+    store,
+    defenderEntityId,
+    availableDefence,
+    defenderActionState,
+  );
+  const coverageTier = defenceCoverageTierForType(
+    availableDefence,
+    defenderActiveWeapon,
+  );
+  const chanceFixedPoint = calculateDefenceChanceFixedPoint(
+    coverageTier,
+    readinessFixedPoint,
+  );
+  const rollFixedPoint = deterministicDefenceRollFixedPoint(
+    store.battleSeed,
+    currentTick,
+    attempt,
+    availableDefence,
+  );
   store.defenceRecoveryTicksRemainingByEntity[defenderEntityId] =
     recoveryTicks;
   transitionGuardState(store, defenderEntityId, "recovering", eventsOut);
+
+  if (rollFixedPoint >= chanceFixedPoint) {
+    return landedRecord(
+      common,
+      availableDefence,
+      "failedDefence",
+      coverageTier,
+      readinessFixedPoint,
+      chanceFixedPoint,
+      rollFixedPoint,
+    );
+  }
 
   if (availableDefence === "shieldBlock") {
     return {
       ...common,
       availableDefenceType: "shieldBlock",
+      defenceCoverageTier: coverageTier,
+      defenceReadinessFixedPoint: readinessFixedPoint,
+      calculatedDefenceChanceFixedPoint: chanceFixedPoint,
+      deterministicDefenceRollFixedPoint: rollFixedPoint,
+      defenceResolution: "successfulShieldBlock",
       outcome: "shieldBlocked",
       defenceRecoveryTicksAssigned: recoveryTicks,
     };
@@ -344,6 +445,11 @@ function resolveAttempt(
     return {
       ...common,
       availableDefenceType: "bucklerBlock",
+      defenceCoverageTier: coverageTier,
+      defenceReadinessFixedPoint: readinessFixedPoint,
+      calculatedDefenceChanceFixedPoint: chanceFixedPoint,
+      deterministicDefenceRollFixedPoint: rollFixedPoint,
+      defenceResolution: "successfulBucklerBlock",
       outcome: "bucklerBlocked",
       defenceRecoveryTicksAssigned: recoveryTicks,
     };
@@ -352,6 +458,11 @@ function resolveAttempt(
   return {
     ...common,
     availableDefenceType: "weaponParry",
+    defenceCoverageTier: coverageTier,
+    defenceReadinessFixedPoint: readinessFixedPoint,
+    calculatedDefenceChanceFixedPoint: chanceFixedPoint,
+    deterministicDefenceRollFixedPoint: rollFixedPoint,
+    defenceResolution: "successfulParry",
     outcome: "parried",
     defenceRecoveryTicksAssigned: recoveryTicks,
   };
@@ -365,51 +476,70 @@ function chooseAvailableDefence(
   defenderFacing: ReturnType<typeof quantizeEightDirection>,
   incomingDirection: ReturnType<typeof quantizeEightDirection>,
 ): Exclude<IndividualMeleeDefenceType, "none"> | "none" {
+  let selected: Exclude<IndividualMeleeDefenceType, "none"> | "none" = "none";
+  let selectedTier: DefenceCoverageTier = "none";
   if (
     shieldCategory === "shield" &&
     shieldCarriedState === "held" &&
     areEightDirectionsWithinOctants(defenderFacing, incomingDirection, 2)
   ) {
-    return "shieldBlock";
+    selected = "shieldBlock";
+    selectedTier = "huge";
   }
   if (
     shieldCategory === "buckler" &&
     shieldCarriedState === "held" &&
-    areEightDirectionsWithinOctants(defenderFacing, incomingDirection, 1)
+    areEightDirectionsWithinOctants(defenderFacing, incomingDirection, 1) &&
+    isCoverageTierBetter("medium", selectedTier)
   ) {
-    return "bucklerBlock";
+    selected = "bucklerBlock";
+    selectedTier = "medium";
   }
   if (
     weaponCanParry(profile, activeWeapon) &&
     areEightDirectionsWithinOctants(defenderFacing, incomingDirection, 1)
   ) {
-    return "weaponParry";
+    const weaponTier = WEAPON_DEFENCE_COVERAGE[activeWeapon];
+    if (isCoverageTierBetter(weaponTier, selectedTier)) {
+      selected = "weaponParry";
+    }
   }
-
-  if (
-    shieldCategory === "shield" ||
-    shieldCategory === "buckler" ||
-    weaponCanParry(profile, activeWeapon)
-  ) {
-    return "none";
-  }
-  return "none";
+  return selected;
 }
 
 function landedRecord(
   common: Omit<
     IndividualMeleeDefenceRecordBase,
-    "availableDefenceType" | "outcome" | "defenceRecoveryTicksAssigned"
+    | "availableDefenceType"
+    | "defenceCoverageTier"
+    | "defenceReadinessFixedPoint"
+    | "calculatedDefenceChanceFixedPoint"
+    | "deterministicDefenceRollFixedPoint"
+    | "defenceResolution"
+    | "outcome"
+    | "defenceRecoveryTicksAssigned"
   >,
   availableDefenceType: IndividualMeleeDefenceType,
   landedReason: IndividualMeleeLandedReason,
+  coverageTier: DefenceCoverageTier = "none",
+  readinessFixedPoint = 0,
+  chanceFixedPoint = 0,
+  rollFixedPoint = 0,
 ): IndividualMeleeDefenceRecord {
   return {
     ...common,
     availableDefenceType,
+    defenceCoverageTier: coverageTier,
+    defenceReadinessFixedPoint: readinessFixedPoint,
+    calculatedDefenceChanceFixedPoint: chanceFixedPoint,
+    deterministicDefenceRollFixedPoint: rollFixedPoint,
+    defenceResolution: landedResolution(landedReason),
     outcome: "landed",
     landedReason,
-    defenceRecoveryTicksAssigned: 0,
+    defenceRecoveryTicksAssigned:
+      availableDefenceType === "none"
+        ? 0
+        : INDIVIDUAL_MELEE_DEFENCE_TIMING[availableDefenceType].recoveryTicks,
   };
 }
 
@@ -436,6 +566,126 @@ function hasLegalActiveDefence(
       (shieldCategory === "shield" || shieldCategory === "buckler")) ||
     weaponCanParry(profile, activeWeapon)
   );
+}
+
+function defenceCoverageTierForType(
+  defenceType: Exclude<IndividualMeleeDefenceType, "none">,
+  activeWeapon: IndividualWeaponCategory,
+): DefenceCoverageTier {
+  if (defenceType === "shieldBlock") return "huge";
+  if (defenceType === "bucklerBlock") return "medium";
+  return WEAPON_DEFENCE_COVERAGE[activeWeapon];
+}
+
+function calculateDefenceReadinessFixedPoint(
+  store: InternalIndividualMeleeDefenceStore,
+  defenderEntityId: number,
+  defenceType: Exclude<IndividualMeleeDefenceType, "none">,
+  defenderActionState: IndividualCombatActionState,
+): number {
+  if (defenderActionState !== "ready") {
+    return 0;
+  }
+  if (store.guardStateByEntity[defenderEntityId] === "ready") {
+    return DEFENCE_CHANCE_SCALE;
+  }
+  const recoveryTicks = INDIVIDUAL_MELEE_DEFENCE_TIMING[defenceType].recoveryTicks;
+  const remaining = store.defenceRecoveryTicksRemainingByEntity[defenderEntityId]!;
+  const elapsed = Math.max(0, recoveryTicks - remaining);
+  return Math.trunc((elapsed * DEFENCE_CHANCE_SCALE) / recoveryTicks);
+}
+
+function calculateDefenceChanceFixedPoint(
+  coverageTier: DefenceCoverageTier,
+  readinessFixedPoint: number,
+): number {
+  const minimum = DEFENCE_TIER_MINIMUM_CHANCE[coverageTier];
+  return (
+    minimum +
+    Math.trunc(
+      (readinessFixedPoint * (DEFENCE_FULL_READINESS_CHANCE - minimum)) /
+        DEFENCE_CHANCE_SCALE,
+    )
+  );
+}
+
+function deterministicDefenceRollFixedPoint(
+  battleSeed: number,
+  currentTick: number,
+  attempt: IndividualMeleeAttackAttemptRecord,
+  defenceType: Exclude<IndividualMeleeDefenceType, "none">,
+): number {
+  let hash = 0x811c9dc5;
+  hash = mixHash(hash, battleSeed);
+  hash = mixHash(hash, currentTick);
+  hash = mixHash(hash, attempt.commitmentDurationTicks);
+  hash = mixHash(hash, attempt.recoveryDurationTicks);
+  hash = mixHash(hash, attempt.attackerEntityId);
+  hash = mixHash(hash, attempt.targetEntityId);
+  hash = mixHash(hash, weaponIdentity(attempt.weaponCategory));
+  hash = mixHash(hash, defenceIdentity(defenceType));
+  return (hash >>> 0) % DEFENCE_CHANCE_SCALE;
+}
+
+function mixHash(hash: number, value: number): number {
+  let mixed = (hash ^ (value >>> 0)) >>> 0;
+  mixed = Math.imul(mixed, 0x01000193) >>> 0;
+  mixed ^= mixed >>> 16;
+  return mixed >>> 0;
+}
+
+function weaponIdentity(weapon: IndividualWeaponCategory): number {
+  switch (weapon) {
+    case "unarmed":
+      return 0;
+    case "dagger":
+      return 1;
+    case "oneHanded":
+      return 2;
+    case "greatWeapon":
+      return 3;
+    case "polearm":
+      return 4;
+    case "pike":
+      return 5;
+    case "thrown":
+      return 6;
+    case "ranged":
+      return 7;
+    case "rod":
+      return 8;
+    case "staff":
+      return 9;
+  }
+}
+
+function defenceIdentity(
+  defenceType: Exclude<IndividualMeleeDefenceType, "none">,
+): number {
+  switch (defenceType) {
+    case "weaponParry":
+      return 1;
+    case "bucklerBlock":
+      return 2;
+    case "shieldBlock":
+      return 3;
+  }
+}
+
+function isCoverageTierBetter(
+  candidate: DefenceCoverageTier,
+  current: DefenceCoverageTier,
+): boolean {
+  return DEFENCE_COVERAGE_TIER_RANK[candidate] > DEFENCE_COVERAGE_TIER_RANK[current];
+}
+
+function landedResolution(
+  reason: IndividualMeleeLandedReason,
+): IndividualMeleeDefenceResolution {
+  if (reason === "outsideDefenceArc") return "outsideDefenceArc";
+  if (reason === "noActiveDefence") return "noDefenceSource";
+  if (reason === "failedDefence") return "failedDefence";
+  return "noDefenceSource";
 }
 
 function advanceRecoveryTimers(
@@ -553,5 +803,11 @@ function assertEntityId(entityId: number, entityCount: number): void {
 function assertPositiveSafeInteger(value: number, name: string): void {
   if (!Number.isSafeInteger(value) || value <= 0) {
     throw new RangeError(`${name} must be a positive safe integer.`);
+  }
+}
+
+function assertNonNegativeSafeInteger(value: number, name: string): void {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new RangeError(`${name} must be a non-negative safe integer.`);
   }
 }

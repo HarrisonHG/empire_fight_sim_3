@@ -8,6 +8,7 @@ import {
 } from "pixi.js";
 
 import type {
+  InspectedCombatVisualEvent,
   IndividualCombatVisualState,
   InitialSimulationSnapshot,
   PositionSimulationSnapshot,
@@ -20,6 +21,12 @@ import {
   getWeaponGlyphSpec,
   shouldRenderPreferredDistanceMarker,
 } from "./combatGlyphGrammar";
+import {
+  getCombatVisualEventGlyphSpec,
+  pruneRetainedCombatVisualEvents,
+  retainedCombatVisualEventKey,
+  type RetainedCombatVisualEvent,
+} from "./combatVisualEventGrammar";
 
 const DOT_RADIUS = 2;
 const DOT_COLOR = 0xe8_f1_ff;
@@ -36,6 +43,7 @@ const WEAPON_COLOR = 0xf8_fa_fc;
 const FACING_COLOR = 0xff_f3_a3;
 const SHIELD_COLOR = 0x93_c5_fd;
 const ARMOUR_COLOR = 0xe2_e8_f0;
+const EVENT_TEXT_OFFSET_Y = -16;
 
 export interface RenderWorldLabel {
   readonly text: string;
@@ -48,11 +56,17 @@ export class PixiEntityRenderer {
   private readonly reachOverlayLayer = new Container();
   private readonly entityLayer = new Container();
   private readonly combatGlyphLayer = new Container();
+  private readonly combatEventLayer = new Container();
+  private readonly combatEventGraphics = new Graphics();
+  private readonly combatEventTextLayer = new Container();
   private readonly worldLabelLayer = new Container();
   private readonly spritesByEntityId = new Map<number, Sprite>();
   private readonly combatGlyphsByEntityId = new Map<number, Graphics>();
   private readonly reachGlyphsByEntityId = new Map<number, Graphics>();
   private readonly worldLabelsByText = new Map<string, Text>();
+  private readonly retainedCombatVisualEvents: RetainedCombatVisualEvent[] = [];
+  private readonly retainedCombatVisualEventKeys = new Set<string>();
+  private readonly combatEventTexts: Text[] = [];
   private entityOrder: Uint32Array | undefined;
   private worldBounds: SimulationBounds | undefined;
 
@@ -64,7 +78,12 @@ export class PixiEntityRenderer {
       this.reachOverlayLayer,
       this.entityLayer,
       this.combatGlyphLayer,
+      this.combatEventLayer,
       this.worldLabelLayer,
+    );
+    this.combatEventLayer.addChild(
+      this.combatEventGraphics,
+      this.combatEventTextLayer,
     );
     this.application.stage.addChild(this.worldLayer);
     window.addEventListener("resize", this.handleResize);
@@ -99,6 +118,10 @@ export class PixiEntityRenderer {
 
   public setReachOverlayVisible(visible: boolean): void {
     this.reachOverlayLayer.visible = visible;
+  }
+
+  public setCombatEventsVisible(visible: boolean): void {
+    this.combatEventLayer.visible = visible;
   }
 
   public setWorldLabels(labels: readonly RenderWorldLabel[]): void {
@@ -160,6 +183,7 @@ export class PixiEntityRenderer {
     for (const label of this.worldLabelsByText.values()) {
       label.destroy();
     }
+    this.clearCombatVisualEvents();
 
     this.spritesByEntityId.clear();
     this.combatGlyphsByEntityId.clear();
@@ -208,10 +232,16 @@ export class PixiEntityRenderer {
       width: snapshot.bounds.width,
       height: snapshot.bounds.height,
     };
+    this.clearCombatVisualEvents();
     this.updateSpritePositions(snapshot.positions);
     this.updateCombatGlyphs(
       snapshot.positions,
       snapshot.combatDebug?.individualCombatVisuals ?? [],
+    );
+    this.updateCombatVisualEvents(
+      snapshot.tick,
+      snapshot.positions,
+      snapshot.combatDebug?.inspectedCombatVisualEvents ?? [],
     );
     this.layoutWorld();
   }
@@ -235,6 +265,11 @@ export class PixiEntityRenderer {
     this.updateCombatGlyphs(
       snapshot.positions,
       snapshot.combatDebug?.individualCombatVisuals ?? [],
+    );
+    this.updateCombatVisualEvents(
+      snapshot.tick,
+      snapshot.positions,
+      snapshot.combatDebug?.inspectedCombatVisualEvents ?? [],
     );
   }
 
@@ -344,6 +379,108 @@ export class PixiEntityRenderer {
     return glyph;
   }
 
+  private updateCombatVisualEvents(
+    snapshotTick: number,
+    positions: Int32Array,
+    events: readonly InspectedCombatVisualEvent[],
+  ): void {
+    pruneRetainedCombatVisualEvents(
+      this.retainedCombatVisualEvents,
+      snapshotTick,
+    );
+    this.rebuildRetainedCombatVisualEventKeys();
+
+    for (let index = 0; index < events.length; index += 1) {
+      const event = events[index]!;
+      const key = retainedCombatVisualEventKey(event);
+      if (this.retainedCombatVisualEventKeys.has(key)) {
+        continue;
+      }
+      const attackerOffset = this.getPositionOffsetForEntity(
+        event.attackerEntityId,
+      );
+      const targetOffset = this.getPositionOffsetForEntity(event.targetEntityId);
+      this.retainedCombatVisualEvents.push({
+        event,
+        attackerX: positions[attackerOffset]!,
+        attackerY: positions[attackerOffset + 1]!,
+        targetX: positions[targetOffset]!,
+        targetY: positions[targetOffset + 1]!,
+      });
+      this.retainedCombatVisualEventKeys.add(key);
+    }
+
+    pruneRetainedCombatVisualEvents(
+      this.retainedCombatVisualEvents,
+      snapshotTick,
+    );
+    this.rebuildRetainedCombatVisualEventKeys();
+    this.drawRetainedCombatVisualEvents(snapshotTick);
+  }
+
+  private drawRetainedCombatVisualEvents(snapshotTick: number): void {
+    this.combatEventGraphics.clear();
+    this.clearCombatEventTexts();
+    for (
+      let index = 0;
+      index < this.retainedCombatVisualEvents.length;
+      index += 1
+    ) {
+      const retained = this.retainedCombatVisualEvents[index]!;
+      const age = Math.max(0, snapshotTick - retained.event.tick);
+      const alpha = Math.max(0.25, 1 - age / 12);
+      drawCombatVisualEvent(this.combatEventGraphics, retained, alpha);
+      if (retained.event.kind === "hitApplied") {
+        this.addCombatEventText(retained, alpha);
+      }
+    }
+  }
+
+  private addCombatEventText(
+    retained: RetainedCombatVisualEvent,
+    alpha: number,
+  ): void {
+    const text = new Text({
+      text: `-${retained.event.appliedHitLoss}`,
+      style: {
+        fill: 0xff_ff_ff,
+        fontFamily: "system-ui, sans-serif",
+        fontSize: 10,
+        fontWeight: "700",
+        stroke: { color: 0x0d_13_1f, width: 3 },
+      },
+    });
+    text.anchor.set(0.5);
+    text.alpha = alpha;
+    text.position.set(retained.targetX, retained.targetY + EVENT_TEXT_OFFSET_Y);
+    this.combatEventTexts.push(text);
+    this.combatEventTextLayer.addChild(text);
+  }
+
+  private clearCombatVisualEvents(): void {
+    this.retainedCombatVisualEvents.length = 0;
+    this.retainedCombatVisualEventKeys.clear();
+    this.combatEventGraphics.clear();
+    this.clearCombatEventTexts();
+  }
+
+  private clearCombatEventTexts(): void {
+    for (const text of this.combatEventTexts) {
+      this.combatEventTextLayer.removeChild(text);
+      text.destroy();
+    }
+    this.combatEventTexts.length = 0;
+  }
+
+  private rebuildRetainedCombatVisualEventKeys(): void {
+    this.retainedCombatVisualEventKeys.clear();
+    for (const retained of this.retainedCombatVisualEvents) {
+      this.retainedCombatVisualEventKeys.add(
+        retainedCombatVisualEventKey(retained.event),
+      );
+    }
+  }
+
   private layoutWorld(): void {
     const bounds = this.worldBounds;
     if (bounds === undefined) {
@@ -365,6 +502,86 @@ export class PixiEntityRenderer {
     this.application.resize();
     this.layoutWorld();
   };
+}
+
+function drawCombatVisualEvent(
+  graphics: Graphics,
+  retained: RetainedCombatVisualEvent,
+  alpha: number,
+): void {
+  const spec = getCombatVisualEventGlyphSpec(retained.event.kind);
+  const targetX = retained.targetX;
+  const targetY = retained.targetY;
+  switch (spec.shape) {
+    case "line":
+      graphics
+        .moveTo(retained.attackerX, retained.attackerY)
+        .lineTo(targetX, targetY)
+        .stroke({ color: spec.color, width: 1, alpha });
+      break;
+    case "cross":
+      graphics
+        .moveTo(targetX - 5, targetY - 5)
+        .lineTo(targetX + 5, targetY + 5)
+        .moveTo(targetX + 5, targetY - 5)
+        .lineTo(targetX - 5, targetY + 5)
+        .stroke({ color: spec.color, width: 2, alpha });
+      break;
+    case "smallCircle":
+      graphics.circle(targetX, targetY, 6).stroke({
+        color: spec.color,
+        width: 2,
+        alpha,
+      });
+      break;
+    case "broadArc":
+      drawWorldArc(graphics, targetX, targetY, 9, Math.PI * 0.85, Math.PI * 1.85, spec.color, alpha, 3);
+      break;
+    case "hollowCross":
+      graphics.circle(targetX, targetY, 7).stroke({
+        color: spec.color,
+        width: 1,
+        alpha,
+      });
+      graphics
+        .moveTo(targetX - 4, targetY - 4)
+        .lineTo(targetX + 4, targetY + 4)
+        .moveTo(targetX + 4, targetY - 4)
+        .lineTo(targetX - 4, targetY + 4)
+        .stroke({ color: spec.color, width: 2, alpha });
+      break;
+    case "burst":
+      graphics
+        .moveTo(targetX - 6, targetY)
+        .lineTo(targetX + 6, targetY)
+        .moveTo(targetX, targetY - 6)
+        .lineTo(targetX, targetY + 6)
+        .moveTo(targetX - 4, targetY - 4)
+        .lineTo(targetX + 4, targetY + 4)
+        .moveTo(targetX + 4, targetY - 4)
+        .lineTo(targetX - 4, targetY + 4)
+        .stroke({ color: spec.color, width: 2, alpha });
+      break;
+    case "filledPulse":
+      graphics.circle(targetX, targetY, 4).fill({ color: spec.color, alpha });
+      break;
+    case "brokenRing":
+      drawWorldDashedCircle(graphics, targetX, targetY, 7, spec.color, alpha);
+      break;
+    case "hitLossText":
+      break;
+    case "downPulse":
+      graphics.circle(targetX, targetY, 11).stroke({
+        color: spec.color,
+        width: 3,
+        alpha,
+      });
+      graphics
+        .moveTo(targetX - 5, targetY)
+        .lineTo(targetX + 5, targetY)
+        .stroke({ color: spec.color, width: 3, alpha });
+      break;
+  }
 }
 
 function drawCombatGlyph(
@@ -650,6 +867,52 @@ function drawArc(
     graphics.lineTo(point.x, point.y);
   }
   graphics.stroke({ color, width, alpha });
+}
+
+function drawWorldArc(
+  graphics: Graphics,
+  centerX: number,
+  centerY: number,
+  radius: number,
+  startAngle: number,
+  endAngle: number,
+  color: number,
+  alpha: number,
+  width: number,
+): void {
+  const start = pointOnCircle(radius, startAngle);
+  graphics.moveTo(centerX + start.x, centerY + start.y);
+  const segmentCount = 8;
+  for (let segment = 1; segment <= segmentCount; segment += 1) {
+    const angle = startAngle + ((endAngle - startAngle) * segment) / segmentCount;
+    const point = pointOnCircle(radius, angle);
+    graphics.lineTo(centerX + point.x, centerY + point.y);
+  }
+  graphics.stroke({ color, width, alpha });
+}
+
+function drawWorldDashedCircle(
+  graphics: Graphics,
+  centerX: number,
+  centerY: number,
+  radius: number,
+  color: number,
+  alpha: number,
+): void {
+  const segmentCount = 12;
+  for (let segment = 0; segment < segmentCount; segment += 2) {
+    drawWorldArc(
+      graphics,
+      centerX,
+      centerY,
+      radius,
+      (Math.PI * 2 * segment) / segmentCount,
+      (Math.PI * 2 * (segment + 1)) / segmentCount,
+      color,
+      alpha,
+      2,
+    );
+  }
 }
 
 function octantAngle(octant: number): number {

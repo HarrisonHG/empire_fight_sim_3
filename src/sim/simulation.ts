@@ -20,6 +20,7 @@ import {
   advanceCombatPressureOneTick,
   advanceIndividualCombatPressureOneTick,
   createCombatPressureStore,
+  getIndividualCombatPressureInspection,
 } from "./combatPressure";
 import {
   createCombatSurvivabilityStore,
@@ -63,6 +64,7 @@ import type { MoraleMovementState } from "./moraleMovement";
 import {
   getDefenceRecoveryTicksRemaining,
   getIndividualGuardState,
+  type IndividualMeleeDefenceRecord,
 } from "./individualMeleeDefence";
 import {
   NO_INDIVIDUAL_TARGET,
@@ -101,6 +103,8 @@ import type {
   LiveCombatDebugLandedHitGateOutcome,
   LiveCombatDebugUnitSnapshot,
   IndividualCombatVisualState,
+  InspectedCombatVisualEvent,
+  InspectedCombatVisualEventKind,
   PositionSimulationSnapshot,
   SimulationScenario,
   SimulationState,
@@ -482,6 +486,7 @@ function createCombatSandbox(
     identityStore,
     formationStore,
     individualProfileStore,
+    seed,
   );
   const individualCombatPipelineBuffers =
     createIndividualCombatPipelineBuffers();
@@ -531,6 +536,7 @@ function createCombatSandbox(
     individualCombatPipelineBuffers,
     inspectedEntityIds: scenario.inspectedEntityIds?.slice() ?? [],
     inspectedIndividuals: [],
+    inspectedCombatVisualEvents: [],
     pressureStore: createCombatPressureStore(identityStore, formationStore),
     routingContagionStore: createRoutingContagionStore(identityStore),
     recoveryThreatStore: createRecoveryThreatStore(identityStore, world),
@@ -585,7 +591,7 @@ function createCombatSandbox(
     totalIndividualNewlyZeroHitMemberCount: 0,
     debugSnapshot: createEmptyCombatDebugSnapshot(),
   };
-  combatSandbox.debugSnapshot = createCombatDebugSnapshot(combatSandbox);
+  combatSandbox.debugSnapshot = createCombatDebugSnapshot(combatSandbox, 0);
 
   return { state: combatSandbox, rngState: deploymentRng.state };
 }
@@ -1005,9 +1011,16 @@ export function advanceCombatSandboxOneTick(
   );
   runStage("individualPressureAndCohesion", () =>
     advanceIndividualCombatPressureOneTick(
+      world,
       combatSandbox.identityStore,
       combatSandbox.formationStore,
       individualCombatResult.consequenceSummaries,
+      individualCombatResult.attackAttempts,
+      individualCombatResult.defenceRecords,
+      individualCombatResult.gateDecisions,
+      individualCombatResult.hitApplications,
+      individualCombatResult.zeroHitEvents,
+      combatSandbox.individualCombatEligibilitySnapshot,
       combatSandbox.pressureStore,
       combatSandbox.pressureUpdates,
       {
@@ -1059,7 +1072,7 @@ export function advanceCombatSandboxOneTick(
   });
   runStage("countersAndSnapshots", () => {
     updateIndividualCombatCounters(combatSandbox, individualCombatResult);
-    combatSandbox.debugSnapshot = createCombatDebugSnapshot(combatSandbox);
+    combatSandbox.debugSnapshot = createCombatDebugSnapshot(combatSandbox, tick);
   });
 }
 
@@ -1253,11 +1266,13 @@ function createEmptyCombatDebugSnapshot(): LiveCombatDebugSnapshot {
     units: [],
     inspectedIndividuals: [],
     individualCombatVisuals: [],
+    inspectedCombatVisualEvents: [],
   };
 }
 
 function createCombatDebugSnapshot(
   combatSandbox: CombatSandboxSimulationState,
+  tick: number,
 ): LiveCombatDebugSnapshot {
   const unitIds = getUnitIds(combatSandbox.identityStore);
   const units: LiveCombatDebugUnitSnapshot[] = [];
@@ -1338,6 +1353,10 @@ function createCombatDebugSnapshot(
     units,
     inspectedIndividuals: collectInspectedIndividualSnapshots(combatSandbox),
     individualCombatVisuals: collectIndividualCombatVisualStates(combatSandbox),
+    inspectedCombatVisualEvents: collectInspectedCombatVisualEvents(
+      combatSandbox,
+      tick,
+    ),
   };
 }
 
@@ -1370,6 +1389,12 @@ function collectInspectedIndividualSnapshots(
     );
     const selectedTargetRecord = getThisTickSelectedTargetRecord(
       combatSandbox,
+      entityId,
+    );
+    const defenceRecord = getThisTickDefenceRecord(combatSandbox, entityId);
+    const pressureInspection = getIndividualCombatPressureInspection(
+      combatSandbox.formationStore,
+      combatSandbox.pressureStore,
       entityId,
     );
 
@@ -1441,6 +1466,15 @@ function collectInspectedIndividualSnapshots(
         combatSandbox,
         entityId,
       ),
+      defenceCoverageTier: defenceRecord?.defenceCoverageTier ?? "none",
+      defenceReadinessFixedPoint:
+        defenceRecord?.defenceReadinessFixedPoint ?? 0,
+      calculatedDefenceChanceFixedPoint:
+        defenceRecord?.calculatedDefenceChanceFixedPoint ?? 0,
+      deterministicDefenceRollFixedPoint:
+        defenceRecord?.deterministicDefenceRollFixedPoint ?? 0,
+      chosenDefenceSource: defenceRecord?.availableDefenceType ?? "none",
+      defenceResolution: defenceRecord?.defenceResolution ?? "none",
       ...getThisTickIncomingDefenceCounts(combatSandbox, entityId),
       thisTickAppliedHitLoss: getThisTickAppliedHitLoss(
         combatSandbox,
@@ -1450,6 +1484,21 @@ function collectInspectedIndividualSnapshots(
         combatSandbox,
         entityId,
       ),
+      currentPressure: pressureInspection.currentPressure,
+      proximityPressureFloor: pressureInspection.proximityFloor,
+      nearbyHostileCount: pressureInspection.nearbyHostileCount,
+      nearbyAllyCount: pressureInspection.nearbyAllyCount,
+      incomingAttackPressureImpulse:
+        pressureInspection.incomingAttackImpulse,
+      incomingHitPressureImpulse: pressureInspection.incomingHitImpulse,
+      blockedStrikePressureImpulse:
+        pressureInspection.blockedStrikeImpulse,
+      pressureRecoveryPauseTicksRemaining:
+        pressureInspection.recoveryPauseTicksRemaining,
+      pressureRecoveryContext: pressureInspection.recoveryContext,
+      pressureRecoveryCreditApplied:
+        pressureInspection.recoveryCreditApplied,
+      recoveredPressureAmount: pressureInspection.recoveredPressureAmount,
     });
   }
   return out;
@@ -1492,6 +1541,250 @@ function collectIndividualCombatVisualStates(
     });
   }
   return out;
+}
+
+function collectInspectedCombatVisualEvents(
+  combatSandbox: CombatSandboxSimulationState,
+  tick: number,
+): readonly InspectedCombatVisualEvent[] {
+  const out = combatSandbox.inspectedCombatVisualEvents;
+  out.length = 0;
+  if (combatSandbox.inspectedEntityIds.length === 0) {
+    return out;
+  }
+  const buffers = combatSandbox.individualCombatPipelineBuffers;
+
+  for (let index = 0; index < buffers.attackAttempts.length; index += 1) {
+    const record = buffers.attackAttempts[index]!;
+    if (
+      record.outcome !== "attempted" ||
+      !isInspectedParticipant(
+        combatSandbox,
+        record.attackerEntityId,
+        record.targetEntityId,
+      )
+    ) {
+      continue;
+    }
+    out.push(
+      combatVisualEvent(
+        tick,
+        record.attackerEntityId,
+        record.targetEntityId,
+        "attackAttempt",
+        0,
+      ),
+    );
+  }
+  canonicalizeRecentEvents(out, "attackAttempt");
+
+  const defenceStart = out.length;
+  for (let index = 0; index < buffers.defenceRecords.length; index += 1) {
+    const record = buffers.defenceRecords[index]!;
+    if (
+      !isInspectedParticipant(
+        combatSandbox,
+        record.attackerEntityId,
+        record.defenderEntityId,
+      )
+    ) {
+      continue;
+    }
+    out.push(
+      combatVisualEvent(
+        tick,
+        record.attackerEntityId,
+        record.defenderEntityId,
+        defenceRecordToVisualKind(record),
+        0,
+      ),
+    );
+  }
+  canonicalizeRecentEvents(out, defenceStart);
+
+  const gateStart = out.length;
+  for (let index = 0; index < buffers.gateDecisions.length; index += 1) {
+    const decision = buffers.gateDecisions[index]!;
+    if (
+      !isInspectedParticipant(
+        combatSandbox,
+        decision.attackerEntityId,
+        decision.targetEntityId,
+      )
+    ) {
+      continue;
+    }
+    out.push(
+      combatVisualEvent(
+        tick,
+        decision.attackerEntityId,
+        decision.targetEntityId,
+        decision.outcome === "accepted" ? "gateAccepted" : "gateRejected",
+        0,
+      ),
+    );
+  }
+  canonicalizeRecentEvents(out, gateStart);
+
+  const hitStart = out.length;
+  for (let index = 0; index < buffers.hitApplications.length; index += 1) {
+    const application = buffers.hitApplications[index]!;
+    if (
+      application.appliedHitLoss <= 0 ||
+      !isInspectedParticipant(
+        combatSandbox,
+        application.attackerEntityId,
+        application.targetEntityId,
+      )
+    ) {
+      continue;
+    }
+    out.push(
+      combatVisualEvent(
+        tick,
+        application.attackerEntityId,
+        application.targetEntityId,
+        "hitApplied",
+        application.appliedHitLoss,
+      ),
+    );
+  }
+  canonicalizeRecentEvents(out, hitStart);
+
+  const zeroStart = out.length;
+  for (let index = 0; index < buffers.zeroHitEvents.length; index += 1) {
+    const event = buffers.zeroHitEvents[index]!;
+    if (
+      !isInspectedParticipant(
+        combatSandbox,
+        event.attackerEntityId,
+        event.entityId,
+      )
+    ) {
+      continue;
+    }
+    out.push(
+      combatVisualEvent(
+        tick,
+        event.attackerEntityId,
+        event.entityId,
+        "zeroHit",
+        0,
+      ),
+    );
+  }
+  canonicalizeRecentEvents(out, zeroStart);
+
+  return out;
+}
+
+function combatVisualEvent(
+  tick: number,
+  attackerEntityId: number,
+  targetEntityId: number,
+  kind: InspectedCombatVisualEventKind,
+  appliedHitLoss: number,
+): InspectedCombatVisualEvent {
+  return {
+    tick,
+    attackerEntityId,
+    targetEntityId,
+    kind,
+    appliedHitLoss,
+  };
+}
+
+function canonicalizeRecentEvents(
+  events: InspectedCombatVisualEvent[],
+  startOrKind: number | InspectedCombatVisualEventKind,
+): void {
+  const start =
+    typeof startOrKind === "number"
+      ? startOrKind
+      : events.findIndex((event) => event.kind === startOrKind);
+  if (start < 0) {
+    return;
+  }
+  const sorted = events
+    .slice(start)
+    .sort(
+      (left, right) =>
+        left.targetEntityId - right.targetEntityId ||
+        left.attackerEntityId - right.attackerEntityId ||
+        compareCombatVisualEventKind(left.kind, right.kind),
+    );
+  events.splice(start, sorted.length, ...sorted);
+}
+
+function compareCombatVisualEventKind(
+  left: InspectedCombatVisualEventKind,
+  right: InspectedCombatVisualEventKind,
+): number {
+  return combatVisualEventKindOrder(left) - combatVisualEventKindOrder(right);
+}
+
+function combatVisualEventKindOrder(kind: InspectedCombatVisualEventKind): number {
+  switch (kind) {
+    case "attackAttempt":
+      return 0;
+    case "parry":
+      return 1;
+    case "bucklerBlock":
+      return 2;
+    case "shieldBlock":
+      return 3;
+    case "failedDefence":
+      return 4;
+    case "landed":
+      return 5;
+    case "gateAccepted":
+      return 6;
+    case "gateRejected":
+      return 7;
+    case "hitApplied":
+      return 8;
+    case "zeroHit":
+      return 9;
+  }
+}
+
+function defenceRecordToVisualKind(
+  record: IndividualMeleeDefenceRecord,
+): InspectedCombatVisualEventKind {
+  if (record.defenceResolution === "failedDefence") {
+    return "failedDefence";
+  }
+  switch (record.outcome) {
+    case "parried":
+      return "parry";
+    case "bucklerBlocked":
+      return "bucklerBlock";
+    case "shieldBlocked":
+      return "shieldBlock";
+    case "landed":
+      return "landed";
+  }
+}
+
+function isInspectedParticipant(
+  combatSandbox: CombatSandboxSimulationState,
+  attackerEntityId: number,
+  targetEntityId: number,
+): boolean {
+  for (
+    let index = 0;
+    index < combatSandbox.inspectedEntityIds.length;
+    index += 1
+  ) {
+    const inspectedEntityId = combatSandbox.inspectedEntityIds[index]!;
+    if (
+      inspectedEntityId === attackerEntityId ||
+      inspectedEntityId === targetEntityId
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function getThisTickSelectedTargetRecord(
@@ -1539,6 +1832,21 @@ function getThisTickDefenceOutcome(
     }
   }
   return outcome;
+}
+
+function getThisTickDefenceRecord(
+  combatSandbox: CombatSandboxSimulationState,
+  entityId: number,
+): IndividualMeleeDefenceRecord | undefined {
+  let latest: IndividualMeleeDefenceRecord | undefined;
+  const records = combatSandbox.individualCombatPipelineBuffers.defenceRecords;
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index]!;
+    if (record.defenderEntityId === entityId) {
+      latest = record;
+    }
+  }
+  return latest;
 }
 
 function getThisTickOutgoingDefenceOutcome(
@@ -1719,6 +2027,7 @@ function createLegacyCombatFoundationDebugSnapshot(
     units,
     inspectedIndividuals: [],
     individualCombatVisuals: [],
+    inspectedCombatVisualEvents: [],
   };
 }
 

@@ -1407,6 +1407,70 @@ defence arcs, hit rules, pressure, morale, movement, or casualty behaviour.
 - [x] These glyphs remain debug symbols, not finished equipment sprites. Exact
   equipment presentation remains deferred to later renderer/content work.
 
+### 5G-3 combat-event readability correction (2026-07-14)
+
+- [x] Added bounded `InspectedCombatVisualEvent` records to live combat debug
+  snapshots for explicitly inspected entities only. Records are derived from
+  existing attack attempt, defence, landed-hit gate, hit application, and
+  zero-hit pipeline outputs; no new combat authority or event-resolution system
+  was added.
+- [x] Current-tick visual events include attack attempts, parry, buckler block,
+  shield block, landed, gate accepted, gate rejected, hit applied, and zero-hit
+  transitions. Events are emitted when either participant is explicitly
+  inspected and are canonicalised by target entity then attacker within each
+  pipeline phase.
+- [x] Added renderer/UI-only retained world-space indicators with a fixed
+  10-tick presentation lifetime. Retention clears on initial/reset snapshots
+  and scenario changes, remains visible while paused after a stepped tick, and
+  is unaffected by hiding debug panels.
+- [x] Added a visual-test **Hide combat events** / **Show combat events** toggle
+  that affects only the renderer event layer; it sends no worker message and
+  changes no simulation state or snapshot data.
+- [x] Added a bounded UI-only combat event log when inspected individuals are
+  present, showing tick, attacker, target, event kind, and applied hit loss.
+- [x] Added tests for attack indicators, parry/shield event records,
+  landed-with-gate-rejection producing no hit-applied marker, accepted gate plus
+  hit application sequencing, simultaneous two-attacker visibility, event tick
+  accuracy, retention expiry, normal no-inspection scenarios, deterministic
+  replay, and the `src/sim` dependency boundary.
+
+### 5G-3 defence/pressure visual-regression correction (2026-07-14)
+
+- [x] Replaced always-success in-arc individual defence with deterministic
+  keyed fixed-point defence chance. The key includes battle seed, simulation
+  tick, attacker entity, target entity, attack identity, and chosen defence
+  source, so resolution does not consume an iteration-order random stream.
+- [x] Added defence coverage tiers for currently usable equipment: dagger tiny;
+  one-handed, great weapon, pike, rod small; polearm and staff medium; buckler
+  medium; held full shield huge. Unarmed, ranged, thrown, broken/unusable, and
+  slung shield sources provide no active defence. No current equipment maps to
+  the `large` tier.
+- [x] Preserved existing facing requirements and canonical multi-attacker
+  ordering. Any valid in-arc defence attempt restarts guard recovery whether it
+  succeeds or fails; later same-tick canonical attacks observe that updated
+  guard state.
+- [x] Added inspection fields for defence tier, readiness, calculated chance,
+  deterministic roll, chosen source, and successful/failed/no-source
+  resolution. Added a distinct `failedDefence` visual event marker.
+- [x] Reworked individual-authoritative pressure to use per-entity local
+  proximity floors and attack impulses. Nearby hostiles/allies establish a
+  bounded floor instead of accumulating per-tick pressure; valid incoming
+  attacks add target pressure and pause recovery, accepted applied hits add
+  extra target pressure, and successful blocks add only a small attacker
+  impulse.
+- [x] Added role-based fixed recovery credits toward the current floor:
+  recruit/regular/veteran recover at 1/2/4 credits with hostile nearby, 2/4/6
+  with no hostile while moving, and 4/6/8 with no hostile while stationary.
+  Four credits remove one pressure point.
+- [x] Extended bounded individual inspection rows with current pressure,
+  proximity floor, local hostile/ally counts, attack/hit/block impulses,
+  recovery pause, recovery context, recovery credit, and recovered amount.
+- [x] Updated tests for deterministic rolls, reachable coverage tiers,
+  full-readiness 95% chance, tier-minimum chance, maximum-source selection,
+  failed-defence guard consumption, static floors, attack/hit/block impulses,
+  recovery pause, experience recovery rates, visual failed-defence events,
+  replay determinism, and processing-order independence.
+
 ---
 
 # Expected final tick order

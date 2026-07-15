@@ -74,6 +74,15 @@ export function formatInspectionEvent(
   if (individual.thisTickDefenceOutcome !== "none") {
     parts.push(`def:${individual.thisTickDefenceOutcome}`);
   }
+  if (individual.defenceResolution !== "none") {
+    parts.push(
+      `dc:${individual.defenceCoverageTier}/${individual.chosenDefenceSource}` +
+        ` r${individual.defenceReadinessFixedPoint}` +
+        ` c${individual.calculatedDefenceChanceFixedPoint}` +
+        ` roll${individual.deterministicDefenceRollFixedPoint}` +
+        ` ${individual.defenceResolution}`,
+    );
+  }
   if (individual.thisTickLandedHitGateOutcome !== "none") {
     parts.push(`gate:${individual.thisTickLandedHitGateOutcome}`);
   }
@@ -86,6 +95,29 @@ export function formatInspectionEvent(
   }
   if (individual.reachedZeroHitsThisTick) {
     parts.push("zero");
+  }
+  if (
+    individual.currentPressure > 0 ||
+    individual.proximityPressureFloor > 0 ||
+    individual.incomingAttackPressureImpulse > 0 ||
+    individual.incomingHitPressureImpulse > 0 ||
+    individual.blockedStrikePressureImpulse > 0 ||
+    individual.pressureRecoveryPauseTicksRemaining > 0 ||
+    individual.recoveredPressureAmount > 0
+  ) {
+    parts.push(
+      `pr:${individual.currentPressure}` +
+        `/floor${individual.proximityPressureFloor}` +
+        `/h${individual.nearbyHostileCount}` +
+        `/a${individual.nearbyAllyCount}` +
+        `/atk${individual.incomingAttackPressureImpulse}` +
+        `/hit${individual.incomingHitPressureImpulse}` +
+        `/blk${individual.blockedStrikePressureImpulse}` +
+        `/pause${individual.pressureRecoveryPauseTicksRemaining}` +
+        `/rec${individual.pressureRecoveryContext}` +
+        `:${individual.pressureRecoveryCreditApplied}` +
+        `:${individual.recoveredPressureAmount}`,
+    );
   }
   return parts.join(" ");
 }

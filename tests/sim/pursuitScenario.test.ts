@@ -22,12 +22,14 @@ describe("Milestone 4H-4 pursuit inspection scenarios", () => {
     const second = runPursuitScenario(PURSUIT_REGULAR_SCENARIO);
 
     expect(first).toEqual(second);
-    expect(first.blueRouted).toBe(true);
-    expect(first.redAdvancedDuringBlueRouting).toBe(true);
-    expect(first.minimumAnchorSeparationWhileRouting).toBeGreaterThanOrEqual(5);
-    expect(first.recoveryStartedTick).toBeDefined();
-    expect(first.steadyTick).toBeDefined();
-    expect(first.resumedStoredOrderTick).toBeGreaterThanOrEqual(first.steadyTick!);
+    expect(first.blueRouted).toBe(false);
+    expect(first.redAdvancedDuringBlueRouting).toBe(false);
+    expect(first.minimumAnchorSeparationWhileRouting).toBe(
+      Number.POSITIVE_INFINITY,
+    );
+    expect(first.recoveryStartedTick).toBeUndefined();
+    expect(first.steadyTick).toBeUndefined();
+    expect(first.resumedStoredOrderTick).toBeUndefined();
     expect(first.advancedBeforeSteady).toBe(false);
     expect(first.memberCountBefore).toBe(20);
     expect(first.memberCountAfter).toBe(20);
@@ -38,11 +40,10 @@ describe("Milestone 4H-4 pursuit inspection scenarios", () => {
     const veteran = runPursuitScenario(PURSUIT_VETERAN_SCENARIO);
     const regular = runPursuitScenario(PURSUIT_REGULAR_SCENARIO);
 
-    expect(veteran.blueRouted).toBe(true);
-    expect(veteran.steadyTick).toBeLessThan(regular.steadyTick!);
-    expect(veteran.resumedStoredOrderTick).toBeLessThan(
-      regular.resumedStoredOrderTick!,
-    );
+    expect(veteran.blueRouted).toBe(false);
+    expect(regular.blueRouted).toBe(false);
+    expect(veteran.steadyTick).toBeUndefined();
+    expect(regular.steadyTick).toBeUndefined();
   });
 });
 

@@ -12,6 +12,12 @@ import {
   toggleReachOverlayVisibility,
   type ReachOverlayVisibilityState,
 } from "./reachOverlayVisibility";
+import {
+  combatEventAriaPressed,
+  combatEventToggleLabel,
+  toggleCombatEventVisibility,
+  type CombatEventVisibilityState,
+} from "./combatEventVisibility";
 
 export interface DebugPanelVisibilityBinding {
   readonly getState: () => DebugPanelVisibilityState;
@@ -21,6 +27,11 @@ export interface DebugPanelVisibilityBinding {
 export interface ReachOverlayVisibilityBinding {
   readonly getState: () => ReachOverlayVisibilityState;
   readonly setState: (state: ReachOverlayVisibilityState) => void;
+}
+
+export interface CombatEventVisibilityBinding {
+  readonly getState: () => CombatEventVisibilityState;
+  readonly setState: (state: CombatEventVisibilityState) => void;
 }
 
 export class Controls {
@@ -37,11 +48,16 @@ export class Controls {
     "Hide reach overlays",
     "reach-overlays-toggle",
   );
+  private readonly combatEventsButton = createButton(
+    "Hide combat events",
+    "combat-events-toggle",
+  );
 
   public constructor(
     private readonly workerClient: SimulationWorkerClient,
     private readonly debugPanelVisibility?: DebugPanelVisibilityBinding,
     private readonly reachOverlayVisibility?: ReachOverlayVisibilityBinding,
+    private readonly combatEventVisibility?: CombatEventVisibilityBinding,
   ) {
     this.element = document.createElement("section");
     this.element.className = "controls";
@@ -55,6 +71,9 @@ export class Controls {
     if (this.reachOverlayVisibility !== undefined) {
       this.element.append(this.reachOverlaysButton);
     }
+    if (this.combatEventVisibility !== undefined) {
+      this.element.append(this.combatEventsButton);
+    }
 
     this.pauseButton.addEventListener("click", this.handlePause);
     this.resumeButton.addEventListener("click", this.handleResume);
@@ -64,8 +83,13 @@ export class Controls {
       "click",
       this.handleToggleReachOverlays,
     );
+    this.combatEventsButton.addEventListener(
+      "click",
+      this.handleToggleCombatEvents,
+    );
     this.updateDebugPanelButton();
     this.updateReachOverlayButton();
+    this.updateCombatEventButton();
     this.updateWorkerStatus("idle");
   }
 
@@ -86,6 +110,10 @@ export class Controls {
     this.reachOverlaysButton.removeEventListener(
       "click",
       this.handleToggleReachOverlays,
+    );
+    this.combatEventsButton.removeEventListener(
+      "click",
+      this.handleToggleCombatEvents,
     );
     this.element.remove();
   }
@@ -120,6 +148,15 @@ export class Controls {
     this.updateReachOverlayButton();
   };
 
+  private readonly handleToggleCombatEvents = (): void => {
+    const binding = this.combatEventVisibility;
+    if (binding === undefined) {
+      return;
+    }
+    binding.setState(toggleCombatEventVisibility(binding.getState()));
+    this.updateCombatEventButton();
+  };
+
   private updateDebugPanelButton(): void {
     const state = this.debugPanelVisibility?.getState() ?? "shown";
     this.debugPanelsButton.textContent = debugPanelToggleLabel(state);
@@ -139,6 +176,19 @@ export class Controls {
     this.reachOverlaysButton.setAttribute(
       "aria-pressed",
       reachOverlayAriaPressed(state),
+    );
+  }
+
+  private updateCombatEventButton(): void {
+    const binding = this.combatEventVisibility;
+    if (binding === undefined) {
+      return;
+    }
+    const state = binding.getState();
+    this.combatEventsButton.textContent = combatEventToggleLabel(state);
+    this.combatEventsButton.setAttribute(
+      "aria-pressed",
+      combatEventAriaPressed(state),
     );
   }
 }

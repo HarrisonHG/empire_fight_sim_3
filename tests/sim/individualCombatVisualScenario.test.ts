@@ -37,6 +37,7 @@ import {
   createSimulation,
 } from "../../src/sim/simulation";
 import type {
+  InspectedCombatVisualEvent,
   LiveCombatDebugIndividualSnapshot,
   SimulationState,
 } from "../../src/sim/types";
@@ -135,6 +136,88 @@ describe("individual combat visual regression scenario", () => {
     advanceSimulationOneTick(simulation);
     expect(createPositionSnapshot(simulation).combatDebug?.individualCombatVisuals)
       .toEqual([]);
+  });
+
+  it("derives bounded combat visual events from current individual pipeline records", () => {
+    const trace = collectVisualTrace(
+      createSimulation(INDIVIDUAL_COMBAT_VISUAL_SCENARIO),
+      INSPECTION_TICKS,
+    );
+
+    expect(eventKindsForPair(trace, 0, 1, 5)).toEqual([
+      "attackAttempt",
+      "parry",
+    ]);
+    expect(eventKindsForPair(trace, 2, 3, 5)).toEqual([
+      "attackAttempt",
+      "shieldBlock",
+    ]);
+    expect(
+      trace.visualEvents.some((event) => event.kind === "bucklerBlock"),
+    ).toBe(false);
+
+    const rejectedGateTick = trace.ticks.find((tick) =>
+      tick.visualEvents.some(
+        (event) =>
+          event.attackerEntityId === 15 &&
+          event.targetEntityId === 16 &&
+          event.kind === "gateRejected",
+      ),
+    );
+    expect(rejectedGateTick).toBeDefined();
+    expect(
+      rejectedGateTick?.visualEvents.some(
+        (event) =>
+          event.attackerEntityId === 15 &&
+          event.targetEntityId === 16 &&
+          event.kind === "landed",
+      ),
+    ).toBe(true);
+    expect(
+      rejectedGateTick?.visualEvents.some(
+        (event) =>
+          event.attackerEntityId === 15 &&
+          event.targetEntityId === 16 &&
+          event.kind === "hitApplied",
+      ),
+    ).toBe(false);
+
+    expect(eventKindsForPair(trace, 15, 16, 3)).toEqual([
+      "attackAttempt",
+      "landed",
+      "gateAccepted",
+      "hitApplied",
+    ]);
+    expect(
+      trace.visualEvents.find(
+        (event) =>
+          event.attackerEntityId === 15 &&
+          event.targetEntityId === 16 &&
+          event.kind === "hitApplied",
+      )?.appliedHitLoss,
+    ).toBe(1);
+
+    expect(eventKindsForPair(trace, 4, 6, 5)).toEqual([
+      "attackAttempt",
+      "parry",
+    ]);
+    expect(eventKindsForPair(trace, 5, 6, 5)).toEqual([
+      "attackAttempt",
+      "failedDefence",
+      "gateAccepted",
+      "hitApplied",
+    ]);
+    const twoOnOneEvents = trace.ticks
+      .find((tick) => tick.currentTick === 5)
+      ?.visualEvents.filter((event) => event.targetEntityId === 6);
+    expect(twoOnOneEvents?.map((event) => event.attackerEntityId)).toContain(4);
+    expect(twoOnOneEvents?.map((event) => event.attackerEntityId)).toContain(5);
+
+    for (const tick of trace.ticks) {
+      for (const event of tick.visualEvents) {
+        expect(event.tick).toBe(tick.currentTick);
+      }
+    }
   });
 
   it("uses authoritative weapon distances for reach overlay ordering", () => {
@@ -245,7 +328,7 @@ describe("individual combat visual regression scenario", () => {
       .filter((decision) => decision.outcome === "accepted")
       .map((decision) => decision.currentTick);
     expect(acceptedSamePairTicks.length).toBeGreaterThanOrEqual(2);
-    expect(acceptedSamePairTicks).toEqual([3, 24]);
+    expect(acceptedSamePairTicks).toEqual([3, 24, 45, 66]);
     for (let index = 1; index < acceptedSamePairTicks.length; index += 1) {
       expect(acceptedSamePairTicks[index]! - acceptedSamePairTicks[index - 1]!)
         .toBeGreaterThanOrEqual(20);
@@ -346,6 +429,7 @@ interface TickTrace {
     readonly currentHitsAfter: number;
   }[];
   readonly inspected: ReadonlyMap<number, LiveCombatDebugIndividualSnapshot>;
+  readonly visualEvents: readonly InspectedCombatVisualEvent[];
 }
 
 function collectVisualTrace(
@@ -357,6 +441,7 @@ function collectVisualTrace(
   readonly defences: readonly IndividualMeleeDefenceRecord[];
   readonly gateDecisions: readonly IndividualLandedHitGateDecisionRecord[];
   readonly hitApplications: readonly TickTrace["hitApplications"][number][];
+  readonly visualEvents: readonly InspectedCombatVisualEvent[];
   readonly zeroHitEntities: readonly number[];
   readonly minimumCrossAreaDistance: number;
 } {
@@ -366,6 +451,7 @@ function collectVisualTrace(
   const defences: IndividualMeleeDefenceRecord[] = [];
   const gateDecisions: IndividualLandedHitGateDecisionRecord[] = [];
   const hitApplications: TickTrace["hitApplications"][number][] = [];
+  const visualEvents: InspectedCombatVisualEvent[] = [];
   const zeroHitEntities = new Set<number>();
   let minimumCrossAreaDistance = Number.POSITIVE_INFINITY;
 
@@ -394,11 +480,16 @@ function collectVisualTrace(
         { ...entry },
       ]) ?? [],
     );
+    const tickVisualEvents =
+      snapshot.combatDebug?.inspectedCombatVisualEvents.map((event) => ({
+        ...event,
+      })) ?? [];
 
     attackAttempts.push(...tickAttackAttempts);
     defences.push(...tickDefences);
     gateDecisions.push(...tickGateDecisions);
     hitApplications.push(...tickHitApplications);
+    visualEvents.push(...tickVisualEvents);
     for (const event of combat.individualCombatPipelineBuffers.zeroHitEvents) {
       zeroHitEntities.add(event.entityId);
     }
@@ -413,6 +504,7 @@ function collectVisualTrace(
       gateDecisions: tickGateDecisions,
       hitApplications: tickHitApplications,
       inspected,
+      visualEvents: tickVisualEvents,
     });
   }
 
@@ -422,6 +514,7 @@ function collectVisualTrace(
     defences,
     gateDecisions,
     hitApplications,
+    visualEvents,
     zeroHitEntities: Array.from(zeroHitEntities).sort((left, right) => left - right),
     minimumCrossAreaDistance,
   };
@@ -481,6 +574,24 @@ function firstHitApplicationTick(
         record.targetEntityId === targetEntityId,
     ),
   )?.currentTick;
+}
+
+function eventKindsForPair(
+  trace: ReturnType<typeof collectVisualTrace>,
+  attackerEntityId: number,
+  targetEntityId: number,
+  tick: number,
+): readonly InspectedCombatVisualEvent["kind"][] {
+  return (
+    trace.ticks
+      .find((entry) => entry.currentTick === tick)
+      ?.visualEvents.filter(
+        (event) =>
+          event.attackerEntityId === attackerEntityId &&
+          event.targetEntityId === targetEntityId,
+      )
+      .map((event) => event.kind) ?? []
+  );
 }
 
 function runScenario(ticks: number): SimulationState {

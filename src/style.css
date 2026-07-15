@@ -168,6 +168,10 @@ body {
   white-space: pre-wrap;
 }
 
+[data-testid="combat-event-log"] {
+  white-space: pre-wrap;
+}
+
 [data-testid="individual-inspection"] {
   max-width: min(100%, calc(100vw - 48px));
   overflow-x: auto;

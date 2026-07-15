@@ -24,6 +24,13 @@ import {
   reachOverlayToggleLabel,
   toggleReachOverlayVisibility,
 } from "../../src/ui/reachOverlayVisibility";
+import {
+  areCombatEventsVisible,
+  combatEventAriaPressed,
+  combatEventToggleLabel,
+  createInitialCombatEventVisibilityState,
+  toggleCombatEventVisibility,
+} from "../../src/ui/combatEventVisibility";
 
 describe("debug panel visibility UI state", () => {
   it("starts shown for a newly created scenario UI", () => {
@@ -142,6 +149,28 @@ describe("debug panel visibility UI state", () => {
     expect(simulation.tick).toBe(0);
     expect(createInitialSnapshot(simulation)).toEqual(before);
   });
+
+  it("toggles combat event renderer visibility state only", () => {
+    let eventState = createInitialCombatEventVisibilityState();
+    const simulation = createSimulation(INDIVIDUAL_COMBAT_VISUAL_SCENARIO);
+    const before = createInitialSnapshot(simulation);
+
+    expect(eventState).toBe("shown");
+    expect(combatEventToggleLabel(eventState)).toBe("Hide combat events");
+    expect(combatEventAriaPressed(eventState)).toBe("true");
+    expect(areCombatEventsVisible(eventState)).toBe(true);
+
+    eventState = toggleCombatEventVisibility(eventState);
+    expect(combatEventToggleLabel(eventState)).toBe("Show combat events");
+    expect(combatEventAriaPressed(eventState)).toBe("false");
+    expect(areCombatEventsVisible(eventState)).toBe(false);
+
+    eventState = toggleCombatEventVisibility(eventState);
+    expect(eventState).toBe("shown");
+    expect(areCombatEventsVisible(eventState)).toBe(true);
+    expect(simulation.tick).toBe(0);
+    expect(createInitialSnapshot(simulation)).toEqual(before);
+  });
 });
 
 function individualSnapshot(
@@ -170,12 +199,29 @@ function individualSnapshot(
     thisTickDefenceOutcome: "none",
     thisTickOutgoingDefenceOutcome: "none",
     thisTickLandedHitGateOutcome: "none",
+    defenceCoverageTier: "none",
+    defenceReadinessFixedPoint: 0,
+    calculatedDefenceChanceFixedPoint: 0,
+    deterministicDefenceRollFixedPoint: 0,
+    chosenDefenceSource: "none",
+    defenceResolution: "none",
     thisTickIncomingParryCount: 0,
     thisTickIncomingBucklerBlockCount: 0,
     thisTickIncomingShieldBlockCount: 0,
     thisTickIncomingLandedCount: 0,
     thisTickAppliedHitLoss: 0,
     reachedZeroHitsThisTick: false,
+    currentPressure: 0,
+    proximityPressureFloor: 0,
+    nearbyHostileCount: 0,
+    nearbyAllyCount: 0,
+    incomingAttackPressureImpulse: 0,
+    incomingHitPressureImpulse: 0,
+    blockedStrikePressureImpulse: 0,
+    pressureRecoveryPauseTicksRemaining: 0,
+    pressureRecoveryContext: "noHostileStationary",
+    pressureRecoveryCreditApplied: 0,
+    recoveredPressureAmount: 0,
     ...overrides,
   };
 }

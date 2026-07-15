@@ -3,6 +3,7 @@ import type { CombatConsequenceApplication } from "./combatConsequences";
 import type { CombatPipelineOutput } from "./combatPipeline";
 import type {
   CombatPressureStore,
+  IndividualCombatPressureRecoveryContext,
   UnitPressureUpdate,
 } from "./combatPressure";
 import type { CombatSurvivabilityStore } from "./combatSurvivability";
@@ -29,7 +30,12 @@ import type {
 } from "./individualCombatProfile";
 import type { IndividualGlobalHitStore } from "./individualGlobalHits";
 import type { IndividualLandedHitGateStore } from "./individualLandedHitGate";
-import type { IndividualMeleeDefenceStore } from "./individualMeleeDefence";
+import type {
+  DefenceCoverageTier,
+  IndividualMeleeDefenceResolution,
+  IndividualMeleeDefenceStore,
+  IndividualMeleeDefenceType,
+} from "./individualMeleeDefence";
 import type { IndividualMeleeTargetSelectionStore } from "./individualMeleeTargetSelection";
 import type { IndividualCombatActionStore } from "./individualCombatAction";
 import type {
@@ -290,12 +296,29 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly thisTickDefenceOutcome: LiveCombatDebugDefenceOutcome;
   readonly thisTickOutgoingDefenceOutcome: LiveCombatDebugDefenceOutcome;
   readonly thisTickLandedHitGateOutcome: LiveCombatDebugLandedHitGateOutcome;
+  readonly defenceCoverageTier: DefenceCoverageTier;
+  readonly defenceReadinessFixedPoint: number;
+  readonly calculatedDefenceChanceFixedPoint: number;
+  readonly deterministicDefenceRollFixedPoint: number;
+  readonly chosenDefenceSource: IndividualMeleeDefenceType;
+  readonly defenceResolution: IndividualMeleeDefenceResolution | "none";
   readonly thisTickIncomingParryCount: number;
   readonly thisTickIncomingBucklerBlockCount: number;
   readonly thisTickIncomingShieldBlockCount: number;
   readonly thisTickIncomingLandedCount: number;
   readonly thisTickAppliedHitLoss: number;
   readonly reachedZeroHitsThisTick: boolean;
+  readonly currentPressure: number;
+  readonly proximityPressureFloor: number;
+  readonly nearbyHostileCount: number;
+  readonly nearbyAllyCount: number;
+  readonly incomingAttackPressureImpulse: number;
+  readonly incomingHitPressureImpulse: number;
+  readonly blockedStrikePressureImpulse: number;
+  readonly pressureRecoveryPauseTicksRemaining: number;
+  readonly pressureRecoveryContext: IndividualCombatPressureRecoveryContext;
+  readonly pressureRecoveryCreditApplied: number;
+  readonly recoveredPressureAmount: number;
 }
 
 export interface IndividualCombatVisualState {
@@ -308,6 +331,26 @@ export interface IndividualCombatVisualState {
   readonly shieldCategory: IndividualShieldCategory;
   readonly shieldHeld: boolean;
   readonly armourCategory: IndividualArmourCategory;
+}
+
+export type InspectedCombatVisualEventKind =
+  | "attackAttempt"
+  | "parry"
+  | "bucklerBlock"
+  | "shieldBlock"
+  | "failedDefence"
+  | "landed"
+  | "gateAccepted"
+  | "gateRejected"
+  | "hitApplied"
+  | "zeroHit";
+
+export interface InspectedCombatVisualEvent {
+  readonly tick: number;
+  readonly attackerEntityId: number;
+  readonly targetEntityId: number;
+  readonly kind: InspectedCombatVisualEventKind;
+  readonly appliedHitLoss: number;
 }
 
 /** Compact, render-safe inspection state for the production combat sandbox. */
@@ -330,6 +373,7 @@ export interface LiveCombatDebugSnapshot {
   readonly units: readonly LiveCombatDebugUnitSnapshot[];
   readonly inspectedIndividuals: readonly LiveCombatDebugIndividualSnapshot[];
   readonly individualCombatVisuals: readonly IndividualCombatVisualState[];
+  readonly inspectedCombatVisualEvents: readonly InspectedCombatVisualEvent[];
 }
 
 /**
@@ -356,6 +400,7 @@ export interface CombatSandboxSimulationState {
   readonly individualCombatPipelineBuffers: IndividualCombatPipelineBuffers;
   readonly inspectedEntityIds: readonly number[];
   readonly inspectedIndividuals: LiveCombatDebugIndividualSnapshot[];
+  readonly inspectedCombatVisualEvents: InspectedCombatVisualEvent[];
   readonly pressureStore: CombatPressureStore;
   readonly routingContagionStore: RoutingContagionStore;
   readonly recoveryThreatStore: RecoveryThreatStore;

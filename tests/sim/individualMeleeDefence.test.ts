@@ -84,8 +84,12 @@ describe("individual melee defence resolution", () => {
         defenderEntityId: 1,
         availableDefenceType: "weaponParry",
         outcome: "landed",
-        landedReason: "guardRecovering",
+        landedReason: "failedDefence",
         guardStateBeforeResolution: "recovering",
+        defenceCoverageTier: "small",
+        defenceReadinessFixedPoint: 2500,
+        calculatedDefenceChanceFixedPoint: 3500,
+        defenceResolution: "failedDefence",
       }),
     ]);
   });
@@ -140,7 +144,8 @@ describe("individual melee defence resolution", () => {
 
     expect(resolve(harness, [attempt(0, 1)]).records[0]).toMatchObject({
       availableDefenceType: "shieldBlock",
-      outcome: "shieldBlocked",
+      defenceCoverageTier: "huge",
+      calculatedDefenceChanceFixedPoint: 9500,
       defenceRecoveryTicksAssigned:
         INDIVIDUAL_MELEE_DEFENCE_TIMING.shieldBlock.recoveryTicks,
     });
@@ -161,7 +166,8 @@ describe("individual melee defence resolution", () => {
     ]);
 
     expect(resolve(shieldHarness, [attempt(0, 1)]).records[0]).toMatchObject({
-      outcome: "shieldBlocked",
+      availableDefenceType: "shieldBlock",
+      defenceCoverageTier: "huge",
       incomingDirectionName: "south",
     });
     expect(resolve(bucklerHarness, [attempt(0, 1)]).records[0]).toMatchObject({
@@ -184,6 +190,68 @@ describe("individual melee defence resolution", () => {
       availableDefenceType: "none",
       outcome: "landed",
       landedReason: "noActiveDefence",
+    });
+  });
+
+  it.each([
+    { weapon: "unarmed" as const, tier: "none", chance: 0 },
+    { weapon: "dagger" as const, tier: "tiny", chance: 9500 },
+    { weapon: "oneHanded" as const, tier: "small", chance: 9500 },
+    { weapon: "greatWeapon" as const, tier: "small", chance: 9500 },
+    { weapon: "polearm" as const, tier: "medium", chance: 9500 },
+    { weapon: "pike" as const, tier: "small", chance: 9500 },
+    { weapon: "rod" as const, tier: "small", chance: 9500 },
+    { weapon: "staff" as const, tier: "medium", chance: 9500 },
+  ])(
+    "maps $weapon defence coverage into $tier",
+    ({ weapon, tier, chance }) => {
+      const harness = createHarness([
+        entity(92, 100, 1, "oneHanded", 1),
+        entity(100, 100, 2, weapon, -1),
+      ]);
+
+      expect(resolve(harness, [attempt(0, 1)]).records[0]).toMatchObject({
+        defenceCoverageTier: tier,
+        calculatedDefenceChanceFixedPoint: chance,
+      });
+    },
+  );
+
+  it("keeps busy defenders at the tier minimum chance", () => {
+    const harness = createHarness([
+      entity(92, 100, 1, "oneHanded", 1),
+      entity(100, 100, 2, "dagger", -1),
+    ]);
+    advanceIndividualCombatActions(
+      harness.world,
+      harness.identity,
+      harness.formation,
+      harness.profiles,
+      [selectedRecord(1, 0)],
+      harness.actions,
+    );
+
+    expect(resolve(harness, [attempt(0, 1)]).records[0]).toMatchObject({
+      defenceCoverageTier: "tiny",
+      defenceReadinessFixedPoint: 0,
+      calculatedDefenceChanceFixedPoint: 1000,
+    });
+  });
+
+  it("emits stable keyed rolls without consuming an iteration stream", () => {
+    const first = createHarness([
+      entity(92, 100, 1, "oneHanded", 1),
+      entity(100, 100, 2, "oneHanded", -1),
+    ]);
+    const second = createHarness([
+      entity(92, 100, 1, "oneHanded", 1),
+      entity(100, 100, 2, "oneHanded", -1),
+    ]);
+
+    expect(resolve(first, [attempt(0, 1)]).records[0]).toMatchObject({
+      deterministicDefenceRollFixedPoint:
+        resolve(second, [attempt(0, 1)]).records[0]
+          ?.deterministicDefenceRollFixedPoint,
     });
   });
 
@@ -272,7 +340,8 @@ describe("individual melee defence resolution", () => {
 
     expect(resolve(harness, [attempt(0, 1)]).records[0]).toMatchObject({
       outcome: "landed",
-      landedReason: "defenderBusy",
+      landedReason: "failedDefence",
+      defenceReadinessFixedPoint: 0,
     });
   });
 
@@ -291,7 +360,8 @@ describe("individual melee defence resolution", () => {
       expect.objectContaining({
         attackerEntityId: 2,
         outcome: "landed",
-        landedReason: "guardRecovering",
+        landedReason: "failedDefence",
+        defenceReadinessFixedPoint: 0,
       }),
     ]);
   });

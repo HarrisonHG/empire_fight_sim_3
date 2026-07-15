@@ -45,6 +45,11 @@ shows the faint weapon reach cones and preferred-distance markers without
 changing the simulation, worker state, snapshots, or retained inspection
 history.
 
+They also include a **Hide combat events** / **Show combat events** control.
+This toggles transient world-space combat indicators only. Event retention is
+renderer/UI state, lasts about 10 simulation ticks, clears on reset/replay
+restart/scenario change, and never returns to the simulation.
+
 ## Registry ownership
 
 The stable registry is `src/content/visualTestRegistry.ts`. Each entry owns:
@@ -131,11 +136,41 @@ inspection table. Exact equipment artwork, richer sprites, handedness
 presentation, animation, and bow/crossbow appearance remain later
 renderer/content work.
 
+### Individual Combat Event Indicators
+
+The individual-combat route derives compact current-tick visual events from the
+accepted individual pipeline for explicitly inspected entities only. Normal
+scenarios without inspected fighters emit no per-entity combat event records.
+
+Event grammar:
+
+- attackAttempt: fast line from attacker to target;
+- parry: crossed-line spark at the defender/front contact point;
+- bucklerBlock: small circular shield flash;
+- shieldBlock: broader curved shield flash;
+- failedDefence: hollow crossed marker for an in-arc attempted defence whose
+  deterministic roll failed;
+- landed: solid impact burst on the target;
+- gateAccepted: small filled confirmation pulse;
+- gateRejected: hollow/broken ring for contact without relationship-gated
+  damage;
+- hitApplied: compact `-1` hit-loss marker;
+- zeroHit: stronger down-state pulse.
+
+`failedDefence`, `landed`, and `hitApplied` are intentionally distinct. A
+failed defence can still produce a landed outcome, and a landed outcome can be
+gate-rejected and therefore show no hit-loss marker. The metrics panel also
+keeps a small bounded UI-only rolling event list with tick, attacker, target,
+and event kind. During human inspection, if anything remains ambiguous it is
+most likely the brief overlap between a `failedDefence` marker, a `landed`
+burst, and a nearby `gateAccepted` pulse in the same tick; pause/step mode and
+the event list are the intended disambiguation tools.
+
 | Area | Label | Useful ticks | Expected observation |
 | --- | --- | ---: | --- |
 | 1 | First frontal defence | 0-8 | A polearm attacker commits from reach; the ready weapon defender faces the attack and parries the first valid frontal strike around tick 5. |
-| 2 | Held shield defence | 0-8 | A polearm attacker commits into a ready full-shield defender; the held shield blocks the first frontal strike around tick 5. |
-| 3 | Two attackers overwhelm guard | 0-8 | Two polearm attackers resolve against one ready weapon defender in the same tick; one strike is parried and the other lands while guard is recovering. |
+| 2 | Held shield defence | 0-8 | A polearm attacker commits into a ready full-shield defender; the held shield provides huge in-arc coverage and the displayed roll shows whether the first frontal strike is blocked or fails. |
+| 3 | Two attackers overwhelm guard | 0-8 | Two polearm attackers resolve against one ready weapon defender in the same tick; canonical order can show one successful defence and a later lower-readiness failed defence/landed outcome. |
 | 4 | Weapon reach | 0-8 | The polearm attacker and one-handed attacker both commit, but the polearm selected target distance is farther; the one-handed strike resolves earlier due shorter commitment. |
 | 5 | Armour and global hits | 0-8 | Equivalent ordinary accepted strikes hit unarmoured and heavy-armoured defenders; heavy armour starts with more maximum hits, and each strike removes exactly one hit. |
 | 6 | One-second relationship gate | 0-70 | One attacker lands faster than once per second against the same heavy target; accepted same-pair hits are at least 20 simulation ticks apart and intervening landed outcomes are gate-rejected. |

@@ -10,10 +10,13 @@ import {
   advanceIndividualCombatPressureOneTick,
   advanceCombatPressureOneTick,
   createCombatPressureStore,
+  getIndividualCombatPressureInspection,
   type CombatPressureStore,
   type UnitPressureUpdate,
 } from "../../src/sim/combatPressure";
+import { createIndividualCombatEligibilitySnapshot } from "../../src/sim/individualCombatEligibility";
 import type { IndividualCombatUnitConsequenceSummary } from "../../src/sim/individualCombatConsequences";
+import type { IndividualMeleeDefenceRecord } from "../../src/sim/individualMeleeDefence";
 import {
   advanceFormationOneTick,
   createFormationBehaviourStore,
@@ -224,12 +227,13 @@ describe("combat pressure stage", () => {
         incomingPreventedAttacks: 1,
         incomingParries: 1,
       }),
-    ]);
+    ], { attackAttempts: [individualAttempt(0, 2)] });
 
-    expect(targetPressures(harness)).toEqual([4, 4]);
+    expect(targetPressures(harness)).toEqual([15, 3]);
     expect(findUpdate(updates, TARGET_UNIT_ID)).toMatchObject({
       engaged: true,
-      engagedPressureDeltaPerMember: 4,
+      engagedPressureDeltaPerMember: 0,
+      individualIncomingAttackImpulseAverage: 6,
       appliedHitPressureDeltaPerMember: 0,
       consequencePressureDeltaPerMember: 0,
     });
@@ -247,11 +251,11 @@ describe("combat pressure stage", () => {
       }),
     ]);
 
-    expect(targetPressures(harness)).toEqual([0, 0]);
+    expect(targetPressures(harness)).toEqual([3, 3]);
     expect(findUpdate(updates, TARGET_UNIT_ID)).toMatchObject({
       engaged: false,
       hasFreshPressure: false,
-      decayPerMember: 2,
+      individualProximityFloorAverage: 3,
     });
   });
 
@@ -265,15 +269,18 @@ describe("combat pressure stage", () => {
         incomingGateAcceptedHits: 1,
         incomingAppliedHitLoss: 1,
       }),
-    ]);
+    ], {
+      attackAttempts: [individualAttempt(0, 2)],
+      hitApplications: [hitApplication(0, 2)],
+    });
 
-    expect(targetPressures(harness)).toEqual([14, 14]);
+    expect(targetPressures(harness)).toEqual([23, 3]);
     expect(findUpdate(updates, TARGET_UNIT_ID)).toMatchObject({
-      engagedPressureDeltaPerMember: 4,
+      engagedPressureDeltaPerMember: 0,
       consequencePressureDeltaPerMember: 10,
-      appliedHitPressureDeltaPerMember: 10,
+      appliedHitPressureDeltaPerMember: 5,
       pressureBeforeAverage: 0,
-      pressureAfterAverage: 14,
+      pressureAfterAverage: 13,
     });
   });
 
@@ -286,13 +293,88 @@ describe("combat pressure stage", () => {
         incomingLandedOutcomes: 1,
         incomingGateRejectedHits: 1,
       }),
-    ]);
+    ], { attackAttempts: [individualAttempt(0, 2)] });
 
-    expect(targetPressures(harness)).toEqual([4, 4]);
+    expect(targetPressures(harness)).toEqual([15, 3]);
     expect(findUpdate(updates, TARGET_UNIT_ID)).toMatchObject({
       consequencePressureDeltaPerMember: 0,
       appliedHitPressureDeltaPerMember: 0,
     });
+  });
+
+  it("uses proximity as a static floor instead of a per-tick accumulation", () => {
+    const harness = createHarness();
+
+    advanceIndividualPressure(harness, [individualSummary(TARGET_UNIT_ID)]);
+    expect(targetPressures(harness)).toEqual([3, 3]);
+    advanceIndividualPressure(harness, [individualSummary(TARGET_UNIT_ID)]);
+    expect(targetPressures(harness)).toEqual([3, 3]);
+  });
+
+  it("pauses attacked target recovery for twenty ticks", () => {
+    const harness = createHarness();
+    setIndividualPressure(harness.formation, 2, 20);
+
+    advanceIndividualPressure(harness, [individualSummary(TARGET_UNIT_ID)], {
+      attackAttempts: [individualAttempt(0, 2)],
+    });
+    expect(
+      getIndividualCombatPressureInspection(
+        harness.formation,
+        harness.store,
+        2,
+      ).recoveryPauseTicksRemaining,
+    ).toBe(20);
+
+    advanceIndividualPressure(harness, [individualSummary(TARGET_UNIT_ID)]);
+    expect(getIndividualPressure(harness.formation, 2)).toBe(32);
+    expect(
+      getIndividualCombatPressureInspection(
+        harness.formation,
+        harness.store,
+        2,
+      ).recoveryPauseTicksRemaining,
+    ).toBe(19);
+  });
+
+  it("adds only a small block impulse to the blocked attacker", () => {
+    const harness = createHarness();
+
+    advanceIndividualPressure(harness, [individualSummary(SOURCE_UNIT_ID)], {
+      defenceRecords: [successfulParry(0, 2)],
+    });
+
+    expect(getIndividualPressure(harness.formation, 0)).toBe(4);
+    expect(
+      getIndividualCombatPressureInspection(
+        harness.formation,
+        harness.store,
+        0,
+      ).blockedStrikeImpulse,
+    ).toBe(1);
+  });
+
+  it("uses experience-specific recovery credits while hostile pressure remains", () => {
+    const recruit = createHarness({ targetRole: "recruit" });
+    const regular = createHarness({ targetRole: "regular" });
+    const veteran = createHarness({ targetRole: "veteran" });
+    for (const harness of [recruit, regular, veteran]) {
+      setIndividualPressure(harness.formation, 2, 12);
+    }
+
+    advanceIndividualPressure(recruit, [individualSummary(TARGET_UNIT_ID)]);
+    advanceIndividualPressure(regular, [individualSummary(TARGET_UNIT_ID)]);
+    advanceIndividualPressure(veteran, [individualSummary(TARGET_UNIT_ID)]);
+
+    expect(getIndividualPressure(recruit.formation, 2)).toBe(12);
+    expect(getIndividualPressure(regular.formation, 2)).toBe(12);
+    expect(getIndividualPressure(veteran.formation, 2)).toBe(11);
+
+    advanceIndividualPressure(recruit, [individualSummary(TARGET_UNIT_ID)]);
+    advanceIndividualPressure(regular, [individualSummary(TARGET_UNIT_ID)]);
+
+    expect(getIndividualPressure(recruit.formation, 2)).toBe(12);
+    expect(getIndividualPressure(regular.formation, 2)).toBe(11);
   });
 
   it("records proportional zero-hit cohesion loss without double-counting pressure", () => {
@@ -357,6 +439,7 @@ const SOURCE_UNIT_ID = 10;
 const TARGET_UNIT_ID = 20;
 
 interface PressureHarness {
+  readonly world: WorldState;
   readonly identity: UnitIdentityStore;
   readonly formation: FormationBehaviourStore;
   readonly store: CombatPressureStore;
@@ -375,6 +458,7 @@ function createHarness(options: {
   readonly targetConfidence?: number;
   readonly targetRole?: "recruit" | "regular" | "veteran";
 } = {}): PressureHarness {
+  const world = createWorld(4);
   const identity = createUnitIdentityStore({
     entityCount: 4,
     units: [
@@ -399,6 +483,7 @@ function createHarness(options: {
     })),
   });
   return {
+    world,
     identity,
     formation,
     store: createCombatPressureStore(identity, formation),
@@ -412,6 +497,7 @@ function createSizedTargetHarness(memberCount: number): PressureHarness {
     { length: memberCount },
     (_unused, index) => index + 1,
   );
+  const world = createWorld(memberCount + 1);
   const identity = createUnitIdentityStore({
     entityCount: memberCount + 1,
     units: [
@@ -453,6 +539,7 @@ function createSizedTargetHarness(memberCount: number): PressureHarness {
     ],
   });
   return {
+    world,
     identity,
     formation,
     store: createCombatPressureStore(identity, formation),
@@ -552,21 +639,116 @@ function advancePressure(
 function advanceIndividualPressure(
   harness: PressureHarness,
   summaries: readonly IndividualCombatUnitConsequenceSummary[],
+  records: {
+    readonly attackAttempts?: readonly ReturnType<typeof individualAttempt>[];
+    readonly defenceRecords?: readonly IndividualMeleeDefenceRecord[];
+    readonly hitApplications?: readonly ReturnType<typeof hitApplication>[];
+  } = {},
   tickStartMoraleStates?: ReadonlyMap<
     number,
     "steady" | "strained" | "shaken" | "wavering" | "routing" | "recovering"
   >,
 ): readonly UnitPressureUpdate[] {
+  const eligibility = createIndividualCombatEligibilitySnapshot({
+    entityCount: harness.identity.entityCount,
+  });
   const result = advanceIndividualCombatPressureOneTick(
+    harness.world,
     harness.identity,
     harness.formation,
     summaries,
+    records.attackAttempts ?? [],
+    records.defenceRecords ?? [],
+    [],
+    records.hitApplications ?? [],
+    [],
+    eligibility,
     harness.store,
     harness.updates,
     { appliedDamagePressureScale: 10 },
     tickStartMoraleStates,
   );
   return result.updates.slice();
+}
+
+function individualAttempt(attackerEntityId: number, targetEntityId: number) {
+  return {
+    attackerEntityId,
+    targetEntityId,
+    weaponCategory: "oneHanded" as const,
+    commitmentDurationTicks: 3,
+    recoveryDurationTicks: 3,
+    distanceSquaredAtResolution: 64,
+    threatDistance: 12,
+    preferredMinimumDistance: 4,
+    awkwardDistance: false,
+    facingX: 1 as const,
+    facingY: 0 as const,
+    outcome: "attempted" as const,
+  };
+}
+
+function hitApplication(attackerEntityId: number, targetEntityId: number) {
+  return {
+    attackerEntityId,
+    targetEntityId,
+    attackerWeaponCategory: "oneHanded" as const,
+    targetArmourCategory: "none" as const,
+    targetMaximumGlobalHits: 2,
+    currentHitsBefore: 2,
+    requestedHitLoss: 1 as const,
+    appliedHitLoss: 1,
+    currentHitsAfter: 1,
+    zeroReachedByApplication: false,
+    awkwardDistance: false,
+    availableDefenceType: "none" as const,
+    landedReason: "noActiveDefence" as const,
+    applicationReason: "ordinaryLandedStrike" as const,
+  };
+}
+
+function successfulParry(
+  attackerEntityId: number,
+  defenderEntityId: number,
+): IndividualMeleeDefenceRecord {
+  return {
+    attackerEntityId,
+    defenderEntityId,
+    attackerWeaponCategory: "oneHanded",
+    defenderActiveWeaponCategory: "oneHanded",
+    defenderShieldCategory: "none",
+    defenderShieldCarriedState: "none",
+    defenderActionState: "ready",
+    guardStateBeforeResolution: "ready",
+    defenderFacingX: -1,
+    defenderFacingY: 0,
+    incomingDirectionName: "west",
+    incomingDirectionOctantIndex: 4,
+    availableDefenceType: "weaponParry",
+    defenceCoverageTier: "small",
+    defenceReadinessFixedPoint: 10_000,
+    calculatedDefenceChanceFixedPoint: 9_500,
+    deterministicDefenceRollFixedPoint: 1,
+    defenceResolution: "successfulParry",
+    outcome: "parried",
+    defenceRecoveryTicksAssigned: 4,
+    awkwardDistance: false,
+  };
+}
+
+function createWorld(entityCount: number): WorldState {
+  return {
+    entityCount,
+    bounds: { width: 1_000, height: 1_000 },
+    ids: Uint32Array.from({ length: entityCount }, (_unused, index) => index),
+    positionsX: Int32Array.from(
+      { length: entityCount },
+      (_unused, index) => 100 + index * 12,
+    ),
+    positionsY: Int32Array.from({ length: entityCount }, () => 100),
+    velocitiesX: new Int32Array(entityCount),
+    velocitiesY: new Int32Array(entityCount),
+  };
 }
 
 function individualSummary(

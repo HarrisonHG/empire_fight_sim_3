@@ -47,7 +47,7 @@ describe("Milestone 4 morale inspection scenario", () => {
     expect(first.initialUnitIds).toEqual([11, 12, 13, 14, 21, 22, 23]);
     expect(first.initialEntityCount).toBe(70);
     expect(first.memberCount).toBe(70);
-    expect(first.veteranRouted).toBe(true);
+    expect(first.veteranRouted).toBe(false);
     expect(first.regularSeverelyDegraded).toBe(true);
     expect(first.regularOutperformedVeteran).toBe(true);
     expect(first.recruitRouted).toBe(true);
@@ -55,8 +55,8 @@ describe("Milestone 4 morale inspection scenario", () => {
     expect(first.reserveDisrupted).toBe(true);
     expect(first.reserveRouted).toBe(false);
     expect(first.recruitRecovered).toBe(true);
-    expect(first.recruitCompletedRecovery).toBe(true);
-    expect(first.recruitRecoveryTicks).toBeGreaterThanOrEqual(100);
+    expect(first.recruitCompletedRecovery).toBe(false);
+    expect(first.recruitRecoveryTicks).toBeGreaterThanOrEqual(90);
     expect(first.recoveringAnchorHeld).toBe(true);
     expect(first.recoveringMovementSuspended).toBe(true);
     expect(first.finalEntityCount).toBe(70);

@@ -1,4 +1,5 @@
 import type {
+  InspectedCombatVisualEvent,
   LiveCombatDebugIndividualSnapshot,
   LiveCombatDebugUnitSnapshot,
   SimulationSnapshot,
@@ -15,6 +16,7 @@ import {
 } from "./individualInspectionFormatting";
 
 const FPS_SAMPLE_WINDOW_MS = 500;
+const MAX_COMBAT_EVENT_LOG_ROWS = 12;
 
 export class MetricsPanel {
   public readonly element: HTMLElement;
@@ -31,7 +33,9 @@ export class MetricsPanel {
   private readonly individualInspectionValue = createMetricValue(
     "individual-inspection",
   );
+  private readonly combatEventLogValue = createMetricValue("combat-event-log");
   private readonly retainedInspectionEvents = new Map<number, string>();
+  private readonly retainedCombatEventLog: string[] = [];
   private frameRequest: number | undefined;
   private sampleStartedAt: number | undefined;
   private sampledFrames = 0;
@@ -51,6 +55,7 @@ export class MetricsPanel {
       createMetricRow("Combat total", this.combatTotalCountsValue),
       createMetricRow("Unit state", this.combatUnitStateValue),
       createMetricRow("Individuals", this.individualInspectionValue),
+      createMetricRow("Events", this.combatEventLogValue),
     );
     this.element.append(metrics);
 
@@ -87,6 +92,7 @@ export class MetricsPanel {
       )
     ) {
       this.retainedInspectionEvents.clear();
+      this.retainedCombatEventLog.length = 0;
     }
 
     this.combatTickCountsValue.textContent = formatCombatCounts({
@@ -121,6 +127,10 @@ export class MetricsPanel {
       snapshot.tick,
       combatDebug.inspectedIndividuals,
       combatDebug.units,
+    );
+    this.renderCombatEventLog(
+      combatDebug.inspectedIndividuals.length,
+      combatDebug.inspectedCombatVisualEvents,
     );
   }
 
@@ -169,7 +179,9 @@ export class MetricsPanel {
     this.combatTotalCountsValue.textContent = "--";
     this.combatUnitStateValue.textContent = "--";
     this.individualInspectionValue.textContent = "--";
+    this.combatEventLogValue.textContent = "--";
     this.retainedInspectionEvents.clear();
+    this.retainedCombatEventLog.length = 0;
   }
 
   private renderIndividualInspection(
@@ -245,6 +257,30 @@ export class MetricsPanel {
     table.append(header, body);
     this.individualInspectionValue.replaceChildren(table);
   }
+
+  private renderCombatEventLog(
+    inspectedIndividualCount: number,
+    events: readonly InspectedCombatVisualEvent[],
+  ): void {
+    if (inspectedIndividualCount === 0) {
+      this.combatEventLogValue.textContent = "--";
+      this.retainedCombatEventLog.length = 0;
+      return;
+    }
+    for (const event of events) {
+      this.retainedCombatEventLog.push(formatCombatVisualEventLogEntry(event));
+    }
+    if (this.retainedCombatEventLog.length > MAX_COMBAT_EVENT_LOG_ROWS) {
+      this.retainedCombatEventLog.splice(
+        0,
+        this.retainedCombatEventLog.length - MAX_COMBAT_EVENT_LOG_ROWS,
+      );
+    }
+    this.combatEventLogValue.textContent =
+      this.retainedCombatEventLog.length === 0
+        ? "--"
+        : this.retainedCombatEventLog.join("\n");
+  }
 }
 
 function createMetricValue(testId: string): HTMLElement {
@@ -305,4 +341,15 @@ function formatAction(individual: LiveCombatDebugIndividualSnapshot): string {
 
 function formatGuard(individual: LiveCombatDebugIndividualSnapshot): string {
   return `${individual.guardState} ${individual.defenceRecoveryTicksRemaining}`;
+}
+
+function formatCombatVisualEventLogEntry(
+  event: InspectedCombatVisualEvent,
+): string {
+  const hitLoss =
+    event.appliedHitLoss > 0 ? ` -${event.appliedHitLoss}` : "";
+  return (
+    `t${event.tick} E${event.attackerEntityId}->E${event.targetEntityId} ` +
+    `${event.kind}${hitLoss}`
+  );
 }

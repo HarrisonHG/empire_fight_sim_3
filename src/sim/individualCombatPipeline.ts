@@ -157,6 +157,7 @@ export function createIndividualCombatPipelineStores(
   identityStore: UnitIdentityStore,
   formationStore: FormationBehaviourStore,
   profileStore: IndividualCombatProfileStore,
+  battleSeed = 0,
 ): IndividualCombatPipelineStores {
   return {
     profileStore,
@@ -175,6 +176,7 @@ export function createIndividualCombatPipelineStores(
     ),
     defenceStore: createIndividualMeleeDefenceStore({
       entityCount: world.entityCount,
+      battleSeed,
     }),
     landedHitGateStore: createIndividualLandedHitGateStore({
       entityCount: world.entityCount,
@@ -255,6 +257,7 @@ export function advanceIndividualCombatPipelineOneTick(
       buffers.defenceRecords,
       buffers.guardStateEvents,
       stores.eligibilitySnapshot,
+      currentTick,
     ),
   );
   const gateResult = runStage("gate", () =>

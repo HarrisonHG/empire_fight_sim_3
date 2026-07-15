@@ -9,6 +9,13 @@ import {
   getWeaponGlyphSpec,
   shouldRenderPreferredDistanceMarker,
 } from "../../src/render/combatGlyphGrammar";
+import {
+  COMBAT_VISUAL_EVENT_GLYPHS,
+  COMBAT_VISUAL_EVENT_LIFETIME_TICKS,
+  getCombatVisualEventGlyphSpec,
+  isRetainedCombatVisualEventExpired,
+  pruneRetainedCombatVisualEvents,
+} from "../../src/render/combatVisualEventGrammar";
 import type {
   IndividualArmourCategory,
   IndividualWeaponCategory,
@@ -84,4 +91,68 @@ describe("combat glyph grammar", () => {
     );
     expect(new Set(styles).size).toBe(ARMOUR_CATEGORIES.length);
   });
+
+  it("maps combat visual event kinds to distinct shape cues for inspection", () => {
+    expect(Object.keys(COMBAT_VISUAL_EVENT_GLYPHS).sort()).toEqual([
+      "attackAttempt",
+      "bucklerBlock",
+      "failedDefence",
+      "gateAccepted",
+      "gateRejected",
+      "hitApplied",
+      "landed",
+      "parry",
+      "shieldBlock",
+      "zeroHit",
+    ].sort());
+    expect(getCombatVisualEventGlyphSpec("parry").shape).toBe("cross");
+    expect(getCombatVisualEventGlyphSpec("bucklerBlock").shape).toBe(
+      "smallCircle",
+    );
+    expect(getCombatVisualEventGlyphSpec("shieldBlock").shape).toBe("broadArc");
+    expect(getCombatVisualEventGlyphSpec("failedDefence").shape).toBe(
+      "hollowCross",
+    );
+    expect(getCombatVisualEventGlyphSpec("landed").shape).toBe("burst");
+    expect(getCombatVisualEventGlyphSpec("hitApplied").shape).toBe(
+      "hitLossText",
+    );
+    expect(getCombatVisualEventGlyphSpec("gateRejected").shape).toBe(
+      "brokenRing",
+    );
+  });
+
+  it("expires retained combat visual events after the fixed presentation lifetime", () => {
+    expect(COMBAT_VISUAL_EVENT_LIFETIME_TICKS).toBe(10);
+    expect(isRetainedCombatVisualEventExpired(15, 5)).toBe(false);
+    expect(isRetainedCombatVisualEventExpired(16, 5)).toBe(true);
+
+    const retained = [
+      retainedEvent(4, "attackAttempt"),
+      retainedEvent(6, "hitApplied"),
+    ];
+    pruneRetainedCombatVisualEvents(retained, 16);
+    expect(retained.map((entry) => entry.event.kind)).toEqual(["hitApplied"]);
+    retained.length = 0;
+    expect(retained).toEqual([]);
+  });
 });
+
+function retainedEvent(
+  tick: number,
+  kind: keyof typeof COMBAT_VISUAL_EVENT_GLYPHS,
+) {
+  return {
+    event: {
+      tick,
+      attackerEntityId: 1,
+      targetEntityId: 2,
+      kind,
+      appliedHitLoss: kind === "hitApplied" ? 1 : 0,
+    },
+    attackerX: 10,
+    attackerY: 20,
+    targetX: 30,
+    targetY: 40,
+  };
+}
