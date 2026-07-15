@@ -59,6 +59,15 @@ export function getIndividualCharacterLifecycleState(
   return LIFECYCLE_STATES[internal.stateByEntity[entityId]!]!;
 }
 
+export function isIndividualCharacterActive(
+  store: IndividualCasualtyLifecycleStore,
+  entityId: number,
+): boolean {
+  const internal = asInternal(store);
+  assertEntityId(entityId, internal.entityCount, "Casualty lifecycle");
+  return internal.stateByEntity[entityId] === 0;
+}
+
 export function getIndividualEnteredDyingTick(
   store: IndividualCasualtyLifecycleStore,
   entityId: number,
@@ -203,6 +212,9 @@ export function applyIndividualZeroHitLifecycleTransitions(
   validateMatchingCounts(lifecycle, presence, procedureStore, positions);
   assertNonNegativeSafeInteger(tick, "tick");
   transitionsOut.length = 0;
+  if (zeroHitEvents.length === 0) {
+    return { transitions: transitionsOut, transitionCount: 0 };
+  }
 
   // Validate before staging candidates so an invalid event cannot leave scratch
   // state behind for a later call.

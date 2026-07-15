@@ -36,12 +36,26 @@ import {
 } from "./persistentMorale";
 import { getIndividualCombatConsequenceSummaries } from "./individualCombatConsequences";
 import {
-  advanceIndividualCombatPipelineOneTick,
+  advanceIndividualCombatExchangeOneTick,
+  completeIndividualCombatPipelineOneTick,
   createIndividualCombatPipelineBuffers,
   createIndividualCombatPipelineStores,
   createIndividualCombatProfileStoreFromUnitLoadouts,
   type IndividualCombatPipelineTickResult,
 } from "./individualCombatPipeline";
+import {
+  applyIndividualZeroHitLifecycleTransitions,
+  createIndividualCasualtyLifecycleStore,
+  createIndividualPlayerPresenceStore,
+  getIndividualCharacterLifecycleState,
+  getIndividualPlayerPresenceState,
+} from "./individualCasualtyLifecycle";
+import {
+  createIndividualCasualtyProcedureProfileStore,
+  getIndividualCasualtyProcedureProfile,
+  type IndividualCasualtyProcedureProfileConfig,
+} from "./individualCasualtyProcedureProfile";
+import { createIndividualCasualtyLocalQueryStore } from "./individualCasualtyLocalQuery";
 import {
   getActiveMeleeWeaponCategory,
   getAttackCommitmentTicksRemaining,
@@ -406,6 +420,7 @@ function createCombatSandbox(
     readonly slotCol: number;
     readonly memberMaxStep: number;
   }> = [];
+  const casualtyProcedureProfiles: IndividualCasualtyProcedureProfileConfig[] = [];
 
   let nextEntityId = 0;
   for (let unitIndex = 0; unitIndex < scenario.units.length; unitIndex += 1) {
@@ -436,6 +451,11 @@ function createCombatSandbox(
         ...(unit.individualConfidence === undefined
           ? {}
           : { confidence: unit.individualConfidence }),
+      });
+      casualtyProcedureProfiles.push({
+        entityId,
+        procedureKind: unit.casualtyProcedure.procedureKind,
+        deathCountPolicy: unit.casualtyProcedure.deathCountPolicy,
       });
     }
 
@@ -495,6 +515,15 @@ function createCombatSandbox(
   );
   const individualCombatPipelineBuffers =
     createIndividualCombatPipelineBuffers();
+  const individualCasualtyProcedureProfileStore =
+    createIndividualCasualtyProcedureProfileStore({
+      entityCount: world.entityCount,
+      profiles: casualtyProcedureProfiles,
+    });
+  const individualCasualtyLifecycleStore =
+    createIndividualCasualtyLifecycleStore(world.entityCount);
+  const individualPlayerPresenceStore =
+    createIndividualPlayerPresenceStore(world.entityCount);
   const moraleAssessments: CombatMoraleAssessment[] = [];
   collectCombatMoraleAssessments(
     identityStore,
@@ -527,6 +556,14 @@ function createCombatSandbox(
     individualLandedHitGateStore:
       individualCombatPipelineStores.landedHitGateStore,
     individualGlobalHitStore: individualCombatPipelineStores.globalHitStore,
+    individualCasualtyProcedureProfileStore,
+    individualCasualtyLifecycleStore,
+    individualPlayerPresenceStore,
+    individualCasualtyLocalQueryStore: createIndividualCasualtyLocalQueryStore(
+      world.entityCount,
+      world.bounds,
+    ),
+    individualLifecycleTransitions: [],
     individualCombatUnitAggregationStore:
       individualCombatPipelineStores.unitAggregationStore,
     individualCombatUnitSummaries: getIndividualCombatUnitSummaries(
@@ -575,6 +612,7 @@ function createCombatSandbox(
     individualEndOfTickCombatEligibleMemberCount: 0,
     individualEndOfTickZeroHitMemberCount: 0,
     individualNewlyZeroHitMemberCount: 0,
+    individualLifecycleTransitionCount: 0,
     totalIndividualEligibleMeleeSourceCount: 0,
     totalIndividualSelectedTargetCount: 0,
     totalIndividualActiveCommitmentCount: 0,
@@ -594,6 +632,7 @@ function createCombatSandbox(
     totalIndividualEndOfTickCombatEligibleMemberCount: 0,
     totalIndividualEndOfTickZeroHitMemberCount: 0,
     totalIndividualNewlyZeroHitMemberCount: 0,
+    totalIndividualLifecycleTransitionCount: 0,
     debugSnapshot: createEmptyCombatDebugSnapshot(),
   };
   combatSandbox.debugSnapshot = createCombatDebugSnapshot(combatSandbox, 0);
@@ -805,6 +844,11 @@ function validateCombatSandboxScenario(
       "attackIntervalTicks",
     );
     assertPositiveSafeInteger(unit.maxDamageCapacity, "maxDamageCapacity");
+    if (unit.casualtyProcedure === undefined) {
+      throw new RangeError(
+        "Live combat units require an explicit casualty procedure profile.",
+      );
+    }
     if (unit.initialCohesion !== undefined) {
       assertNonNegativeSafeInteger(unit.initialCohesion, "initialCohesion");
     }
@@ -1002,18 +1046,35 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.formationStore,
       combatSandbox.moraleMovementStates,
       instrumentation?.formationDiagnostics,
+      combatSandbox.individualCasualtyLifecycleStore,
     ),
   );
-  const individualCombatResult = runStage("individualPipeline", () =>
-    advanceIndividualCombatPipelineOneTick(
+  const individualCombatResult = runStage("individualPipeline", () => {
+    const individualCombatExchange = advanceIndividualCombatExchangeOneTick(
       world,
       combatSandbox.identityStore,
       combatSandbox.formationStore,
       combatSandbox.individualCombatPipelineStores,
       combatSandbox.individualCombatPipelineBuffers,
       tick,
-    ),
-  );
+      { lifecycleStore: combatSandbox.individualCasualtyLifecycleStore },
+    );
+    applyIndividualZeroHitLifecycleTransitions(
+      combatSandbox.individualCasualtyLifecycleStore,
+      combatSandbox.individualPlayerPresenceStore,
+      combatSandbox.individualCasualtyProcedureProfileStore,
+      world,
+      individualCombatExchange.hits.zeroHitEvents,
+      tick,
+      combatSandbox.individualLifecycleTransitions,
+    );
+    return completeIndividualCombatPipelineOneTick(
+      combatSandbox.identityStore,
+      combatSandbox.individualCombatPipelineStores,
+      individualCombatExchange,
+      { lifecycleStore: combatSandbox.individualCasualtyLifecycleStore },
+    );
+  });
   runStage("individualPressureAndCohesion", () =>
     advanceIndividualCombatPressureOneTick(
       world,
@@ -1032,6 +1093,7 @@ export function advanceCombatSandboxOneTick(
         appliedDamagePressureScale: combatSandbox.appliedDamagePressureScale,
       },
       combatSandbox.moraleMovementStates,
+      combatSandbox.individualCasualtyLifecycleStore,
     ),
   );
   runStage("routingContagion", () =>
@@ -1188,6 +1250,8 @@ function updateIndividualCombatCounters(
     result.endOfTickZeroHitMemberCount;
   combatSandbox.individualNewlyZeroHitMemberCount =
     result.newlyZeroHitMemberCount;
+  combatSandbox.individualLifecycleTransitionCount =
+    combatSandbox.individualLifecycleTransitions.length;
   combatSandbox.totalIndividualEligibleMeleeSourceCount +=
     result.eligibleMeleeSourceCount;
   combatSandbox.totalIndividualSelectedTargetCount += result.selectedTargetCount;
@@ -1220,6 +1284,8 @@ function updateIndividualCombatCounters(
     result.endOfTickZeroHitMemberCount;
   combatSandbox.totalIndividualNewlyZeroHitMemberCount +=
     result.newlyZeroHitMemberCount;
+  combatSandbox.totalIndividualLifecycleTransitionCount +=
+    combatSandbox.individualLifecycleTransitions.length;
 }
 
 /**
@@ -1259,6 +1325,7 @@ function createEmptyCombatDebugSnapshot(): LiveCombatDebugSnapshot {
     gateAcceptedHitCount: 0,
     appliedHitLoss: 0,
     newlyZeroMemberCount: 0,
+    lifecycleTransitionCount: 0,
     tickStartEligibleMemberCount: 0,
     endOfTickEligibleMemberCount: 0,
     endOfTickZeroHitMemberCount: 0,
@@ -1268,6 +1335,7 @@ function createEmptyCombatDebugSnapshot(): LiveCombatDebugSnapshot {
     totalGateAcceptedHitCount: 0,
     totalAppliedHitLoss: 0,
     totalNewlyZeroMemberCount: 0,
+    totalLifecycleTransitionCount: 0,
     units: [],
     inspectedIndividuals: [],
     individualCombatVisuals: [],
@@ -1339,6 +1407,8 @@ function createCombatDebugSnapshot(
     gateAcceptedHitCount: combatSandbox.individualGateAcceptedHitCount,
     appliedHitLoss: combatSandbox.individualAppliedHitLoss,
     newlyZeroMemberCount: combatSandbox.individualNewlyZeroHitMemberCount,
+    lifecycleTransitionCount:
+      combatSandbox.individualLifecycleTransitionCount,
     tickStartEligibleMemberCount:
       combatSandbox.individualTickStartCombatEligibleMemberCount,
     endOfTickEligibleMemberCount:
@@ -1355,6 +1425,8 @@ function createCombatDebugSnapshot(
     totalGateAcceptedHitCount: combatSandbox.totalIndividualGateAcceptedHitCount,
     totalAppliedHitLoss: combatSandbox.totalIndividualAppliedHitLoss,
     totalNewlyZeroMemberCount: combatSandbox.totalIndividualNewlyZeroHitMemberCount,
+    totalLifecycleTransitionCount:
+      combatSandbox.totalIndividualLifecycleTransitionCount,
     units,
     inspectedIndividuals: collectInspectedIndividualSnapshots(combatSandbox),
     individualCombatVisuals: collectIndividualCombatVisualStates(combatSandbox),
@@ -1406,6 +1478,18 @@ function collectInspectedIndividualSnapshots(
     out.push({
       entityId,
       unitId: getUnitIdForEntity(combatSandbox.identityStore, entityId),
+      casualtyProcedureKind: getIndividualCasualtyProcedureProfile(
+        combatSandbox.individualCasualtyProcedureProfileStore,
+        entityId,
+      ).procedureKind,
+      characterLifecycleState: getIndividualCharacterLifecycleState(
+        combatSandbox.individualCasualtyLifecycleStore,
+        entityId,
+      ),
+      playerPresenceState: getIndividualPlayerPresenceState(
+        combatSandbox.individualPlayerPresenceStore,
+        entityId,
+      ),
       tickStartCombatEligible: isIndividualCombatEligible(
         combatSandbox.individualCombatEligibilitySnapshot,
         entityId,
@@ -2055,6 +2139,7 @@ function createLegacyCombatFoundationDebugSnapshot(
     gateAcceptedHitCount: legacySandbox.survivabilityApplicationCount,
     appliedHitLoss: tickAppliedDamage,
     newlyZeroMemberCount: 0,
+    lifecycleTransitionCount: 0,
     tickStartEligibleMemberCount: legacySandbox.identityStore.entityCount,
     endOfTickEligibleMemberCount: legacySandbox.identityStore.entityCount,
     endOfTickZeroHitMemberCount: 0,
@@ -2065,6 +2150,7 @@ function createLegacyCombatFoundationDebugSnapshot(
       legacySandbox.totalSurvivabilityApplicationCount,
     totalAppliedHitLoss: totalAccumulatedDamage,
     totalNewlyZeroMemberCount: 0,
+    totalLifecycleTransitionCount: 0,
     units,
     inspectedIndividuals: [],
     individualCombatVisuals: [],

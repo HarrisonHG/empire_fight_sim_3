@@ -3,6 +3,7 @@ import {
   createIndividualCombatActionStore,
   type IndividualCombatActionStateEvent,
   type IndividualCombatActionStore,
+  type IndividualCombatActionTickResult,
   type IndividualMeleeAttackAttemptRecord,
 } from "./individualCombatAction";
 import {
@@ -21,6 +22,7 @@ import {
   createIndividualCombatEligibilitySnapshot,
   projectIndividualCombatEligibilityFromHits,
   type IndividualCombatEligibilitySnapshot,
+  type IndividualCombatEligibilityProjectionResult,
 } from "./individualCombatEligibility";
 import {
   createIndividualCombatProfileStore,
@@ -35,6 +37,7 @@ import {
   applyIndividualLandedHits,
   createIndividualGlobalHitStore,
   type IndividualGlobalHitStore,
+  type IndividualGlobalHitTickResult,
   type IndividualLandedHitApplicationRecord,
   type IndividualZeroHitEvent,
 } from "./individualGlobalHits";
@@ -43,6 +46,7 @@ import {
   filterIndividualLandedHitsThroughGate,
   type IndividualLandedHitGateDecisionRecord,
   type IndividualLandedHitGateStore,
+  type IndividualLandedHitGateTickResult,
 } from "./individualLandedHitGate";
 import {
   createIndividualMeleeDefenceStore,
@@ -50,14 +54,17 @@ import {
   type IndividualGuardStateEvent,
   type IndividualMeleeDefenceRecord,
   type IndividualMeleeDefenceStore,
+  type IndividualMeleeDefenceTickResult,
 } from "./individualMeleeDefence";
 import {
   advanceIndividualMeleeTargetSelection,
   createIndividualMeleeTargetSelectionStore,
   type IndividualMeleeTargetSelectionStore,
+  type IndividualMeleeTargetSelectionTickResult,
   type IndividualSelectedTargetRecord,
 } from "./individualMeleeTargetSelection";
 import type { FormationBehaviourStore } from "./formationBehaviour";
+import type { IndividualCasualtyLifecycleStore } from "./individualCasualtyLifecycle";
 import type { WorldState } from "./types";
 import {
   getUnitIds,
@@ -150,6 +157,16 @@ export type IndividualCombatPipelineStageRunner = <T>(
 
 export interface IndividualCombatPipelineAdvanceOptions {
   readonly runStage?: IndividualCombatPipelineStageRunner;
+  readonly lifecycleStore?: IndividualCasualtyLifecycleStore;
+}
+
+export interface IndividualCombatExchangeTickResult {
+  readonly eligibility: IndividualCombatEligibilityProjectionResult;
+  readonly targeting: IndividualMeleeTargetSelectionTickResult;
+  readonly actions: IndividualCombatActionTickResult;
+  readonly defences: IndividualMeleeDefenceTickResult;
+  readonly gate: IndividualLandedHitGateTickResult;
+  readonly hits: IndividualGlobalHitTickResult;
 }
 
 export function createIndividualCombatPipelineStores(
@@ -214,11 +231,39 @@ export function advanceIndividualCombatPipelineOneTick(
   currentTick: number,
   options: IndividualCombatPipelineAdvanceOptions = {},
 ): IndividualCombatPipelineTickResult {
+  const exchange = advanceIndividualCombatExchangeOneTick(
+    world,
+    identityStore,
+    formationStore,
+    stores,
+    buffers,
+    currentTick,
+    options,
+  );
+  return completeIndividualCombatPipelineOneTick(
+    identityStore,
+    stores,
+    exchange,
+    options,
+  );
+}
+
+/** Runs the accepted tick-start combat exchange through global-hit mutation. */
+export function advanceIndividualCombatExchangeOneTick(
+  world: WorldState,
+  identityStore: UnitIdentityStore,
+  formationStore: FormationBehaviourStore,
+  stores: IndividualCombatPipelineStores,
+  buffers: IndividualCombatPipelineBuffers,
+  currentTick: number,
+  options: IndividualCombatPipelineAdvanceOptions = {},
+): IndividualCombatExchangeTickResult {
   const runStage = options.runStage ?? runStageDirectly;
   const eligibilityResult = runStage("eligibility", () =>
     projectIndividualCombatEligibilityFromHits(
       stores.globalHitStore,
       stores.eligibilitySnapshot,
+      options.lifecycleStore,
     ),
   );
   const targetResult = runStage("targetSelection", () =>
@@ -278,6 +323,31 @@ export function advanceIndividualCombatPipelineOneTick(
       buffers.zeroHitEvents,
     ),
   );
+
+  return {
+    eligibility: eligibilityResult,
+    targeting: targetResult,
+    actions: actionResult,
+    defences: defenceResult,
+    gate: gateResult,
+    hits: hitResult,
+  };
+}
+
+/** Projects final per-unit read models after post-hit lifecycle transitions. */
+export function completeIndividualCombatPipelineOneTick(
+  identityStore: UnitIdentityStore,
+  stores: IndividualCombatPipelineStores,
+  exchange: IndividualCombatExchangeTickResult,
+  options: IndividualCombatPipelineAdvanceOptions = {},
+): IndividualCombatPipelineTickResult {
+  const runStage = options.runStage ?? runStageDirectly;
+  const targetResult = exchange.targeting;
+  const actionResult = exchange.actions;
+  const defenceResult = exchange.defences;
+  const gateResult = exchange.gate;
+  const hitResult = exchange.hits;
+  const eligibilityResult = exchange.eligibility;
   const aggregationResult = runStage("aggregation", () =>
     collectIndividualCombatUnitSummaries(
       identityStore,
@@ -292,6 +362,7 @@ export function advanceIndividualCombatPipelineOneTick(
       hitResult.applications,
       hitResult.zeroHitEvents,
       stores.unitAggregationStore,
+      options.lifecycleStore,
     ),
   );
   const consequenceProjectionResult = runStage("consequenceProjection", () =>

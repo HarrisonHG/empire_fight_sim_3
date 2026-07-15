@@ -5,6 +5,10 @@ import {
   isIndividualCombatEligible,
   type IndividualCombatEligibilitySnapshot,
 } from "./individualCombatEligibility";
+import {
+  isIndividualCharacterActive,
+  type IndividualCasualtyLifecycleStore,
+} from "./individualCasualtyLifecycle";
 import type {
   IndividualLandedHitApplicationRecord,
   IndividualZeroHitEvent,
@@ -315,6 +319,7 @@ export function advanceIndividualCombatPressureOneTick(
     readonly appliedDamagePressureScale?: number;
   } = {},
   tickStartMoraleStates?: UnitMoraleMovementStateSource,
+  lifecycleStore?: IndividualCasualtyLifecycleStore,
 ): CombatPressureTickResult {
   validateStores(identityStore, formationStore);
   if (
@@ -323,6 +328,14 @@ export function advanceIndividualCombatPressureOneTick(
   ) {
     throw new RangeError(
       "Individual combat pressure dependencies must match entity count.",
+    );
+  }
+  if (
+    lifecycleStore !== undefined &&
+    lifecycleStore.entityCount !== identityStore.entityCount
+  ) {
+    throw new RangeError(
+      "Individual combat pressure lifecycle must match entity count.",
     );
   }
   const internal = asInternal(store);
@@ -353,6 +366,7 @@ export function advanceIndividualCombatPressureOneTick(
     zeroHitEvents,
     eligibility,
     appliedDamagePressureScale,
+    lifecycleStore,
   );
 
   out.length = 0;
@@ -367,6 +381,7 @@ export function advanceIndividualCombatPressureOneTick(
         unitId,
         unitIndex,
         tickStartMoraleStates,
+        lifecycleStore,
       ),
     );
   }
@@ -379,6 +394,7 @@ function prepareIndividualProximityFloors(
   identityStore: UnitIdentityStore,
   store: InternalCombatPressureStore,
   eligibility: IndividualCombatEligibilitySnapshot,
+  lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
 ): void {
   if (
     store.individualPressureGrid === undefined ||
@@ -392,10 +408,20 @@ function prepareIndividualProximityFloors(
       capacity: world.entityCount,
     });
   }
-  buildSpatialGrid(store.individualPressureGrid, world);
+  buildSpatialGrid(
+    store.individualPressureGrid,
+    world,
+    lifecycleStore === undefined
+      ? undefined
+      : (entityId) => isIndividualCharacterActive(lifecycleStore, entityId),
+  );
 
   for (let entityId = 0; entityId < world.entityCount; entityId += 1) {
-    if (!isIndividualCombatEligible(eligibility, entityId)) continue;
+    if (
+      !isIndividualCombatEligible(eligibility, entityId) ||
+      (lifecycleStore !== undefined &&
+        !isIndividualCharacterActive(lifecycleStore, entityId))
+    ) continue;
     const sourceUnitId = getUnitIdForEntity(identityStore, entityId);
     const sourceFactionId = getFactionIdForUnit(identityStore, sourceUnitId);
     const nearby = queryEntitiesWithinRadiusInto(
@@ -411,7 +437,9 @@ function prepareIndividualProximityFloors(
       const otherEntityId = nearby[index]!;
       if (
         otherEntityId === entityId ||
-        !isIndividualCombatEligible(eligibility, otherEntityId)
+        !isIndividualCombatEligible(eligibility, otherEntityId) ||
+        (lifecycleStore !== undefined &&
+          !isIndividualCharacterActive(lifecycleStore, otherEntityId))
       ) {
         continue;
       }
@@ -440,9 +468,14 @@ function applyIndividualUnitPressureUpdate(
   unitId: UnitId,
   unitIndex: number,
   tickStartMoraleStates: UnitMoraleMovementStateSource | undefined,
+  lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
 ): UnitPressureUpdate {
   const members = getUnitMembers(identityStore, unitId);
-  const confidenceAverage = calculateAverageConfidence(formationStore, members);
+  const confidenceAverage = calculateActiveAverageConfidence(
+    formationStore,
+    members,
+    lifecycleStore,
+  );
   const engaged = store.engagedByUnit[unitIndex] === 1;
   const inContact = isHostileContactMovementStyle(
     getUnitMovementStyle(formationStore, unitId),
@@ -666,6 +699,7 @@ function prepareIndividualSourceScratch(
   _zeroHitEvents: readonly IndividualZeroHitEvent[],
   eligibility: IndividualCombatEligibilitySnapshot,
   appliedDamagePressureScale: number,
+  lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
 ): void {
   store.engagedByUnit.fill(0);
   store.consequencePressureByUnit.fill(0);
@@ -681,7 +715,13 @@ function prepareIndividualSourceScratch(
   store.recoveryCreditAppliedByEntity.fill(0);
   store.pressureRecoveredByEntity.fill(0);
 
-  prepareIndividualProximityFloors(world, identityStore, store, eligibility);
+  prepareIndividualProximityFloors(
+    world,
+    identityStore,
+    store,
+    eligibility,
+    lifecycleStore,
+  );
 
   for (let index = 0; index < individualConsequences.length; index += 1) {
     const consequence = individualConsequences[index]!;
@@ -901,6 +941,25 @@ function calculateAverageConfidence(
     total += getIndividualConfidence(formationStore, members[index]!);
   }
   return Math.trunc(total / members.length);
+}
+
+function calculateActiveAverageConfidence(
+  formationStore: FormationBehaviourStore,
+  members: readonly number[],
+  lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
+): number {
+  let total = 0;
+  let count = 0;
+  for (let index = 0; index < members.length; index += 1) {
+    const entityId = members[index]!;
+    if (
+      lifecycleStore !== undefined &&
+      !isIndividualCharacterActive(lifecycleStore, entityId)
+    ) continue;
+    total += getIndividualConfidence(formationStore, entityId);
+    count += 1;
+  }
+  return count === 0 ? 0 : Math.trunc(total / count);
 }
 
 function reduceForHighConfidence(

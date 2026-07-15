@@ -29,6 +29,19 @@ import type {
   IndividualWeaponCategory,
 } from "./individualCombatProfile";
 import type { IndividualGlobalHitStore } from "./individualGlobalHits";
+import type {
+  CasualtyProcedureKind,
+  DeathCountPolicy,
+  IndividualCasualtyProcedureProfileStore,
+} from "./individualCasualtyProcedureProfile";
+import type {
+  CharacterLifecycleState,
+  IndividualCasualtyLifecycleStore,
+  IndividualPlayerPresenceStore,
+  IndividualZeroHitLifecycleTransitionRecord,
+  PlayerPresenceState,
+} from "./individualCasualtyLifecycle";
+import type { IndividualCasualtyLocalQueryStore } from "./individualCasualtyLocalQuery";
 import type { IndividualLandedHitGateStore } from "./individualLandedHitGate";
 import type {
   DefenceCoverageTier,
@@ -106,6 +119,11 @@ export interface CombatSandboxUnitScenario {
   readonly shieldClass: ShieldClass;
   readonly attackIntervalTicks: number;
   readonly maxDamageCapacity: number;
+  /** Explicit trusted template expanded to every member; never faction-derived. */
+  readonly casualtyProcedure: {
+    readonly procedureKind: CasualtyProcedureKind;
+    readonly deathCountPolicy: DeathCountPolicy;
+  };
   /** Optional compact inspection label; does not affect simulation rules. */
   readonly label?: string;
   /** Optional formation-owned initial cohesion; also defines recovery maximum. */
@@ -276,6 +294,9 @@ export interface LiveCombatDebugFacingSnapshot {
 export interface LiveCombatDebugIndividualSnapshot {
   readonly entityId: number;
   readonly unitId: number;
+  readonly casualtyProcedureKind?: CasualtyProcedureKind;
+  readonly characterLifecycleState?: CharacterLifecycleState;
+  readonly playerPresenceState?: PlayerPresenceState;
   readonly tickStartCombatEligible: boolean;
   readonly selectedTargetEntityId: number | null;
   readonly selectedTargetDistanceSquared: number | null;
@@ -369,6 +390,7 @@ export interface LiveCombatDebugSnapshot {
   readonly gateAcceptedHitCount: number;
   readonly appliedHitLoss: number;
   readonly newlyZeroMemberCount: number;
+  readonly lifecycleTransitionCount: number;
   readonly tickStartEligibleMemberCount: number;
   readonly endOfTickEligibleMemberCount: number;
   readonly endOfTickZeroHitMemberCount: number;
@@ -378,6 +400,7 @@ export interface LiveCombatDebugSnapshot {
   readonly totalGateAcceptedHitCount: number;
   readonly totalAppliedHitLoss: number;
   readonly totalNewlyZeroMemberCount: number;
+  readonly totalLifecycleTransitionCount: number;
   readonly units: readonly LiveCombatDebugUnitSnapshot[];
   readonly inspectedIndividuals: readonly LiveCombatDebugIndividualSnapshot[];
   readonly individualCombatVisuals: readonly IndividualCombatVisualState[];
@@ -400,6 +423,11 @@ export interface CombatSandboxSimulationState {
   readonly individualMeleeDefenceStore: IndividualMeleeDefenceStore;
   readonly individualLandedHitGateStore: IndividualLandedHitGateStore;
   readonly individualGlobalHitStore: IndividualGlobalHitStore;
+  readonly individualCasualtyProcedureProfileStore: IndividualCasualtyProcedureProfileStore;
+  readonly individualCasualtyLifecycleStore: IndividualCasualtyLifecycleStore;
+  readonly individualPlayerPresenceStore: IndividualPlayerPresenceStore;
+  readonly individualCasualtyLocalQueryStore: IndividualCasualtyLocalQueryStore;
+  readonly individualLifecycleTransitions: IndividualZeroHitLifecycleTransitionRecord[];
   readonly individualCombatUnitAggregationStore: IndividualCombatUnitAggregationStore;
   readonly individualCombatUnitSummaries: readonly IndividualCombatUnitSummary[];
   readonly individualCombatConsequenceProjectionStore: IndividualCombatConsequenceProjectionStore;
@@ -441,6 +469,7 @@ export interface CombatSandboxSimulationState {
   individualEndOfTickCombatEligibleMemberCount: number;
   individualEndOfTickZeroHitMemberCount: number;
   individualNewlyZeroHitMemberCount: number;
+  individualLifecycleTransitionCount: number;
   totalIndividualEligibleMeleeSourceCount: number;
   totalIndividualSelectedTargetCount: number;
   totalIndividualActiveCommitmentCount: number;
@@ -460,6 +489,7 @@ export interface CombatSandboxSimulationState {
   totalIndividualEndOfTickCombatEligibleMemberCount: number;
   totalIndividualEndOfTickZeroHitMemberCount: number;
   totalIndividualNewlyZeroHitMemberCount: number;
+  totalIndividualLifecycleTransitionCount: number;
   debugSnapshot: LiveCombatDebugSnapshot;
 }
 

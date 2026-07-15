@@ -63,6 +63,10 @@ function blueUnit(
     shieldClass: "none",
     attackIntervalTicks: 1,
     maxDamageCapacity: 1_000_000,
+    casualtyProcedure: Object.freeze({
+      procedureKind: "citizen" as const,
+      deathCountPolicy: Object.freeze({ kind: "normalFortitude" as const }),
+    }),
     initialCohesion,
     individualConfidence,
   };
@@ -97,6 +101,10 @@ function hostileUnit(
     shieldClass: "none",
     attackIntervalTicks: 1,
     maxDamageCapacity: 1_000_000,
+    casualtyProcedure: Object.freeze({
+      procedureKind: "citizen" as const,
+      deathCountPolicy: Object.freeze({ kind: "normalFortitude" as const }),
+    }),
     initialCohesion: 1_000,
     individualConfidence: 500,
   };

@@ -56,6 +56,10 @@ function bluePursuitUnit(
     shieldClass: "none",
     attackIntervalTicks: 1,
     maxDamageCapacity: 1_000_000,
+    casualtyProcedure: Object.freeze({
+      procedureKind: "citizen" as const,
+      deathCountPolicy: Object.freeze({ kind: "normalFortitude" as const }),
+    }),
     initialCohesion: 650,
     individualConfidence: 500,
   };
@@ -87,6 +91,10 @@ function redPursuitUnit(): CombatSandboxUnitScenario {
     shieldClass: "none",
     attackIntervalTicks: 1,
     maxDamageCapacity: 1_000_000,
+    casualtyProcedure: Object.freeze({
+      procedureKind: "citizen" as const,
+      deathCountPolicy: Object.freeze({ kind: "normalFortitude" as const }),
+    }),
     initialCohesion: 1_000,
     individualConfidence: 2_500,
   };

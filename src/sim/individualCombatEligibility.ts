@@ -2,6 +2,10 @@ import {
   getIndividualCurrentGlobalHits,
   type IndividualGlobalHitStore,
 } from "./individualGlobalHits";
+import {
+  isIndividualCharacterActive,
+  type IndividualCasualtyLifecycleStore,
+} from "./individualCasualtyLifecycle";
 
 export interface IndividualCombatEligibilitySnapshot {
   readonly entityCount: number;
@@ -36,6 +40,7 @@ export function createIndividualCombatEligibilitySnapshot(
 export function projectIndividualCombatEligibilityFromHits(
   globalHitStore: IndividualGlobalHitStore,
   snapshot: IndividualCombatEligibilitySnapshot,
+  lifecycleStore?: IndividualCasualtyLifecycleStore,
 ): IndividualCombatEligibilityProjectionResult {
   const internal = asInternal(snapshot);
   if (globalHitStore.entityCount !== internal.entityCount) {
@@ -43,11 +48,23 @@ export function projectIndividualCombatEligibilityFromHits(
       "Individual combat eligibility snapshot must match global-hit entity count.",
     );
   }
+  if (
+    lifecycleStore !== undefined &&
+    lifecycleStore.entityCount !== internal.entityCount
+  ) {
+    throw new RangeError(
+      "Individual combat eligibility snapshot must match lifecycle entity count.",
+    );
+  }
 
   let eligibleCount = 0;
   for (let entityId = 0; entityId < internal.entityCount; entityId += 1) {
     const eligible =
-      getIndividualCurrentGlobalHits(globalHitStore, entityId) > 0 ? 1 : 0;
+      getIndividualCurrentGlobalHits(globalHitStore, entityId) > 0 &&
+      (lifecycleStore === undefined ||
+        isIndividualCharacterActive(lifecycleStore, entityId))
+        ? 1
+        : 0;
     internal.eligibleByEntity[entityId] = eligible;
     eligibleCount += eligible;
   }

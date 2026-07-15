@@ -110,6 +110,10 @@ function unit(
     shieldClass,
     attackIntervalTicks: 20,
     maxDamageCapacity: 1_000_000,
+    casualtyProcedure: Object.freeze({
+      procedureKind: "citizen" as const,
+      deathCountPolicy: Object.freeze({ kind: "normalFortitude" as const }),
+    }),
     label,
   };
 }

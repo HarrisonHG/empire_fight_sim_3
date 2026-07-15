@@ -1,0 +1,282 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  getIndividualCharacterLifecycleState,
+  getIndividualDownPosition,
+  getIndividualPlayerPresenceState,
+} from "../../src/sim/individualCasualtyLifecycle";
+import { queryIndividualCasualtiesWithinRadiusInto } from "../../src/sim/individualCasualtyLocalQuery";
+import { getIndividualCasualtyProcedureProfile } from "../../src/sim/individualCasualtyProcedureProfile";
+import {
+  getIndividualCombatActionState,
+  getLockedAttackTargetEntityId,
+} from "../../src/sim/individualCombatAction";
+import { getIndividualCombatPressureInspection } from "../../src/sim/combatPressure";
+import { getUnitCohesion } from "../../src/sim/formationBehaviour";
+import { getIndividualCurrentGlobalHits } from "../../src/sim/individualGlobalHits";
+import { getSelectedTargetEntityId } from "../../src/sim/individualMeleeTargetSelection";
+import {
+  advanceSimulationOneTick,
+  createSimulation,
+} from "../../src/sim/simulation";
+import type {
+  CombatSandboxSimulationState,
+  CombatSandboxUnitScenario,
+  SimulationScenario,
+  SimulationState,
+} from "../../src/sim/types";
+
+describe("production casualty lifecycle integration", () => {
+  it("expands explicit unit procedure templates without faction inference", () => {
+    const scenario = explicitProfileScenario();
+    const simulation = createSimulation(scenario);
+    const combat = requireCombat(simulation);
+
+    expect(getIndividualCasualtyProcedureProfile(
+      combat.individualCasualtyProcedureProfileStore,
+      0,
+    )).toMatchObject({
+      procedureKind: "citizen",
+      deathCountPolicy: { kind: "normalFortitude" },
+    });
+    expect(getIndividualCasualtyProcedureProfile(
+      combat.individualCasualtyProcedureProfileStore,
+      1,
+    )).toMatchObject({
+      procedureKind: "barbarian",
+      deathCountPolicy: { kind: "fixedTicks", durationTicks: 600 },
+    });
+    expect(scenario.combatSandbox?.units[0]?.factionId).toBe(
+      scenario.combatSandbox?.units[1]?.factionId,
+    );
+  });
+
+  it("rejects a production unit with no explicit casualty procedure", () => {
+    const scenario = explicitProfileScenario();
+    const firstUnit = scenario.combatSandbox!.units[0]! as unknown as {
+      casualtyProcedure?: unknown;
+    };
+    delete firstUnit.casualtyProcedure;
+
+    expect(() => createSimulation(scenario)).toThrow(
+      /explicit casualty procedure profile/i,
+    );
+  });
+
+  it("transitions after hits, preserves same-tick records, then filters ordinary participation", () => {
+    const simulation = createSimulation(productionTransitionScenario());
+    const combat = requireCombat(simulation);
+    const targetEntityId = 2;
+    const initialTargetCohesion = getUnitCohesion(combat.formationStore, 2);
+
+    let transitionTick = -1;
+    for (let tick = 0; tick < 100; tick += 1) {
+      advanceSimulationOneTick(simulation);
+      if (combat.individualLifecycleTransitions.length > 0) {
+        transitionTick = tick;
+        break;
+      }
+    }
+
+    expect(transitionTick).toBeGreaterThanOrEqual(0);
+    expect(combat.individualLifecycleTransitions).toHaveLength(1);
+    expect(combat.individualLifecycleTransitions[0]).toMatchObject({
+      entityId: targetEntityId,
+      tick: transitionTick,
+      lifecycleState: "dying",
+      presenceState: "downedPresence",
+    });
+    expect(getIndividualCurrentGlobalHits(
+      combat.individualGlobalHitStore,
+      targetEntityId,
+    )).toBe(0);
+    expect(getIndividualCharacterLifecycleState(
+      combat.individualCasualtyLifecycleStore,
+      targetEntityId,
+    )).toBe("dying");
+    expect(getIndividualPlayerPresenceState(
+      combat.individualPlayerPresenceStore,
+      targetEntityId,
+    )).toBe("downedPresence");
+
+    const appliedLoss = combat.individualCombatPipelineBuffers.hitApplications
+      .reduce((total, application) => total + application.appliedHitLoss, 0);
+    expect(appliedLoss).toBe(2);
+    expect(combat.individualCombatUnitSummaries[1]).toMatchObject({
+      endOfTickCombatEligibleMemberCount: 0,
+      newlyZeroHitMemberCount: 1,
+      appliedHitLoss: 2,
+      zeroHitTransitionCount: 1,
+    });
+    expect(combat.individualCombatConsequenceSummaries[1]).toMatchObject({
+      endOfTickEligibleMembers: 0,
+      incomingAppliedHitLoss: 2,
+      incomingZeroHitTransitions: 1,
+      newlyZeroMembers: 1,
+    });
+    expect(combat.individualLifecycleTransitionCount).toBe(1);
+    expect(combat.totalIndividualLifecycleTransitionCount).toBe(1);
+    expect(getUnitCohesion(combat.formationStore, 2))
+      .toBeLessThan(initialTargetCohesion);
+    expect(getIndividualCombatPressureInspection(
+      combat.formationStore,
+      combat.pressureStore,
+      0,
+    ).nearbyHostileCount).toBe(0);
+
+    const downPosition = getIndividualDownPosition(
+      combat.individualCasualtyLifecycleStore,
+      targetEntityId,
+    );
+    expect(downPosition).toEqual({
+      x: simulation.world.positionsX[targetEntityId],
+      y: simulation.world.positionsY[targetEntityId],
+    });
+    const casualtyQueryOutput = [99];
+    expect(queryIndividualCasualtiesWithinRadiusInto(
+      simulation.world,
+      combat.individualCasualtyLifecycleStore,
+      combat.individualCasualtyLocalQueryStore,
+      downPosition!.x,
+      downPosition!.y,
+      1,
+      casualtyQueryOutput,
+    )).toBe(casualtyQueryOutput);
+    expect(casualtyQueryOutput).toEqual([targetEntityId]);
+
+    const inspected = combat.debugSnapshot.inspectedIndividuals.find(
+      (individual) => individual.entityId === targetEntityId,
+    );
+    expect(inspected).toMatchObject({
+      casualtyProcedureKind: "barbarian",
+      characterLifecycleState: "dying",
+      playerPresenceState: "downedPresence",
+    });
+
+    const cohesionAfterZeroShock = getUnitCohesion(combat.formationStore, 2);
+    advanceSimulationOneTick(simulation);
+
+    expect(combat.individualLifecycleTransitions).toEqual([]);
+    expect(combat.individualZeroHitTransitionCount).toBe(0);
+    expect(combat.totalIndividualLifecycleTransitionCount).toBe(1);
+    expect(combat.individualCombatConsequenceSummaries[1]
+      ?.incomingZeroHitTransitions).toBe(0);
+    expect(getUnitCohesion(combat.formationStore, 2))
+      .toBe(cohesionAfterZeroShock);
+    expect(getSelectedTargetEntityId(
+      combat.individualTargetSelectionStore,
+      targetEntityId,
+    )).toBe(-1);
+    expect(getLockedAttackTargetEntityId(
+      combat.individualCombatActionStore,
+      targetEntityId,
+    )).toBe(-1);
+    expect(getIndividualCombatActionState(
+      combat.individualCombatActionStore,
+      targetEntityId,
+    )).not.toBe("committingAttack");
+    expect(combat.individualCombatPipelineBuffers.attackAttempts.some(
+      (record) => record.attackerEntityId === targetEntityId,
+    )).toBe(false);
+    expect(combat.individualCombatPipelineBuffers.defenceRecords.some(
+      (record) => record.defenderEntityId === targetEntityId,
+    )).toBe(false);
+    expect(simulation.world.positionsX[targetEntityId]).toBe(downPosition!.x);
+    expect(simulation.world.positionsY[targetEntityId]).toBe(downPosition!.y);
+
+    for (let tick = 0; tick < 30; tick += 1) {
+      advanceSimulationOneTick(simulation);
+    }
+    expect([0, 1].some((entityId) =>
+      simulation.world.positionsX[entityId]! > downPosition!.x,
+    )).toBe(true);
+    expect(simulation.world.positionsX[targetEntityId]).toBe(downPosition!.x);
+  });
+});
+
+function productionTransitionScenario(): SimulationScenario {
+  return {
+    seed: 0x6a02,
+    entityCount: 3,
+    bounds: { width: 180, height: 120 },
+    minSpeedUnitsPerTick: 1,
+    maxSpeedUnitsPerTick: 1,
+    combatSandbox: {
+      kind: "liveCombatSandbox",
+      appliedDamagePressureScale: 1,
+      inspectedEntityIds: [2],
+      units: [
+        unit(1, 1, 2, 50, 1, "oneHanded", "citizen"),
+        unit(2, 2, 1, 58, -1, "unarmed", "barbarian"),
+      ],
+    },
+  };
+}
+
+function explicitProfileScenario(): SimulationScenario {
+  return {
+    seed: 0x6a03,
+    entityCount: 3,
+    bounds: { width: 240, height: 120 },
+    minSpeedUnitsPerTick: 1,
+    maxSpeedUnitsPerTick: 1,
+    combatSandbox: {
+      kind: "liveCombatSandbox",
+      appliedDamagePressureScale: 1,
+      units: [
+        unit(1, 7, 1, 30, 1, "unarmed", "citizen"),
+        unit(2, 7, 1, 100, 1, "unarmed", "barbarian"),
+        unit(3, 8, 1, 180, -1, "unarmed", "citizen"),
+      ],
+    },
+  };
+}
+
+function unit(
+  unitId: number,
+  factionId: number,
+  memberCount: number,
+  x: number,
+  headingX: -1 | 1,
+  weaponCategory: "unarmed" | "oneHanded",
+  procedureKind: "citizen" | "barbarian",
+): CombatSandboxUnitScenario {
+  return {
+    unitId,
+    factionId,
+    memberCount,
+    deploymentZone: { minX: x, maxX: x, minY: 60, maxY: 60 },
+    anchorX: x,
+    anchorY: 60,
+    headingX,
+    headingY: 0,
+    spacing: 4,
+    rows: 1,
+    cols: memberCount,
+    unitSpeed: weaponCategory === "oneHanded" ? 1 : 0,
+    order: weaponCategory === "oneHanded" ? "advance" : "hold",
+    role: "regular",
+    memberMaxStep: 2,
+    weaponCategory,
+    weaponReachBand: weaponCategory === "oneHanded" ? "short" : "none",
+    armourClass: "none",
+    shieldClass: "none",
+    attackIntervalTicks: 1,
+    maxDamageCapacity: 1_000_000,
+    casualtyProcedure: procedureKind === "citizen"
+      ? { procedureKind, deathCountPolicy: { kind: "normalFortitude" } }
+      : {
+          procedureKind,
+          deathCountPolicy: { kind: "fixedTicks", durationTicks: 600 },
+        },
+  };
+}
+
+function requireCombat(
+  simulation: SimulationState,
+): CombatSandboxSimulationState {
+  if (simulation.combatSandbox === undefined) {
+    throw new Error("Expected production combat sandbox.");
+  }
+  return simulation.combatSandbox;
+}

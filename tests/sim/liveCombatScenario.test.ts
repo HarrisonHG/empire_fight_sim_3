@@ -15,6 +15,7 @@ import {
   getLockedAttackTargetEntityId,
 } from "../../src/sim/individualCombatAction";
 import { isIndividualCombatEligible } from "../../src/sim/individualCombatEligibility";
+import { isIndividualCharacterActive } from "../../src/sim/individualCasualtyLifecycle";
 import {
   getIndividualCurrentGlobalHits,
   getIndividualMaximumGlobalHits,
@@ -212,7 +213,7 @@ describe("live combat scenario", () => {
     expect(summarizeLiveCombat(first)).toEqual(summarizeLiveCombat(second));
   });
 
-  it("advances opposing formed lines into persistent combat without interleaving or removal", () => {
+  it("advances opposing formed lines into persistent combat without pre-casualty interleaving or removal", () => {
     const simulation = createSimulation(LIVE_COMBAT_SCENARIO);
     const combat = requireCombatSandbox(simulation);
     const initialLeftAnchor = getUnitAnchor(combat.formationStore, 1);
@@ -244,7 +245,9 @@ describe("live combat scenario", () => {
       const bothEngageFront =
         getUnitMovementStyle(combat.formationStore, 1) === "engageFront" &&
         getUnitMovementStyle(combat.formationStore, 2) === "engageFront";
-      expectNoHostileLineCrossing(simulation, 1, 2, 8);
+      if (debug.totalLifecycleTransitionCount === 0) {
+        expectNoHostileLineCrossing(simulation, 1, 2, 8);
+      }
       sawBothEngageFront ||= bothEngageFront;
       if (bothEngageFront) {
         sawSeparatedFrontLines = true;
@@ -588,8 +591,16 @@ function expectNoHostileLineCrossing(
   const secondMembers = getUnitMembers(combat.identityStore, secondUnitId);
   for (let firstIndex = 0; firstIndex < firstMembers.length; firstIndex += 1) {
     const firstEntityId = firstMembers[firstIndex]!;
+    if (!isIndividualCharacterActive(
+      combat.individualCasualtyLifecycleStore,
+      firstEntityId,
+    )) continue;
     for (let secondIndex = 0; secondIndex < secondMembers.length; secondIndex += 1) {
       const secondEntityId = secondMembers[secondIndex]!;
+      if (!isIndividualCharacterActive(
+        combat.individualCasualtyLifecycleStore,
+        secondEntityId,
+      )) continue;
       const lateralDistance = Math.abs(
         simulation.world.positionsY[firstEntityId]! -
           simulation.world.positionsY[secondEntityId]!,

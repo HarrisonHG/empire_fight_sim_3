@@ -318,6 +318,10 @@ function createHarness() {
       units: targetUnitIds.map((unitId) => ({
         unitId,
         maxDamageCapacity: MEASURED_TICKS + 1,
+    casualtyProcedure: {
+      procedureKind: "citizen" as const,
+      deathCountPolicy: { kind: "normalFortitude" as const },
+    },
       })),
     }),
     sourceUnitIds,

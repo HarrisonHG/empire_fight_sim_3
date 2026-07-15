@@ -21,6 +21,10 @@ import {
 } from "./individualMeleeDefence";
 import type { IndividualSelectedTargetRecord } from "./individualMeleeTargetSelection";
 import {
+  isIndividualCharacterActive,
+  type IndividualCasualtyLifecycleStore,
+} from "./individualCasualtyLifecycle";
+import {
   getUnitIds,
   getUnitMembers,
   type UnitId,
@@ -145,6 +149,7 @@ export function collectIndividualCombatUnitSummaries(
   hitApplications: readonly IndividualLandedHitApplicationRecord[],
   zeroHitEvents: readonly IndividualZeroHitEvent[],
   store: IndividualCombatUnitAggregationStore,
+  lifecycleStore?: IndividualCasualtyLifecycleStore,
 ): IndividualCombatAggregationTickResult {
   validateInputs(
     identityStore,
@@ -154,6 +159,14 @@ export function collectIndividualCombatUnitSummaries(
     defenceStore,
     store,
   );
+  if (
+    lifecycleStore !== undefined &&
+    lifecycleStore.entityCount !== identityStore.entityCount
+  ) {
+    throw new RangeError(
+      "Individual combat aggregation lifecycle must match entity count.",
+    );
+  }
   const internal = asInternal(store);
   clearSummaries(internal);
   collectMemberState(
@@ -163,6 +176,7 @@ export function collectIndividualCombatUnitSummaries(
     actionStore,
     defenceStore,
     internal,
+    lifecycleStore,
   );
   collectSelections(internal, eligibility, selectedTargets);
   collectAttempts(internal, attackAttempts);
@@ -181,6 +195,7 @@ function collectMemberState(
   actionStore: IndividualCombatActionStore,
   defenceStore: IndividualMeleeDefenceStore,
   store: InternalIndividualCombatUnitAggregationStore,
+  lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
 ): void {
   for (let unitIndex = 0; unitIndex < store.unitIds.length; unitIndex += 1) {
     const unitId = store.unitIds[unitIndex]!;
@@ -194,7 +209,9 @@ function collectMemberState(
       const entityId = members[index]!;
       const tickStartEligible = isIndividualCombatEligible(eligibility, entityId);
       const endOfTickEligible =
-        getIndividualCurrentGlobalHits(globalHitStore, entityId) > 0;
+        getIndividualCurrentGlobalHits(globalHitStore, entityId) > 0 &&
+        (lifecycleStore === undefined ||
+          isIndividualCharacterActive(lifecycleStore, entityId));
 
       if (tickStartEligible) {
         summary.tickStartCombatEligibleMemberCount += 1;

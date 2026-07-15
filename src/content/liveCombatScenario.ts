@@ -52,6 +52,10 @@ export const LIVE_COMBAT_SCENARIO: SimulationScenario = Object.freeze({
         shieldClass: "none",
         attackIntervalTicks: 1,
         maxDamageCapacity: 1_000_000,
+    casualtyProcedure: Object.freeze({
+      procedureKind: "citizen" as const,
+      deathCountPolicy: Object.freeze({ kind: "normalFortitude" as const }),
+    }),
       }),
       Object.freeze({
         unitId: 2,
@@ -80,6 +84,10 @@ export const LIVE_COMBAT_SCENARIO: SimulationScenario = Object.freeze({
         shieldClass: "none",
         attackIntervalTicks: 1,
         maxDamageCapacity: 1_000_000,
+    casualtyProcedure: Object.freeze({
+      procedureKind: "citizen" as const,
+      deathCountPolicy: Object.freeze({ kind: "normalFortitude" as const }),
+    }),
       }),
     ]),
   }),

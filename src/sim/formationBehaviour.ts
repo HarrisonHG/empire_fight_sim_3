@@ -22,6 +22,10 @@ import type {
   UnitMoraleMovementStateSource,
 } from "./moraleMovement";
 import type { WorldState } from "./types";
+import {
+  isIndividualCharacterActive,
+  type IndividualCasualtyLifecycleStore,
+} from "./individualCasualtyLifecycle";
 
 export type UnitOrder = "hold" | "advance" | "advanceCautious";
 export type IndividualRole = "recruit" | "regular" | "veteran";
@@ -609,9 +613,16 @@ export function advanceFormationOneTick(
   store: FormationBehaviourStore,
   moraleMovementStates?: UnitMoraleMovementStateSource,
   diagnostics?: FormationTickDiagnostics,
+  lifecycleStore?: IndividualCasualtyLifecycleStore,
 ): FormationTickResult {
   const internal = asInternal(store);
   validateWorldForBehaviour(world, internal, identityStore);
+  if (
+    lifecycleStore !== undefined &&
+    lifecycleStore.entityCount !== world.entityCount
+  ) {
+    throw new RangeError("Formation lifecycle store must match world entity count.");
+  }
 
   const events: FormationEvent[] = [];
   internal.routingPassThroughCount = 0;
@@ -619,7 +630,7 @@ export function advanceFormationOneTick(
   const blockerGrid =
     unitIds.length > 1
       ? runFormationDiagnosticStage(diagnostics, "blockerGridBuild", () =>
-          prepareBlockerGrid(internal, world),
+          prepareBlockerGrid(internal, world, lifecycleStore),
         )
       : undefined;
   if (blockerGrid !== undefined) {
@@ -657,6 +668,7 @@ export function advanceFormationOneTick(
       moraleMovementStates?.get(unitId) ?? "steady",
       events,
       diagnostics,
+      lifecycleStore,
     );
   }
   if (diagnostics !== undefined) {
@@ -692,6 +704,7 @@ function processUnit(
   moraleMovementState: MoraleMovementState,
   events: FormationEvent[],
   diagnostics: FormationTickDiagnostics | undefined,
+  lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
 ): void {
   const storedOrder = store.orders[unitIndex]!;
   // 4G recovery preserves but temporarily suspends the configured order.
@@ -720,6 +733,7 @@ function processUnit(
       unitIndex,
       events,
       diagnostics,
+      lifecycleStore,
     );
     return;
   }
@@ -745,6 +759,7 @@ function processUnit(
     isAdvancing,
     moraleMovementState,
     diagnostics,
+    lifecycleStore,
   );
   store.unitMovementStyle[unitIndex] = style;
   if (store.lastEmittedUnitStyle[unitIndex] !== style) {
@@ -814,6 +829,7 @@ function processUnit(
   let maxForwardProgress = -Number.MAX_SAFE_INTEGER;
   for (let index = 0; index < members.length; index += 1) {
     const entityId = members[index]!;
+    if (!isFormationParticipant(lifecycleStore, entityId)) continue;
     diagnostics !== undefined && (diagnostics.memberSlotEvaluations += 1);
     const fp = forwardProgress(
       world.positionsX[entityId]!,
@@ -840,6 +856,12 @@ function processUnit(
 
   for (let index = 0; index < members.length; index += 1) {
     const entityId = members[index]!;
+    if (!isFormationParticipant(lifecycleStore, entityId)) {
+      store.movementMode[entityId] = "holdPosition";
+      store.stuckTicks[entityId] = 0;
+      store.isStuck[entityId] = 0;
+      continue;
+    }
     const role = store.roles[entityId]!;
     const slotRow = store.slotRow[entityId]!;
     const slotCol = store.slotCol[entityId]!;
@@ -994,6 +1016,7 @@ function processUnit(
     for (let otherIndex = 0; otherIndex < members.length; otherIndex += 1) {
       const otherId = members[otherIndex]!;
       if (otherId === entityId) continue;
+      if (!isFormationParticipant(lifecycleStore, otherId)) continue;
       diagnostics !== undefined &&
         (diagnostics.sameUnitOvertakingComparisons += 1);
       const otherRow = store.slotRow[otherId]!;
@@ -1241,6 +1264,7 @@ function processRoutingUnit(
   unitIndex: number,
   events: FormationEvent[],
   diagnostics: FormationTickDiagnostics | undefined,
+  lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
 ): void {
   const routeHeadingX = store.routingHeadingX[unitIndex]!;
   const routeHeadingY = store.routingHeadingY[unitIndex]!;
@@ -1273,6 +1297,7 @@ function processRoutingUnit(
     spacing,
     unitSpeed,
     diagnostics,
+    lifecycleStore,
   );
   store.anchorX[unitIndex] = clampWorldCoordinate(
     store.anchorX[unitIndex]! + routeHeadingX * anchorForwardStep,
@@ -1285,6 +1310,12 @@ function processRoutingUnit(
 
   for (let memberIndex = 0; memberIndex < members.length; memberIndex += 1) {
     const entityId = members[memberIndex]!;
+    if (!isFormationParticipant(lifecycleStore, entityId)) {
+      store.movementMode[entityId] = "holdPosition";
+      store.stuckTicks[entityId] = 0;
+      store.isStuck[entityId] = 0;
+      continue;
+    }
     const memberMaxStep = store.memberMaxStep[entityId]!;
     const requestedForwardStep = memberMaxStep;
     const allowedForwardStep = getHostileContactForwardStepLimit(
@@ -1374,10 +1405,12 @@ function getRoutingAnchorForwardStep(
   spacing: number,
   requestedAnchorStep: number,
   diagnostics?: FormationTickDiagnostics,
+  lifecycleStore?: IndividualCasualtyLifecycleStore,
 ): number {
   let allowedAnchorStep = requestedAnchorStep;
   for (let memberIndex = 0; memberIndex < members.length; memberIndex += 1) {
     const entityId = members[memberIndex]!;
+    if (!isFormationParticipant(lifecycleStore, entityId)) continue;
     const hostileQueryStep = Math.max(
       store.memberMaxStep[entityId]!,
       requestedAnchorStep,
@@ -1791,6 +1824,7 @@ function hostileContactGapForStyle(style: UnitMovementStyle): number {
 function prepareBlockerGrid(
   store: InternalFormationBehaviourStore,
   world: WorldState,
+  lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
 ): SpatialGrid {
   let grid = store.blockerGrid;
   if (
@@ -1807,7 +1841,13 @@ function prepareBlockerGrid(
     store.blockerGrid = grid;
   }
 
-  buildSpatialGrid(grid, world);
+  buildSpatialGrid(
+    grid,
+    world,
+    lifecycleStore === undefined
+      ? undefined
+      : (entityId) => isIndividualCharacterActive(lifecycleStore, entityId),
+  );
   snapshotFormationTickStart(store, world);
   return grid;
 }
@@ -2003,6 +2043,7 @@ function chooseUnitMovementStyle(
   isAdvancing: boolean,
   moraleMovementState: MoraleMovementState,
   diagnostics: FormationTickDiagnostics | undefined,
+  lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
 ): UnitMovementStyle {
   if (!isAdvancing) {
     store.styleCommitmentTicksRemaining[unitIndex] = 0;
@@ -2041,6 +2082,7 @@ function chooseUnitMovementStyle(
       store,
       unitId,
       unitIndex,
+      lifecycleStore,
     );
   }
 
@@ -2328,10 +2370,19 @@ function chooseAlliedBlockerStyle(
   store: InternalFormationBehaviourStore,
   unitId: UnitId,
   unitIndex: number,
+  lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
 ): UnitMovementStyle {
   const members = getUnitMembers(identityStore, unitId);
-  const averageConfidence = computeAverageConfidence(store, members);
-  const averagePressure = computeAveragePressure(store, members);
+  const averageConfidence = computeAverageActiveConfidence(
+    store,
+    members,
+    lifecycleStore,
+  );
+  const averagePressure = computeAverageActivePressure(
+    store,
+    members,
+    lifecycleStore,
+  );
   const cohesion = store.cohesion[unitIndex]!;
 
   if (
@@ -2457,26 +2508,46 @@ function getBlockerStyleRelationship(
   return isHostileContactMovementStyle(style) ? "hostile" : "allied";
 }
 
-function computeAverageConfidence(
+function computeAverageActiveConfidence(
   store: InternalFormationBehaviourStore,
   members: readonly number[],
+  lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
 ): number {
   let total = 0;
+  let count = 0;
   for (let index = 0; index < members.length; index += 1) {
-    total += store.confidence[members[index]!]!;
+    const entityId = members[index]!;
+    if (!isFormationParticipant(lifecycleStore, entityId)) continue;
+    total += store.confidence[entityId]!;
+    count += 1;
   }
-  return Math.trunc(total / members.length);
+  return count === 0 ? 0 : Math.trunc(total / count);
 }
 
-function computeAveragePressure(
+function computeAverageActivePressure(
   store: InternalFormationBehaviourStore,
   members: readonly number[],
+  lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
 ): number {
   let total = 0;
+  let count = 0;
   for (let index = 0; index < members.length; index += 1) {
-    total += store.pressure[members[index]!]!;
+    const entityId = members[index]!;
+    if (!isFormationParticipant(lifecycleStore, entityId)) continue;
+    total += store.pressure[entityId]!;
+    count += 1;
   }
-  return Math.trunc(total / members.length);
+  return count === 0 ? 0 : Math.trunc(total / count);
+}
+
+function isFormationParticipant(
+  lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
+  entityId: number,
+): boolean {
+  return (
+    lifecycleStore === undefined ||
+    isIndividualCharacterActive(lifecycleStore, entityId)
+  );
 }
 
 function computeForwardSearchDepth(

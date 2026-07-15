@@ -31,6 +31,56 @@ type AuthorityGeometry =
   | "denseOverlappingFormations";
 
 describe("integrated individual combat authority performance", () => {
+  it("covers ordinary, fresh-transition, and later-downed production ticks", () => {
+    const simulation = createSimulation(
+      authorityScenario(100, "representativeSeparatedBattle"),
+    );
+    const combat = requireCombatSandbox(simulation);
+
+    const ordinaryStartedAt = performance.now();
+    advanceSimulationOneTick(simulation);
+    const ordinaryMilliseconds = performance.now() - ordinaryStartedAt;
+    expect(combat.individualLifecycleTransitionCount).toBe(0);
+
+    let transitionMilliseconds = -1;
+    for (let tick = 0; tick < 400; tick += 1) {
+      const startedAt = performance.now();
+      advanceSimulationOneTick(simulation);
+      const elapsed = performance.now() - startedAt;
+      if (combat.individualLifecycleTransitionCount > 0) {
+        transitionMilliseconds = elapsed;
+        break;
+      }
+    }
+    expect(transitionMilliseconds).toBeGreaterThanOrEqual(0);
+    expect(combat.totalIndividualLifecycleTransitionCount).toBeGreaterThan(0);
+
+    const laterDownedStartedAt = performance.now();
+    advanceSimulationOneTick(simulation);
+    const laterDownedMilliseconds = performance.now() - laterDownedStartedAt;
+    expect(combat.individualLifecycleTransitionCount).toBe(0);
+    expect(combat.individualTickStartCombatIneligibleMemberCount)
+      .toBeGreaterThan(0);
+
+    for (const elapsed of [
+      ordinaryMilliseconds,
+      transitionMilliseconds,
+      laterDownedMilliseconds,
+    ]) {
+      expect(elapsed).toBeGreaterThanOrEqual(0);
+    }
+    process.stdout.write(
+      `\nProduction casualty lifecycle phase timing report\n${JSON.stringify({
+        entityCount: simulation.world.entityCount,
+        ordinaryMilliseconds,
+        transitionMilliseconds,
+        laterDownedMilliseconds,
+        timingPolicy:
+          "Structural assertions only; covers no-transition, fresh-transition, and retained-downed ticks.",
+      }, null, 2)}\n`,
+    );
+  });
+
   it.each([100, 500, 1_000])(
     "reports exact production and instrumented authority timing for %i representative entities",
     (entityCount) => {
@@ -608,6 +658,10 @@ function unitConfig(
     shieldClass: "none",
     attackIntervalTicks: 20,
     maxDamageCapacity: 1_000_000,
+    casualtyProcedure: {
+      procedureKind: "citizen" as const,
+      deathCountPolicy: { kind: "normalFortitude" as const },
+    },
   };
 }
 

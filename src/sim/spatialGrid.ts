@@ -75,24 +75,28 @@ export function clearSpatialGrid(grid: SpatialGrid): void {
 export function buildSpatialGrid(
   grid: SpatialGrid,
   world: WorldState,
+  includeEntity?: (entityId: number) => boolean,
 ): void {
   const internalGrid = asInternalGrid(grid);
   validateWorldForGrid(internalGrid, world);
   clearSpatialGrid(internalGrid);
 
-  internalGrid.entityCount = world.entityCount;
+  let includedEntityCount = 0;
 
   for (let entityIndex = 0; entityIndex < world.entityCount; entityIndex += 1) {
     const entityId = world.ids[entityIndex]!;
+    if (includeEntity !== undefined && !includeEntity(entityId)) continue;
     const positionX = world.positionsX[entityIndex]!;
     const positionY = world.positionsY[entityIndex]!;
     const cellIndex = getSpatialGridCellIndex(internalGrid, positionX, positionY);
 
-    internalGrid.entityIds[entityIndex] = entityId;
-    internalGrid.entityPositionsX[entityIndex] = positionX;
-    internalGrid.entityPositionsY[entityIndex] = positionY;
-    internalGrid.cellEntitySlots[cellIndex]!.push(entityIndex);
+    internalGrid.entityIds[includedEntityCount] = entityId;
+    internalGrid.entityPositionsX[includedEntityCount] = positionX;
+    internalGrid.entityPositionsY[includedEntityCount] = positionY;
+    internalGrid.cellEntitySlots[cellIndex]!.push(includedEntityCount);
+    includedEntityCount += 1;
   }
+  internalGrid.entityCount = includedEntityCount;
 }
 
 export function getSpatialGridCellIndex(
@@ -413,4 +417,3 @@ function clamp(value: number, minimum: number, maximum: number): number {
 
   return value;
 }
-

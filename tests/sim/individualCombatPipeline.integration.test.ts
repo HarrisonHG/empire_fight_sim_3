@@ -1015,6 +1015,10 @@ function baseUnit(
     shieldClass: "none",
     attackIntervalTicks: 20,
     maxDamageCapacity: 1_000_000,
+    casualtyProcedure: {
+      procedureKind: "citizen" as const,
+      deathCountPolicy: { kind: "normalFortitude" as const },
+    },
     ...overrides,
   };
 }
