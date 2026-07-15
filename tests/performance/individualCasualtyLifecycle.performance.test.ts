@@ -1,0 +1,85 @@
+import { performance } from "node:perf_hooks";
+
+import { describe, expect, it } from "vitest";
+
+import {
+  applyIndividualZeroHitLifecycleTransitions,
+  createIndividualCasualtyLifecycleStore,
+  createIndividualPlayerPresenceStore,
+  type IndividualZeroHitLifecycleTransitionRecord,
+} from "../../src/sim/individualCasualtyLifecycle";
+import { createIndividualCasualtyProcedureProfileStore } from "../../src/sim/individualCasualtyProcedureProfile";
+import type { IndividualZeroHitEvent } from "../../src/sim/individualGlobalHits";
+
+describe("individual casualty lifecycle structural performance", () => {
+  it.each([100, 500, 1_000, 2_000])(
+    "consumes one zero-hit transition per %i entities without quadratic work",
+    (entityCount) => {
+      const lifecycle = createIndividualCasualtyLifecycleStore(entityCount);
+      const presence = createIndividualPlayerPresenceStore(entityCount);
+      const procedures = createIndividualCasualtyProcedureProfileStore({
+        entityCount,
+        profiles: Array.from({ length: entityCount }, (_, entityId) => ({
+          entityId,
+          procedureKind: entityId % 2 === 0 ? "citizen" : "barbarian",
+          deathCountPolicy: entityId % 2 === 0
+            ? { kind: "normalFortitude" as const }
+            : { kind: "fixedTicks" as const, durationTicks: 600 },
+        })),
+      });
+      const positions = {
+        entityCount,
+        positionsX: Int32Array.from(
+          { length: entityCount },
+          (_, entityId) => entityId * 2,
+        ),
+        positionsY: Int32Array.from(
+          { length: entityCount },
+          (_, entityId) => -entityId,
+        ),
+      };
+      const events: IndividualZeroHitEvent[] = Array.from(
+        { length: entityCount },
+        (_, offset) => {
+          const entityId = entityCount - offset - 1;
+          return {
+            entityId,
+            attackerEntityId: (entityId + 1) % entityCount,
+            previousHits: 1,
+          };
+        },
+      );
+      const output: IndividualZeroHitLifecycleTransitionRecord[] = [];
+
+      const startedAt = performance.now();
+      const result = applyIndividualZeroHitLifecycleTransitions(
+        lifecycle,
+        presence,
+        procedures,
+        positions,
+        events,
+        100,
+        output,
+      );
+      const elapsedMilliseconds = performance.now() - startedAt;
+
+      expect(result.transitions).toBe(output);
+      expect(result.transitionCount).toBe(entityCount);
+      expect(output[0]?.entityId).toBe(0);
+      expect(output.at(-1)?.entityId).toBe(entityCount - 1);
+      expect(new Set(output.map((record) => record.entityId)).size)
+        .toBe(entityCount);
+      expect(elapsedMilliseconds).toBeGreaterThanOrEqual(0);
+      process.stdout.write(
+        `\nCasualty lifecycle performance report\n${JSON.stringify({
+          entityCount,
+          zeroHitEventsConsumed: events.length,
+          transitionsEmitted: result.transitionCount,
+          elapsedMilliseconds,
+          timingPolicy:
+            "Structural assertions only; one canonical transition per entity with reversed input order.",
+        }, null, 2)}\n`,
+      );
+    },
+  );
+});

@@ -40,18 +40,12 @@ If a referenced file is missing, first determine whether it is required for the 
 
 ## Current Project Phase
 
-The project is at the tail end of Milestone 3.
+Milestone 5, including its visual integration spike, is accepted.
 
-A temporary visual integration spike is being performed before Milestone 4 so a human can observe the simulation behaviour implemented so far.
-
-The spike may connect existing simulation, worker, renderer, and UI paths as needed, but it must not:
-
-* implement Milestone 4 systems early
-* replace existing Milestone 3 foundations
-* move simulation rules into rendering or UI code
-* introduce production abstractions solely to polish the spike
-
-Treat findings from the spike as evidence for Milestone 4 planning.
+The project is implementing Milestone 6: casualties, dying, battlefield treatment,
+rescue, and player-presence state. Follow the accepted numbered slices in
+`docs/plans/milestone-6-casualties-dying-treatment-rescue-and-player-presence.md`
+without implementing later slices early.
 
 ## Required Reading
 

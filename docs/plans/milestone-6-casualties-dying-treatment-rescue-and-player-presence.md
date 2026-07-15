@@ -1,8 +1,10 @@
 # Milestone 6: Casualties, Dying, Battlefield Treatment, Rescue, and Player-Presence State
 
-Status: planned.
+Status: accepted for implementation.
 
-Implementation begins only after Milestone 5 has passed its remaining human visual inspection and any resulting visual-regression correction spike.
+Milestone 5, including its defence-readiness and pressure/visual-regression spike, was accepted on 2026-07-15. Milestone 6 may now begin.
+
+Before the first implementation slice, update the stale root `AGENTS.md` Current Project Phase section so it names Milestone 6 and no longer describes the project as a Milestone 3 visual spike. Do not weaken any architecture, determinism, testing, or scope rules.
 
 ## Product goal
 
@@ -71,12 +73,14 @@ type CharacterLifecycleState =
 
 Do not add a separate runtime `dead` state in the first implementation.
 
-For simulation rules, `terminal` already means:
+For simulation rules, `terminal` means:
 
-- the character cannot be saved;
+- the current battlefield life cannot be saved or restored by ordinary treatment;
 - the character cannot act;
-- the character cannot re-enter combat;
-- the character is permanently unavailable for the remainder of the battle.
+- the associated player presence is non-combatant;
+- no ordinary system may reactivate the character.
+
+For citizens, terminal state is permanent for the remainder of the battle. For barbarians, a later Milestone 9 respawn procedure may explicitly begin a new active battlefield life from `waitingAtRespawn`; that future scenario-owned reset is not healing and is not implemented in Milestone 6.
 
 “Dead” may appear as an after-action label or terminal cause, but it does not need a second mechanically identical hot-path state.
 
@@ -113,6 +117,36 @@ terminalAwaitingComfort
 `terminalComforted` means the player may later begin the slow Sentinel Gate egress owned by Milestone 9. It does not restore, revive, or otherwise alter the terminal character.
 
 Barbarian player-presence procedure remains separately scenario-configurable and may progress toward respawn staging. Barbarians do not use citizen comfort state.
+
+
+## Trusted casualty-procedure profiles
+
+Current production scenarios identify factions, but faction ID must not be used to guess whether an entity follows citizen or barbarian casualty procedure.
+
+Add immutable trusted runtime content:
+
+```ts
+type CasualtyProcedureKind =
+  | "citizen"
+  | "barbarian";
+
+interface IndividualCasualtyProcedureProfile {
+  entityId: number;
+  procedureKind: CasualtyProcedureKind;
+  deathCountPolicy: DeathCountPolicy;
+}
+```
+
+The profile is scenario content, not XP validation and not national identity.
+
+Rules:
+
+- ordinary live-combat scenario shorthand may assign one profile template per unit and expand it deterministically to members;
+- individual profiles remain the runtime authority;
+- citizen profiles are traumatic-wound eligible and use terminal comfort;
+- barbarian profiles are traumatic-wound ineligible and use respawn-staging procedure;
+- do not infer procedure kind from faction number, colour, unit label, equipment, or behaviour profile;
+- Milestone 9 and Milestone 17 may later derive these trusted profiles from richer scenario/team/nation content.
 
 ## Assistance is a separate state machine
 
@@ -267,14 +301,9 @@ Detailed body collision and corpse geometry remain deferred. This milestone must
 
 The official safety rule permits at most two non-tactical steps before falling.
 
-Before terrain exists, the default down position is the current world position at the zero-hit transition.
+Before terrain exists, the down position is exactly the current world position at the zero-hit transition. Record it without moving the entity.
 
-Provide a deterministic `selectSafeDownPosition` boundary that:
-
-- never exceeds the configured two-step maximum;
-- respects world bounds;
-- may later accept terrain/safety constraints;
-- does not automatically move the casualty away from enemies for tactical advantage.
+Do not introduce a speculative two-step adjustment API in 6A. Milestone 12 may add a deterministic safe-position selector when terrain and unsafe-ground data actually exist.
 
 Do not invent a free retreat on reaching zero hits.
 
@@ -298,7 +327,7 @@ barbarian test/default return procedure:
 fixed 30 seconds when explicitly assigned
 ```
 
-Do not infer a full citizen/barbarian nation model in Milestone 6. Scenarios explicitly assign a policy and player-presence procedure. Milestone 9 and Milestone 17 may later derive those values from scenario/team/nation content.
+Do not infer a full citizen/barbarian nation model in Milestone 6. The trusted casualty-procedure profile explicitly assigns procedure kind and death-count policy. Milestone 9 and Milestone 17 may later derive those values from scenario/team/nation content.
 
 ## Fortitude normal-count derivation
 
@@ -663,6 +692,10 @@ rejected reason
 
 Restoration must clamp at maximum and reject terminal characters at the caller/lifecycle boundary.
 
+## IndividualCasualtyProcedureProfileStore
+
+Owns immutable trusted runtime procedure kind and death-count policy for each entity. It does not own lifecycle, timers, team hostility, nation, or respawn execution.
+
 ## IndividualCasualtyLifecycleStore
 
 Owns:
@@ -753,9 +786,46 @@ Owns bounded lifetime/after-action summaries.
 
 ---
 
+# Production pipeline boundary
+
+The accepted Milestone 5 pipeline currently performs:
+
+```text
+eligibility
+→ targeting
+→ action
+→ defence
+→ gate
+→ global hits
+→ unit aggregation
+→ consequence projection
+```
+
+Milestone 6 must place casualty transitions after global-hit application but before final aggregation and pressure/morale consequence projection.
+
+Split orchestration into reusable boundaries rather than running combat twice:
+
+```text
+combat exchange:
+eligibility → targeting → action → defence → gate → global hits
+
+post-combat read models:
+unit aggregation → consequence projection
+```
+
+The split must preserve the existing public production result where practical and must not duplicate combat records, hit application, aggregation, or pressure.
+
+The tick-start combat eligibility projection must also become lifecycle-aware. Hits remain necessary but no longer sufficient:
+
+```text
+combat eligible = currentHits > 0 && lifecycle == active
+```
+
+Later withdrawal/assistance states may further suppress participation through explicit policy. Do not infer lifecycle only from hits once Milestone 6 state exists.
+
 # Production tick order
 
-Milestone 6 requires a deliberate split between combat resolution and post-combat aggregation.
+Milestone 6 requires this deliberate split between combat resolution and post-combat aggregation.
 
 Recommended production order:
 
@@ -804,39 +874,88 @@ Refactor the Milestone 5 orchestration only enough to establish this order. Do n
 
 # Numbered implementation slices
 
-## 6A — Character lifecycle, zero-hit transition, and interaction filtering
+## 6A-1 — Casualty procedure profiles and standalone lifecycle transitions
 
 ### Purpose
 
-Consume Milestone 5 zero-hit events and make dying a real authoritative state.
+Create the authoritative casualty vocabulary and consume canonical Milestone 5 zero-hit events without changing production behaviour yet.
 
 ### Deliver
 
+- `IndividualCasualtyProcedureProfileStore`;
 - `IndividualCasualtyLifecycleStore`;
-- character lifecycle vocabulary;
-- safe down-position boundary;
-- zero-hit transition application;
-- cancellation/clearing of active attack and target state;
-- player presence `activePresence → downedPresence`;
-- central interaction-eligibility helpers;
-- formation, blocker, targeting, defence, and support filtering;
-- final end-of-tick active/casualty unit counts.
+- `IndividualPlayerPresenceStore` with the Milestone 6 state vocabulary;
+- immutable per-entity citizen/barbarian procedure profiles;
+- standalone zero-hit transition application;
+- `active → dying` and `activePresence → downedPresence`;
+- recorded current-position down coordinates;
+- canonical transition records and reusable output arrays;
+- getters only, with no exposed mutable backing arrays.
 
 ### Tests
 
-- a fresh zero transition produces `active → dying` once;
-- already-zero hits do not repeat it;
-- dying entities cannot attack, defend, target, or follow formation;
-- dying entities are ignored by ordinary blockers and ordinary target selection;
-- dying entities remain spatially available to casualty queries;
-- the down position remains within the two-step limit;
-- a restored non-terminal entity may return to active state;
-- replay and processing order are deterministic;
-- existing Milestone 5 combat results remain unchanged before zero.
+- all entities initialise `active` and `activePresence`;
+- trusted procedure profiles validate entity coverage, uniqueness, kind, and death-count policy shape;
+- faction ID is not used to infer procedure kind;
+- one fresh zero-hit event produces one dying and downed-presence transition;
+- duplicate same-tick or later already-zero events do not repeat transitions;
+- transition records preserve attacker, target, tick, previous hits, procedure kind, and down position;
+- reversed input order produces canonical entity-ID order;
+- output arrays are reused and stale records clear;
+- invalid IDs and mismatched entity counts fail clearly;
+- replay is deterministic;
+- no production simulation, formation, pressure, morale, renderer, UI, or worker behaviour changes.
 
 ### Boundary
 
-No timer, treatment, dragging, execution, egress movement, or UI.
+Standalone sim state only. No production integration, timers, terminal transition, restoration, trauma, targeting/formation filtering, dragging, treatment, execution, or debug UI.
+
+---
+
+## 6A-2 — Production lifecycle integration and interaction filtering
+
+### Purpose
+
+Insert lifecycle transitions into the real tick and make dying entities cease ordinary battlefield participation.
+
+### Deliver
+
+- split the individual pipeline at global hits versus aggregation/consequence projection;
+- run zero-hit lifecycle transitions between those boundaries;
+- lifecycle-aware tick-start combat eligibility;
+- cancellation/clearing of stale targets and active attacks through existing action eligibility semantics;
+- formation participation filtering;
+- blocker-grid and hostile-contact filtering;
+- ordinary target and active-defence filtering;
+- downed entities remain spatially queryable through explicit casualty queries;
+- minimal lifecycle counters/debug inspection for configured entities.
+
+### Timing
+
+- a fighter reduced to zero may complete only the already accepted same-tick combat records produced by the Milestone 5 tick-start snapshot;
+- lifecycle changes during that tick after hit application;
+- post-combat aggregation sees the new lifecycle state;
+- formation and ordinary combat exclusion take effect on the next tick;
+- the entity does not move to a safer position when becoming downed.
+
+### Tests
+
+- the exact production pipeline applies global hits once and aggregates once;
+- a fresh zero transition becomes dying before post-combat aggregation;
+- dying entities cannot select, retain, begin, or complete later ordinary attacks;
+- dying entities cannot actively defend on later ticks;
+- dying entities stop formation-slot movement on the next tick;
+- dying entities are absent from ordinary blocker and hostile-contact candidates;
+- other formation members may move past them rather than freezing permanently;
+- dying entities remain queryable by dedicated casualty-local queries;
+- pressure/morale receive the original zero-hit shock exactly once;
+- Milestone 5 attack, defence, hit, pressure, morale, and visual-regression traces remain unchanged before the first zero transition;
+- no timer, treatment, rescue, execution, or egress behaviour appears;
+- representative performance remains structurally covered.
+
+### Boundary
+
+No death count, terminal state, restoration, trauma, medical profiles, dragging, treatment, execution, egress, or casualty visual suite.
 
 ---
 
@@ -849,6 +968,7 @@ Advance deterministic dying timers and make terminal state authoritative.
 ### Deliver
 
 - `IndividualDeathCountStore`;
+- consume immutable policy from `IndividualCasualtyProcedureProfileStore`;
 - normal Fortitude formula;
 - fixed-duration policy;
 - full tick semantics;
@@ -866,8 +986,10 @@ Advance deterministic dying timers and make terminal state authoritative.
 - resumed count continues rather than resetting;
 - fixed 30-second procedure works;
 - expiry emits one terminal transition;
-- terminal cannot be restored;
-- a second later dying event receives a fresh duration;
+- terminal cannot be restored by treatment;
+- citizen terminal remains unavailable for the battle;
+- barbarian terminal may reach waiting-at-respawn but cannot reactivate in Milestone 6;
+- a second later dying event receives a fresh duration only after a future explicit new-life/reset boundary, not from ordinary healing;
 - integer bounds are validated.
 
 ### Boundary
@@ -926,8 +1048,8 @@ These values are behavioural inputs, not direct morale state.
 
 - Physick without Chirurgeon fails validation;
 - default Physick herbs are 12;
-- citizen zero-hit opportunities use a stable deterministic 10% rule;
-- barbarians never receive traumatic wounds and consume no trauma roll;
+- citizen zero-hit opportunities use a stable deterministic 10% rule based on the trusted casualty-procedure profile;
+- barbarian profiles never receive traumatic wounds and consume no trauma roll;
 - traumatic wounds do not alter hits, death counts, dying, execution, or terminal transitions;
 - active mobile trauma patients abandon combat and seek a herb-capable Physick;
 - trauma received on a zero-hit transition remains dormant while dying and drives withdrawal after revival;
@@ -1161,7 +1283,8 @@ Citizen Sentinel Gate movement is not implemented here. Milestone 9 consumes `te
 - completion changes only player presence to `terminalComforted`;
 - the character remains terminal and cannot be restored;
 - terminalComforted citizens remain still during Milestone 6;
-- barbarian presence may reach waiting-at-respawn and never re-enters;
+- barbarian presence may reach waiting-at-respawn and does not re-enter during Milestone 6;
+- waiting-at-respawn does not heal or reactivate the terminal battlefield life;
 - missing barbarian destination leaves a clear waiting-for-scenario state rather than guessing a respawn point.
 
 ### Boundary
@@ -1345,7 +1468,8 @@ These must remain true throughout the milestone:
 - the same entity ID represents the individual character and associated physical player presence;
 - character lifecycle, assistance, treatment, and presence state have separate ownership;
 - current hits remain owned by `IndividualGlobalHitStore`;
-- terminal characters cannot be restored;
+- terminal battlefield lives cannot be restored by ordinary treatment;
+- only a later explicit scenario respawn boundary may create a new active barbarian life;
 - terminal comfort changes player-presence procedure only;
 - zero-hit transitions occur once per fresh fall to zero;
 - traumatic wounds never override zero hits, dying, execution, or terminal state;
@@ -1388,7 +1512,7 @@ Concrete:
 - citizen deployment/withdrawal;
 - barbarian respawn locations;
 - waiting-group batching;
-- reinforcement re-entry;
+- reinforcement re-entry and explicit new-life/reset semantics for waiting barbarians;
 - one-hour battle clock;
 - late-battle respawn cessation.
 
@@ -1459,7 +1583,7 @@ Milestone 6 is complete when:
 - fresh zero-hit events immediately create dying/unresisting characters;
 - dying and terminal characters are excluded from ordinary combat, formation participation, blockers, support, and future objective control;
 - normal Fortitude death counts and explicit fixed overrides are deterministic;
-- terminal state occurs exactly once and cannot be healed;
+- terminal state occurs exactly once per battlefield life and cannot be healed;
 - Chirurgeon treatment correctly pauses, interrupts, completes, and restores one hit;
 - generic Physick treatment has finite individual herbs and safe reservation semantics;
 - citizen traumatic wounds use a stable deterministic 10% zero-hit opportunity, do not stack, never protect from dying, and drive withdrawal only while active/mobile;
