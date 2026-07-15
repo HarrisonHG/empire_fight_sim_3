@@ -502,9 +502,15 @@ function applyIndividualUnitPressureUpdate(
   let hitImpulseTotal = 0;
   let blockImpulseTotal = 0;
   let recoveredPressureTotal = 0;
+  let activeMemberCount = 0;
 
   for (let memberIndex = 0; memberIndex < members.length; memberIndex += 1) {
     const entityId = members[memberIndex]!;
+    if (
+      lifecycleStore !== undefined &&
+      !isIndividualCharacterActive(lifecycleStore, entityId)
+    ) continue;
+    activeMemberCount += 1;
     const before = getIndividualPressure(formationStore, entityId);
     const after = applyIndividualPressureForEntity(
       formationStore,
@@ -533,8 +539,8 @@ function applyIndividualUnitPressureUpdate(
     engaged,
     inContact,
     hasFreshPressure,
-    pressureBeforeAverage: pressureBeforeTotal / members.length,
-    pressureAfterAverage: pressureAfterTotal / members.length,
+    pressureBeforeAverage: activeMemberCount === 0 ? 0 : pressureBeforeTotal / activeMemberCount,
+    pressureAfterAverage: activeMemberCount === 0 ? 0 : pressureAfterTotal / activeMemberCount,
     confidenceAverage,
     engagedPressureDeltaPerMember: 0,
     contactPressureDeltaPerMember: 0,
@@ -542,27 +548,29 @@ function applyIndividualUnitPressureUpdate(
       store.consequencePressureByUnit[unitIndex]!,
     appliedHitPressureDeltaPerMember:
       store.applyConsequencePressureByUnit[unitIndex] === 1
-        ? Math.trunc(store.consequencePressureByUnit[unitIndex]! / members.length)
+        ? activeMemberCount === 0
+          ? 0
+          : Math.trunc(store.consequencePressureByUnit[unitIndex]! / activeMemberCount)
         : 0,
     zeroHitCohesionLossValue,
     cohesionLossValue,
     cohesionPressureDeltaPerMember,
     decayPerMember:
       tickStartMoraleStates?.get(unitId) === "routing"
-        ? routingPressureDecayBonus(formationStore, members)
+        ? routingPressureDecayBonus(formationStore, members, lifecycleStore)
         : 0,
-    individualProximityFloorAverage: Math.trunc(floorTotal / members.length),
+    individualProximityFloorAverage: activeMemberCount === 0 ? 0 : Math.trunc(floorTotal / activeMemberCount),
     individualIncomingAttackImpulseAverage: Math.trunc(
-      attackImpulseTotal / members.length,
+      activeMemberCount === 0 ? 0 : attackImpulseTotal / activeMemberCount,
     ),
     individualIncomingHitImpulseAverage: Math.trunc(
-      hitImpulseTotal / members.length,
+      activeMemberCount === 0 ? 0 : hitImpulseTotal / activeMemberCount,
     ),
     individualBlockedStrikeImpulseAverage: Math.trunc(
-      blockImpulseTotal / members.length,
+      activeMemberCount === 0 ? 0 : blockImpulseTotal / activeMemberCount,
     ),
     individualRecoveredPressureAverage: Math.trunc(
-      recoveredPressureTotal / members.length,
+      activeMemberCount === 0 ? 0 : recoveredPressureTotal / activeMemberCount,
     ),
   };
 }
@@ -922,14 +930,21 @@ function applyUnitPressureUpdate(
 function routingPressureDecayBonus(
   formationStore: FormationBehaviourStore,
   members: readonly number[],
+  lifecycleStore?: IndividualCasualtyLifecycleStore,
 ): number {
   let total = 0;
+  let activeCount = 0;
   for (let index = 0; index < members.length; index += 1) {
+    if (
+      lifecycleStore !== undefined &&
+      !isIndividualCharacterActive(lifecycleStore, members[index]!)
+    ) continue;
     total += ROUTING_PRESSURE_DECAY_BONUS[
       getIndividualRole(formationStore, members[index]!)
     ];
+    activeCount += 1;
   }
-  return Math.trunc(total / members.length);
+  return activeCount === 0 ? 0 : Math.trunc(total / activeCount);
 }
 
 function calculateAverageConfidence(

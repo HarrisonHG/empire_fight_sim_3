@@ -27,6 +27,10 @@ import {
   type UnitIdentityStore,
 } from "./unitIdentity";
 import type { WorldState } from "./types";
+import {
+  isIndividualCharacterActive,
+  type IndividualCasualtyLifecycleStore,
+} from "./individualCasualtyLifecycle";
 
 /** All 4F values are integer, bounded, and resolved once per target per tick. */
 export const ROUTING_CONTAGION_CONSTANTS = {
@@ -110,11 +114,12 @@ export function advanceRoutingContagionOneTick(
   routingPassThroughInteractions: readonly RoutingPassThroughInteraction[],
   store: RoutingContagionStore,
   out: UnitRoutingContagionSummary[] = [],
+  lifecycleStore?: IndividualCasualtyLifecycleStore,
 ): RoutingContagionTickResult {
   const internal = asInternal(store);
   validateStores(world, identityStore, formationStore, internal);
   const unitIds = getUnitIds(identityStore);
-  const grid = prepareGrid(world, internal);
+  const grid = prepareGrid(world, internal, lifecycleStore);
   resetTickScratch(formationStore, internal, unitIds);
 
   for (let routerIndex = 0; routerIndex < unitIds.length; routerIndex += 1) {
@@ -122,6 +127,7 @@ export function advanceRoutingContagionOneTick(
     if (tickStartMoraleStates.get(routerUnitId) !== "routing") {
       continue;
     }
+    if (!hasActiveMember(identityStore, routerUnitId, lifecycleStore)) continue;
     collectRouterContributions(
       identityStore,
       formationStore,
@@ -129,6 +135,7 @@ export function advanceRoutingContagionOneTick(
       grid,
       routerUnitId,
       routingPassThroughInteractions,
+      lifecycleStore,
     );
   }
 
@@ -141,6 +148,7 @@ export function advanceRoutingContagionOneTick(
       internal,
       unitId,
       unitIndex,
+      lifecycleStore,
     );
     out.push({
       unitId,
@@ -170,6 +178,7 @@ function collectRouterContributions(
   grid: SpatialGrid,
   routerUnitId: UnitId,
   routingPassThroughInteractions: readonly RoutingPassThroughInteraction[],
+  lifecycleStore?: IndividualCasualtyLifecycleStore,
 ): void {
   const routerAnchor = getUnitAnchor(formationStore, routerUnitId);
   const nearbyEntityIds = queryEntitiesWithinRadiusInto(
@@ -192,6 +201,7 @@ function collectRouterContributions(
     if (getFactionIdForUnit(identityStore, targetUnitId) !== routerFactionId) {
       continue;
     }
+    if (!hasActiveMember(identityStore, targetUnitId, lifecycleStore)) continue;
     const targetAnchor = getUnitAnchor(formationStore, targetUnitId);
     if (
       !isWithinDistance(
@@ -219,6 +229,7 @@ function collectRouterContributions(
       targetUnitId,
       targetUnitIndex,
       passThrough,
+      lifecycleStore,
     );
   }
 }
@@ -231,12 +242,14 @@ function applyPairContribution(
   targetUnitId: UnitId,
   targetUnitIndex: number,
   passThrough: boolean,
+  lifecycleStore?: IndividualCasualtyLifecycleStore,
 ): void {
   const targetMembers = getUnitMembers(identityStore, targetUnitId);
   const resistance = calculateResistance(
     formationStore,
     targetMembers,
     store.cohesionAtTickStart[targetUnitIndex]!,
+    lifecycleStore,
   );
   const requestedPressure = reduceButKeepPositive(
     passThrough
@@ -279,12 +292,17 @@ function applyUnitEffects(
   store: InternalRoutingContagionStore,
   unitId: UnitId,
   unitIndex: number,
+  lifecycleStore?: IndividualCasualtyLifecycleStore,
 ): number {
   const pressureApplied = store.pressureAppliedPerMember[unitIndex]!;
   const members = getUnitMembers(identityStore, unitId);
   if (pressureApplied > 0) {
     for (let memberIndex = 0; memberIndex < members.length; memberIndex += 1) {
       const entityId = members[memberIndex]!;
+      if (
+        lifecycleStore !== undefined &&
+        !isIndividualCharacterActive(lifecycleStore, entityId)
+      ) continue;
       setIndividualPressure(
         formationStore,
         entityId,
@@ -303,15 +321,22 @@ function calculateResistance(
   formationStore: FormationBehaviourStore,
   targetMembers: readonly number[],
   cohesionAtTickStart: number,
+  lifecycleStore?: IndividualCasualtyLifecycleStore,
 ): { readonly pressure: number; readonly cohesion: number } {
   let confidenceTotal = 0;
+  let activeCount = 0;
   for (let memberIndex = 0; memberIndex < targetMembers.length; memberIndex += 1) {
+    if (
+      lifecycleStore !== undefined &&
+      !isIndividualCharacterActive(lifecycleStore, targetMembers[memberIndex]!)
+    ) continue;
     confidenceTotal += getIndividualConfidence(
       formationStore,
       targetMembers[memberIndex]!,
     );
+    activeCount += 1;
   }
-  const confidenceAverage = Math.trunc(confidenceTotal / targetMembers.length);
+  const confidenceAverage = activeCount === 0 ? 0 : Math.trunc(confidenceTotal / activeCount);
   const highConfidence =
     confidenceAverage >= ROUTING_CONTAGION_CONSTANTS.highConfidenceThreshold;
   const highCohesion =
@@ -384,6 +409,7 @@ function isWithinDistance(
 function prepareGrid(
   world: WorldState,
   store: InternalRoutingContagionStore,
+  lifecycleStore?: IndividualCasualtyLifecycleStore,
 ): SpatialGrid {
   let grid = store.grid;
   if (
@@ -399,8 +425,24 @@ function prepareGrid(
     });
     store.grid = grid;
   }
-  buildSpatialGrid(grid, world);
+  buildSpatialGrid(grid, world, (entityId) =>
+    lifecycleStore === undefined ||
+    isIndividualCharacterActive(lifecycleStore, entityId),
+  );
   return grid;
+}
+
+function hasActiveMember(
+  identityStore: UnitIdentityStore,
+  unitId: UnitId,
+  lifecycleStore?: IndividualCasualtyLifecycleStore,
+): boolean {
+  if (lifecycleStore === undefined) return true;
+  const members = getUnitMembers(identityStore, unitId);
+  for (let index = 0; index < members.length; index += 1) {
+    if (isIndividualCharacterActive(lifecycleStore, members[index]!)) return true;
+  }
+  return false;
 }
 
 function resetTickScratch(

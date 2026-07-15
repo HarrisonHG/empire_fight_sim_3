@@ -1,18 +1,28 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  applyIndividualZeroHitLifecycleTransitions,
   getIndividualCharacterLifecycleState,
   getIndividualDownPosition,
   getIndividualPlayerPresenceState,
 } from "../../src/sim/individualCasualtyLifecycle";
-import { queryIndividualCasualtiesWithinRadiusInto } from "../../src/sim/individualCasualtyLocalQuery";
+import {
+  getIndividualCasualtyLocalQueryPreparationCount,
+  prepareIndividualCasualtyLocalQuery,
+  queryIndividualCasualtiesWithinRadiusInto,
+} from "../../src/sim/individualCasualtyLocalQuery";
 import { getIndividualCasualtyProcedureProfile } from "../../src/sim/individualCasualtyProcedureProfile";
 import {
   getIndividualCombatActionState,
   getLockedAttackTargetEntityId,
 } from "../../src/sim/individualCombatAction";
 import { getIndividualCombatPressureInspection } from "../../src/sim/combatPressure";
-import { getUnitCohesion } from "../../src/sim/formationBehaviour";
+import {
+  getUnitAnchor,
+  getUnitCohesion,
+  setIndividualPressure,
+} from "../../src/sim/formationBehaviour";
+import { getPersistentUnitMorale } from "../../src/sim/persistentMorale";
 import { getIndividualCurrentGlobalHits } from "../../src/sim/individualGlobalHits";
 import { getSelectedTargetEntityId } from "../../src/sim/individualMeleeTargetSelection";
 import {
@@ -134,8 +144,6 @@ describe("production casualty lifecycle integration", () => {
     });
     const casualtyQueryOutput = [99];
     expect(queryIndividualCasualtiesWithinRadiusInto(
-      simulation.world,
-      combat.individualCasualtyLifecycleStore,
       combat.individualCasualtyLocalQueryStore,
       downPosition!.x,
       downPosition!.y,
@@ -154,6 +162,9 @@ describe("production casualty lifecycle integration", () => {
     });
 
     const cohesionAfterZeroShock = getUnitCohesion(combat.formationStore, 2);
+    const downedUnitAnchor = getUnitAnchor(combat.formationStore, 2);
+    setIndividualPressure(combat.formationStore, targetEntityId, 1_000);
+    combat.moraleMovementStates.set(2, "routing");
     advanceSimulationOneTick(simulation);
 
     expect(combat.individualLifecycleTransitions).toEqual([]);
@@ -163,6 +174,26 @@ describe("production casualty lifecycle integration", () => {
       ?.incomingZeroHitTransitions).toBe(0);
     expect(getUnitCohesion(combat.formationStore, 2))
       .toBe(cohesionAfterZeroShock);
+    expect(getUnitAnchor(combat.formationStore, 2)).toEqual(downedUnitAnchor);
+    expect(combat.moraleAssessments[1]).toMatchObject({
+      pressureAverage: 0,
+      pressureMaximum: 0,
+    });
+    expect(getPersistentUnitMorale(combat.persistentMoraleStore, 2)).toMatchObject({
+      confidence: 0,
+      experienceAdjustment: 0,
+    });
+    expect(combat.recoveryThreatSummaries[0]?.hostileNearby).toBe(false);
+    expect(combat.routingContagionSummaries[0]).toMatchObject({
+      nearbyRouterUnitIds: [],
+      passThroughRouterUnitIds: [],
+      pressureAppliedPerMember: 0,
+    });
+    expect(combat.routingContagionSummaries[1]).toMatchObject({
+      nearbyRouterUnitIds: [],
+      passThroughRouterUnitIds: [],
+      pressureAppliedPerMember: 0,
+    });
     expect(getSelectedTargetEntityId(
       combat.individualTargetSelectionStore,
       targetEntityId,
@@ -191,10 +222,45 @@ describe("production casualty lifecycle integration", () => {
       simulation.world.positionsX[entityId]! > downPosition!.x,
     )).toBe(true);
     expect(simulation.world.positionsX[targetEntityId]).toBe(downPosition!.x);
+
+    applyIndividualZeroHitLifecycleTransitions(
+      combat.individualCasualtyLifecycleStore,
+      combat.individualPlayerPresenceStore,
+      combat.individualCasualtyProcedureProfileStore,
+      simulation.world,
+      [{ entityId: 0, attackerEntityId: 1, previousHits: 1 }],
+      simulation.tick,
+    );
+    prepareIndividualCasualtyLocalQuery(
+      simulation.world,
+      combat.individualCasualtyLifecycleStore,
+      combat.individualCasualtyLocalQueryStore,
+    );
+    const preparationCount = getIndividualCasualtyLocalQueryPreparationCount(
+      combat.individualCasualtyLocalQueryStore,
+    );
+    const firstQuery: number[] = [];
+    const secondQuery: number[] = [];
+    queryIndividualCasualtiesWithinRadiusInto(
+      combat.individualCasualtyLocalQueryStore, 90, 60, 100, firstQuery,
+    );
+    queryIndividualCasualtiesWithinRadiusInto(
+      combat.individualCasualtyLocalQueryStore, 90, 60, 100, secondQuery,
+    );
+    expect(firstQuery).toEqual([0, targetEntityId]);
+    expect(secondQuery).toEqual(firstQuery);
+    expect(getIndividualCasualtyLocalQueryPreparationCount(
+      combat.individualCasualtyLocalQueryStore,
+    )).toBe(preparationCount);
   });
 });
 
 function productionTransitionScenario(): SimulationScenario {
+  const target = {
+    ...unit(2, 2, 1, 58, -1, "unarmed", "barbarian"),
+    role: "veteran" as const,
+    individualConfidence: 1_000,
+  };
   return {
     seed: 0x6a02,
     entityCount: 3,
@@ -207,7 +273,7 @@ function productionTransitionScenario(): SimulationScenario {
       inspectedEntityIds: [2],
       units: [
         unit(1, 1, 2, 50, 1, "oneHanded", "citizen"),
-        unit(2, 2, 1, 58, -1, "unarmed", "barbarian"),
+        target,
       ],
     },
   };

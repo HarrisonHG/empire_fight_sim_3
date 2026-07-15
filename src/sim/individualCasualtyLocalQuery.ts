@@ -15,10 +15,31 @@ export interface IndividualCasualtyLocalQueryStore {
   readonly bounds: SimulationBounds;
 }
 
+export function prepareIndividualCasualtyLocalQuery(
+  world: WorldState,
+  lifecycleStore: IndividualCasualtyLifecycleStore,
+  store: IndividualCasualtyLocalQueryStore,
+): void {
+  const internal = validateDependencies(world, lifecycleStore, store);
+  buildSpatialGrid(internal.grid, world, (entityId) =>
+    getIndividualCharacterLifecycleState(lifecycleStore, entityId) !== "active",
+  );
+  internal.prepared = true;
+  internal.preparationCount += 1;
+}
+
+export function getIndividualCasualtyLocalQueryPreparationCount(
+  store: IndividualCasualtyLocalQueryStore,
+): number {
+  return (store as InternalIndividualCasualtyLocalQueryStore).preparationCount;
+}
+
 interface InternalIndividualCasualtyLocalQueryStore
   extends IndividualCasualtyLocalQueryStore {
   readonly grid: SpatialGrid;
   readonly candidateScratch: number[];
+  prepared: boolean;
+  preparationCount: number;
 }
 
 const CASUALTY_QUERY_CELL_SIZE = 32;
@@ -39,6 +60,8 @@ export function createIndividualCasualtyLocalQueryStore(
       capacity: entityCount,
     }),
     candidateScratch: [],
+    prepared: false,
+    preparationCount: 0,
   } as InternalIndividualCasualtyLocalQueryStore;
 }
 
@@ -47,8 +70,6 @@ export function createIndividualCasualtyLocalQueryStore(
  * characters and remain in canonical entity-ID order.
  */
 export function queryIndividualCasualtiesWithinRadiusInto(
-  world: WorldState,
-  lifecycleStore: IndividualCasualtyLifecycleStore,
   store: IndividualCasualtyLocalQueryStore,
   x: number,
   y: number,
@@ -56,17 +77,9 @@ export function queryIndividualCasualtiesWithinRadiusInto(
   out: number[] = [],
 ): number[] {
   const internal = store as InternalIndividualCasualtyLocalQueryStore;
-  if (
-    world.entityCount !== internal.entityCount ||
-    lifecycleStore.entityCount !== internal.entityCount
-  ) {
-    throw new RangeError(
-      "Casualty local query dependencies must match entity count.",
-    );
+  if (!internal.prepared) {
+    throw new Error("Casualty local query store must be prepared before querying.");
   }
-  buildSpatialGrid(internal.grid, world, (entityId) =>
-    getIndividualCharacterLifecycleState(lifecycleStore, entityId) !== "active",
-  );
   const candidates = queryEntitiesWithinRadiusInto(
     internal.grid,
     x,
@@ -79,4 +92,22 @@ export function queryIndividualCasualtiesWithinRadiusInto(
     out.push(candidates[index]!);
   }
   return out;
+}
+
+
+function validateDependencies(
+  world: WorldState,
+  lifecycleStore: IndividualCasualtyLifecycleStore,
+  store: IndividualCasualtyLocalQueryStore,
+): InternalIndividualCasualtyLocalQueryStore {
+  const internal = store as InternalIndividualCasualtyLocalQueryStore;
+  if (
+    world.entityCount !== internal.entityCount ||
+    lifecycleStore.entityCount !== internal.entityCount
+  ) {
+    throw new RangeError(
+      "Casualty local query dependencies must match entity count.",
+    );
+  }
+  return internal;
 }

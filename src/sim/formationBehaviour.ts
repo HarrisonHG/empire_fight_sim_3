@@ -706,6 +706,19 @@ function processUnit(
   diagnostics: FormationTickDiagnostics | undefined,
   lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
 ): void {
+  const unitMembers = getUnitMembers(identityStore, unitId);
+  if (!hasFormationParticipant(unitMembers, lifecycleStore)) {
+    store.anchorMovementRemainder[unitIndex] = 0;
+    store.routingHeadingX[unitIndex] = 0;
+    store.routingHeadingY[unitIndex] = 0;
+    for (let index = 0; index < unitMembers.length; index += 1) {
+      const entityId = unitMembers[index]!;
+      store.movementMode[entityId] = "holdPosition";
+      store.stuckTicks[entityId] = 0;
+      store.isStuck[entityId] = 0;
+    }
+    return;
+  }
   const storedOrder = store.orders[unitIndex]!;
   // 4G recovery preserves but temporarily suspends the configured order.
   const order: UnitOrder =
@@ -818,7 +831,7 @@ function processUnit(
   const anchorX = store.anchorX[unitIndex]!;
   const anchorY = store.anchorY[unitIndex]!;
 
-  const members = getUnitMembers(identityStore, unitId);
+  const members = unitMembers;
   if (members.length === 0) {
     return;
   }
@@ -2548,6 +2561,16 @@ function isFormationParticipant(
     lifecycleStore === undefined ||
     isIndividualCharacterActive(lifecycleStore, entityId)
   );
+}
+
+function hasFormationParticipant(
+  members: readonly number[],
+  lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
+): boolean {
+  for (let index = 0; index < members.length; index += 1) {
+    if (isFormationParticipant(lifecycleStore, members[index]!)) return true;
+  }
+  return false;
 }
 
 function computeForwardSearchDepth(

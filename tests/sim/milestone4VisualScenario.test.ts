@@ -45,7 +45,7 @@ describe("combined Milestone 4 visual regression scenario", () => {
     expect(runCombinedScenario()).toEqual(runCombinedScenario());
   });
 
-  it("retains the accepted comparison, contagion, and pursuit outcomes", () => {
+  it("retains comparison and pursuit outcomes without downed contagion", () => {
     const simulation = createSimulation(MILESTONE_4_VISUAL_SCENARIO);
     const combat = simulation.combatSandbox;
     if (combat === undefined) throw new Error("Expected combat sandbox.");
@@ -96,8 +96,8 @@ describe("combined Milestone 4 visual regression scenario", () => {
       }
     }
 
-    expect(recruitRouted).toBe(true);
-    expect(reserveDisrupted).toBe(true);
+    expect(recruitRouted).toBe(false);
+    expect(reserveDisrupted).toBe(false);
     expect(regularMoreDegraded).toBe(true);
     expect(regularPursuitRouted).toBe(false);
     expect(veteranPursuitRouted).toBe(false);

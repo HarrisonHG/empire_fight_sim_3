@@ -11,6 +11,10 @@ import {
   type UnitId,
   type UnitIdentityStore,
 } from "./unitIdentity";
+import {
+  isIndividualCharacterActive,
+  type IndividualCasualtyLifecycleStore,
+} from "./individualCasualtyLifecycle";
 
 export type CombatMoraleState =
   | "steady"
@@ -63,6 +67,7 @@ export function assessUnitCombatMorale(
   formationStore: FormationBehaviourStore,
   unitId: UnitId,
   recentConsequences: readonly CombatConsequenceApplication[] = [],
+  lifecycleStore?: IndividualCasualtyLifecycleStore,
 ): CombatMoraleAssessment {
   validateCombatMoraleInputs(identityStore, formationStore);
   validateRecentConsequences(identityStore, recentConsequences);
@@ -71,6 +76,7 @@ export function assessUnitCombatMorale(
     formationStore,
     unitId,
     recentConsequences,
+    lifecycleStore,
   );
 }
 
@@ -79,6 +85,7 @@ export function collectCombatMoraleAssessments(
   formationStore: FormationBehaviourStore,
   recentConsequences: readonly CombatConsequenceApplication[] = [],
   out: CombatMoraleAssessment[] = [],
+  lifecycleStore?: IndividualCasualtyLifecycleStore,
 ): CombatMoraleTickResult {
   validateCombatMoraleInputs(identityStore, formationStore);
   validateRecentConsequences(identityStore, recentConsequences);
@@ -92,6 +99,7 @@ export function collectCombatMoraleAssessments(
         formationStore,
         unitIds[index]!,
         recentConsequences,
+        lifecycleStore,
       ),
     );
   }
@@ -104,6 +112,7 @@ export function collectCombatMoraleAssessmentsFromIndividualConsequences(
   formationStore: FormationBehaviourStore,
   individualConsequences: readonly IndividualCombatUnitConsequenceSummary[],
   out: CombatMoraleAssessment[] = [],
+  lifecycleStore?: IndividualCasualtyLifecycleStore,
 ): CombatMoraleTickResult {
   validateCombatMoraleInputs(identityStore, formationStore);
   const contextByUnitId = new Map<UnitId, IndividualCombatUnitConsequenceSummary>();
@@ -123,6 +132,7 @@ export function collectCombatMoraleAssessmentsFromIndividualConsequences(
         formationStore,
         unitId,
         contextByUnitId.get(unitId),
+        lifecycleStore,
       ),
     );
   }
@@ -135,9 +145,10 @@ function assessValidatedUnitCombatMorale(
   formationStore: FormationBehaviourStore,
   unitId: UnitId,
   recentConsequences: readonly CombatConsequenceApplication[],
+  lifecycleStore?: IndividualCasualtyLifecycleStore,
 ): CombatMoraleAssessment {
   const memberEntityIds = getUnitMembers(identityStore, unitId);
-  const pressure = computePressureSummary(formationStore, memberEntityIds);
+  const pressure = computePressureSummary(formationStore, memberEntityIds, lifecycleStore);
   const cohesion = getUnitCohesion(formationStore, unitId);
   const recentContext = computeRecentContext(unitId, recentConsequences);
   const reasonCodes = collectReasonCodes(
@@ -173,9 +184,10 @@ function assessValidatedUnitCombatMoraleFromIndividualContext(
   formationStore: FormationBehaviourStore,
   unitId: UnitId,
   recentContext: IndividualCombatUnitConsequenceSummary | undefined,
+  lifecycleStore?: IndividualCasualtyLifecycleStore,
 ): CombatMoraleAssessment {
   const memberEntityIds = getUnitMembers(identityStore, unitId);
-  const pressure = computePressureSummary(formationStore, memberEntityIds);
+  const pressure = computePressureSummary(formationStore, memberEntityIds, lifecycleStore);
   const cohesion = getUnitCohesion(formationStore, unitId);
   const recentCombatShockValue =
     recentContext?.incomingZeroHitTransitions ?? 0;
@@ -212,6 +224,7 @@ function assessValidatedUnitCombatMoraleFromIndividualContext(
 function computePressureSummary(
   formationStore: FormationBehaviourStore,
   memberEntityIds: readonly number[],
+  lifecycleStore?: IndividualCasualtyLifecycleStore,
 ): {
   readonly total: number;
   readonly average: number;
@@ -219,12 +232,18 @@ function computePressureSummary(
 } {
   let total = 0;
   let maximum = 0;
+  let activeCount = 0;
   for (let index = 0; index < memberEntityIds.length; index += 1) {
+    if (
+      lifecycleStore !== undefined &&
+      !isIndividualCharacterActive(lifecycleStore, memberEntityIds[index]!)
+    ) continue;
     const pressure = getIndividualPressure(
       formationStore,
       memberEntityIds[index]!,
     );
     total = addSafeNonNegativeInteger(total, pressure, "pressureTotal");
+    activeCount += 1;
     if (pressure > maximum) {
       maximum = pressure;
     }
@@ -232,7 +251,7 @@ function computePressureSummary(
 
   return {
     total,
-    average: total / memberEntityIds.length,
+    average: activeCount === 0 ? 0 : total / activeCount,
     maximum,
   };
 }

@@ -39,7 +39,7 @@ describe("Milestone 4 morale inspection scenario", () => {
     ).toThrow("at least two factions");
   });
 
-  it("replays a complete visible morale timeline without removal", () => {
+  it("replays the lifecycle-filtered visible morale timeline without removal", () => {
     const first = runInspectionScenario();
     const second = runInspectionScenario();
 
@@ -48,17 +48,17 @@ describe("Milestone 4 morale inspection scenario", () => {
     expect(first.initialEntityCount).toBe(70);
     expect(first.memberCount).toBe(70);
     expect(first.veteranRouted).toBe(false);
-    expect(first.regularSeverelyDegraded).toBe(true);
+    expect(first.regularSeverelyDegraded).toBe(false);
     expect(first.regularOutperformedVeteran).toBe(true);
-    expect(first.recruitRouted).toBe(true);
-    expect(first.reservePassThroughContagion).toBe(true);
-    expect(first.reserveDisrupted).toBe(true);
+    expect(first.recruitRouted).toBe(false);
+    expect(first.reservePassThroughContagion).toBe(false);
+    expect(first.reserveDisrupted).toBe(false);
     expect(first.reserveRouted).toBe(false);
-    expect(first.recruitRecovered).toBe(true);
+    expect(first.recruitRecovered).toBe(false);
     expect(first.recruitCompletedRecovery).toBe(false);
-    expect(first.recruitRecoveryTicks).toBeGreaterThanOrEqual(80);
-    expect(first.recoveringAnchorHeld).toBe(true);
-    expect(first.recoveringMovementSuspended).toBe(true);
+    expect(first.recruitRecoveryTicks).toBe(0);
+    expect(first.recoveringAnchorHeld).toBe(false);
+    expect(first.recoveringMovementSuspended).toBe(false);
     expect(first.finalEntityCount).toBe(70);
     expect(first.finalMemberCount).toBe(70);
   });

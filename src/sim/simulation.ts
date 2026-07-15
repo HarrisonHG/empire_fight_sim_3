@@ -55,7 +55,10 @@ import {
   getIndividualCasualtyProcedureProfile,
   type IndividualCasualtyProcedureProfileConfig,
 } from "./individualCasualtyProcedureProfile";
-import { createIndividualCasualtyLocalQueryStore } from "./individualCasualtyLocalQuery";
+import {
+  createIndividualCasualtyLocalQueryStore,
+  prepareIndividualCasualtyLocalQuery,
+} from "./individualCasualtyLocalQuery";
 import {
   getActiveMeleeWeaponCategory,
   getAttackCommitmentTicksRemaining,
@@ -1068,6 +1071,11 @@ export function advanceCombatSandboxOneTick(
       tick,
       combatSandbox.individualLifecycleTransitions,
     );
+    prepareIndividualCasualtyLocalQuery(
+      world,
+      combatSandbox.individualCasualtyLifecycleStore,
+      combatSandbox.individualCasualtyLocalQueryStore,
+    );
     return completeIndividualCombatPipelineOneTick(
       combatSandbox.identityStore,
       combatSandbox.individualCombatPipelineStores,
@@ -1105,6 +1113,7 @@ export function advanceCombatSandboxOneTick(
       formationResult.routingPassThroughInteractions,
       combatSandbox.routingContagionStore,
       combatSandbox.routingContagionSummaries,
+      combatSandbox.individualCasualtyLifecycleStore,
     ),
   );
   runStage("recoveryThreat", () =>
@@ -1114,6 +1123,7 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.formationStore,
       combatSandbox.recoveryThreatStore,
       combatSandbox.recoveryThreatSummaries,
+      combatSandbox.individualCasualtyLifecycleStore,
     ),
   );
   runStage("moraleAssessmentAndPersistence", () => {
@@ -1122,6 +1132,7 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.formationStore,
       individualCombatResult.consequenceSummaries,
       combatSandbox.moraleAssessments,
+      combatSandbox.individualCasualtyLifecycleStore,
     );
     advancePersistentMoraleOneTick(
       combatSandbox.identityStore,
@@ -1133,6 +1144,7 @@ export function advanceCombatSandboxOneTick(
         pressureUpdates: combatSandbox.pressureUpdates,
         routingContagionSummaries: combatSandbox.routingContagionSummaries,
         recoveryThreatSummaries: combatSandbox.recoveryThreatSummaries,
+        lifecycleStore: combatSandbox.individualCasualtyLifecycleStore,
       },
     );
     syncMoraleMovementStates(combatSandbox);

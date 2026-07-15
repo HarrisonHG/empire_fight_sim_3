@@ -20,6 +20,10 @@ import {
   type UnitId,
   type UnitIdentityStore,
 } from "./unitIdentity";
+import {
+  isIndividualCharacterActive,
+  type IndividualCasualtyLifecycleStore,
+} from "./individualCasualtyLifecycle";
 
 export type PersistentUnitMoraleState = MoraleMovementState;
 
@@ -33,6 +37,7 @@ export interface PersistentUnitMorale {
   readonly unitId: UnitId;
   readonly pressure: number;
   readonly confidence: number;
+  readonly experienceAdjustment: number;
   readonly cohesion: number;
   readonly state: PersistentUnitMoraleState;
   readonly stateTicks: number;
@@ -63,12 +68,14 @@ export interface PersistentMoraleContext {
   readonly routingContagionSummaries?: readonly UnitRoutingContagionSummary[];
   /** Compact 4G local hostile safety summaries in deterministic unit order. */
   readonly recoveryThreatSummaries?: readonly UnitRecoveryThreatSummary[];
+  readonly lifecycleStore?: IndividualCasualtyLifecycleStore;
 }
 
 interface InternalPersistentMoraleStore extends PersistentMoraleStore {
   readonly unitIndexById: ReadonlyMap<UnitId, number>;
   readonly pressure: number[];
   readonly confidence: number[];
+  readonly experienceAdjustment: Int8Array;
   readonly cohesion: Int32Array;
   readonly states: PersistentUnitMoraleState[];
   readonly stateTicks: Int32Array;
@@ -126,6 +133,7 @@ export function createPersistentMoraleStore(
     ),
     pressure: new Array<number>(unitIds.length).fill(0),
     confidence: new Array<number>(unitIds.length).fill(0),
+    experienceAdjustment: new Int8Array(unitIds.length),
     cohesion: new Int32Array(unitIds.length),
     states: new Array<PersistentUnitMoraleState>(unitIds.length).fill("steady"),
     stateTicks: new Int32Array(unitIds.length),
@@ -143,6 +151,12 @@ export function createPersistentMoraleStore(
       unitIndex,
       assessments[unitIndex]!,
     );
+    store.experienceAdjustment[unitIndex] = collectUnitMoraleProfile(
+      formationStore,
+      unitIds[unitIndex]!,
+      getUnitMembers(identityStore, unitIds[unitIndex]!),
+      assessments[unitIndex]!,
+    ).experienceAdjustment;
   }
 
   return store;
@@ -178,20 +192,28 @@ export function advancePersistentMoraleOneTick(
   for (let unitIndex = 0; unitIndex < unitIds.length; unitIndex += 1) {
     const unitId = unitIds[unitIndex]!;
     const assessment = assessments[unitIndex]!;
+    const members = getUnitMembers(identityStore, unitId);
+    const activeMemberCount = countActiveMembers(members, context.lifecycleStore);
+    if (activeMemberCount === 0 && assessment.recentCombatShockValue === 0) {
+      continue;
+    }
     refreshObservedInputs(
       identityStore,
       formationStore,
       internal,
       unitIndex,
       assessment,
+      context.lifecycleStore,
     );
 
     const profile = collectUnitMoraleProfile(
       formationStore,
       unitId,
-      getUnitMembers(identityStore, unitId),
+      members,
       assessment,
+      context.lifecycleStore,
     );
+    internal.experienceAdjustment[unitIndex] = profile.experienceAdjustment;
     const pressureUpdate = context.pressureUpdates?.[unitIndex];
     const hasFreshPressure =
       (pressureUpdate !== undefined && pressureUpdate.unitId === unitId
@@ -271,6 +293,7 @@ export function getPersistentUnitMorale(
     unitId,
     pressure: internal.pressure[unitIndex]!,
     confidence: internal.confidence[unitIndex]!,
+    experienceAdjustment: internal.experienceAdjustment[unitIndex]!,
     cohesion: internal.cohesion[unitIndex]!,
     state: internal.states[unitIndex]!,
     stateTicks: internal.stateTicks[unitIndex]!,
@@ -293,24 +316,45 @@ function refreshObservedInputs(
   store: InternalPersistentMoraleStore,
   unitIndex: number,
   assessment: CombatMoraleAssessment,
+  lifecycleStore?: IndividualCasualtyLifecycleStore,
 ): void {
   store.pressure[unitIndex] = assessment.pressureAverage;
   store.cohesion[unitIndex] = assessment.cohesion;
   store.confidence[unitIndex] = calculateAverageConfidence(
     formationStore,
     getUnitMembers(identityStore, assessment.unitId),
+    lifecycleStore,
   );
 }
 
 function calculateAverageConfidence(
   formationStore: FormationBehaviourStore,
   memberEntityIds: readonly number[],
+  lifecycleStore?: IndividualCasualtyLifecycleStore,
 ): number {
   let total = 0;
+  let activeCount = 0;
   for (let index = 0; index < memberEntityIds.length; index += 1) {
+    if (
+      lifecycleStore !== undefined &&
+      !isIndividualCharacterActive(lifecycleStore, memberEntityIds[index]!)
+    ) continue;
     total += getIndividualConfidence(formationStore, memberEntityIds[index]!);
+    activeCount += 1;
   }
-  return total / memberEntityIds.length;
+  return activeCount === 0 ? 0 : total / activeCount;
+}
+
+function countActiveMembers(
+  members: readonly number[],
+  lifecycleStore?: IndividualCasualtyLifecycleStore,
+): number {
+  if (lifecycleStore === undefined) return members.length;
+  let count = 0;
+  for (let index = 0; index < members.length; index += 1) {
+    if (isIndividualCharacterActive(lifecycleStore, members[index]!)) count += 1;
+  }
+  return count;
 }
 
 function determineNextState(
@@ -407,18 +451,25 @@ function collectUnitMoraleProfile(
   unitId: UnitId,
   members: readonly number[],
   assessment: CombatMoraleAssessment,
+  lifecycleStore?: IndividualCasualtyLifecycleStore,
 ): UnitMoraleProfile {
   let confidenceTotal = 0;
   let experienceTotal = 0;
+  let activeCount = 0;
   for (let index = 0; index < members.length; index += 1) {
     const entityId = members[index]!;
+    if (
+      lifecycleStore !== undefined &&
+      !isIndividualCharacterActive(lifecycleStore, entityId)
+    ) continue;
     confidenceTotal += getIndividualConfidence(formationStore, entityId);
     experienceTotal += experienceAdjustmentForRole(
       getIndividualRole(formationStore, entityId),
     );
+    activeCount += 1;
   }
-  const confidence = Math.trunc(confidenceTotal / members.length);
-  const experienceAdjustment = Math.trunc(experienceTotal / members.length);
+  const confidence = activeCount === 0 ? 500 : Math.trunc(confidenceTotal / activeCount);
+  const experienceAdjustment = activeCount === 0 ? 0 : Math.trunc(experienceTotal / activeCount);
   let stressScore = Math.trunc(assessment.pressureAverage);
   stressScore += Math.min(20, assessment.recentCombatShockValue * 4);
   if (isBreakRiskCombatShock(assessment.recentCombatShockSource)) {

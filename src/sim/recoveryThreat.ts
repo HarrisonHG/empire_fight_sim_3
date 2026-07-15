@@ -13,10 +13,15 @@ import {
   getFactionIdForUnit,
   getUnitIdForEntity,
   getUnitIds,
+  getUnitMembers,
   type UnitId,
   type UnitIdentityStore,
 } from "./unitIdentity";
 import type { WorldState } from "./types";
+import {
+  isIndividualCharacterActive,
+  type IndividualCasualtyLifecycleStore,
+} from "./individualCasualtyLifecycle";
 
 export interface UnitRecoveryThreatSummary {
   readonly unitId: UnitId;
@@ -60,6 +65,7 @@ export function collectRecoveryThreatSummaries(
   formationStore: FormationBehaviourStore,
   store: RecoveryThreatStore,
   out: UnitRecoveryThreatSummary[] = [],
+  lifecycleStore?: IndividualCasualtyLifecycleStore,
 ): readonly UnitRecoveryThreatSummary[] {
   const internal = asInternal(store);
   if (
@@ -71,11 +77,23 @@ export function collectRecoveryThreatSummaries(
     throw new RangeError("Recovery threat stores must match unit identity.");
   }
 
-  buildSpatialGrid(internal.grid, world);
+  buildSpatialGrid(internal.grid, world, (entityId) =>
+    lifecycleStore === undefined ||
+    isIndividualCharacterActive(lifecycleStore, entityId),
+  );
   out.length = 0;
   const unitIds = getUnitIds(identityStore);
   for (let unitIndex = 0; unitIndex < unitIds.length; unitIndex += 1) {
     const unitId = unitIds[unitIndex]!;
+    if (
+      lifecycleStore !== undefined &&
+      !getUnitMembers(identityStore, unitId).some((entityId) =>
+        isIndividualCharacterActive(lifecycleStore, entityId),
+      )
+    ) {
+      out.push({ unitId, hostileNearby: false });
+      continue;
+    }
     const anchor = getUnitAnchor(formationStore, unitId);
     const nearbyEntityIds = queryEntitiesWithinRadiusInto(
       internal.grid,

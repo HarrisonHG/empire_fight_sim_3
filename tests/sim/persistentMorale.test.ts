@@ -53,6 +53,7 @@ describe("persistent unit morale", () => {
       unitId: TARGET_UNIT_ID,
       pressure: 0,
       confidence: 500,
+      experienceAdjustment: 0,
       cohesion: 1_000,
       state: "steady",
       stateTicks: 2,
