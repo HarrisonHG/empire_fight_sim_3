@@ -42,6 +42,10 @@ import type {
   PlayerPresenceState,
 } from "./individualCasualtyLifecycle";
 import type { IndividualCasualtyLocalQueryStore } from "./individualCasualtyLocalQuery";
+import type {
+  IndividualDeathCountStore,
+  IndividualDeathCountTerminalTransitionRecord,
+} from "./individualDeathCount";
 import type { IndividualLandedHitGateStore } from "./individualLandedHitGate";
 import type {
   DefenceCoverageTier,
@@ -112,6 +116,8 @@ export interface CombatSandboxUnitScenario {
   readonly unitSpeed: number;
   readonly order: UnitOrder;
   readonly role: IndividualRole;
+  /** Feeds the existing individual combat profile qualification authority. */
+  readonly fortitudeLevels?: number;
   readonly memberMaxStep: number;
   readonly weaponCategory: WeaponCategory;
   readonly weaponReachBand: WeaponReachBand;
@@ -297,6 +303,16 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly casualtyProcedureKind?: CasualtyProcedureKind;
   readonly characterLifecycleState?: CharacterLifecycleState;
   readonly playerPresenceState?: PlayerPresenceState;
+  readonly deathCountDurationTicks?: number;
+  readonly deathCountRemainingTicks?: number;
+  readonly deathCountPaused?: boolean;
+  readonly firstZeroHitTick?: number;
+  readonly latestZeroHitTick?: number;
+  readonly dyingTransitionCount?: number;
+  readonly terminalTick?: number;
+  readonly terminalCause?: import("./individualCasualtyLifecycle").TerminalCause;
+  readonly terminalX?: number;
+  readonly terminalY?: number;
   readonly tickStartCombatEligible: boolean;
   readonly selectedTargetEntityId: number | null;
   readonly selectedTargetDistanceSquared: number | null;
@@ -391,6 +407,7 @@ export interface LiveCombatDebugSnapshot {
   readonly appliedHitLoss: number;
   readonly newlyZeroMemberCount: number;
   readonly lifecycleTransitionCount: number;
+  readonly terminalTransitionCount: number;
   readonly tickStartEligibleMemberCount: number;
   readonly endOfTickEligibleMemberCount: number;
   readonly endOfTickZeroHitMemberCount: number;
@@ -401,6 +418,7 @@ export interface LiveCombatDebugSnapshot {
   readonly totalAppliedHitLoss: number;
   readonly totalNewlyZeroMemberCount: number;
   readonly totalLifecycleTransitionCount: number;
+  readonly totalTerminalTransitionCount: number;
   readonly units: readonly LiveCombatDebugUnitSnapshot[];
   readonly inspectedIndividuals: readonly LiveCombatDebugIndividualSnapshot[];
   readonly individualCombatVisuals: readonly IndividualCombatVisualState[];
@@ -426,8 +444,10 @@ export interface CombatSandboxSimulationState {
   readonly individualCasualtyProcedureProfileStore: IndividualCasualtyProcedureProfileStore;
   readonly individualCasualtyLifecycleStore: IndividualCasualtyLifecycleStore;
   readonly individualPlayerPresenceStore: IndividualPlayerPresenceStore;
+  readonly individualDeathCountStore: IndividualDeathCountStore;
   readonly individualCasualtyLocalQueryStore: IndividualCasualtyLocalQueryStore;
   readonly individualLifecycleTransitions: IndividualZeroHitLifecycleTransitionRecord[];
+  readonly individualTerminalTransitions: IndividualDeathCountTerminalTransitionRecord[];
   readonly individualCombatUnitAggregationStore: IndividualCombatUnitAggregationStore;
   readonly individualCombatUnitSummaries: readonly IndividualCombatUnitSummary[];
   readonly individualCombatConsequenceProjectionStore: IndividualCombatConsequenceProjectionStore;
@@ -470,6 +490,7 @@ export interface CombatSandboxSimulationState {
   individualEndOfTickZeroHitMemberCount: number;
   individualNewlyZeroHitMemberCount: number;
   individualLifecycleTransitionCount: number;
+  individualTerminalTransitionCount: number;
   totalIndividualEligibleMeleeSourceCount: number;
   totalIndividualSelectedTargetCount: number;
   totalIndividualActiveCommitmentCount: number;
@@ -490,6 +511,7 @@ export interface CombatSandboxSimulationState {
   totalIndividualEndOfTickZeroHitMemberCount: number;
   totalIndividualNewlyZeroHitMemberCount: number;
   totalIndividualLifecycleTransitionCount: number;
+  totalIndividualTerminalTransitionCount: number;
   debugSnapshot: LiveCombatDebugSnapshot;
 }
 

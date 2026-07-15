@@ -69,6 +69,7 @@ import type { WorldState } from "./types";
 import {
   getUnitIds,
   getUnitMembers,
+  type UnitId,
   type UnitIdentityStore,
 } from "./unitIdentity";
 import {
@@ -440,6 +441,7 @@ function countEndOfTickZeroHitMembers(
 export function createIndividualCombatProfileStoreFromUnitLoadouts(
   identityStore: UnitIdentityStore,
   loadoutStore: UnitLoadoutStore,
+  fortitudeLevelsByUnit: ReadonlyMap<UnitId, number> = new Map(),
 ): IndividualCombatProfileStore {
   if (identityStore.entityCount !== loadoutStore.entityCount) {
     throw new RangeError(
@@ -475,7 +477,7 @@ export function createIndividualCombatProfileStoreFromUnitLoadouts(
           hasThrown: true,
           hasAmbidexterity: true,
           enduranceLevels: 0,
-          fortitudeLevels: 0,
+          fortitudeLevels: fortitudeLevelsByUnit.get(unitId) ?? 0,
           hasDreadnought,
         },
         magicalCapabilities: {

@@ -465,13 +465,13 @@ describe("individual combat visual regression scenario", () => {
     );
   });
 
-  it("replays deterministically without casualty or removal fields", () => {
+  it("replays deterministically without later treatment or removal fields", () => {
     const first = summarizeReplay(runScenario(INSPECTION_TICKS));
     const second = summarizeReplay(runScenario(INSPECTION_TICKS));
 
     expect(first).toEqual(second);
     expect(JSON.stringify(first)).not.toMatch(
-      /death|dead|removal|removed|healing|heal|call|shout|special.?effect/i,
+      /removal|removed|healing|heal|call|shout|special.?effect/i,
     );
   });
 });

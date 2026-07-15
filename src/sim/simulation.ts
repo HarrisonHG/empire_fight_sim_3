@@ -60,6 +60,13 @@ import {
   prepareIndividualCasualtyLocalQuery,
 } from "./individualCasualtyLocalQuery";
 import {
+  advanceIndividualDeathCountsOneTick,
+  createIndividualDeathCountStore,
+  getIndividualCasualtyHistoryInspection,
+  getIndividualDeathCountInspection,
+  initializeIndividualDeathCountsFromZeroHitTransitions,
+} from "./individualDeathCount";
+import {
   getActiveMeleeWeaponCategory,
   getAttackCommitmentTicksRemaining,
   getAttackRecoveryTicksRemaining,
@@ -508,6 +515,7 @@ function createCombatSandbox(
     createIndividualCombatProfileStoreFromUnitLoadouts(
       identityStore,
       loadoutStore,
+      new Map(scenario.units.map((unit) => [unit.unitId, unit.fortitudeLevels ?? 0])),
     );
   const individualCombatPipelineStores = createIndividualCombatPipelineStores(
     world,
@@ -562,11 +570,13 @@ function createCombatSandbox(
     individualCasualtyProcedureProfileStore,
     individualCasualtyLifecycleStore,
     individualPlayerPresenceStore,
+    individualDeathCountStore: createIndividualDeathCountStore(world.entityCount),
     individualCasualtyLocalQueryStore: createIndividualCasualtyLocalQueryStore(
       world.entityCount,
       world.bounds,
     ),
     individualLifecycleTransitions: [],
+    individualTerminalTransitions: [],
     individualCombatUnitAggregationStore:
       individualCombatPipelineStores.unitAggregationStore,
     individualCombatUnitSummaries: getIndividualCombatUnitSummaries(
@@ -616,6 +626,7 @@ function createCombatSandbox(
     individualEndOfTickZeroHitMemberCount: 0,
     individualNewlyZeroHitMemberCount: 0,
     individualLifecycleTransitionCount: 0,
+    individualTerminalTransitionCount: 0,
     totalIndividualEligibleMeleeSourceCount: 0,
     totalIndividualSelectedTargetCount: 0,
     totalIndividualActiveCommitmentCount: 0,
@@ -636,6 +647,7 @@ function createCombatSandbox(
     totalIndividualEndOfTickZeroHitMemberCount: 0,
     totalIndividualNewlyZeroHitMemberCount: 0,
     totalIndividualLifecycleTransitionCount: 0,
+    totalIndividualTerminalTransitionCount: 0,
     debugSnapshot: createEmptyCombatDebugSnapshot(),
   };
   combatSandbox.debugSnapshot = createCombatDebugSnapshot(combatSandbox, 0);
@@ -1071,6 +1083,20 @@ export function advanceCombatSandboxOneTick(
       tick,
       combatSandbox.individualLifecycleTransitions,
     );
+    initializeIndividualDeathCountsFromZeroHitTransitions(
+      combatSandbox.individualDeathCountStore,
+      combatSandbox.individualCasualtyProcedureProfileStore,
+      combatSandbox.individualProfileStore,
+      combatSandbox.individualLifecycleTransitions,
+    );
+    // Future treatment completion belongs immediately before this boundary.
+    advanceIndividualDeathCountsOneTick(
+      combatSandbox.individualDeathCountStore,
+      combatSandbox.individualCasualtyLifecycleStore,
+      world,
+      tick,
+      combatSandbox.individualTerminalTransitions,
+    );
     prepareIndividualCasualtyLocalQuery(
       world,
       combatSandbox.individualCasualtyLifecycleStore,
@@ -1264,6 +1290,8 @@ function updateIndividualCombatCounters(
     result.newlyZeroHitMemberCount;
   combatSandbox.individualLifecycleTransitionCount =
     combatSandbox.individualLifecycleTransitions.length;
+  combatSandbox.individualTerminalTransitionCount =
+    combatSandbox.individualTerminalTransitions.length;
   combatSandbox.totalIndividualEligibleMeleeSourceCount +=
     result.eligibleMeleeSourceCount;
   combatSandbox.totalIndividualSelectedTargetCount += result.selectedTargetCount;
@@ -1298,6 +1326,8 @@ function updateIndividualCombatCounters(
     result.newlyZeroHitMemberCount;
   combatSandbox.totalIndividualLifecycleTransitionCount +=
     combatSandbox.individualLifecycleTransitions.length;
+  combatSandbox.totalIndividualTerminalTransitionCount +=
+    combatSandbox.individualTerminalTransitions.length;
 }
 
 /**
@@ -1338,6 +1368,7 @@ function createEmptyCombatDebugSnapshot(): LiveCombatDebugSnapshot {
     appliedHitLoss: 0,
     newlyZeroMemberCount: 0,
     lifecycleTransitionCount: 0,
+    terminalTransitionCount: 0,
     tickStartEligibleMemberCount: 0,
     endOfTickEligibleMemberCount: 0,
     endOfTickZeroHitMemberCount: 0,
@@ -1348,6 +1379,7 @@ function createEmptyCombatDebugSnapshot(): LiveCombatDebugSnapshot {
     totalAppliedHitLoss: 0,
     totalNewlyZeroMemberCount: 0,
     totalLifecycleTransitionCount: 0,
+    totalTerminalTransitionCount: 0,
     units: [],
     inspectedIndividuals: [],
     individualCombatVisuals: [],
@@ -1421,6 +1453,8 @@ function createCombatDebugSnapshot(
     newlyZeroMemberCount: combatSandbox.individualNewlyZeroHitMemberCount,
     lifecycleTransitionCount:
       combatSandbox.individualLifecycleTransitionCount,
+    terminalTransitionCount:
+      combatSandbox.individualTerminalTransitionCount,
     tickStartEligibleMemberCount:
       combatSandbox.individualTickStartCombatEligibleMemberCount,
     endOfTickEligibleMemberCount:
@@ -1439,6 +1473,8 @@ function createCombatDebugSnapshot(
     totalNewlyZeroMemberCount: combatSandbox.totalIndividualNewlyZeroHitMemberCount,
     totalLifecycleTransitionCount:
       combatSandbox.totalIndividualLifecycleTransitionCount,
+    totalTerminalTransitionCount:
+      combatSandbox.totalIndividualTerminalTransitionCount,
     units,
     inspectedIndividuals: collectInspectedIndividualSnapshots(combatSandbox),
     individualCombatVisuals: collectIndividualCombatVisualStates(combatSandbox),
@@ -1486,6 +1522,14 @@ function collectInspectedIndividualSnapshots(
       combatSandbox.pressureStore,
       entityId,
     );
+    const deathCount = getIndividualDeathCountInspection(
+      combatSandbox.individualDeathCountStore,
+      entityId,
+    );
+    const casualtyHistory = getIndividualCasualtyHistoryInspection(
+      combatSandbox.individualDeathCountStore,
+      entityId,
+    );
 
     out.push({
       entityId,
@@ -1502,6 +1546,16 @@ function collectInspectedIndividualSnapshots(
         combatSandbox.individualPlayerPresenceStore,
         entityId,
       ),
+      deathCountDurationTicks: deathCount.durationTicks,
+      deathCountRemainingTicks: deathCount.remainingTicks,
+      deathCountPaused: deathCount.paused,
+      firstZeroHitTick: casualtyHistory.firstZeroHitTick,
+      latestZeroHitTick: casualtyHistory.latestZeroHitTick,
+      dyingTransitionCount: casualtyHistory.dyingTransitionCount,
+      terminalTick: casualtyHistory.terminalTick,
+      terminalCause: casualtyHistory.terminalCause,
+      terminalX: casualtyHistory.terminalX,
+      terminalY: casualtyHistory.terminalY,
       tickStartCombatEligible: isIndividualCombatEligible(
         combatSandbox.individualCombatEligibilitySnapshot,
         entityId,
@@ -2152,6 +2206,7 @@ function createLegacyCombatFoundationDebugSnapshot(
     appliedHitLoss: tickAppliedDamage,
     newlyZeroMemberCount: 0,
     lifecycleTransitionCount: 0,
+    terminalTransitionCount: 0,
     tickStartEligibleMemberCount: legacySandbox.identityStore.entityCount,
     endOfTickEligibleMemberCount: legacySandbox.identityStore.entityCount,
     endOfTickZeroHitMemberCount: 0,
@@ -2163,6 +2218,7 @@ function createLegacyCombatFoundationDebugSnapshot(
     totalAppliedHitLoss: totalAccumulatedDamage,
     totalNewlyZeroMemberCount: 0,
     totalLifecycleTransitionCount: 0,
+    totalTerminalTransitionCount: 0,
     units,
     inspectedIndividuals: [],
     individualCombatVisuals: [],

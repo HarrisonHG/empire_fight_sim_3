@@ -113,6 +113,27 @@ export function getIndividualTerminalCause(
   return TERMINAL_CAUSES[internal.terminalCauseByEntity[entityId]!]!;
 }
 
+export function transitionIndividualDyingToTerminal(
+  store: IndividualCasualtyLifecycleStore,
+  entityId: number,
+  tick: number,
+  cause: Exclude<TerminalCause, "none">,
+): void {
+  const internal = asInternal(store);
+  assertEntityId(entityId, internal.entityCount, "Casualty lifecycle");
+  assertNonNegativeSafeInteger(tick, "tick");
+  if (internal.stateByEntity[entityId] !== 1) {
+    throw new Error("Only a dying character may transition to terminal.");
+  }
+  if (cause !== "deathCountExpired" && cause !== "execution") {
+    throw new RangeError("Terminal transition requires a terminal cause.");
+  }
+  internal.stateByEntity[entityId] = 2;
+  internal.terminalTickByEntity[entityId] = tick;
+  internal.terminalCauseByEntity[entityId] =
+    cause === "deathCountExpired" ? 1 : 2;
+}
+
 export type PlayerPresenceState =
   | "activePresence"
   | "downedPresence"

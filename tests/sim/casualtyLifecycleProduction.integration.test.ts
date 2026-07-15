@@ -253,6 +253,80 @@ describe("production casualty lifecycle integration", () => {
       combat.individualCasualtyLocalQueryStore,
     )).toBe(preparationCount);
   });
+
+  it("advances a fixed production death count before aggregation and terminalises the character once", () => {
+    const scenario = productionTransitionScenario();
+    const target = scenario.combatSandbox!.units[1]!;
+    const shortScenario: SimulationScenario = {
+      ...scenario,
+      combatSandbox: {
+      ...scenario.combatSandbox!,
+      units: [
+        scenario.combatSandbox!.units[0]!,
+        {
+          ...target,
+          casualtyProcedure: {
+            procedureKind: "barbarian",
+            deathCountPolicy: { kind: "fixedTicks", durationTicks: 2 },
+          },
+        },
+      ],
+      },
+    };
+    const simulation = createSimulation(shortScenario);
+    const combat = requireCombat(simulation);
+    const targetEntityId = 2;
+
+    while (combat.individualLifecycleTransitions.length === 0) {
+      advanceSimulationOneTick(simulation);
+    }
+    const transitionTick = combat.individualLifecycleTransitions[0]!.tick;
+    expect(combat.debugSnapshot.inspectedIndividuals[0]).toMatchObject({
+      entityId: targetEntityId,
+      characterLifecycleState: "dying",
+      playerPresenceState: "downedPresence",
+      deathCountDurationTicks: 2,
+      deathCountRemainingTicks: 2,
+      deathCountPaused: false,
+      firstZeroHitTick: transitionTick,
+      latestZeroHitTick: transitionTick,
+      dyingTransitionCount: 1,
+      terminalCause: "none",
+    });
+
+    advanceSimulationOneTick(simulation);
+    expect(combat.debugSnapshot.inspectedIndividuals[0]).toMatchObject({
+      characterLifecycleState: "dying",
+      deathCountRemainingTicks: 1,
+    });
+    expect(combat.individualTerminalTransitions).toEqual([]);
+
+    advanceSimulationOneTick(simulation);
+    expect(combat.individualTerminalTransitions).toEqual([
+      expect.objectContaining({
+        entityId: targetEntityId,
+        tick: transitionTick + 2,
+        lifecycleState: "terminal",
+        cause: "deathCountExpired",
+      }),
+    ]);
+    expect(combat.individualCombatUnitSummaries[1]).toMatchObject({
+      endOfTickCombatEligibleMemberCount: 0,
+    });
+    expect(combat.debugSnapshot.inspectedIndividuals[0]).toMatchObject({
+      characterLifecycleState: "terminal",
+      playerPresenceState: "downedPresence",
+      deathCountRemainingTicks: 0,
+      terminalTick: transitionTick + 2,
+      terminalCause: "deathCountExpired",
+    });
+    expect(combat.individualTerminalTransitionCount).toBe(1);
+    expect(combat.totalIndividualTerminalTransitionCount).toBe(1);
+
+    advanceSimulationOneTick(simulation);
+    expect(combat.individualTerminalTransitions).toEqual([]);
+    expect(combat.totalIndividualTerminalTransitionCount).toBe(1);
+  });
 });
 
 function productionTransitionScenario(): SimulationScenario {

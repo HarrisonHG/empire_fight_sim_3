@@ -10,6 +10,12 @@ import {
 } from "../../src/sim/individualCasualtyLifecycle";
 import { createIndividualCasualtyProcedureProfileStore } from "../../src/sim/individualCasualtyProcedureProfile";
 import type { IndividualZeroHitEvent } from "../../src/sim/individualGlobalHits";
+import {
+  advanceIndividualDeathCountsOneTick,
+  createIndividualDeathCountStore,
+  initializeIndividualDeathCountsFromZeroHitTransitions,
+} from "../../src/sim/individualDeathCount";
+import { createIndividualCombatProfileStore } from "../../src/sim/individualCombatProfile";
 
 describe("individual casualty lifecycle structural performance", () => {
   it.each([100, 500, 1_000, 2_000])(
@@ -78,6 +84,95 @@ describe("individual casualty lifecycle structural performance", () => {
           elapsedMilliseconds,
           timingPolicy:
             "Structural assertions only; one canonical transition per entity with reversed input order.",
+        }, null, 2)}\n`,
+      );
+    },
+  );
+
+  it.each([100, 500, 1_000, 2_000])(
+    "advances and terminalises %i death counts with canonical bounded output",
+    (entityCount) => {
+      const lifecycle = createIndividualCasualtyLifecycleStore(entityCount);
+      const presence = createIndividualPlayerPresenceStore(entityCount);
+      const procedures = createIndividualCasualtyProcedureProfileStore({
+        entityCount,
+        profiles: Array.from({ length: entityCount }, (_, entityId) => ({
+          entityId,
+          procedureKind: "citizen" as const,
+          deathCountPolicy: { kind: "fixedTicks" as const, durationTicks: 1 },
+        })),
+      });
+      const combatProfiles = createIndividualCombatProfileStore({
+        entityCount,
+        profiles: Array.from({ length: entityCount }, (_, entityId) => ({
+          entityId,
+          primaryWeapon: "unarmed" as const,
+          shieldCategory: "none" as const,
+          shieldCarriedState: "none" as const,
+          armourCategory: "none" as const,
+          hasQualifyingHelmet: false,
+          qualifications: {
+            hasWeaponMaster: false,
+            hasShield: false,
+            hasMarksman: false,
+            hasThrown: false,
+            hasAmbidexterity: false,
+            enduranceLevels: 0,
+            fortitudeLevels: entityId % 6,
+            hasDreadnought: false,
+          },
+          magicalCapabilities: {
+            canUseRod: false,
+            canUseStaff: false,
+            canWearMageArmour: false,
+            canDeliverCombatMagic: false,
+          },
+        })),
+      });
+      const positions = {
+        entityCount,
+        positionsX: new Int32Array(entityCount),
+        positionsY: new Int32Array(entityCount),
+      };
+      const zeroTransitions = applyIndividualZeroHitLifecycleTransitions(
+        lifecycle,
+        presence,
+        procedures,
+        positions,
+        Array.from({ length: entityCount }, (_, entityId) => ({
+          entityId,
+          attackerEntityId: entityId,
+          previousHits: 1,
+        })),
+        10,
+      ).transitions;
+      const deathCounts = createIndividualDeathCountStore(entityCount);
+      const terminalOut: import("../../src/sim/individualDeathCount").IndividualDeathCountTerminalTransitionRecord[] = [];
+
+      const startedAt = performance.now();
+      initializeIndividualDeathCountsFromZeroHitTransitions(
+        deathCounts,
+        procedures,
+        combatProfiles,
+        zeroTransitions,
+      );
+      expect(advanceIndividualDeathCountsOneTick(
+        deathCounts, lifecycle, positions, 10, terminalOut,
+      )).toHaveLength(0);
+      advanceIndividualDeathCountsOneTick(
+        deathCounts, lifecycle, positions, 11, terminalOut,
+      );
+      const elapsedMilliseconds = performance.now() - startedAt;
+
+      expect(terminalOut).toHaveLength(entityCount);
+      expect(terminalOut[0]?.entityId).toBe(0);
+      expect(terminalOut.at(-1)?.entityId).toBe(entityCount - 1);
+      process.stdout.write(
+        `\nDeath-count performance report\n${JSON.stringify({
+          entityCount,
+          terminalTransitions: terminalOut.length,
+          elapsedMilliseconds,
+          timingPolicy: "Structural assertions only; bounded linear stores and canonical entity-order output.",
         }, null, 2)}\n`,
       );
     },

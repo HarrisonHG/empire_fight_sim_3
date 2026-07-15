@@ -974,6 +974,8 @@ Advance deterministic dying timers and make terminal state authoritative.
 - full tick semantics;
 - pause API, without treatment integration yet;
 - terminal transition and cause;
+- character-only terminalisation; player presence remains `downedPresence`
+  until the explicit post-terminal procedure integration in 6H;
 - terminal interaction filtering;
 - bounded casualty-history fields for zero/terminal transitions.
 
@@ -986,15 +988,16 @@ Advance deterministic dying timers and make terminal state authoritative.
 - resumed count continues rather than resetting;
 - fixed 30-second procedure works;
 - expiry emits one terminal transition;
-- terminal cannot be restored by treatment;
+- no 6B API can return a terminal character to active;
 - citizen terminal remains unavailable for the battle;
-- barbarian terminal may reach waiting-at-respawn but cannot reactivate in Milestone 6;
+- citizen comfort, barbarian respawn egress, and `waitingAtRespawn` remain 6H work;
 - a second later dying event receives a fresh duration only after a future explicit new-life/reset boundary, not from ordinary healing;
 - integer bounds are validated.
 
 ### Boundary
 
-No autonomous egress, treatment, rescue, execution, VENOM, or faction inference.
+No player-presence terminal transition, autonomous egress, treatment, rescue,
+execution, VENOM, or faction inference.
 
 ---
 
