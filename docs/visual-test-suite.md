@@ -172,8 +172,8 @@ the event list are the intended disambiguation tools.
 
 | Area | Label | Useful ticks | Expected observation |
 | --- | --- | ---: | --- |
-| 1 | First frontal defence | 0-20 | A polearm attacker commits from reach; the ready weapon defender parries at tick 5 and first fails weapon defence at tick 15. |
-| 2 | Held shield defence | 0-60 | A polearm attacker commits into a ready full-shield defender; initial shield blocks apply less target pressure than weapon parries, and the first shield failure is at tick 55. |
+| 1 | First frontal defence | 0-30 | A polearm attacker commits from reach; the ready weapon defender parries at tick 5 and first fails weapon defence at tick 25. |
+| 2 | Held shield defence | 0-50 | A polearm attacker commits into a ready full-shield defender; initial shield blocks apply less target pressure than weapon parries, and the first shield failure is at tick 45. |
 | 3 | Two attackers overwhelm guard | 0-8 | Two polearm attackers resolve against one ready weapon defender in the same tick; canonical order can show one successful defence and a later lower-readiness failed defence/landed outcome. |
 | 4 | Weapon reach | 0-8 | The labelled polearm and one-handed pairs show that one-handed must close farther while polearm can select and commit from greater range. |
 | 5 | Armour and global hits | 0-8 | The separated `Unarmoured target` and `Heavy-armoured target` pairs are both actively attacked; heavy armour starts with more maximum hits, and each accepted strike removes exactly one hit without cross-targeting or shared proximity pressure. |
@@ -196,6 +196,21 @@ incoming attack (weapon parry 9, buckler block 6, shield block 3, otherwise
 Unit morale uses explicit terminology: `Route risk` routes at 40 and must fall
 below the recovery threshold of 20; `Recovery progress` shows its current value
 against the required 240. These labels do not change either mechanic.
+
+## Guard Readiness and Overwhelm Regression
+
+`/test?scenario=defence-overwhelm` starts paused at tick 0 and retains six
+isolated production-combat chambers: immediate counterattack, regular and
+recruit shield cadence, regular and veteran two-attacker flurries, and rear
+desperate defence. The route displays stored/effective readiness, per-tick
+experience recovery, spend, equipment tier, chance, keyed roll, result, and
+rear/offensive-suppression status.
+
+The visual route uses real weapon commitment/recovery timing. Exact controlled
+cadence acceptance remains headless: regular at 20 ticks stays at 100%; recruit
+at 20 ticks and regular at 10 ticks trace 100%, 90%, 80%, 70%, 60%, 50%, 40%,
+30%, 20%, 10%, with the tenth spend reaching stored zero; veteran at 10 ticks
+traces 100%, 95%, 90%, 85%, 80%, 75%, 70%, 65%, 60%, 55%.
 
 The debug panel constrains its height to the viewport, scrolls vertically when
 the debug content is long, and wraps the individual table in horizontal

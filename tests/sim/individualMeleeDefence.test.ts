@@ -26,6 +26,9 @@ import {
   createIndividualMeleeDefenceStore,
   getDefenceRecoveryTicksRemaining,
   getIndividualGuardState,
+  getStoredGuardReadinessFixedPoint,
+  GUARD_READINESS_COST_PER_ATTEMPT,
+  GUARD_READINESS_MAX,
   INDIVIDUAL_MELEE_DEFENCE_TIMING,
   resolveIndividualMeleeDefences,
   type IndividualGuardStateEvent,
@@ -56,6 +59,7 @@ describe("individual melee defence resolution", () => {
         guardStateBeforeResolution: "ready",
         defenceRecoveryTicksAssigned:
           INDIVIDUAL_MELEE_DEFENCE_TIMING.weaponParry.recoveryTicks,
+        readinessSpentThisTick: GUARD_READINESS_COST_PER_ATTEMPT,
       }),
     ]);
     expect(result.guardStateEvents).toEqual([
@@ -68,7 +72,7 @@ describe("individual melee defence resolution", () => {
     expect(getIndividualGuardState(harness.defence, 1)).toBe("recovering");
   });
 
-  it("lands another in-arc attack before guard recovery completes", () => {
+  it("uses persistent readiness recovered before the next in-arc attack", () => {
     const harness = createHarness([
       entity(92, 100, 1, "oneHanded", 1),
       entity(100, 100, 2, "oneHanded", -1),
@@ -83,43 +87,31 @@ describe("individual melee defence resolution", () => {
         attackerEntityId: 2,
         defenderEntityId: 1,
         availableDefenceType: "weaponParry",
-        outcome: "landed",
-        landedReason: "failedDefence",
         guardStateBeforeResolution: "recovering",
         defenceCoverageTier: "small",
-        defenceReadinessFixedPoint: 2500,
-        calculatedDefenceChanceFixedPoint: 3500,
-        defenceResolution: "failedDefence",
+        storedGuardReadinessFixedPoint: 8100,
+        effectiveGuardReadinessFixedPoint: 8100,
+        calculatedDefenceChanceFixedPoint: 7980,
+        readinessSpentThisTick: 2000,
+        readinessRecoveredThisTick: 100,
       }),
     ]);
   });
 
-  it("returns guard to ready after exactly the configured duration", () => {
+  it("recovers regular readiness by 100 per tick until clamped at full", () => {
     const harness = createHarness([
       entity(92, 100, 1, "oneHanded", 1),
       entity(100, 100, 2, "oneHanded", -1),
     ]);
     resolve(harness, [attempt(0, 1)]);
-    expect(getDefenceRecoveryTicksRemaining(harness.defence, 1)).toBe(4);
-
-    resolve(harness, []);
-    expect(getDefenceRecoveryTicksRemaining(harness.defence, 1)).toBe(3);
-    expect(getIndividualGuardState(harness.defence, 1)).toBe("recovering");
-    resolve(harness, []);
-    expect(getDefenceRecoveryTicksRemaining(harness.defence, 1)).toBe(2);
-    resolve(harness, []);
-    expect(getDefenceRecoveryTicksRemaining(harness.defence, 1)).toBe(1);
-    const readyTick = resolve(harness, []);
-
     expect(getDefenceRecoveryTicksRemaining(harness.defence, 1)).toBe(0);
+    expect(getStoredGuardReadinessFixedPoint(harness.defence, 1)).toBe(8000);
+    resolve(harness, []);
+    expect(getStoredGuardReadinessFixedPoint(harness.defence, 1)).toBe(8100);
+    expect(getIndividualGuardState(harness.defence, 1)).toBe("recovering");
+    for (let tick = 0; tick < 19; tick += 1) resolve(harness, []);
     expect(getIndividualGuardState(harness.defence, 1)).toBe("ready");
-    expect(readyTick.guardStateEvents).toEqual([
-      {
-        entityId: 1,
-        previousGuardState: "recovering",
-        guardState: "ready",
-      },
-    ]);
+    expect(getStoredGuardReadinessFixedPoint(harness.defence, 1)).toBe(10000);
   });
 
   it("uses held bucklers for buckler blocks", () => {
@@ -255,7 +247,7 @@ describe("individual melee defence resolution", () => {
     });
   });
 
-  it("lets rear attacks land without consuming frontal guard", () => {
+  it("uses fixed rear desperate defence and depletes readiness before a frontal attack", () => {
     const harness = createHarness([
       entity(108, 100, 1, "oneHanded", -1),
       entity(100, 100, 2, "oneHanded", -1),
@@ -267,15 +259,92 @@ describe("individual melee defence resolution", () => {
     expect(result.records).toEqual([
       expect.objectContaining({
         attackerEntityId: 0,
+        availableDefenceType: "desperateRearDefence",
         outcome: "landed",
-        landedReason: "outsideDefenceArc",
+        landedReason: "failedDefence",
+        calculatedDefenceChanceFixedPoint: 500,
+        rearDesperateDefenceApplied: true,
       }),
       expect.objectContaining({
         attackerEntityId: 2,
         outcome: "parried",
-        guardStateBeforeResolution: "ready",
+        guardStateBeforeResolution: "recovering",
+        effectiveGuardReadinessFixedPoint: 8000,
       }),
     ]);
+  });
+
+  it("includes a deterministic lucky rear defence at the fixed five-percent chance", () => {
+    const harness = createHarness([
+      entity(108, 100, 1, "oneHanded", -1),
+      entity(100, 100, 2, "staff", -1),
+    ], 12);
+    expect(resolve(harness, [attempt(0, 1)]).records[0]).toMatchObject({
+      availableDefenceType: "desperateRearDefence",
+      outcome: "parried",
+      calculatedDefenceChanceFixedPoint: 500,
+      defenceResolution: "successfulDesperateRearDefence",
+      rearDesperateDefenceApplied: true,
+      readinessSpentThisTick: 2_000,
+    });
+  });
+
+  it.each([
+    { weapon: "dagger" as const, shield: "none" as const },
+    { weapon: "oneHanded" as const, shield: "none" as const },
+    { weapon: "staff" as const, shield: "none" as const },
+    { weapon: "unarmed" as const, shield: "buckler" as const },
+    { weapon: "unarmed" as const, shield: "shield" as const },
+  ])("gives $weapon/$shield the same rear desperate chance", ({ weapon, shield }) => {
+    const harness = createHarness([
+      entity(108, 100, 1, "oneHanded", -1),
+      entity(
+        100,
+        100,
+        2,
+        weapon,
+        -1,
+        shield,
+        shield === "none" ? "none" : "held",
+      ),
+    ]);
+    expect(resolve(harness, [attempt(0, 1)]).records[0]).toMatchObject({
+      availableDefenceType: "desperateRearDefence",
+      calculatedDefenceChanceFixedPoint: 500,
+      rearDesperateDefenceApplied: true,
+    });
+  });
+
+  it("defines rear as octant distance three or four, not distance two", () => {
+    const boundaryTwo = createHarness([
+      entity(100, 92, 1, "oneHanded", 1),
+      entity(100, 100, 2, "staff", -1),
+    ]);
+    const boundaryThree = createHarness([
+      entity(108, 92, 1, "oneHanded", -1),
+      entity(100, 100, 2, "staff", -1),
+    ]);
+    expect(resolve(boundaryTwo, [attempt(0, 1)]).records[0]).toMatchObject({
+      availableDefenceType: "none",
+      landedReason: "outsideDefenceArc",
+    });
+    expect(resolve(boundaryThree, [attempt(0, 1)]).records[0]).toMatchObject({
+      availableDefenceType: "desperateRearDefence",
+      rearDesperateDefenceApplied: true,
+      calculatedDefenceChanceFixedPoint: 500,
+    });
+  });
+
+  it("does not attempt or spend rear defence when no usable source exists", () => {
+    const harness = createHarness([
+      entity(108, 100, 1, "oneHanded", -1),
+      entity(100, 100, 2, "unarmed", -1),
+    ]);
+    expect(resolve(harness, [attempt(0, 1)]).records[0]).toMatchObject({
+      availableDefenceType: "none",
+      landedReason: "noActiveDefence",
+    });
+    expect(getStoredGuardReadinessFixedPoint(harness.defence, 1)).toBe(10_000);
   });
 
   it.each([
@@ -342,10 +411,38 @@ describe("individual melee defence resolution", () => {
       outcome: "landed",
       landedReason: "failedDefence",
       defenceReadinessFixedPoint: 0,
+      storedGuardReadinessFixedPoint: 10_000,
+      effectiveGuardReadinessFixedPoint: 0,
+      offensivelySuppressed: true,
     });
   });
 
-  it("creates one defence and one opening for two frontal attackers", () => {
+  it("recovers stored readiness underneath offensive suppression", () => {
+    const harness = createHarness([
+      entity(92, 100, 1, "oneHanded", 1),
+      entity(100, 100, 2, "oneHanded", -1),
+    ]);
+    resolve(harness, [attempt(0, 1)]);
+    advanceIndividualCombatActions(
+      harness.world,
+      harness.identity,
+      harness.formation,
+      harness.profiles,
+      [selectedRecord(1, 0)],
+      harness.actions,
+    );
+    const record = resolve(harness, [attempt(0, 1)]).records[0]!;
+    expect(record).toMatchObject({
+      defenderActionState: "committingAttack",
+      storedGuardReadinessFixedPoint: 8_100,
+      effectiveGuardReadinessFixedPoint: 0,
+      calculatedDefenceChanceFixedPoint: 1_500,
+      readinessRecoveredThisTick: 100,
+      offensivelySuppressed: true,
+    });
+  });
+
+  it("depletes readiness in canonical order for two frontal attackers", () => {
     const harness = createHarness([
       entity(92, 96, 1, "oneHanded", 1),
       entity(100, 100, 2, "oneHanded", -1),
@@ -355,13 +452,11 @@ describe("individual melee defence resolution", () => {
     expect(resolve(harness, [attempt(2, 1), attempt(0, 1)]).records).toEqual([
       expect.objectContaining({
         attackerEntityId: 0,
-        outcome: "parried",
+        effectiveGuardReadinessFixedPoint: 10000,
       }),
       expect.objectContaining({
         attackerEntityId: 2,
-        outcome: "landed",
-        landedReason: "failedDefence",
-        defenceReadinessFixedPoint: 0,
+        effectiveGuardReadinessFixedPoint: 8000,
       }),
     ]);
   });
@@ -396,6 +491,45 @@ describe("individual melee defence resolution", () => {
     expect(resolve(reversed, [attempt(2, 1), attempt(0, 1)]).records).toEqual(
       resolve(forward, [attempt(0, 1), attempt(2, 1)]).records,
     );
+  });
+
+  it("restores a regular shield defender fully between twenty-tick attacks", () => {
+    const trace = cadenceTrace("regular", 20, 20);
+    expect(trace.map((entry) => entry.effective)).toEqual(
+      new Array<number>(20).fill(GUARD_READINESS_MAX),
+    );
+    expect(trace.map((entry) => entry.chance)).toEqual(
+      new Array<number>(20).fill(9_500),
+    );
+    expect(trace.every((entry) => entry.after === 8_000)).toBe(true);
+  });
+
+  it("depletes a recruit by ten percentage points per twenty-tick exchange", () => {
+    const trace = cadenceTrace("recruit", 20, 10);
+    expect(trace.map((entry) => entry.effective)).toEqual([
+      10_000, 9_000, 8_000, 7_000, 6_000, 5_000, 4_000, 3_000, 2_000,
+      1_000,
+    ]);
+    expect(trace[9]?.chance).toBe(5_900);
+    expect(trace[9]?.after).toBe(0);
+  });
+
+  it("depletes a regular by ten percentage points per ten-tick exchange", () => {
+    const trace = cadenceTrace("regular", 10, 10);
+    expect(trace.map((entry) => entry.effective)).toEqual([
+      10_000, 9_000, 8_000, 7_000, 6_000, 5_000, 4_000, 3_000, 2_000,
+      1_000,
+    ]);
+    expect(trace[9]?.chance).toBe(5_900);
+    expect(trace[9]?.after).toBe(0);
+  });
+
+  it("lets a veteran retain more readiness under the same rapid cadence", () => {
+    const regular = cadenceTrace("regular", 10, 10);
+    const veteran = cadenceTrace("veteran", 10, 10);
+    expect(veteran[9]?.effective).toBe(5_500);
+    expect(regular[9]?.effective).toBe(1_000);
+    expect(veteran[9]?.chance).toBeGreaterThan(regular[9]?.chance ?? 10_000);
   });
 
   it("uses stable defender action and facing snapshots for simultaneous attacks", () => {
@@ -477,6 +611,17 @@ describe("individual melee defence resolution", () => {
     expect(getIndividualPressure(harness.formation, 1)).toBe(pressure);
   });
 
+  it("stores one readiness meter and no second reserve or recovery meter", () => {
+    const store = createIndividualMeleeDefenceStore({ entityCount: 2 }) as unknown as
+      Record<string, unknown>;
+    expect(Object.keys(store).filter((key) => key === "guardReadinessByEntity"))
+      .toEqual(["guardReadinessByEntity"]);
+    expect(Object.keys(store)).not.toContain("guardStateByEntity");
+    expect(Object.keys(store)).not.toContain(
+      "defenceRecoveryTicksRemainingByEntity",
+    );
+  });
+
   it("reuses output arrays", () => {
     const harness = createHarness([
       entity(92, 100, 1, "oneHanded", 1),
@@ -496,6 +641,7 @@ describe("individual melee defence resolution", () => {
     const result = resolveIndividualMeleeDefences(
       harness.world,
       harness.identity,
+      harness.formation,
       harness.actions,
       harness.profiles,
       harness.defence,
@@ -523,6 +669,7 @@ interface EntityDefinition {
   readonly headingX: -1 | 1;
   readonly shieldCategory: IndividualShieldCategory;
   readonly shieldCarriedState: IndividualShieldCarriedState;
+  readonly role: "recruit" | "regular" | "veteran";
 }
 
 interface DefenceHarness {
@@ -544,6 +691,7 @@ function entity(
   headingX: -1 | 1,
   shieldCategory: IndividualShieldCategory = "none",
   shieldCarriedState: IndividualShieldCarriedState = "none",
+  role: "recruit" | "regular" | "veteran" = "regular",
 ): EntityDefinition {
   return {
     x,
@@ -553,10 +701,14 @@ function entity(
     headingX,
     shieldCategory,
     shieldCarriedState,
+    role,
   };
 }
 
-function createHarness(definitions: readonly EntityDefinition[]): DefenceHarness {
+function createHarness(
+  definitions: readonly EntityDefinition[],
+  battleSeed = 0,
+): DefenceHarness {
   const entityCount = definitions.length;
   const world: WorldState = {
     entityCount,
@@ -590,9 +742,9 @@ function createHarness(definitions: readonly EntityDefinition[]): DefenceHarness
       unitSpeed: 0,
       order: "hold" as const,
     })),
-    individuals: definitions.map((_, entityId) => ({
+    individuals: definitions.map((definition, entityId) => ({
       entityId,
-      role: "regular" as const,
+      role: definition.role,
       slotRow: 0,
       slotCol: 0,
       memberMaxStep: 0,
@@ -613,7 +765,7 @@ function createHarness(definitions: readonly EntityDefinition[]): DefenceHarness
     formation,
     profiles,
     actions,
-    defence: createIndividualMeleeDefenceStore({ entityCount }),
+    defence: createIndividualMeleeDefenceStore({ entityCount, battleSeed }),
     records: [],
     events: [],
   };
@@ -656,6 +808,7 @@ function resolve(
   return resolveIndividualMeleeDefences(
     harness.world,
     harness.identity,
+    harness.formation,
     harness.actions,
     harness.profiles,
     harness.defence,
@@ -733,6 +886,34 @@ function runReplay(): unknown {
       events: result.guardStateEvents.map((event) => ({ ...event })),
       guardState: getIndividualGuardState(harness.defence, 1),
       recoveryTicks: getDefenceRecoveryTicksRemaining(harness.defence, 1),
+    });
+  }
+  return trace;
+}
+
+function cadenceTrace(
+  role: "recruit" | "regular" | "veteran",
+  intervalTicks: number,
+  attacks: number,
+): readonly {
+  readonly effective: number;
+  readonly chance: number;
+  readonly after: number;
+}[] {
+  const harness = createHarness([
+    entity(92, 100, 1, "oneHanded", 1),
+    entity(100, 100, 2, "unarmed", -1, "shield", "held", role),
+  ]);
+  const trace: Array<{ effective: number; chance: number; after: number }> = [];
+  for (let attackIndex = 0; attackIndex < attacks; attackIndex += 1) {
+    if (attackIndex > 0) {
+      for (let tick = 1; tick < intervalTicks; tick += 1) resolve(harness, []);
+    }
+    const record = resolve(harness, [attempt(0, 1)]).records[0]!;
+    trace.push({
+      effective: record.effectiveGuardReadinessFixedPoint ?? -1,
+      chance: record.calculatedDefenceChanceFixedPoint ?? -1,
+      after: getStoredGuardReadinessFixedPoint(harness.defence, 1),
     });
   }
   return trace;

@@ -7,6 +7,12 @@ import {
   INDIVIDUAL_COMBAT_VISUAL_SCENARIO_ID,
 } from "./individualCombatVisualScenario";
 import { MILESTONE_4_VISUAL_SCENARIO } from "./milestone4VisualScenario";
+import {
+  DEFENCE_OVERWHELM_CHAMBERS,
+  DEFENCE_OVERWHELM_LEGEND_LINES,
+  DEFENCE_OVERWHELM_SCENARIO,
+  DEFENCE_OVERWHELM_SCENARIO_ID,
+} from "./defenceOverwhelmVisualScenario";
 import { MOVEMENT_BEHAVIOUR_SCENARIO } from "./movementBehaviourScenario";
 import type { SimulationScenario } from "../sim/types";
 
@@ -94,6 +100,31 @@ export const VISUAL_TEST_REGISTRY: readonly VisualTestEntry[] = Object.freeze([
     recommendedTickRange: Object.freeze({ start: 0, end: 80 }),
     scenario: INDIVIDUAL_COMBAT_VISUAL_SCENARIO,
     scenarioFactory: () => INDIVIDUAL_COMBAT_VISUAL_SCENARIO,
+  }),
+  Object.freeze({
+    id: DEFENCE_OVERWHELM_SCENARIO_ID,
+    title: "Guard readiness and overwhelm regression",
+    milestone: "Milestone 5 pending human inspection",
+    purpose:
+      "Shows persistent guard readiness, offensive openings, cadence depletion, experience recovery, and rear desperate defence.",
+    expectedObservations: Object.freeze([
+      "Counterattacks during attack commitment or recovery use equipment-minimum chance.",
+      "Regular readiness recovers faster than recruit readiness at comparable production cadence.",
+      "Same-tick attackers deplete one defender in canonical order.",
+      "Veteran readiness remains above regular readiness under the same flurry.",
+      "A genuine rear attack uses fixed five-percent desperate defence when equipment is usable.",
+    ]),
+    legendLines: DEFENCE_OVERWHELM_LEGEND_LINES,
+    worldLabels: DEFENCE_OVERWHELM_CHAMBERS.map((entry) =>
+      Object.freeze({
+        text: `${entry.id} ${entry.label}`,
+        x: entry.centreX,
+        y: entry.centreY - 48,
+      }),
+    ),
+    recommendedTickRange: Object.freeze({ start: 0, end: 120 }),
+    scenario: DEFENCE_OVERWHELM_SCENARIO,
+    scenarioFactory: () => DEFENCE_OVERWHELM_SCENARIO,
   }),
   Object.freeze({
     id: "morale-inspection",

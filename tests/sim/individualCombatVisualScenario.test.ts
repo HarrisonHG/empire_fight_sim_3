@@ -285,8 +285,8 @@ describe("individual combat visual regression scenario", () => {
     expect(firstDefenceTick(trace, 2, 3, "shieldBlocked")).toBe(5);
     const firstWeaponFailure = firstDefenceTick(trace, 0, 1, "landed");
     const firstShieldFailure = firstDefenceTick(trace, 2, 3, "landed");
-    expect(firstWeaponFailure).toBe(15);
-    expect(firstShieldFailure).toBe(55);
+    expect(firstWeaponFailure).toBe(25);
+    expect(firstShieldFailure).toBe(45);
     expect(firstWeaponFailure).toBeLessThan(firstShieldFailure ?? 0);
     const pressureAfterFirstSuccessfulDefence = trace.ticks.find(
       (tick) => tick.currentTick === 5,

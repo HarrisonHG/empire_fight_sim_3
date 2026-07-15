@@ -1,5 +1,6 @@
 import {
   areEightDirectionsWithinOctants,
+  getEightDirectionOctantDistance,
   quantizeEightDirection,
   type EightDirectionComponent,
   type EightDirectionName,
@@ -25,6 +26,10 @@ import {
   type IndividualCombatEligibilitySnapshot,
 } from "./individualCombatEligibility";
 import type { WorldState } from "./types";
+import {
+  getIndividualRole,
+  type FormationBehaviourStore,
+} from "./formationBehaviour";
 import type { UnitIdentityStore } from "./unitIdentity";
 
 export type IndividualGuardState = "ready" | "recovering";
@@ -33,6 +38,7 @@ export type IndividualMeleeDefenceType =
   | "weaponParry"
   | "bucklerBlock"
   | "shieldBlock"
+  | "desperateRearDefence"
   | "none";
 
 export type IndividualMeleeDefenceOutcome =
@@ -60,6 +66,7 @@ export type IndividualMeleeDefenceResolution =
   | "successfulParry"
   | "successfulBucklerBlock"
   | "successfulShieldBlock"
+  | "successfulDesperateRearDefence"
   | "failedDefence"
   | "outsideDefenceArc"
   | "noDefenceSource";
@@ -100,6 +107,13 @@ interface IndividualMeleeDefenceRecordBase {
   readonly availableDefenceType: IndividualMeleeDefenceType;
   readonly defenceCoverageTier?: DefenceCoverageTier;
   readonly defenceReadinessFixedPoint?: number;
+  readonly storedGuardReadinessFixedPoint?: number;
+  readonly effectiveGuardReadinessFixedPoint?: number;
+  readonly readinessRecoveryPerTick?: number;
+  readonly readinessSpentThisTick?: number;
+  readonly readinessRecoveredThisTick?: number;
+  readonly offensivelySuppressed?: boolean;
+  readonly rearDesperateDefenceApplied?: boolean;
   readonly calculatedDefenceChanceFixedPoint?: number;
   readonly deterministicDefenceRollFixedPoint?: number;
   readonly defenceResolution?: IndividualMeleeDefenceResolution;
@@ -126,12 +140,17 @@ export interface IndividualMeleeDefenceTickResult {
   readonly shieldBlockCount: number;
   readonly landedCount: number;
   readonly recoveringGuardCount: number;
+  readonly readinessUpdates: number;
+  readonly readinessSpending: number;
+  readonly offensiveSuppressions: number;
+  readonly rearDefenceAttempts: number;
 }
 
 interface InternalIndividualMeleeDefenceStore
   extends IndividualMeleeDefenceStore {
-  readonly guardStateByEntity: IndividualGuardState[];
-  readonly defenceRecoveryTicksRemainingByEntity: Int16Array;
+  readonly guardReadinessByEntity: Int16Array;
+  readonly readinessSpentThisTickByEntity: Int16Array;
+  readonly readinessRecoveredThisTickByEntity: Int16Array;
   readonly lastEmittedGuardStateByEntity: IndividualGuardState[];
   readonly snapshottedActionStateByEntity: IndividualCombatActionState[];
   readonly snapshottedFacingXByEntity: Int8Array;
@@ -149,10 +168,19 @@ export const INDIVIDUAL_MELEE_DEFENCE_TIMING: Readonly<
   weaponParry: Object.freeze({ recoveryTicks: 4 }),
   bucklerBlock: Object.freeze({ recoveryTicks: 3 }),
   shieldBlock: Object.freeze({ recoveryTicks: 4 }),
+  desperateRearDefence: Object.freeze({ recoveryTicks: 0 }),
 });
 
 export const DEFENCE_CHANCE_SCALE = 10_000;
 export const DEFENCE_FULL_READINESS_CHANCE = 9_500;
+export const GUARD_READINESS_MAX = 10_000;
+export const GUARD_READINESS_COST_PER_ATTEMPT = 2_000;
+export const REAR_DESPERATE_DEFENCE_CHANCE = 500;
+export const GUARD_READINESS_RECOVERY = Object.freeze({
+  recruit: 50,
+  regular: 100,
+  veteran: 150,
+});
 
 const DEFENCE_TIER_MINIMUM_CHANCE: Readonly<
   Record<DefenceCoverageTier, number>
@@ -200,10 +228,11 @@ export function createIndividualMeleeDefenceStore(
 
   return {
     entityCount: config.entityCount,
-    guardStateByEntity: new Array<IndividualGuardState>(
-      config.entityCount,
-    ).fill("ready"),
-    defenceRecoveryTicksRemainingByEntity: new Int16Array(config.entityCount),
+    guardReadinessByEntity: new Int16Array(config.entityCount).fill(
+      GUARD_READINESS_MAX,
+    ),
+    readinessSpentThisTickByEntity: new Int16Array(config.entityCount),
+    readinessRecoveredThisTickByEntity: new Int16Array(config.entityCount),
     lastEmittedGuardStateByEntity: new Array<IndividualGuardState>(
       config.entityCount,
     ).fill("ready"),
@@ -232,7 +261,36 @@ export function getIndividualGuardState(
 ): IndividualGuardState {
   const internal = asInternal(store);
   assertEntityId(entityId, internal.entityCount);
-  return internal.guardStateByEntity[entityId]!;
+  return internal.guardReadinessByEntity[entityId] === GUARD_READINESS_MAX
+    ? "ready"
+    : "recovering";
+}
+
+export function getStoredGuardReadinessFixedPoint(
+  store: IndividualMeleeDefenceStore,
+  entityId: number,
+): number {
+  const internal = asInternal(store);
+  assertEntityId(entityId, internal.entityCount);
+  return internal.guardReadinessByEntity[entityId]!;
+}
+
+export function getReadinessSpentThisTick(
+  store: IndividualMeleeDefenceStore,
+  entityId: number,
+): number {
+  const internal = asInternal(store);
+  assertEntityId(entityId, internal.entityCount);
+  return internal.readinessSpentThisTickByEntity[entityId]!;
+}
+
+export function getReadinessRecoveredThisTick(
+  store: IndividualMeleeDefenceStore,
+  entityId: number,
+): number {
+  const internal = asInternal(store);
+  assertEntityId(entityId, internal.entityCount);
+  return internal.readinessRecoveredThisTickByEntity[entityId]!;
 }
 
 export function getDefenceRecoveryTicksRemaining(
@@ -241,12 +299,13 @@ export function getDefenceRecoveryTicksRemaining(
 ): number {
   const internal = asInternal(store);
   assertEntityId(entityId, internal.entityCount);
-  return internal.defenceRecoveryTicksRemainingByEntity[entityId]!;
+  return 0;
 }
 
 export function resolveIndividualMeleeDefences(
   world: WorldState,
   identityStore: UnitIdentityStore,
+  formationStore: FormationBehaviourStore,
   actionStore: IndividualCombatActionStore,
   profileStore: IndividualCombatProfileStore,
   defenceStore: IndividualMeleeDefenceStore,
@@ -256,7 +315,14 @@ export function resolveIndividualMeleeDefences(
   eligibility?: IndividualCombatEligibilitySnapshot,
   currentTick = 0,
 ): IndividualMeleeDefenceTickResult {
-  validateStores(world, identityStore, actionStore, profileStore, defenceStore);
+  validateStores(
+    world,
+    identityStore,
+    formationStore,
+    actionStore,
+    profileStore,
+    defenceStore,
+  );
   if (
     eligibility !== undefined &&
     eligibility.entityCount !== world.entityCount
@@ -269,7 +335,7 @@ export function resolveIndividualMeleeDefences(
   recordsOut.length = 0;
   guardStateEventsOut.length = 0;
 
-  advanceRecoveryTimers(internal, guardStateEventsOut);
+  recoverGuardReadiness(formationStore, internal, guardStateEventsOut);
   snapshotDefenders(actionStore, profileStore, internal);
   prepareCanonicalAttempts(internal, attackAttempts, eligibility);
 
@@ -278,6 +344,7 @@ export function resolveIndividualMeleeDefences(
     recordsOut.push(
       resolveAttempt(
         world,
+        formationStore,
         profileStore,
         internal,
         attempt,
@@ -301,10 +368,18 @@ export function resolveIndividualMeleeDefences(
   }
 
   let recoveringGuardCount = 0;
+  let readinessSpending = 0;
+  let offensiveSuppressions = 0;
+  let rearDefenceAttempts = 0;
   for (let entityId = 0; entityId < internal.entityCount; entityId += 1) {
-    if (internal.guardStateByEntity[entityId] === "recovering") {
+    if (internal.guardReadinessByEntity[entityId]! < GUARD_READINESS_MAX) {
       recoveringGuardCount += 1;
     }
+    readinessSpending += internal.readinessSpentThisTickByEntity[entityId]!;
+  }
+  for (const record of recordsOut) {
+    if (record.offensivelySuppressed) offensiveSuppressions += 1;
+    if (record.rearDesperateDefenceApplied) rearDefenceAttempts += 1;
   }
 
   return {
@@ -316,11 +391,16 @@ export function resolveIndividualMeleeDefences(
     shieldBlockCount,
     landedCount,
     recoveringGuardCount,
+    readinessUpdates: internal.entityCount,
+    readinessSpending,
+    offensiveSuppressions,
+    rearDefenceAttempts,
   };
 }
 
 function resolveAttempt(
   world: WorldState,
+  formationStore: FormationBehaviourStore,
   profileStore: IndividualCombatProfileStore,
   store: InternalIndividualMeleeDefenceStore,
   attempt: IndividualMeleeAttackAttemptRecord,
@@ -348,21 +428,26 @@ function resolveAttempt(
   const defenderActionState =
     store.snapshottedActionStateByEntity[defenderEntityId]!;
   const guardStateBeforeResolution =
-    store.guardStateByEntity[defenderEntityId]!;
-  const availableDefence = chooseAvailableDefence(
-    defenderProfile,
-    defenderActiveWeapon,
-    shieldCategory,
-    shieldCarriedState,
-    defenderFacing,
-    incomingDirection,
-  );
+    getIndividualGuardState(store, defenderEntityId);
   const legalActiveDefenceExists = hasLegalActiveDefence(
     defenderProfile,
     defenderActiveWeapon,
     shieldCategory,
     shieldCarriedState,
   );
+  const rearDesperateDefence =
+    legalActiveDefenceExists &&
+    getEightDirectionOctantDistance(defenderFacing, incomingDirection) >= 3;
+  const availableDefence = rearDesperateDefence
+    ? "desperateRearDefence"
+    : chooseAvailableDefence(
+        defenderProfile,
+        defenderActiveWeapon,
+        shieldCategory,
+        shieldCarriedState,
+        defenderFacing,
+        incomingDirection,
+      );
   const common = {
     attackerEntityId,
     defenderEntityId,
@@ -392,29 +477,39 @@ function resolveAttempt(
 
   const recoveryTicks =
     INDIVIDUAL_MELEE_DEFENCE_TIMING[availableDefence].recoveryTicks;
-  const readinessFixedPoint = calculateDefenceReadinessFixedPoint(
-    store,
-    defenderEntityId,
-    availableDefence,
-    defenderActionState,
-  );
-  const coverageTier = defenceCoverageTierForType(
-    availableDefence,
-    defenderActiveWeapon,
-  );
-  const chanceFixedPoint = calculateDefenceChanceFixedPoint(
-    coverageTier,
-    readinessFixedPoint,
-  );
+  const storedReadiness = store.guardReadinessByEntity[defenderEntityId]!;
+  const offensivelySuppressed = defenderActionState !== "ready";
+  const effectiveReadiness = offensivelySuppressed ? 0 : storedReadiness;
+  const coverageTier = rearDesperateDefence
+    ? "none"
+    : defenceCoverageTierForType(availableDefence, defenderActiveWeapon);
+  const chanceFixedPoint = rearDesperateDefence
+    ? REAR_DESPERATE_DEFENCE_CHANCE
+    : calculateDefenceChanceFixedPoint(coverageTier, effectiveReadiness);
   const rollFixedPoint = deterministicDefenceRollFixedPoint(
     store.battleSeed,
     currentTick,
     attempt,
     availableDefence,
   );
-  store.defenceRecoveryTicksRemainingByEntity[defenderEntityId] =
-    recoveryTicks;
-  transitionGuardState(store, defenderEntityId, "recovering", eventsOut);
+  spendGuardReadiness(store, defenderEntityId, eventsOut);
+  const readinessRecoveryPerTick = readinessRecoveryForRole(
+    getIndividualRole(formationStore, defenderEntityId),
+  );
+  const diagnostic = {
+    defenceCoverageTier: coverageTier,
+    defenceReadinessFixedPoint: effectiveReadiness,
+    storedGuardReadinessFixedPoint: storedReadiness,
+    effectiveGuardReadinessFixedPoint: effectiveReadiness,
+    readinessRecoveryPerTick,
+    readinessSpentThisTick: GUARD_READINESS_COST_PER_ATTEMPT,
+    readinessRecoveredThisTick:
+      store.readinessRecoveredThisTickByEntity[defenderEntityId]!,
+    offensivelySuppressed,
+    rearDesperateDefenceApplied: rearDesperateDefence,
+    calculatedDefenceChanceFixedPoint: chanceFixedPoint,
+    deterministicDefenceRollFixedPoint: rollFixedPoint,
+  };
 
   if (rollFixedPoint >= chanceFixedPoint) {
     return landedRecord(
@@ -422,9 +517,26 @@ function resolveAttempt(
       availableDefence,
       "failedDefence",
       coverageTier,
-      readinessFixedPoint,
+      effectiveReadiness,
       chanceFixedPoint,
       rollFixedPoint,
+      diagnostic,
+    );
+  }
+
+  if (rearDesperateDefence) {
+    return successfulDefenceRecord(
+      common,
+      successfulDefenceOutcome(
+        defenderProfile,
+        defenderActiveWeapon,
+        shieldCategory,
+        shieldCarriedState,
+      ),
+      "desperateRearDefence",
+      "successfulDesperateRearDefence",
+      recoveryTicks,
+      diagnostic,
     );
   }
 
@@ -432,10 +544,7 @@ function resolveAttempt(
     return {
       ...common,
       availableDefenceType: "shieldBlock",
-      defenceCoverageTier: coverageTier,
-      defenceReadinessFixedPoint: readinessFixedPoint,
-      calculatedDefenceChanceFixedPoint: chanceFixedPoint,
-      deterministicDefenceRollFixedPoint: rollFixedPoint,
+      ...diagnostic,
       defenceResolution: "successfulShieldBlock",
       outcome: "shieldBlocked",
       defenceRecoveryTicksAssigned: recoveryTicks,
@@ -445,10 +554,7 @@ function resolveAttempt(
     return {
       ...common,
       availableDefenceType: "bucklerBlock",
-      defenceCoverageTier: coverageTier,
-      defenceReadinessFixedPoint: readinessFixedPoint,
-      calculatedDefenceChanceFixedPoint: chanceFixedPoint,
-      deterministicDefenceRollFixedPoint: rollFixedPoint,
+      ...diagnostic,
       defenceResolution: "successfulBucklerBlock",
       outcome: "bucklerBlocked",
       defenceRecoveryTicksAssigned: recoveryTicks,
@@ -458,10 +564,7 @@ function resolveAttempt(
   return {
     ...common,
     availableDefenceType: "weaponParry",
-    defenceCoverageTier: coverageTier,
-    defenceReadinessFixedPoint: readinessFixedPoint,
-    calculatedDefenceChanceFixedPoint: chanceFixedPoint,
-    deterministicDefenceRollFixedPoint: rollFixedPoint,
+    ...diagnostic,
     defenceResolution: "successfulParry",
     outcome: "parried",
     defenceRecoveryTicksAssigned: recoveryTicks,
@@ -525,9 +628,11 @@ function landedRecord(
   readinessFixedPoint = 0,
   chanceFixedPoint = 0,
   rollFixedPoint = 0,
+  diagnostic: Partial<IndividualMeleeDefenceRecordBase> = {},
 ): IndividualMeleeDefenceRecord {
   return {
     ...common,
+    ...diagnostic,
     availableDefenceType,
     defenceCoverageTier: coverageTier,
     defenceReadinessFixedPoint: readinessFixedPoint,
@@ -541,6 +646,50 @@ function landedRecord(
         ? 0
         : INDIVIDUAL_MELEE_DEFENCE_TIMING[availableDefenceType].recoveryTicks,
   };
+}
+
+function successfulDefenceRecord(
+  common: Omit<
+    IndividualMeleeDefenceRecordBase,
+    | "availableDefenceType"
+    | "defenceCoverageTier"
+    | "defenceReadinessFixedPoint"
+    | "calculatedDefenceChanceFixedPoint"
+    | "deterministicDefenceRollFixedPoint"
+    | "defenceResolution"
+    | "outcome"
+    | "defenceRecoveryTicksAssigned"
+  >,
+  outcome: "parried" | "bucklerBlocked" | "shieldBlocked",
+  availableDefenceType: Exclude<IndividualMeleeDefenceType, "none">,
+  defenceResolution: IndividualMeleeDefenceResolution,
+  defenceRecoveryTicksAssigned: number,
+  diagnostic: Partial<IndividualMeleeDefenceRecordBase>,
+): IndividualMeleeDefenceRecord {
+  return {
+    ...common,
+    ...diagnostic,
+    availableDefenceType,
+    defenceResolution,
+    outcome,
+    defenceRecoveryTicksAssigned,
+  } as IndividualMeleeDefenceRecord;
+}
+
+function successfulDefenceOutcome(
+  profile: IndividualCombatProfile,
+  activeWeapon: IndividualWeaponCategory,
+  shieldCategory: IndividualShieldCategory,
+  shieldCarriedState: IndividualShieldCarriedState,
+): "parried" | "bucklerBlocked" | "shieldBlocked" {
+  if (shieldCarriedState === "held" && shieldCategory === "shield") {
+    return "shieldBlocked";
+  }
+  if (shieldCarriedState === "held" && shieldCategory === "buckler") {
+    return "bucklerBlocked";
+  }
+  if (weaponCanParry(profile, activeWeapon)) return "parried";
+  throw new Error("Rear desperate defence requires a usable defence source.");
 }
 
 function weaponCanParry(
@@ -577,25 +726,7 @@ function defenceCoverageTierForType(
   return WEAPON_DEFENCE_COVERAGE[activeWeapon];
 }
 
-function calculateDefenceReadinessFixedPoint(
-  store: InternalIndividualMeleeDefenceStore,
-  defenderEntityId: number,
-  defenceType: Exclude<IndividualMeleeDefenceType, "none">,
-  defenderActionState: IndividualCombatActionState,
-): number {
-  if (defenderActionState !== "ready") {
-    return 0;
-  }
-  if (store.guardStateByEntity[defenderEntityId] === "ready") {
-    return DEFENCE_CHANCE_SCALE;
-  }
-  const recoveryTicks = INDIVIDUAL_MELEE_DEFENCE_TIMING[defenceType].recoveryTicks;
-  const remaining = store.defenceRecoveryTicksRemainingByEntity[defenderEntityId]!;
-  const elapsed = Math.max(0, recoveryTicks - remaining);
-  return Math.trunc((elapsed * DEFENCE_CHANCE_SCALE) / recoveryTicks);
-}
-
-function calculateDefenceChanceFixedPoint(
+export function calculateDefenceChanceFixedPoint(
   coverageTier: DefenceCoverageTier,
   readinessFixedPoint: number,
 ): number {
@@ -669,6 +800,8 @@ function defenceIdentity(
       return 2;
     case "shieldBlock":
       return 3;
+    case "desperateRearDefence":
+      return 4;
   }
 }
 
@@ -688,21 +821,58 @@ function landedResolution(
   return "noDefenceSource";
 }
 
-function advanceRecoveryTimers(
+function recoverGuardReadiness(
+  formationStore: FormationBehaviourStore,
   store: InternalIndividualMeleeDefenceStore,
   eventsOut: IndividualGuardStateEvent[],
 ): void {
+  store.readinessSpentThisTickByEntity.fill(0);
+  store.readinessRecoveredThisTickByEntity.fill(0);
   for (let entityId = 0; entityId < store.entityCount; entityId += 1) {
-    if (store.guardStateByEntity[entityId] !== "recovering") continue;
-    const remaining =
-      store.defenceRecoveryTicksRemainingByEntity[entityId]!;
-    if (remaining > 1) {
-      store.defenceRecoveryTicksRemainingByEntity[entityId] = remaining - 1;
-    } else {
-      store.defenceRecoveryTicksRemainingByEntity[entityId] = 0;
-      transitionGuardState(store, entityId, "ready", eventsOut);
-    }
+    const before = store.guardReadinessByEntity[entityId]!;
+    const recovery = readinessRecoveryForRole(
+      getIndividualRole(formationStore, entityId),
+    );
+    const after = Math.min(GUARD_READINESS_MAX, before + recovery);
+    store.guardReadinessByEntity[entityId] = after;
+    store.readinessRecoveredThisTickByEntity[entityId] = after - before;
+    emitGuardStateTransition(store, entityId, before, after, eventsOut);
   }
+}
+
+function spendGuardReadiness(
+  store: InternalIndividualMeleeDefenceStore,
+  entityId: number,
+  eventsOut: IndividualGuardStateEvent[],
+): void {
+  const before = store.guardReadinessByEntity[entityId]!;
+  const after = Math.max(0, before - GUARD_READINESS_COST_PER_ATTEMPT);
+  store.guardReadinessByEntity[entityId] = after;
+  store.readinessSpentThisTickByEntity[entityId] =
+    store.readinessSpentThisTickByEntity[entityId]! + (before - after);
+  emitGuardStateTransition(store, entityId, before, after, eventsOut);
+}
+
+function readinessRecoveryForRole(
+  role: "recruit" | "regular" | "veteran",
+): number {
+  return GUARD_READINESS_RECOVERY[role];
+}
+
+function emitGuardStateTransition(
+  store: InternalIndividualMeleeDefenceStore,
+  entityId: number,
+  beforeReadiness: number,
+  afterReadiness: number,
+  eventsOut: IndividualGuardStateEvent[],
+): void {
+  const previousGuardState =
+    beforeReadiness === GUARD_READINESS_MAX ? "ready" : "recovering";
+  const guardState =
+    afterReadiness === GUARD_READINESS_MAX ? "ready" : "recovering";
+  if (store.lastEmittedGuardStateByEntity[entityId] === guardState) return;
+  eventsOut.push({ entityId, previousGuardState, guardState });
+  store.lastEmittedGuardStateByEntity[entityId] = guardState;
 }
 
 function snapshotDefenders(
@@ -751,33 +921,17 @@ function prepareCanonicalAttempts(
 }
 
 
-function transitionGuardState(
-  store: InternalIndividualMeleeDefenceStore,
-  entityId: number,
-  nextGuardState: IndividualGuardState,
-  eventsOut: IndividualGuardStateEvent[],
-): void {
-  const previousGuardState = store.guardStateByEntity[entityId]!;
-  store.guardStateByEntity[entityId] = nextGuardState;
-  if (store.lastEmittedGuardStateByEntity[entityId] === nextGuardState) return;
-
-  eventsOut.push({
-    entityId,
-    previousGuardState,
-    guardState: nextGuardState,
-  });
-  store.lastEmittedGuardStateByEntity[entityId] = nextGuardState;
-}
-
 function validateStores(
   world: WorldState,
   identityStore: UnitIdentityStore,
+  formationStore: FormationBehaviourStore,
   actionStore: IndividualCombatActionStore,
   profileStore: IndividualCombatProfileStore,
   defenceStore: IndividualMeleeDefenceStore,
 ): void {
   if (
     identityStore.entityCount !== world.entityCount ||
+    formationStore.entityCount !== world.entityCount ||
     actionStore.entityCount !== world.entityCount ||
     profileStore.entityCount !== world.entityCount ||
     defenceStore.entityCount !== world.entityCount

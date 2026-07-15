@@ -1487,9 +1487,9 @@ defence arcs, hit rules, pressure, morale, movement, or casualty behaviour.
   control. Reset rebuilds the registered scenario at tick 0 already paused,
   cancels scheduler state, clears retained renderer and UI history through the
   initial snapshot/reset hook, and preserves the current URL without refresh.
-- [x] Selected fixture seed `0x5c000b`: chamber 1 first parries at tick 5 and
-  first fails at tick 15; chamber 2 shows repeated initial shield blocks,
-  first fails at tick 55, and records seven shield blocks over the 80-tick
+- [x] Selected fixture seed `0x5c006d`: chamber 1 first parries at tick 5 and
+  first fails at tick 25; chamber 2 shows repeated initial shield blocks,
+  first fails at tick 45, and remains later than chamber 1 over the 80-tick
   inspection window while carrying lower successful-defence pressure.
 - [x] Added explicit chamber 4 pair/caption labels and separated/labelled both
   chamber 5 armour pairs beyond the local pressure radius while retaining
@@ -1505,6 +1505,38 @@ defence arcs, hit rules, pressure, morale, movement, or casualty behaviour.
 - [x] Corrected morale overlay terminology from `R`/`Rec` to `Route risk` and
   `Recovery progress`, presenting route threshold 40, recovery risk threshold
   20, and required recovery progress 240 without changing morale mechanics.
+
+### 5G-3 guard-readiness and overwhelm correction (2026-07-15)
+
+Goal: replace timer-derived defence readiness with one persistent per-entity
+fixed-point meter while preserving deterministic keyed rolls, equipment-tier
+minimums, 95% full readiness, medium `staff`, attack lifecycle, hit gating,
+global hits, pressure, and event markers.
+
+Non-goals: no second reserve, no attack cadence changes, no pressure-to-chance
+coupling, no landed-hit or morale changes, and no fabricated combat records.
+
+Implementation:
+
+- [x] Store one entity-indexed readiness value in `0..10,000`, initially
+  `10,000`, plus per-tick diagnostic spend/recovery scratch only.
+- [x] Recover recruit/regular/veteran readiness by `50/100/150` each defence
+  tick and spend `2,000` after each usable-source attempt, success or failure.
+- [x] Use stored readiness only while action state is `ready`; commitment and
+  attack recovery use effective readiness zero without stopping stored recovery.
+- [x] Preserve ordinary tier selection and fixed-point interpolation to 95%.
+- [x] Add fixed 5% `desperateRearDefence` for exact rear octants when any usable
+  melee weapon or held shield exists; spend the same readiness after resolution.
+- [x] Extend bounded inspection with stored/effective readiness, role recovery,
+  spend/recovery, offensive suppression, and rear-defence status.
+- [x] Add `/test?scenario=defence-overwhelm` using production timing only and
+  honest cadence labels.
+- [x] Add cadence, offensive opening, canonical same-tick depletion, rear arc,
+  replay, processing-order, no-second-meter, visual, and pressure regressions.
+- [x] Extend standalone defence performance diagnostics and retain exact
+  production structural performance coverage.
+- [x] Update visual-test documentation, run standard/performance/browser checks,
+  and record exact readiness traces plus remaining tuning questions.
 
 ---
 

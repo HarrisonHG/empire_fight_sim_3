@@ -11,6 +11,7 @@ import {
 import {
   advanceFormationOneTick,
   createFormationBehaviourStore,
+  getIndividualRole,
   type FormationTickDiagnostics,
   getUnitCohesion,
   getUnitMovementStyle,
@@ -63,6 +64,10 @@ import {
 import type { MoraleMovementState } from "./moraleMovement";
 import {
   getDefenceRecoveryTicksRemaining,
+  getReadinessRecoveredThisTick,
+  getReadinessSpentThisTick,
+  getStoredGuardReadinessFixedPoint,
+  GUARD_READINESS_RECOVERY,
   getIndividualGuardState,
   type IndividualMeleeDefenceRecord,
 } from "./individualMeleeDefence";
@@ -1469,6 +1474,40 @@ function collectInspectedIndividualSnapshots(
       defenceCoverageTier: defenceRecord?.defenceCoverageTier ?? "none",
       defenceReadinessFixedPoint:
         defenceRecord?.defenceReadinessFixedPoint ?? 0,
+      storedGuardReadinessFixedPoint: getStoredGuardReadinessFixedPoint(
+        combatSandbox.individualMeleeDefenceStore,
+        entityId,
+      ),
+      effectiveGuardReadinessFixedPoint:
+        defenceRecord?.effectiveGuardReadinessFixedPoint ??
+        (getIndividualCombatActionState(
+          combatSandbox.individualCombatActionStore,
+          entityId,
+        ) === "ready"
+          ? getStoredGuardReadinessFixedPoint(
+              combatSandbox.individualMeleeDefenceStore,
+              entityId,
+            )
+          : 0),
+      guardReadinessRecoveryPerTick:
+        GUARD_READINESS_RECOVERY[
+          getIndividualRole(combatSandbox.formationStore, entityId)
+        ],
+      guardReadinessSpentThisTick: getReadinessSpentThisTick(
+        combatSandbox.individualMeleeDefenceStore,
+        entityId,
+      ),
+      guardReadinessRecoveredThisTick: getReadinessRecoveredThisTick(
+        combatSandbox.individualMeleeDefenceStore,
+        entityId,
+      ),
+      guardReadinessOffensivelySuppressed:
+        getIndividualCombatActionState(
+          combatSandbox.individualCombatActionStore,
+          entityId,
+        ) !== "ready",
+      rearDesperateDefenceApplied:
+        defenceRecord?.rearDesperateDefenceApplied ?? false,
       calculatedDefenceChanceFixedPoint:
         defenceRecord?.calculatedDefenceChanceFixedPoint ?? 0,
       deterministicDefenceRollFixedPoint:

@@ -250,6 +250,7 @@ export function advanceIndividualCombatPipelineOneTick(
     resolveIndividualMeleeDefences(
       world,
       identityStore,
+      formationStore,
       stores.actionStore,
       stores.profileStore,
       stores.defenceStore,

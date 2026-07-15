@@ -298,6 +298,13 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly thisTickLandedHitGateOutcome: LiveCombatDebugLandedHitGateOutcome;
   readonly defenceCoverageTier: DefenceCoverageTier;
   readonly defenceReadinessFixedPoint: number;
+  readonly storedGuardReadinessFixedPoint: number;
+  readonly effectiveGuardReadinessFixedPoint: number;
+  readonly guardReadinessRecoveryPerTick: number;
+  readonly guardReadinessSpentThisTick: number;
+  readonly guardReadinessRecoveredThisTick: number;
+  readonly guardReadinessOffensivelySuppressed: boolean;
+  readonly rearDesperateDefenceApplied: boolean;
   readonly calculatedDefenceChanceFixedPoint: number;
   readonly deterministicDefenceRollFixedPoint: number;
   readonly chosenDefenceSource: IndividualMeleeDefenceType;

@@ -348,7 +348,11 @@ function formatAction(individual: LiveCombatDebugIndividualSnapshot): string {
 }
 
 function formatGuard(individual: LiveCombatDebugIndividualSnapshot): string {
-  return `${individual.guardState} ${individual.defenceRecoveryTicksRemaining}`;
+  return (
+    `Stored readiness ${Math.round(individual.storedGuardReadinessFixedPoint / 100)}% · ` +
+    `Effective ${Math.round(individual.effectiveGuardReadinessFixedPoint / 100)}% · ` +
+    `Recovery +${individual.guardReadinessRecoveryPerTick}/tick`
+  );
 }
 
 function formatCombatVisualEventLogEntry(

@@ -77,7 +77,14 @@ export function formatInspectionEvent(
   if (individual.defenceResolution !== "none") {
     parts.push(
       `dc:${individual.defenceCoverageTier}/${individual.chosenDefenceSource}` +
-        ` Readiness ${Math.round(individual.defenceReadinessFixedPoint / 10)}%` +
+        ` Stored readiness ${Math.round(individual.storedGuardReadinessFixedPoint / 100)}%` +
+        ` Effective readiness ${Math.round(individual.effectiveGuardReadinessFixedPoint / 100)}%` +
+        ` Recovery +${individual.guardReadinessRecoveredThisTick}` +
+        ` Spend -${individual.guardReadinessSpentThisTick}` +
+        (individual.guardReadinessOffensivelySuppressed
+          ? " offensive suppression"
+          : "") +
+        (individual.rearDesperateDefenceApplied ? " rear desperate" : "") +
         ` c${individual.calculatedDefenceChanceFixedPoint}` +
         ` roll${individual.deterministicDefenceRollFixedPoint}` +
         ` ${individual.defenceResolution}`,

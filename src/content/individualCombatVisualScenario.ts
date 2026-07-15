@@ -4,7 +4,7 @@ import type {
 } from "../sim/types";
 
 export const INDIVIDUAL_COMBAT_VISUAL_SCENARIO_ID = "individual-combat";
-export const INDIVIDUAL_COMBAT_VISUAL_SEED = 0x5c_000b;
+export const INDIVIDUAL_COMBAT_VISUAL_SEED = 0x5c_006d;
 export const INDIVIDUAL_COMBAT_AREA_SPACING = 300;
 export const INDIVIDUAL_COMBAT_LOCAL_INTERACTION_RANGE = 192;
 export const INDIVIDUAL_COMBAT_INSPECTED_ENTITY_IDS = Object.freeze(

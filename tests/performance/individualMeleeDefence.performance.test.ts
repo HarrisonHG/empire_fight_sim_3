@@ -55,6 +55,7 @@ describe("individual melee defence performance", () => {
 interface DefencePerformanceHarness {
   readonly world: WorldState;
   readonly identity: UnitIdentityStore;
+  readonly formation: ReturnType<typeof createFormationBehaviourStore>;
   readonly profiles: IndividualCombatProfileStore;
   readonly actions: IndividualCombatActionStore;
   readonly defence: IndividualMeleeDefenceStore;
@@ -74,6 +75,10 @@ interface DefencePerformanceReport {
   readonly shieldBlocks: number;
   readonly landedAttacks: number;
   readonly guardRecoveries: number;
+  readonly readinessUpdates: number;
+  readonly readinessSpending: number;
+  readonly offensiveSuppressions: number;
+  readonly rearDefenceAttempts: number;
   readonly totalMilliseconds: number;
   readonly meanMillisecondsPerTick: number;
   readonly maximumMillisecondsPerTick: number;
@@ -91,6 +96,10 @@ function runDefencePerformance(entityCount: number): DefencePerformanceReport {
   let shieldBlocks = 0;
   let landedAttacks = 0;
   let guardRecoveries = 0;
+  let readinessUpdates = 0;
+  let readinessSpending = 0;
+  let offensiveSuppressions = 0;
+  let rearDefenceAttempts = 0;
   let totalMilliseconds = 0;
   let maximumMillisecondsPerTick = 0;
 
@@ -99,6 +108,7 @@ function runDefencePerformance(entityCount: number): DefencePerformanceReport {
     const result = resolveIndividualMeleeDefences(
       harness.world,
       harness.identity,
+      harness.formation,
       harness.actions,
       harness.profiles,
       harness.defence,
@@ -115,6 +125,10 @@ function runDefencePerformance(entityCount: number): DefencePerformanceReport {
     shieldBlocks += result.shieldBlockCount;
     landedAttacks += result.landedCount;
     guardRecoveries += result.recoveringGuardCount;
+    readinessUpdates += result.readinessUpdates;
+    readinessSpending += result.readinessSpending;
+    offensiveSuppressions += result.offensiveSuppressions;
+    rearDefenceAttempts += result.rearDefenceAttempts;
   }
 
   const sorted = Array.from(samples).sort((left, right) => left - right);
@@ -131,6 +145,10 @@ function runDefencePerformance(entityCount: number): DefencePerformanceReport {
     shieldBlocks,
     landedAttacks,
     guardRecoveries,
+    readinessUpdates,
+    readinessSpending,
+    offensiveSuppressions,
+    rearDefenceAttempts,
     totalMilliseconds,
     meanMillisecondsPerTick: totalMilliseconds / MEASURED_TICKS,
     maximumMillisecondsPerTick,
@@ -242,6 +260,7 @@ function createHarness(
   return {
     world,
     identity,
+    formation,
     profiles: profileStore,
     actions: actionStore,
     defence: createIndividualMeleeDefenceStore({ entityCount }),
@@ -331,6 +350,10 @@ function assertReport(
   expect(report.shieldBlocks).toBeGreaterThan(0);
   expect(report.landedAttacks).toBeGreaterThan(0);
   expect(report.guardRecoveries).toBeGreaterThan(0);
+  expect(report.readinessUpdates).toBe(entityCount * MEASURED_TICKS);
+  expect(report.readinessSpending).toBeGreaterThan(0);
+  expect(report.offensiveSuppressions).toBeGreaterThanOrEqual(0);
+  expect(report.rearDefenceAttempts).toBeGreaterThanOrEqual(0);
   expect(report.totalMilliseconds).toBeGreaterThanOrEqual(0);
   expect(report.meanMillisecondsPerTick).toBeGreaterThanOrEqual(0);
   expect(report.maximumMillisecondsPerTick).toBeGreaterThanOrEqual(0);
