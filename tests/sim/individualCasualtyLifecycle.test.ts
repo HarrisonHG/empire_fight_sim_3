@@ -177,6 +177,60 @@ describe("standalone zero-hit lifecycle transitions", () => {
       .toEqual({ x: 10, y: 20 });
   });
 
+  it("selects duplicate attribution canonically without mutating input order", () => {
+    const higherAttacker = {
+      entityId: 3,
+      attackerEntityId: 2,
+      previousHits: 1,
+    };
+    const lowerAttacker = {
+      entityId: 3,
+      attackerEntityId: 0,
+      previousHits: 2,
+    };
+    const forward = [higherAttacker, lowerAttacker];
+    const reversed = [lowerAttacker, higherAttacker];
+    const forwardBefore = forward.map((item) => ({ ...item }));
+    const reversedBefore = reversed.map((item) => ({ ...item }));
+
+    const forwardResult = replay(forward);
+    const reversedResult = replay(reversed);
+
+    expect(forwardResult).toEqual(reversedResult);
+    expect(forwardResult).toHaveLength(1);
+    expect(forwardResult[0]).toMatchObject({
+      entityId: 3,
+      attackerEntityId: 0,
+      previousHits: 2,
+    });
+    expect(forward).toEqual(forwardBefore);
+    expect(reversed).toEqual(reversedBefore);
+  });
+
+  it("uses previous hits as the final duplicate-attribution tie-break", () => {
+    const higherPreviousHits = {
+      entityId: 2,
+      attackerEntityId: 1,
+      previousHits: 3,
+    };
+    const lowerPreviousHits = {
+      entityId: 2,
+      attackerEntityId: 1,
+      previousHits: 1,
+    };
+
+    const forward = replay([higherPreviousHits, lowerPreviousHits]);
+    const reversed = replay([lowerPreviousHits, higherPreviousHits]);
+
+    expect(forward).toEqual(reversed);
+    expect(forward).toHaveLength(1);
+    expect(forward[0]).toMatchObject({
+      entityId: 2,
+      attackerEntityId: 1,
+      previousHits: 1,
+    });
+  });
+
   it("canonicalises reversed input into entity-ID transition order", () => {
     expect(replay([event(3, 0), event(1, 2), event(2, 0)]))
       .toEqual(replay([event(2, 0), event(1, 2), event(3, 0)]));

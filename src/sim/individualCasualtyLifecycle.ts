@@ -20,6 +20,9 @@ interface InternalIndividualCasualtyLifecycleStore
   readonly terminalCauseByEntity: Uint8Array;
   readonly downXByEntity: Int32Array;
   readonly downYByEntity: Int32Array;
+  readonly zeroHitCandidatePresentByEntity: Uint8Array;
+  readonly zeroHitCandidateAttackerByEntity: Float64Array;
+  readonly zeroHitCandidatePreviousHitsByEntity: Float64Array;
 }
 
 const LIFECYCLE_STATES = ["active", "dying", "terminal"] as const;
@@ -41,6 +44,9 @@ export function createIndividualCasualtyLifecycleStore(
     terminalCauseByEntity: new Uint8Array(entityCount),
     downXByEntity: new Int32Array(entityCount),
     downYByEntity: new Int32Array(entityCount),
+    zeroHitCandidatePresentByEntity: new Uint8Array(entityCount),
+    zeroHitCandidateAttackerByEntity: new Float64Array(entityCount),
+    zeroHitCandidatePreviousHitsByEntity: new Float64Array(entityCount),
   } as InternalIndividualCasualtyLifecycleStore;
 }
 
@@ -198,6 +204,8 @@ export function applyIndividualZeroHitLifecycleTransitions(
   assertNonNegativeSafeInteger(tick, "tick");
   transitionsOut.length = 0;
 
+  // Validate before staging candidates so an invalid event cannot leave scratch
+  // state behind for a later call.
   for (let index = 0; index < zeroHitEvents.length; index += 1) {
     const event = zeroHitEvents[index]!;
     assertEntityId(event.entityId, lifecycle.entityCount, "Zero-hit target");
@@ -207,33 +215,67 @@ export function applyIndividualZeroHitLifecycleTransitions(
       "Zero-hit attacker",
     );
     assertPositiveSafeInteger(event.previousHits, "previousHits");
+  }
+
+  for (let index = 0; index < zeroHitEvents.length; index += 1) {
+    const event = zeroHitEvents[index]!;
     if (lifecycle.stateByEntity[event.entityId] !== 0) continue;
-    if (presence.stateByEntity[event.entityId] !== 0) {
+    const hasCandidate =
+      lifecycle.zeroHitCandidatePresentByEntity[event.entityId] !== 0;
+    const candidateAttacker =
+      lifecycle.zeroHitCandidateAttackerByEntity[event.entityId]!;
+    const candidatePreviousHits =
+      lifecycle.zeroHitCandidatePreviousHitsByEntity[event.entityId]!;
+    if (
+      !hasCandidate ||
+      event.attackerEntityId < candidateAttacker ||
+      (event.attackerEntityId === candidateAttacker &&
+        event.previousHits < candidatePreviousHits)
+    ) {
+      lifecycle.zeroHitCandidatePresentByEntity[event.entityId] = 1;
+      lifecycle.zeroHitCandidateAttackerByEntity[event.entityId] =
+        event.attackerEntityId;
+      lifecycle.zeroHitCandidatePreviousHitsByEntity[event.entityId] =
+        event.previousHits;
+    }
+  }
+
+  for (let entityId = 0; entityId < lifecycle.entityCount; entityId += 1) {
+    if (lifecycle.zeroHitCandidatePresentByEntity[entityId] === 0) continue;
+    if (presence.stateByEntity[entityId] !== 0) {
       throw new Error(
         "Active casualty lifecycle requires active player presence before a zero-hit transition.",
       );
     }
+  }
 
-    const downX = positions.positionsX[event.entityId];
-    const downY = positions.positionsY[event.entityId];
+  for (let entityId = 0; entityId < lifecycle.entityCount; entityId += 1) {
+    if (lifecycle.zeroHitCandidatePresentByEntity[entityId] === 0) continue;
+    lifecycle.zeroHitCandidatePresentByEntity[entityId] = 0;
+    const attackerEntityId =
+      lifecycle.zeroHitCandidateAttackerByEntity[entityId]!;
+    const previousHits =
+      lifecycle.zeroHitCandidatePreviousHitsByEntity[entityId]!;
+    const downX = positions.positionsX[entityId];
+    const downY = positions.positionsY[entityId];
     if (downX === undefined || downY === undefined) {
       throw new RangeError("Casualty position is missing for zero-hit target.");
     }
     const profile = getIndividualCasualtyProcedureProfile(
       procedureStore,
-      event.entityId,
+      entityId,
     );
-    lifecycle.stateByEntity[event.entityId] = 1;
-    lifecycle.enteredDyingTickByEntity[event.entityId] = tick;
-    lifecycle.downXByEntity[event.entityId] = downX;
-    lifecycle.downYByEntity[event.entityId] = downY;
-    presence.stateByEntity[event.entityId] = 1;
-    presence.lastTransitionTickByEntity[event.entityId] = tick;
+    lifecycle.stateByEntity[entityId] = 1;
+    lifecycle.enteredDyingTickByEntity[entityId] = tick;
+    lifecycle.downXByEntity[entityId] = downX;
+    lifecycle.downYByEntity[entityId] = downY;
+    presence.stateByEntity[entityId] = 1;
+    presence.lastTransitionTickByEntity[entityId] = tick;
     transitionsOut.push({
-      entityId: event.entityId,
-      attackerEntityId: event.attackerEntityId,
+      entityId,
+      attackerEntityId,
       tick,
-      previousHits: event.previousHits,
+      previousHits,
       procedureKind: profile.procedureKind,
       previousLifecycleState: "active",
       lifecycleState: "dying",
@@ -244,7 +286,6 @@ export function applyIndividualZeroHitLifecycleTransitions(
     });
   }
 
-  transitionsOut.sort((left, right) => left.entityId - right.entityId);
   return { transitions: transitionsOut, transitionCount: transitionsOut.length };
 }
 
