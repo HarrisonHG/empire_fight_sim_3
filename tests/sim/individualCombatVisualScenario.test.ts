@@ -5,6 +5,7 @@ import {
   INDIVIDUAL_COMBAT_LOCAL_INTERACTION_RANGE,
   INDIVIDUAL_COMBAT_VISUAL_CHAMBER_LEGEND_LINES,
   INDIVIDUAL_COMBAT_VISUAL_CHAMBERS,
+  INDIVIDUAL_COMBAT_VISUAL_DETAIL_LABELS,
   INDIVIDUAL_COMBAT_VISUAL_SCENARIO,
   INDIVIDUAL_COMBAT_VISUAL_SCENARIO_ID,
   INDIVIDUAL_COMBAT_VISUAL_WORLD_HEIGHT,
@@ -82,6 +83,27 @@ describe("individual combat visual regression scenario", () => {
     expect(INDIVIDUAL_COMBAT_VISUAL_CHAMBER_LEGEND_LINES.join("\n")).toContain(
       "mageArmour",
     );
+    expect(INDIVIDUAL_COMBAT_VISUAL_CHAMBER_LEGEND_LINES.join("\n")).toContain(
+      "Readiness",
+    );
+    expect(INDIVIDUAL_COMBAT_VISUAL_CHAMBER_LEGEND_LINES.join("\n")).toContain(
+      "one green crossed marker",
+    );
+    expect(INDIVIDUAL_COMBAT_VISUAL_CHAMBER_LEGEND_LINES.join("\n")).toContain(
+      "Route risk routes at 40",
+    );
+    expect(INDIVIDUAL_COMBAT_VISUAL_CHAMBER_LEGEND_LINES.join("\n")).toContain(
+      "Recovery progress requires 240",
+    );
+    expect(INDIVIDUAL_COMBAT_VISUAL_DETAIL_LABELS.map((label) => label.text))
+      .toEqual(expect.arrayContaining([
+        "Polearm comparison pair",
+        "One-handed comparison pair",
+        "One-handed must close farther.",
+        "Polearm can select and commit from greater range.",
+        "Unarmoured target",
+        "Heavy-armoured target",
+      ]));
   });
 
   it("emits combat visual snapshots from authoritative inspected facing and profiles", () => {
@@ -261,6 +283,19 @@ describe("individual combat visual regression scenario", () => {
       }),
     );
     expect(firstDefenceTick(trace, 2, 3, "shieldBlocked")).toBe(5);
+    const firstWeaponFailure = firstDefenceTick(trace, 0, 1, "landed");
+    const firstShieldFailure = firstDefenceTick(trace, 2, 3, "landed");
+    expect(firstWeaponFailure).toBe(15);
+    expect(firstShieldFailure).toBe(55);
+    expect(firstWeaponFailure).toBeLessThan(firstShieldFailure ?? 0);
+    const pressureAfterFirstSuccessfulDefence = trace.ticks.find(
+      (tick) => tick.currentTick === 5,
+    );
+    expect(pressureAfterFirstSuccessfulDefence?.inspected.get(1)?.currentPressure)
+      .toBeGreaterThan(
+        pressureAfterFirstSuccessfulDefence?.inspected.get(3)?.currentPressure ??
+          Number.MAX_SAFE_INTEGER,
+      );
     const twoOnOneTick = trace.ticks.find(
       (tick) =>
         tick.defences.some(
@@ -319,6 +354,31 @@ describe("individual combat visual regression scenario", () => {
       }),
     );
     expect(firstHitApplicationTick(trace, 13, 14)).toBe(3);
+    expect(
+      trace.attackAttempts.some(
+        (record) => record.attackerEntityId === 11 && record.targetEntityId === 12,
+      ),
+    ).toBe(true);
+    expect(
+      trace.attackAttempts.some(
+        (record) => record.attackerEntityId === 13 && record.targetEntityId === 14,
+      ),
+    ).toBe(true);
+    expect(
+      trace.attackAttempts.some(
+        (record) =>
+          (record.attackerEntityId === 11 && record.targetEntityId === 14) ||
+          (record.attackerEntityId === 13 && record.targetEntityId === 12),
+      ),
+    ).toBe(false);
+    expect(trace.ticks[0]?.inspected.get(12)).toMatchObject({
+      nearbyHostileCount: 1,
+      proximityPressureFloor: 2,
+    });
+    expect(trace.ticks[0]?.inspected.get(14)).toMatchObject({
+      nearbyHostileCount: 1,
+      proximityPressureFloor: 2,
+    });
 
     const samePairGateDecisions = trace.gateDecisions.filter(
       (decision) =>

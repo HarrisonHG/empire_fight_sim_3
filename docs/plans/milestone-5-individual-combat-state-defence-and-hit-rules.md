@@ -1471,6 +1471,41 @@ defence arcs, hit rules, pressure, morale, movement, or casualty behaviour.
   recovery pause, experience recovery rates, visual failed-defence events,
   replay determinism, and processing-order independence.
 
+### 5G-3 narrow visual-regression and pressure-tuning correction (2026-07-15)
+
+- [x] Preserved medium defence coverage for `staff` and replaced equal valid
+  incoming-attempt pressure with one outcome contribution per defence record:
+  landed/failed/no defence 12, weapon parry 9, buckler block 6, shield block 3.
+  Accepted ordinary hit loss adds target pressure 8 exactly once.
+- [x] Kept the 20-tick target recovery pause and fractional-credit clear for
+  every valid incoming attack. Successful defence adds one attacker-frustration
+  pressure without pausing or clearing attacker recovery, so normal recovery
+  can return it to the proximity floor.
+- [x] Added the selected outcome contribution to bounded inspection data and
+  replaced the terse readiness marker with a percentage plus legend text.
+- [x] Added an atomic worker reset command and accessible visual-test reset
+  control. Reset rebuilds the registered scenario at tick 0 already paused,
+  cancels scheduler state, clears retained renderer and UI history through the
+  initial snapshot/reset hook, and preserves the current URL without refresh.
+- [x] Selected fixture seed `0x5c000b`: chamber 1 first parries at tick 5 and
+  first fails at tick 15; chamber 2 shows repeated initial shield blocks,
+  first fails at tick 55, and records seven shield blocks over the 80-tick
+  inspection window while carrying lower successful-defence pressure.
+- [x] Added explicit chamber 4 pair/caption labels and separated/labelled both
+  chamber 5 armour pairs beyond the local pressure radius while retaining
+  accepted one-hit strikes against both intended targets.
+- [x] Added deterministic regression coverage for reset/replay, outcome-specific
+  pressure, hit-pressure single application, frustration recovery semantics,
+  chamber timelines, pressure ordering, labels, chamber 5 targeting/isolation,
+  retained chamber outcomes, and replay determinism.
+- [x] Clarified the final visual grammar: weapon parry, buckler block, and
+  shield block share one green crossed successful-defence marker while debug
+  text retains the exact source. Failed defence and landed-hit markers remain
+  distinct.
+- [x] Corrected morale overlay terminology from `R`/`Rec` to `Route risk` and
+  `Recovery progress`, presenting route threshold 40, recovery risk threshold
+  20, and required recovery progress 240 without changing morale mechanics.
+
 ---
 
 # Expected final tick order

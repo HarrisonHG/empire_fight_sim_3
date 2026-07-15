@@ -127,6 +127,52 @@ describe("SimulationRunner", () => {
     expect(secondSnapshot.snapshot.positions).toEqual(firstPositions);
   });
 
+  it("atomically resets to the exact tick-0 snapshot and starts paused", () => {
+    const runner = new SimulationRunner(createClock());
+    const fresh = runner.handleCommand({
+      type: "start",
+      scenario: FOUNDATION_SCENARIO,
+    });
+    const freshSnapshot = findMessage(fresh, "snapshot").snapshot;
+    const expected = {
+      ...freshSnapshot,
+      positions: freshSnapshot.positions.slice(),
+      ...(freshSnapshot.kind === "initial"
+        ? {
+            ids: freshSnapshot.ids.slice(),
+            factionIds: freshSnapshot.factionIds?.slice(),
+          }
+        : {}),
+    };
+    runner.runScheduledTick(0);
+
+    const reset = runner.handleCommand({
+      type: "reset",
+      scenario: FOUNDATION_SCENARIO,
+    });
+    expect(findMessage(reset, "state")).toMatchObject({
+      status: "paused",
+      tick: 0,
+    });
+    expect(findMessage(reset, "snapshot").snapshot).toEqual(expected);
+    expect(runner.runScheduledTick(100)).toEqual([]);
+  });
+
+  it("replays after reset exactly like a fresh paused load", () => {
+    const resetRunner = new SimulationRunner(createClock());
+    resetRunner.handleCommand({ type: "start", scenario: FOUNDATION_SCENARIO });
+    resetRunner.runScheduledTick(0);
+    resetRunner.handleCommand({ type: "reset", scenario: FOUNDATION_SCENARIO });
+
+    const freshRunner = new SimulationRunner(createClock());
+    freshRunner.handleCommand({ type: "reset", scenario: FOUNDATION_SCENARIO });
+    for (let tick = 0; tick < 12; tick += 1) {
+      expect(resetRunner.handleCommand({ type: "step" })).toEqual(
+        freshRunner.handleCommand({ type: "step" }),
+      );
+    }
+  });
+
   it("steps exactly once while paused, publishes one result, and stays paused", () => {
     const runner = new SimulationRunner(createClock(10, 10.25));
     runner.handleCommand({ type: "start", scenario: FOUNDATION_SCENARIO });

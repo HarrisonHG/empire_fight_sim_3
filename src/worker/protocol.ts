@@ -8,6 +8,11 @@ export interface StartWorkerCommand {
   readonly scenario: SimulationScenario;
 }
 
+export interface ResetWorkerCommand {
+  readonly type: "reset";
+  readonly scenario: SimulationScenario;
+}
+
 export interface PauseWorkerCommand {
   readonly type: "pause";
 }
@@ -22,6 +27,7 @@ export interface StepWorkerCommand {
 
 export type WorkerCommand =
   | StartWorkerCommand
+  | ResetWorkerCommand
   | PauseWorkerCommand
   | ResumeWorkerCommand
   | StepWorkerCommand;
@@ -81,6 +87,7 @@ export function isWorkerCommand(value: unknown): value is WorkerCommand {
 
   switch (value["type"]) {
     case "start":
+    case "reset":
       return isRecord(value["scenario"]);
     case "pause":
     case "resume":

@@ -227,13 +227,16 @@ describe("combat pressure stage", () => {
         incomingPreventedAttacks: 1,
         incomingParries: 1,
       }),
-    ], { attackAttempts: [individualAttempt(0, 2)] });
+    ], {
+      attackAttempts: [individualAttempt(0, 2)],
+      defenceRecords: [successfulParry(0, 2)],
+    });
 
-    expect(targetPressures(harness)).toEqual([15, 3]);
+    expect(targetPressures(harness)).toEqual([12, 3]);
     expect(findUpdate(updates, TARGET_UNIT_ID)).toMatchObject({
       engaged: true,
       engagedPressureDeltaPerMember: 0,
-      individualIncomingAttackImpulseAverage: 6,
+      individualIncomingAttackImpulseAverage: 4,
       appliedHitPressureDeltaPerMember: 0,
       consequencePressureDeltaPerMember: 0,
     });
@@ -271,6 +274,7 @@ describe("combat pressure stage", () => {
       }),
     ], {
       attackAttempts: [individualAttempt(0, 2)],
+      defenceRecords: [landedDefence(0, 2)],
       hitApplications: [hitApplication(0, 2)],
     });
 
@@ -293,7 +297,10 @@ describe("combat pressure stage", () => {
         incomingLandedOutcomes: 1,
         incomingGateRejectedHits: 1,
       }),
-    ], { attackAttempts: [individualAttempt(0, 2)] });
+    ], {
+      attackAttempts: [individualAttempt(0, 2)],
+      defenceRecords: [landedDefence(0, 2)],
+    });
 
     expect(targetPressures(harness)).toEqual([15, 3]);
     expect(findUpdate(updates, TARGET_UNIT_ID)).toMatchObject({
@@ -317,6 +324,7 @@ describe("combat pressure stage", () => {
 
     advanceIndividualPressure(harness, [individualSummary(TARGET_UNIT_ID)], {
       attackAttempts: [individualAttempt(0, 2)],
+      defenceRecords: [landedDefence(0, 2)],
     });
     expect(
       getIndividualCombatPressureInspection(
@@ -352,6 +360,49 @@ describe("combat pressure stage", () => {
         0,
       ).blockedStrikeImpulse,
     ).toBe(1);
+  });
+
+  it("uses distinct outcome pressure for weapon, buckler, shield, and landed attacks", () => {
+    const cases = [
+      [successfulParry(0, 2), 9],
+      [successfulBlock(0, 2, "bucklerBlocked"), 6],
+      [successfulBlock(0, 2, "shieldBlocked"), 3],
+      [landedDefence(0, 2), 12],
+    ] as const;
+
+    for (const [record, contribution] of cases) {
+      const harness = createHarness();
+      advanceIndividualPressure(harness, [individualSummary(TARGET_UNIT_ID)], {
+        defenceRecords: [record],
+      });
+      expect(
+        getIndividualCombatPressureInspection(harness.formation, harness.store, 2)
+          .selectedOutcomeContribution,
+      ).toBe(contribution);
+      expect(getIndividualPressure(harness.formation, 2)).toBe(3 + contribution);
+    }
+  });
+
+  it("applies one frustration impulse without pausing or clearing attacker recovery", () => {
+    const harness = createHarness();
+    setIndividualPressure(harness.formation, 0, 8);
+
+    advanceIndividualPressure(harness, [individualSummary(SOURCE_UNIT_ID)], {
+      defenceRecords: [successfulParry(0, 2)],
+    });
+    const inspection = getIndividualCombatPressureInspection(
+      harness.formation,
+      harness.store,
+      0,
+    );
+    expect(inspection.blockedStrikeImpulse).toBe(1);
+    expect(inspection.recoveryPauseTicksRemaining).toBe(0);
+    expect(inspection.recoveryCreditApplied).toBe(2);
+
+    for (let tick = 0; tick < 24; tick += 1) {
+      advanceIndividualPressure(harness, [individualSummary(SOURCE_UNIT_ID)]);
+    }
+    expect(getIndividualPressure(harness.formation, 0)).toBe(3);
   });
 
   it("uses experience-specific recovery credits while hostile pressure remains", () => {
@@ -733,6 +784,44 @@ function successfulParry(
     outcome: "parried",
     defenceRecoveryTicksAssigned: 4,
     awkwardDistance: false,
+  };
+}
+
+function successfulBlock(
+  attackerEntityId: number,
+  defenderEntityId: number,
+  outcome: "bucklerBlocked" | "shieldBlocked",
+): IndividualMeleeDefenceRecord {
+  const fullShield = outcome === "shieldBlocked";
+  return {
+    ...successfulParry(attackerEntityId, defenderEntityId),
+    defenderActiveWeaponCategory: "unarmed",
+    defenderShieldCategory: fullShield ? "shield" : "buckler",
+    defenderShieldCarriedState: "held",
+    availableDefenceType: fullShield ? "shieldBlock" : "bucklerBlock",
+    defenceCoverageTier: fullShield ? "huge" : "medium",
+    defenceResolution: fullShield
+      ? "successfulShieldBlock"
+      : "successfulBucklerBlock",
+    outcome,
+  };
+}
+
+function landedDefence(
+  attackerEntityId: number,
+  defenderEntityId: number,
+): IndividualMeleeDefenceRecord {
+  return {
+    ...successfulParry(attackerEntityId, defenderEntityId),
+    availableDefenceType: "none",
+    defenceCoverageTier: "none",
+    defenceReadinessFixedPoint: 0,
+    calculatedDefenceChanceFixedPoint: 0,
+    deterministicDefenceRollFixedPoint: 0,
+    defenceResolution: "noDefenceSource",
+    outcome: "landed",
+    landedReason: "noActiveDefence",
+    defenceRecoveryTicksAssigned: 0,
   };
 }
 

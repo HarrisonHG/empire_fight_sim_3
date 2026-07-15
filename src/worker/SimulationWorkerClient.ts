@@ -24,6 +24,10 @@ export class SimulationWorkerClient {
     this.send({ type: "start", scenario });
   }
 
+  public reset(scenario: SimulationScenario): void {
+    this.send({ type: "reset", scenario });
+  }
+
   public pause(): void {
     this.send({ type: "pause" });
   }

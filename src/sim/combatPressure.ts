@@ -136,7 +136,10 @@ const INDIVIDUAL_PROXIMITY_RADIUS = 40;
 const INDIVIDUAL_PROXIMITY_GRID_CELL_SIZE = 40;
 const HOSTILE_PROXIMITY_FLOOR = 2;
 const ALLIED_PROXIMITY_REDUCTION = 1;
-const INCOMING_ATTACK_PRESSURE_IMPULSE = 12;
+const FAILED_OR_LANDED_PRESSURE_IMPULSE = 12;
+const WEAPON_PARRY_PRESSURE_IMPULSE = 9;
+const BUCKLER_BLOCK_PRESSURE_IMPULSE = 6;
+const SHIELD_BLOCK_PRESSURE_IMPULSE = 3;
 const INCOMING_HIT_PRESSURE_IMPULSE = 8;
 const BLOCKED_STRIKE_PRESSURE_IMPULSE = 1;
 const INCOMING_ATTACK_RECOVERY_PAUSE_TICKS = 20;
@@ -203,6 +206,8 @@ export interface IndividualCombatPressureInspection {
   readonly nearbyHostileCount: number;
   readonly nearbyAllyCount: number;
   readonly incomingAttackImpulse: number;
+  /** Exactly one outcome-sensitive defender contribution per valid attack. */
+  readonly selectedOutcomeContribution: number;
   readonly incomingHitImpulse: number;
   readonly blockedStrikeImpulse: number;
   readonly recoveryPauseTicksRemaining: number;
@@ -224,6 +229,8 @@ export function getIndividualCombatPressureInspection(
     nearbyHostileCount: internal.nearbyHostileCountByEntity[entityId]!,
     nearbyAllyCount: internal.nearbyAllyCountByEntity[entityId]!,
     incomingAttackImpulse: internal.incomingAttackImpulseByEntity[entityId]!,
+    selectedOutcomeContribution:
+      internal.incomingAttackImpulseByEntity[entityId]!,
     incomingHitImpulse: internal.incomingHitImpulseByEntity[entityId]!,
     blockedStrikeImpulse: internal.blockedStrikeImpulseByEntity[entityId]!,
     recoveryPauseTicksRemaining:
@@ -652,7 +659,7 @@ function prepareIndividualSourceScratch(
   formationStore: FormationBehaviourStore,
   store: InternalCombatPressureStore,
   individualConsequences: readonly IndividualCombatUnitConsequenceSummary[],
-  attackAttempts: readonly IndividualMeleeAttackAttemptRecord[],
+  _attackAttempts: readonly IndividualMeleeAttackAttemptRecord[],
   defenceRecords: readonly IndividualMeleeDefenceRecord[],
   _gateDecisions: readonly IndividualLandedHitGateDecisionRecord[],
   hitApplications: readonly IndividualLandedHitApplicationRecord[],
@@ -701,17 +708,16 @@ function prepareIndividualSourceScratch(
     }
   }
 
-  for (let index = 0; index < attackAttempts.length; index += 1) {
-    const record = attackAttempts[index]!;
-    if (record.outcome !== "attempted") continue;
+  for (let index = 0; index < defenceRecords.length; index += 1) {
+    const record = defenceRecords[index]!;
+    const defenderImpulse = defenderPressureForOutcome(record);
     store.hasConsequenceByUnit[
-      requireUnitIndex(store, getUnitIdForEntity(identityStore, record.targetEntityId))
+      requireUnitIndex(store, getUnitIdForEntity(identityStore, record.defenderEntityId))
     ] = 1;
-    store.incomingAttackImpulseByEntity[record.targetEntityId] =
-      increaseBounded(
-        store.incomingAttackImpulseByEntity[record.targetEntityId]!,
-        INCOMING_ATTACK_PRESSURE_IMPULSE,
-      );
+    store.incomingAttackImpulseByEntity[record.defenderEntityId] = increaseBounded(
+      store.incomingAttackImpulseByEntity[record.defenderEntityId]!,
+      defenderImpulse,
+    );
   }
 
   for (let index = 0; index < hitApplications.length; index += 1) {
@@ -750,6 +756,19 @@ function prepareIndividualSourceScratch(
         store.blockedStrikeImpulseByEntity[record.attackerEntityId]!,
         BLOCKED_STRIKE_PRESSURE_IMPULSE,
       );
+  }
+}
+
+function defenderPressureForOutcome(record: IndividualMeleeDefenceRecord): number {
+  switch (record.outcome) {
+    case "parried":
+      return WEAPON_PARRY_PRESSURE_IMPULSE;
+    case "bucklerBlocked":
+      return BUCKLER_BLOCK_PRESSURE_IMPULSE;
+    case "shieldBlocked":
+      return SHIELD_BLOCK_PRESSURE_IMPULSE;
+    case "landed":
+      return FAILED_OR_LANDED_PRESSURE_IMPULSE;
   }
 }
 

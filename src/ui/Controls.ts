@@ -34,12 +34,17 @@ export interface CombatEventVisibilityBinding {
   readonly setState: (state: CombatEventVisibilityState) => void;
 }
 
+export interface ScenarioResetBinding {
+  readonly reset: () => void;
+}
+
 export class Controls {
   public readonly element: HTMLElement;
 
   private readonly pauseButton = createButton("Pause", "pause");
   private readonly resumeButton = createButton("Resume", "resume");
   private readonly stepButton = createButton("Step", "step");
+  private readonly resetButton = createButton("Reset scenario", "reset-scenario");
   private readonly debugPanelsButton = createButton(
     "Hide debug panels",
     "debug-panels-toggle",
@@ -58,6 +63,7 @@ export class Controls {
     private readonly debugPanelVisibility?: DebugPanelVisibilityBinding,
     private readonly reachOverlayVisibility?: ReachOverlayVisibilityBinding,
     private readonly combatEventVisibility?: CombatEventVisibilityBinding,
+    private readonly scenarioReset?: ScenarioResetBinding,
   ) {
     this.element = document.createElement("section");
     this.element.className = "controls";
@@ -66,6 +72,7 @@ export class Controls {
       this.pauseButton,
       this.resumeButton,
       this.stepButton,
+      this.resetButton,
       this.debugPanelsButton,
     );
     if (this.reachOverlayVisibility !== undefined) {
@@ -78,6 +85,7 @@ export class Controls {
     this.pauseButton.addEventListener("click", this.handlePause);
     this.resumeButton.addEventListener("click", this.handleResume);
     this.stepButton.addEventListener("click", this.handleStep);
+    this.resetButton.addEventListener("click", this.handleReset);
     this.debugPanelsButton.addEventListener("click", this.handleToggleDebugPanels);
     this.reachOverlaysButton.addEventListener(
       "click",
@@ -97,12 +105,14 @@ export class Controls {
     this.pauseButton.disabled = status !== "running";
     this.resumeButton.disabled = status !== "paused";
     this.stepButton.disabled = status !== "paused";
+    this.resetButton.disabled = this.scenarioReset === undefined;
   }
 
   public destroy(): void {
     this.pauseButton.removeEventListener("click", this.handlePause);
     this.resumeButton.removeEventListener("click", this.handleResume);
     this.stepButton.removeEventListener("click", this.handleStep);
+    this.resetButton.removeEventListener("click", this.handleReset);
     this.debugPanelsButton.removeEventListener(
       "click",
       this.handleToggleDebugPanels,
@@ -128,6 +138,10 @@ export class Controls {
 
   private readonly handleStep = (): void => {
     this.workerClient.step();
+  };
+
+  private readonly handleReset = (): void => {
+    this.scenarioReset?.reset();
   };
 
   private readonly handleToggleDebugPanels = (): void => {

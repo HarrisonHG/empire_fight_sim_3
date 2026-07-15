@@ -2,6 +2,7 @@ import { MILESTONE_3_COMBAT_FOUNDATION_SCENARIO } from "./liveCombatScenario";
 import {
   INDIVIDUAL_COMBAT_VISUAL_CHAMBER_LEGEND_LINES,
   INDIVIDUAL_COMBAT_VISUAL_CHAMBERS,
+  INDIVIDUAL_COMBAT_VISUAL_DETAIL_LABELS,
   INDIVIDUAL_COMBAT_VISUAL_SCENARIO,
   INDIVIDUAL_COMBAT_VISUAL_SCENARIO_ID,
 } from "./individualCombatVisualScenario";
@@ -22,6 +23,7 @@ export interface VisualTestEntry {
     readonly end: number;
   }>;
   readonly scenario: SimulationScenario;
+  readonly scenarioFactory: () => SimulationScenario;
 }
 
 export interface VisualTestWorldLabel {
@@ -45,6 +47,7 @@ export const VISUAL_TEST_REGISTRY: readonly VisualTestEntry[] = Object.freeze([
     ]),
     recommendedTickRange: Object.freeze({ start: 0, end: 120 }),
     scenario: MOVEMENT_BEHAVIOUR_SCENARIO,
+    scenarioFactory: () => MOVEMENT_BEHAVIOUR_SCENARIO,
   }),
   Object.freeze({
     id: "combat-foundation",
@@ -60,6 +63,7 @@ export const VISUAL_TEST_REGISTRY: readonly VisualTestEntry[] = Object.freeze([
     ]),
     recommendedTickRange: Object.freeze({ start: 0, end: 420 }),
     scenario: MILESTONE_3_COMBAT_FOUNDATION_SCENARIO,
+    scenarioFactory: () => MILESTONE_3_COMBAT_FOUNDATION_SCENARIO,
   }),
   Object.freeze({
     id: INDIVIDUAL_COMBAT_VISUAL_SCENARIO_ID,
@@ -77,15 +81,19 @@ export const VISUAL_TEST_REGISTRY: readonly VisualTestEntry[] = Object.freeze([
       "Separate attackers can each land one accepted hit on the same target; zero-hit fighters remain standing until the casualty milestone.",
     ]),
     legendLines: INDIVIDUAL_COMBAT_VISUAL_CHAMBER_LEGEND_LINES,
-    worldLabels: INDIVIDUAL_COMBAT_VISUAL_CHAMBERS.map((chamber) =>
-      Object.freeze({
-        text: `${chamber.id} ${chamber.label}`,
-        x: chamber.centreX,
-        y: chamber.centreY - 48,
-      }),
-    ),
+    worldLabels: Object.freeze([
+      ...INDIVIDUAL_COMBAT_VISUAL_CHAMBERS.map((chamber) =>
+        Object.freeze({
+          text: `${chamber.id} ${chamber.label}`,
+          x: chamber.centreX,
+          y: chamber.centreY - 48,
+        }),
+      ),
+      ...INDIVIDUAL_COMBAT_VISUAL_DETAIL_LABELS,
+    ]),
     recommendedTickRange: Object.freeze({ start: 0, end: 80 }),
     scenario: INDIVIDUAL_COMBAT_VISUAL_SCENARIO,
+    scenarioFactory: () => INDIVIDUAL_COMBAT_VISUAL_SCENARIO,
   }),
   Object.freeze({
     id: "morale-inspection",
@@ -101,6 +109,7 @@ export const VISUAL_TEST_REGISTRY: readonly VisualTestEntry[] = Object.freeze([
     ]),
     recommendedTickRange: Object.freeze({ start: 0, end: 800 }),
     scenario: MILESTONE_4_VISUAL_SCENARIO,
+    scenarioFactory: () => MILESTONE_4_VISUAL_SCENARIO,
   }),
 ]);
 

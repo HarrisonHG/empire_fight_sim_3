@@ -313,6 +313,7 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly nearbyHostileCount: number;
   readonly nearbyAllyCount: number;
   readonly incomingAttackPressureImpulse: number;
+  readonly selectedDefenceOutcomePressureContribution: number;
   readonly incomingHitPressureImpulse: number;
   readonly blockedStrikePressureImpulse: number;
   readonly pressureRecoveryPauseTicksRemaining: number;

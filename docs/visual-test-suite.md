@@ -105,6 +105,10 @@ Top row: 1 Parry · 2 Shield · 3 Guard overwhelm · 4 Reach
 Bottom row: 5 Armour · 6 Gate · 7 Independent attackers
 ```
 
+The native **Reset scenario** button recreates the selected registered fixture
+with the same seed and configuration, returns to tick 0 paused, and clears
+retained inspection/event presentation without navigating or refreshing.
+
 ### Individual Combat Debug Glyphs
 
 The individual-combat route renders deterministic debug combat glyphs for the
@@ -145,9 +149,9 @@ scenarios without inspected fighters emit no per-entity combat event records.
 Event grammar:
 
 - attackAttempt: fast line from attacker to target;
-- parry: crossed-line spark at the defender/front contact point;
-- bucklerBlock: small circular shield flash;
-- shieldBlock: broader curved shield flash;
+- parry, bucklerBlock, shieldBlock: one shared green crossed-line successful
+  defence marker at the defender/front contact point; inspection and event-log
+  text retain the exact defence source;
 - failedDefence: hollow crossed marker for an in-arc attempted defence whose
   deterministic roll failed;
 - landed: solid impact burst on the target;
@@ -168,11 +172,11 @@ the event list are the intended disambiguation tools.
 
 | Area | Label | Useful ticks | Expected observation |
 | --- | --- | ---: | --- |
-| 1 | First frontal defence | 0-8 | A polearm attacker commits from reach; the ready weapon defender faces the attack and parries the first valid frontal strike around tick 5. |
-| 2 | Held shield defence | 0-8 | A polearm attacker commits into a ready full-shield defender; the held shield provides huge in-arc coverage and the displayed roll shows whether the first frontal strike is blocked or fails. |
+| 1 | First frontal defence | 0-20 | A polearm attacker commits from reach; the ready weapon defender parries at tick 5 and first fails weapon defence at tick 15. |
+| 2 | Held shield defence | 0-60 | A polearm attacker commits into a ready full-shield defender; initial shield blocks apply less target pressure than weapon parries, and the first shield failure is at tick 55. |
 | 3 | Two attackers overwhelm guard | 0-8 | Two polearm attackers resolve against one ready weapon defender in the same tick; canonical order can show one successful defence and a later lower-readiness failed defence/landed outcome. |
-| 4 | Weapon reach | 0-8 | The polearm attacker and one-handed attacker both commit, but the polearm selected target distance is farther; the one-handed strike resolves earlier due shorter commitment. |
-| 5 | Armour and global hits | 0-8 | Equivalent ordinary accepted strikes hit unarmoured and heavy-armoured defenders; heavy armour starts with more maximum hits, and each strike removes exactly one hit. |
+| 4 | Weapon reach | 0-8 | The labelled polearm and one-handed pairs show that one-handed must close farther while polearm can select and commit from greater range. |
+| 5 | Armour and global hits | 0-8 | The separated `Unarmoured target` and `Heavy-armoured target` pairs are both actively attacked; heavy armour starts with more maximum hits, and each accepted strike removes exactly one hit without cross-targeting or shared proximity pressure. |
 | 6 | One-second relationship gate | 0-70 | One attacker lands faster than once per second against the same heavy target; accepted same-pair hits are at least 20 simulation ticks apart and intervening landed outcomes are gate-rejected. |
 | 7 | Independent attackers | 0-8 | Two attackers independently land accepted hits on the same undefended target; the target reaches zero hits, remains present and standing, and becomes combat-ineligible on the next tick. |
 
@@ -184,6 +188,14 @@ tick labels use the combat-record tick, so records visible in a post-advance
 position snapshot at tick 6 are labelled `t5`. Retained events include non-zero
 incoming evidence, such as `in:P1/B0/S0/L1`, so the two-on-one chamber preserves
 both the parry and landed incoming counts after current-tick fields clear.
+Defence readiness is displayed as a bounded percentage: it controls how far
+the current defence probability has recovered toward its maximum. The pressure
+inspection record exposes the selected outcome contribution for the current
+incoming attack (weapon parry 9, buckler block 6, shield block 3, otherwise
+12), separately from the accepted-hit `+8` and attacker-frustration `+1`.
+Unit morale uses explicit terminology: `Route risk` routes at 40 and must fall
+below the recovery threshold of 20; `Recovery progress` shows its current value
+against the required 240. These labels do not change either mechanic.
 
 The debug panel constrains its height to the viewport, scrolls vertically when
 the debug content is long, and wraps the individual table in horizontal

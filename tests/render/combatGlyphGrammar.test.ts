@@ -92,7 +92,7 @@ describe("combat glyph grammar", () => {
     expect(new Set(styles).size).toBe(ARMOUR_CATEGORIES.length);
   });
 
-  it("maps combat visual event kinds to distinct shape cues for inspection", () => {
+  it("uses one shared successful-defence marker while keeping failures and hits distinct", () => {
     expect(Object.keys(COMBAT_VISUAL_EVENT_GLYPHS).sort()).toEqual([
       "attackAttempt",
       "bucklerBlock",
@@ -106,14 +106,24 @@ describe("combat glyph grammar", () => {
       "zeroHit",
     ].sort());
     expect(getCombatVisualEventGlyphSpec("parry").shape).toBe("cross");
-    expect(getCombatVisualEventGlyphSpec("bucklerBlock").shape).toBe(
-      "smallCircle",
-    );
-    expect(getCombatVisualEventGlyphSpec("shieldBlock").shape).toBe("broadArc");
+    expect(getCombatVisualEventGlyphSpec("bucklerBlock")).toMatchObject({
+      shape: "cross",
+      color: getCombatVisualEventGlyphSpec("parry").color,
+    });
+    expect(getCombatVisualEventGlyphSpec("shieldBlock")).toMatchObject({
+      shape: "cross",
+      color: getCombatVisualEventGlyphSpec("parry").color,
+    });
     expect(getCombatVisualEventGlyphSpec("failedDefence").shape).toBe(
       "hollowCross",
     );
     expect(getCombatVisualEventGlyphSpec("landed").shape).toBe("burst");
+    expect(getCombatVisualEventGlyphSpec("failedDefence").shape).not.toBe(
+      getCombatVisualEventGlyphSpec("parry").shape,
+    );
+    expect(getCombatVisualEventGlyphSpec("landed").shape).not.toBe(
+      getCombatVisualEventGlyphSpec("parry").shape,
+    );
     expect(getCombatVisualEventGlyphSpec("hitApplied").shape).toBe(
       "hitLossText",
     );

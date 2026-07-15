@@ -36,6 +36,8 @@ export class SimulationRunner {
     switch (command.type) {
       case "start":
         return this.start(command);
+      case "reset":
+        return this.reset(command);
       case "pause":
         return this.pause();
       case "resume":
@@ -96,6 +98,28 @@ export class SimulationRunner {
 
     this.currentStatus = "paused";
     return [this.createStateMessage()];
+  }
+
+  private reset(
+    command: Extract<WorkerCommand, { readonly type: "reset" }>,
+  ): readonly WorkerMessage[] {
+    try {
+      const replacementSimulation = createSimulation(command.scenario);
+      this.simulation = replacementSimulation;
+      this.currentStatus = "paused";
+      return [
+        this.createStateMessage(),
+        { type: "snapshot", snapshot: createInitialSnapshot(replacementSimulation) },
+      ];
+    } catch (error: unknown) {
+      return [
+        this.createErrorMessage(
+          "simulation-error",
+          "reset",
+          error instanceof Error ? error.message : "Simulation reset failed.",
+        ),
+      ];
+    }
   }
 
   private resume(): readonly WorkerMessage[] {

@@ -103,6 +103,14 @@ async function startApplication(
             renderer.setCombatEventsVisible(areCombatEventsVisible(state));
           },
         },
+    visualTestEntry === undefined
+      ? undefined
+      : {
+          reset: () => {
+            metricsPanel.clearInspectionHistory();
+            workerClient.reset(visualTestEntry.scenarioFactory());
+          },
+        },
   );
   renderer.setReachOverlayVisible(areReachOverlaysVisible(reachOverlayVisibility));
   renderer.setCombatEventsVisible(areCombatEventsVisible(combatEventVisibility));

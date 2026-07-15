@@ -14,6 +14,7 @@ import {
   formatRetainedInspectionEvent,
   shouldClearRetainedInspectionEvents,
 } from "./individualInspectionFormatting";
+import { formatMoraleOverlayValues } from "./moraleOverlayFormatting";
 
 const FPS_SAMPLE_WINDOW_MS = 500;
 const MAX_COMBAT_EVENT_LOG_ROWS = 12;
@@ -117,8 +118,8 @@ export class MetricsPanel {
           `${unit.label} · U${unit.unitId}/F${unit.factionId} (${unit.memberCount}): ` +
           `${unit.movementStyle}, H ${unit.endOfTickEligibleMembers}/${unit.memberCount}, ` +
           `Z ${unit.endOfTickZeroHitMembers}, Loss ${unit.appliedHitLoss}, ` +
-          `M ${unit.persistentMoraleState}, R ${unit.routingRisk}, ` +
-          `Rec ${unit.recoveryProgress}, P ${formatCombatNumber(unit.persistentPressure)}, ` +
+          `M ${unit.persistentMoraleState}, ${formatMoraleOverlayValues(unit)}, ` +
+          `P ${formatCombatNumber(unit.persistentPressure)}, ` +
           `C ${unit.currentCohesion} ` +
           `(assessment ${unit.assessmentMoraleState}/P ${formatCombatNumber(unit.assessmentPressureAverage)})`,
       )
@@ -143,6 +144,13 @@ export class MetricsPanel {
     if (message.tick !== null) {
       this.currentTickValue.textContent = message.tick.toString();
     }
+  }
+
+  public clearInspectionHistory(): void {
+    this.retainedInspectionEvents.clear();
+    this.retainedCombatEventLog.length = 0;
+    this.individualInspectionValue.textContent = "--";
+    this.combatEventLogValue.textContent = "--";
   }
 
   public destroy(): void {

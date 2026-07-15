@@ -1490,6 +1490,8 @@ function collectInspectedIndividualSnapshots(
       nearbyAllyCount: pressureInspection.nearbyAllyCount,
       incomingAttackPressureImpulse:
         pressureInspection.incomingAttackImpulse,
+      selectedDefenceOutcomePressureContribution:
+        pressureInspection.selectedOutcomeContribution,
       incomingHitPressureImpulse: pressureInspection.incomingHitImpulse,
       blockedStrikePressureImpulse:
         pressureInspection.blockedStrikeImpulse,

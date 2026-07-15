@@ -38,6 +38,7 @@ workerScope.addEventListener("message", (event: MessageEvent<unknown>) => {
     case "resume":
       restartSchedulerClock();
       break;
+    case "reset":
     case "pause":
       stopScheduler();
       break;

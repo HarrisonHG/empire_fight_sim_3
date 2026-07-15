@@ -116,6 +116,7 @@ function individualSnapshot(
     nearbyHostileCount: 0,
     nearbyAllyCount: 0,
     incomingAttackPressureImpulse: 0,
+    selectedDefenceOutcomePressureContribution: 0,
     incomingHitPressureImpulse: 0,
     blockedStrikePressureImpulse: 0,
     pressureRecoveryPauseTicksRemaining: 0,

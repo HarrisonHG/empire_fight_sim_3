@@ -41,13 +41,13 @@ export const COMBAT_VISUAL_EVENT_GLYPHS: Readonly<
   parry: Object.freeze({ kind: "parry", shape: "cross", color: 0x7d_ff_c7 }),
   bucklerBlock: Object.freeze({
     kind: "bucklerBlock",
-    shape: "smallCircle",
-    color: 0x93_c5_fd,
+    shape: "cross",
+    color: 0x7d_ff_c7,
   }),
   shieldBlock: Object.freeze({
     kind: "shieldBlock",
-    shape: "broadArc",
-    color: 0x60_a5_fa,
+    shape: "cross",
+    color: 0x7d_ff_c7,
   }),
   failedDefence: Object.freeze({
     kind: "failedDefence",

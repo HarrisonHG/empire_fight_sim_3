@@ -77,7 +77,7 @@ export function formatInspectionEvent(
   if (individual.defenceResolution !== "none") {
     parts.push(
       `dc:${individual.defenceCoverageTier}/${individual.chosenDefenceSource}` +
-        ` r${individual.defenceReadinessFixedPoint}` +
+        ` Readiness ${Math.round(individual.defenceReadinessFixedPoint / 10)}%` +
         ` c${individual.calculatedDefenceChanceFixedPoint}` +
         ` roll${individual.deterministicDefenceRollFixedPoint}` +
         ` ${individual.defenceResolution}`,
@@ -108,6 +108,7 @@ export function formatInspectionEvent(
     parts.push(
       `pr:${individual.currentPressure}` +
         `/floor${individual.proximityPressureFloor}` +
+        `/outcome${individual.selectedDefenceOutcomePressureContribution}` +
         `/h${individual.nearbyHostileCount}` +
         `/a${individual.nearbyAllyCount}` +
         `/atk${individual.incomingAttackPressureImpulse}` +

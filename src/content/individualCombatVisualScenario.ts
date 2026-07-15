@@ -4,7 +4,7 @@ import type {
 } from "../sim/types";
 
 export const INDIVIDUAL_COMBAT_VISUAL_SCENARIO_ID = "individual-combat";
-export const INDIVIDUAL_COMBAT_VISUAL_SEED = 0x5c_0300;
+export const INDIVIDUAL_COMBAT_VISUAL_SEED = 0x5c_000b;
 export const INDIVIDUAL_COMBAT_AREA_SPACING = 300;
 export const INDIVIDUAL_COMBAT_LOCAL_INTERACTION_RANGE = 192;
 export const INDIVIDUAL_COMBAT_INSPECTED_ENTITY_IDS = Object.freeze(
@@ -27,7 +27,27 @@ export const INDIVIDUAL_COMBAT_VISUAL_CHAMBER_LEGEND_LINES = Object.freeze([
   "Bottom row: 5 Armour · 6 Gate · 7 Independent attackers",
   "Glyphs: facing arrow · weapon vector · faint maximum reach overlay · dashed preferred-distance marker",
   "Defence: buckler narrow held arc · shield wider held arc · armour rings show none/light/medium/heavy/mageArmour",
+  "Readiness: percentage showing how far defence probability has recovered toward its maximum.",
+  "Successful defence: one green crossed marker for weapon parry, buckler block, or shield block; inspection text names the source.",
+  "Morale: Route risk routes at 40 and must fall below 20 for recovery; Recovery progress requires 240.",
 ] as const);
+
+export const INDIVIDUAL_COMBAT_VISUAL_DETAIL_LABELS = Object.freeze([
+  Object.freeze({ text: "Polearm comparison pair", x: 1050, y: 158 }),
+  Object.freeze({ text: "One-handed comparison pair", x: 1050, y: 178 }),
+  Object.freeze({
+    text: "One-handed must close farther.",
+    x: 1050,
+    y: 202,
+  }),
+  Object.freeze({
+    text: "Polearm can select and commit from greater range.",
+    x: 1050,
+    y: 218,
+  }),
+  Object.freeze({ text: "Unarmoured target", x: 220, y: 412 }),
+  Object.freeze({ text: "Heavy-armoured target", x: 220, y: 468 }),
+]);
 
 export interface IndividualCombatVisualChamberMetadata {
   readonly id: number;
@@ -114,20 +134,20 @@ export const INDIVIDUAL_COMBAT_VISUAL_SCENARIO: SimulationScenario =
           weaponReachBand: "none",
         }),
 
-        chamberUnit(501, 1, 4, -4, -8, "Unarmoured-hit attacker", {
+        chamberUnit(501, 1, 4, -4, -28, "Unarmoured-hit attacker", {
           weaponCategory: "oneHanded",
           weaponReachBand: "short",
         }),
-        chamberUnit(502, 2, 4, 4, -8, "Unarmoured defender", {
+        chamberUnit(502, 2, 4, 4, -28, "Unarmoured defender", {
           weaponCategory: "unarmed",
           weaponReachBand: "none",
           armourClass: "none",
         }),
-        chamberUnit(503, 1, 4, -4, 8, "Heavy-hit attacker", {
+        chamberUnit(503, 1, 4, -4, 28, "Heavy-hit attacker", {
           weaponCategory: "oneHanded",
           weaponReachBand: "short",
         }),
-        chamberUnit(504, 2, 4, 4, 8, "Heavy-armoured defender", {
+        chamberUnit(504, 2, 4, 4, 28, "Heavy-armoured defender", {
           weaponCategory: "unarmed",
           weaponReachBand: "none",
           armourClass: "heavy",
