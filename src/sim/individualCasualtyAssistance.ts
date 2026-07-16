@@ -152,6 +152,8 @@ export interface CasualtyDragMovementResult { readonly cancellationRecords: read
 export interface CasualtyAssistanceDecisionOptions {
   /** Reserved integration hook until IndividualTreatmentActionStore exists. */
   readonly isTreating?: (entityId: number) => boolean;
+  /** Current 6F ownership gate supplied by the medical-claim system. */
+  readonly hasClaimedPatient?: (physickEntityId: number) => boolean;
 }
 
 interface HelperCandidate {
@@ -842,6 +844,7 @@ function collectEligibleHelpers(
       medicalProfiles,
       entityId,
     ).hasPhysick;
+    if (isPhysick && options.hasClaimedPatient?.(entityId) === true) continue;
     if (
       !isPhysick &&
       !isIndividualOrdinaryParticipationEligible(ordinaryParticipation, entityId)
@@ -991,6 +994,7 @@ function countAvailableAlliedPhysicksNearPoint(
       getIndividualTraumaticWoundInspection(traumaStore, entityId).state === "none" &&
       getIndividualCombatActionState(actionStore, entityId) === "ready" &&
       options.isTreating?.(entityId) !== true &&
+      options.hasClaimedPatient?.(entityId) !== true &&
       assistance.dragGroupIdByEntity[entityId] === NO_ENTITY
     ) count += 1;
   }

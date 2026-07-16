@@ -35,6 +35,8 @@ import {
   createIndividualMedicalClaimStore,
   decideIndividualMedicalClaimsAndHandoffs,
   getIndividualMedicalClaimInspection,
+  hasIndividualMedicalPatientClaim,
+  PHYSICK_HANDOFF_RANGE,
 } from "../../src/sim/individualMedicalClaims";
 import type { IndividualMeleeDefenceRecord } from "../../src/sim/individualMeleeDefence";
 import type {
@@ -62,13 +64,16 @@ describe("individual casualty assistance and sparse drag groups", () => {
     expect(getIndividualMedicalClaimInspection(claims, 0)).toMatchObject({ physickEntityId: 1, need: "dying" });
   });
 
-  it("releases ordinary carriers after deterministic handoff and retains current ownership", () => {
+  it("hands ordinary carriers to a Physick inside physical handoff range and retains ownership", () => {
     const simulation = createSimulation(scenario([
       multiUnit(1, 1, 100, 3), { ...unit(2, 1, 112), medicalProfile: physick(0) }, unit(3, 2, 220),
     ]));
     const combat = requireCombat(simulation);
     simulation.world.positionsX[1] = 104; simulation.world.positionsX[2] = 96;
-    down(simulation, 0, 2); decide(simulation, 2); reachFirstGroup(simulation, 3); prepare(simulation);
+    down(simulation, 0, 2); decide(simulation, 2); reachFirstGroup(simulation, 3);
+    simulation.world.positionsX[3] = simulation.world.positionsX[0]! + PHYSICK_HANDOFF_RANGE;
+    simulation.world.positionsY[3] = simulation.world.positionsY[0]!;
+    prepare(simulation);
     const claims = createIndividualMedicalClaimStore(simulation.world.entityCount);
     const first = decideClaims(simulation, claims, 5);
     expect(first.claimRecords[0]).toMatchObject({ patientEntityId: 0, physickEntityId: 3, origin: "handoff" });
@@ -80,19 +85,71 @@ describe("individual casualty assistance and sparse drag groups", () => {
     expect(getIndividualMedicalClaimInspection(claims, 3).patientEntityId).toBe(0);
   });
 
-  it("releases safely without a Physick, prevents redrag, then permits a later in-place claim", () => {
+  it("does not hand ordinary carriers to a distant local Physick, then permits an in-place claim after safe release", () => {
     const simulation = createSimulation(scenario([
       multiUnit(1, 1, 100, 3), { ...unit(2, 1, 250), medicalProfile: physick(0) }, unit(3, 2, 220),
     ]));
     down(simulation, 0, 2); decide(simulation, 2); reachFirstGroup(simulation, 3); prepare(simulation);
     const claims = createIndividualMedicalClaimStore(simulation.world.entityCount);
-    expect(decideClaims(simulation, claims, 5, { isTreating: (entityId) => entityId === 3 }).safeReleaseRecords).toHaveLength(1);
+    expect(Math.abs(simulation.world.positionsX[3]! - simulation.world.positionsX[0]!))
+      .toBeGreaterThan(PHYSICK_HANDOFF_RANGE);
+    expect(decideClaims(simulation, claims, 5).safeReleaseRecords).toHaveLength(1);
     const combat = requireCombat(simulation);
     expect(getIndividualCasualtyAssistanceInspection(combat.individualCasualtyAssistanceStore, 0).state).toBe("atTreatmentPosition");
     expect(decide(simulation, 6).groupStartedRecords).toHaveLength(0);
     simulation.world.positionsX[3] = 110;
     prepare(simulation);
     expect(decideClaims(simulation, claims, 7).claimRecords[0]).toMatchObject({ patientEntityId: 0, physickEntityId: 3, origin: "triage" });
+  });
+
+  it("excludes a Physick with a current patient from rescue-helper selection", () => {
+    const simulation = createSimulation(scenario([
+      unit(1, 1, 100), { ...unit(2, 1, 104), medicalProfile: physick(1) },
+      unit(3, 1, 112), unit(4, 2, 240),
+    ]));
+    const combat = requireCombat(simulation);
+    applyLosses(combat, 0, 1); prepare(simulation);
+    const claims = createIndividualMedicalClaimStore(simulation.world.entityCount);
+    expect(decideClaims(simulation, claims, 1).claimRecords[0]).toMatchObject({
+      patientEntityId: 0,
+      physickEntityId: 1,
+    });
+    down(simulation, 2, 2); prepare(simulation);
+
+    const rescue = decidePrepared(simulation, 2, {
+      hasClaimedPatient: (entityId) =>
+        hasIndividualMedicalPatientClaim(claims, entityId),
+    });
+
+    expect(rescue.groupStartedRecords).toHaveLength(0);
+    expect(rescue.noRescueRecords).toContainEqual({
+      patientEntityId: 2,
+      reason: "onlyOneOrdinaryHelper",
+      tick: 2,
+    });
+  });
+
+  it("lets a claim created earlier in the production tick block later rescue selection", () => {
+    const simulation = createSimulation(scenario([
+      unit(1, 1, 100), { ...unit(2, 1, 104), medicalProfile: physick(1) },
+      unit(3, 1, 112), unit(4, 2, 240),
+    ]));
+    const combat = requireCombat(simulation);
+    applyLosses(combat, 0, 1);
+    down(simulation, 2, 1);
+
+    advanceSimulationOneTick(simulation);
+
+    expect(getIndividualMedicalClaimInspection(
+      combat.individualMedicalClaimStore,
+      1,
+    ).patientEntityId).toBe(0);
+    expect(getIndividualMedicalClaimInspection(
+      combat.individualMedicalClaimStore,
+      0,
+    )).toMatchObject({ physickEntityId: 1, need: "livingMissingHits" });
+    expect(combat.casualtyAssistanceDecisionResult.groupStartedRecords)
+      .not.toContainEqual(expect.objectContaining({ patientEntityId: 2 }));
   });
 
   it("retains a current patient across a more urgent arrival and clears stale ownership canonically", () => {
@@ -110,6 +167,72 @@ describe("individual casualty assistance and sparse drag groups", () => {
     const stale = decideClaims(simulation, claims, 4);
     expect(stale.staleClaimRecords).toEqual([{ physickEntityId: 2, patientEntityId: 0, tick: 4 }]);
     expect(getIndividualMedicalClaimInspection(claims, 2).patientEntityId).toBe(-1);
+  });
+
+  it("retains ownership and refreshes a traumatic-wound claim to the current dying need", () => {
+    const simulation = createSimulation(scenario([
+      unit(1, 1, 100), { ...unit(2, 1, 104), medicalProfile: physick(1) }, unit(3, 2, 220),
+    ]));
+    const combat = requireCombat(simulation);
+    applyTrauma(combat, 0); prepare(simulation);
+    const claims = createIndividualMedicalClaimStore(simulation.world.entityCount);
+    expect(decideClaims(simulation, claims, 2).claimRecords[0]).toMatchObject({
+      physickEntityId: 1,
+      patientEntityId: 0,
+      need: "traumaticWound",
+    });
+
+    down(simulation, 0, 3); prepare(simulation);
+    expect(decideClaims(simulation, claims, 3).staleClaimRecords).toHaveLength(0);
+    expect(getIndividualMedicalClaimInspection(claims, 1)).toMatchObject({
+      patientEntityId: 0,
+    });
+    expect(getIndividualMedicalClaimInspection(claims, 0)).toMatchObject({
+      physickEntityId: 1,
+      claimedTick: 2,
+      need: "dying",
+    });
+  });
+
+  it("changes an owned living-missing-hits claim to dying without displacing its Physick", () => {
+    const simulation = createSimulation(scenario([
+      unit(1, 1, 100), { ...unit(2, 1, 104), medicalProfile: physick(1) }, unit(3, 2, 220),
+    ]));
+    const combat = requireCombat(simulation);
+    applyLosses(combat, 0, 1); prepare(simulation);
+    const claims = createIndividualMedicalClaimStore(simulation.world.entityCount);
+    decideClaims(simulation, claims, 2);
+
+    down(simulation, 0, 3); prepare(simulation);
+    decideClaims(simulation, claims, 3);
+
+    expect(getIndividualMedicalClaimInspection(claims, 0)).toMatchObject({
+      physickEntityId: 1,
+      claimedTick: 2,
+      need: "dying",
+    });
+    expect(getIndividualMedicalClaimInspection(claims, 1).patientEntityId).toBe(0);
+  });
+
+  it("clears ownership when an herb-dependent current need has no unreserved herb", () => {
+    const simulation = createSimulation(scenario([
+      unit(1, 1, 100), { ...unit(2, 1, 104), medicalProfile: physick(1) }, unit(3, 2, 220),
+    ]));
+    const combat = requireCombat(simulation);
+    applyLosses(combat, 0, 1); prepare(simulation);
+    const claims = createIndividualMedicalClaimStore(simulation.world.entityCount);
+    decideClaims(simulation, claims, 2);
+    reserveAllHerbsForTest(combat, 1);
+
+    const result = decideClaims(simulation, claims, 3);
+
+    expect(result.staleClaimRecords).toEqual([{
+      physickEntityId: 1,
+      patientEntityId: 0,
+      tick: 3,
+    }]);
+    expect(getIndividualMedicalClaimInspection(claims, 1).patientEntityId).toBe(-1);
+    expect(getIndividualMedicalClaimInspection(claims, 0).physickEntityId).toBe(-1);
   });
 
   it("requires an available herb for living missing-hit ownership", () => {
@@ -518,7 +641,7 @@ describe("individual casualty assistance and sparse drag groups", () => {
     expect(stocked.destinationY).toBe(empty.destinationY);
   });
 
-  it("does not count attacking or treating Physicks as rescue support", () => {
+  it("does not count attacking, treating, or patient-owning Physicks as rescue support", () => {
     const make = () => createSimulation(scenario([
       multiUnit(1, 1, 150, 3),
       { ...unit(2, 1, 54, "oneHanded"), medicalProfile: physick(0) },
@@ -540,6 +663,17 @@ describe("individual casualty assistance and sparse drag groups", () => {
       isTreating: (entityId) => entityId === 3,
     });
     expect(treatingResult.groupStartedRecords[0]).toMatchObject({
+      destinationX: 150,
+      destinationY: 60,
+    });
+
+    const claimed = make();
+    down(claimed, 0, 4);
+    prepare(claimed);
+    const claimedResult = decidePrepared(claimed, 4, {
+      hasClaimedPatient: (entityId) => entityId === 3,
+    });
+    expect(claimedResult.groupStartedRecords[0]).toMatchObject({
       destinationX: 150,
       destinationY: 60,
     });
@@ -776,6 +910,17 @@ function applyLosses(
       defenderEntityId,
     )),
   );
+}
+
+function reserveAllHerbsForTest(
+  combat: CombatSandboxSimulationState,
+  physickEntityId: number,
+): void {
+  const herbs = combat.individualGenericHerbStore as unknown as {
+    readonly currentByEntity: Uint16Array;
+    readonly reservedByEntity: Uint16Array;
+  };
+  herbs.reservedByEntity[physickEntityId] = herbs.currentByEntity[physickEntityId]!;
 }
 
 function landedRecord(

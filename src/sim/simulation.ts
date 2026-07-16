@@ -86,6 +86,7 @@ import {
   createIndividualMedicalClaimStore,
   decideIndividualMedicalClaimsAndHandoffs,
   hasIndividualMedicalClaimDecisionWork,
+  hasIndividualMedicalPatientClaim,
   getIndividualMedicalClaimInspection,
 } from "./individualMedicalClaims";
 import {
@@ -1421,6 +1422,13 @@ export function advanceCombatSandboxOneTick(
           combatSandbox.casualtyDragGroupStore,
           tick,
           combatSandbox.casualtyAssistanceDecisionBuffers,
+          {
+            hasClaimedPatient: (entityId) =>
+              hasIndividualMedicalPatientClaim(
+                combatSandbox.individualMedicalClaimStore,
+                entityId,
+              ),
+          },
         );
     } else {
       const buffers = combatSandbox.casualtyAssistanceDecisionBuffers;
