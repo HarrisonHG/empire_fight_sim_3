@@ -13,13 +13,19 @@ import {
   isIndividualDragEligiblePatient,
   queryDragEligibleAlliedPatientsWithinRadiusInto,
 } from "../../src/sim/individualCasualtyAssistance";
-import { applyIndividualZeroHitLifecycleTransitions } from "../../src/sim/individualCasualtyLifecycle";
+import {
+  applyIndividualZeroHitLifecycleTransitions,
+  transitionIndividualDyingToActive,
+} from "../../src/sim/individualCasualtyLifecycle";
 import {
   advanceIndividualDeathCountsOneTick,
   initializeIndividualDeathCountsFromZeroHitTransitions,
 } from "../../src/sim/individualDeathCount";
 import { advanceIndividualCombatActions } from "../../src/sim/individualCombatAction";
-import { applyIndividualLandedHits } from "../../src/sim/individualGlobalHits";
+import {
+  applyIndividualLandedHits,
+  restoreIndividualGlobalHits,
+} from "../../src/sim/individualGlobalHits";
 import {
   getIndividualMedicalLocalQueryPreparationCount,
   prepareIndividualMedicalLocalQueries,
@@ -100,6 +106,141 @@ describe("individual casualty assistance and sparse drag groups", () => {
     simulation.world.positionsX[3] = 110;
     prepare(simulation);
     expect(decideClaims(simulation, claims, 7).claimRecords[0]).toMatchObject({ patientEntityId: 0, physickEntityId: 3, origin: "triage" });
+  });
+
+  it("hands two ordinary carriers to a nearby Chirurgeon-only character", () => {
+    const simulation = createSimulation(scenario([
+      multiUnit(1, 1, 100, 3),
+      { ...unit(2, 1, 112), medicalProfile: chirurgeonOnly() },
+      unit(3, 2, 220),
+    ]));
+    simulation.world.positionsX[1] = 104;
+    simulation.world.positionsX[2] = 96;
+    down(simulation, 0, 2);
+    decide(simulation, 2);
+    reachFirstGroup(simulation, 3);
+    simulation.world.positionsX[3] = simulation.world.positionsX[0]! +
+      PHYSICK_HANDOFF_RANGE;
+    simulation.world.positionsY[3] = simulation.world.positionsY[0]!;
+    prepare(simulation);
+    const claims = createIndividualMedicalClaimStore(simulation.world.entityCount);
+
+    const result = decideClaims(simulation, claims, 5);
+
+    expect(result.handoffRecords[0]).toMatchObject({
+      patientEntityId: 0,
+      physickEntityId: 3,
+      releasedHelperEntityIds: [1, 2],
+    });
+    expect(result.claimRecords[0]).toMatchObject({
+      physickEntityId: 3,
+      patientEntityId: 0,
+      need: "dying",
+      origin: "handoff",
+    });
+  });
+
+  it("does not let a Chirurgeon-only character form a solo drag group", () => {
+    const simulation = createSimulation(scenario([
+      unit(1, 1, 100),
+      { ...unit(2, 1, 104), medicalProfile: chirurgeonOnly() },
+      unit(3, 2, 220),
+    ]));
+    down(simulation, 0, 2);
+
+    const result = decide(simulation, 2);
+
+    expect(result.groupStartedRecords).toHaveLength(0);
+    expect(result.noRescueRecords).toContainEqual({
+      patientEntityId: 0,
+      reason: "onlyOneOrdinaryHelper",
+      tick: 2,
+    });
+  });
+
+  it("counts a Chirurgeon-only character as dying-patient medical support", () => {
+    const run = (medicalProfile?: ReturnType<typeof chirurgeonOnly>) => {
+      const supportUnit = unit(2, 1, 20);
+      const simulation = createSimulation(scenario([
+        multiUnit(1, 1, 150, 3),
+        medicalProfile === undefined
+          ? supportUnit
+          : { ...supportUnit, medicalProfile },
+        unit(3, 2, 250),
+      ]));
+      down(simulation, 0, 2);
+      return {
+        simulation,
+        record: decide(simulation, 2).groupStartedRecords[0]!,
+      };
+    };
+
+    const withChirurgeon = run(chirurgeonOnly());
+    const withoutChirurgeon = run();
+    expect(withChirurgeon.record).toMatchObject({
+      patientEntityId: 0,
+      helperKind: "twoOrdinaryFighters",
+      helperEntityIds: [1, 2],
+    });
+    expect({
+      x: withChirurgeon.record.destinationX,
+      y: withChirurgeon.record.destinationY,
+    }).not.toEqual({
+      x: withoutChirurgeon.record.destinationX,
+      y: withoutChirurgeon.record.destinationY,
+    });
+    const deltaX = withChirurgeon.record.destinationX -
+      withChirurgeon.simulation.world.positionsX[3]!;
+    const deltaY = withChirurgeon.record.destinationY -
+      withChirurgeon.simulation.world.positionsY[3]!;
+    expect(deltaX * deltaX + deltaY * deltaY).toBeLessThanOrEqual(96 * 96);
+  });
+
+  it("clears a Chirurgeon-only claim when the authoritative need becomes Physick-only", () => {
+    const simulation = createSimulation(scenario([
+      multiUnit(1, 1, 100, 3),
+      { ...unit(2, 1, 112), medicalProfile: chirurgeonOnly() },
+      unit(3, 2, 220),
+    ]));
+    const combat = requireCombat(simulation);
+    simulation.world.positionsX[1] = 104;
+    simulation.world.positionsX[2] = 96;
+    down(simulation, 0, 2);
+    decide(simulation, 2);
+    reachFirstGroup(simulation, 3);
+    simulation.world.positionsX[3] = simulation.world.positionsX[0]! +
+      PHYSICK_HANDOFF_RANGE;
+    simulation.world.positionsY[3] = simulation.world.positionsY[0]!;
+    prepare(simulation);
+    const claims = createIndividualMedicalClaimStore(simulation.world.entityCount);
+    expect(decideClaims(simulation, claims, 5).claimRecords[0]).toMatchObject({
+      physickEntityId: 3,
+      patientEntityId: 0,
+      need: "dying",
+    });
+
+    restoreIndividualGlobalHits(
+      combat.individualGlobalHitStore,
+      combat.individualCasualtyLifecycleStore,
+      0,
+      1,
+      "chirurgeonTreatment",
+    );
+    transitionIndividualDyingToActive(
+      combat.individualCasualtyLifecycleStore,
+      combat.individualPlayerPresenceStore,
+      0,
+      6,
+    );
+    prepare(simulation);
+
+    expect(decideClaims(simulation, claims, 6).staleClaimRecords).toEqual([{
+      physickEntityId: 3,
+      patientEntityId: 0,
+      tick: 6,
+    }]);
+    expect(getIndividualMedicalClaimInspection(claims, 3).patientEntityId)
+      .toBe(-1);
   });
 
   it("excludes a Physick with a current patient from rescue-helper selection", () => {
@@ -1054,6 +1195,14 @@ function physick(startingGenericHerbs = 12) {
     hasChirurgeon: true,
     hasPhysick: true,
     startingGenericHerbs,
+  };
+}
+
+function chirurgeonOnly() {
+  return {
+    hasChirurgeon: true,
+    hasPhysick: false,
+    startingGenericHerbs: 0,
   };
 }
 

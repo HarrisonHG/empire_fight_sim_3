@@ -28,6 +28,7 @@ import {
   getIndividualMaximumGlobalHits,
   restoreIndividualGlobalHits,
 } from "../../src/sim/individualGlobalHits";
+import { applyTrustedIndividualLimbDisability } from "../../src/sim/individualLimbDisability";
 import {
   getIndividualMedicalClaimInspection,
   projectIndividualMedicalClaimCommitmentOrdinaryParticipation,
@@ -46,6 +47,7 @@ import {
 import {
   advanceIndividualTreatmentActionsOneTick,
   CHIRURGEON_DYING_TREATMENT_PROGRESS_TICKS,
+  getActiveIndividualTreatmentActionCount,
   getIndividualTreatmentActionInspection,
   INDIVIDUAL_TREATMENT_TOUCH_RANGE,
   type IndividualTreatmentInterruptionReason,
@@ -64,6 +66,129 @@ import type {
 } from "../../src/sim/types";
 
 describe("Milestone 6G-1 Chirurgeon treatment", () => {
+  it("lets a Chirurgeon-only character claim and complete dying treatment without herbs or a Physick follow-up claim", () => {
+    const simulation = createChirurgeonOnlyRescueSimulation();
+    const combat = requireCombat(simulation);
+    down(simulation, 0, 0);
+
+    const startedTick = advanceUntilTreatmentStarts(simulation, 3);
+    expect(getIndividualMedicalClaimInspection(
+      combat.individualMedicalClaimStore, 0,
+    )).toMatchObject({ physickEntityId: 3, need: "dying" });
+    expect(getIndividualTreatmentActionInspection(
+      combat.individualTreatmentActionStore, 3,
+    )).toMatchObject({
+      kind: "chirurgeonDying",
+      healerEntityId: 3,
+      patientEntityId: 0,
+      startedTick,
+      requiredProgressTicks: 600,
+      reservedGenericHerbs: 0,
+    });
+
+    applyLosses(combat, 1, 1);
+    for (let count = 0; count < 600; count += 1) {
+      keepInTouch(simulation, 3, 0);
+      advanceSimulationOneTick(simulation);
+    }
+
+    expect(combat.individualTreatmentActionResult.completedRecords[0]).toMatchObject({
+      kind: "chirurgeonDying",
+      healerEntityId: 3,
+      patientEntityId: 0,
+      progressTicks: 600,
+      consumedGenericHerbs: 0,
+    });
+    expect(getIndividualGenericHerbInspection(
+      combat.individualGenericHerbStore, 3,
+    )).toEqual({ current: 0, maximum: 0, reserved: 0 });
+    expect(getIndividualMedicalClaimInspection(
+      combat.individualMedicalClaimStore, 3,
+    ).patientEntityId).toBe(-1);
+    expect(getIndividualMedicalClaimInspection(
+      combat.individualMedicalClaimStore, 1,
+    ).physickEntityId).toBe(-1);
+  });
+
+  it("does not let a Chirurgeon-only character claim Physick-only needs", () => {
+    const simulation = createChirurgeonOnlyNeedsSimulation();
+    const combat = requireCombat(simulation);
+    applyLosses(combat, 0, 1);
+    applyTrauma(combat, 1, 0);
+    applyTrustedIndividualLimbDisability(
+      combat.individualLimbDisabilityStore, 2, "disabledLeg",
+    );
+
+    for (let count = 0; count < 5; count += 1) {
+      advanceSimulationOneTick(simulation);
+    }
+
+    expect(getIndividualMedicalClaimInspection(
+      combat.individualMedicalClaimStore, 3,
+    ).patientEntityId).toBe(-1);
+    for (const patientId of [0, 1, 2]) {
+      expect(getIndividualMedicalClaimInspection(
+        combat.individualMedicalClaimStore, patientId,
+      ).physickEntityId).toBe(-1);
+    }
+  });
+
+  it("keeps active treatment participation exclusive, then permits the former healer to become a patient", () => {
+    const simulation = createExclusiveTreatmentSimulation();
+    const combat = requireCombat(simulation);
+    down(simulation, 0, 0);
+    advanceUntilTreatmentStarts(simulation, 1);
+
+    applyLosses(combat, 1, 1);
+    for (let count = 0; count < 5; count += 1) {
+      keepInTouch(simulation, 1, 0);
+      advanceSimulationOneTick(simulation);
+      expect(getActiveIndividualTreatmentActionCount(
+        combat.individualTreatmentActionStore,
+      )).toBe(1);
+      expect(getIndividualTreatmentActionInspection(
+        combat.individualTreatmentActionStore, 1,
+      )).toMatchObject({ healerEntityId: 1, patientEntityId: 0 });
+      expect(getIndividualMedicalClaimInspection(
+        combat.individualMedicalClaimStore, 1,
+      ).physickEntityId).toBe(-1);
+    }
+
+    for (let count = 5; count < 600; count += 1) {
+      keepInTouch(simulation, 1, 0);
+      advanceSimulationOneTick(simulation);
+    }
+    expect(combat.individualTreatmentActionResult.completedRecords[0]).toMatchObject({
+      healerEntityId: 1,
+      patientEntityId: 0,
+    });
+    restoreIndividualGlobalHits(
+      combat.individualGlobalHitStore,
+      combat.individualCasualtyLifecycleStore,
+      0,
+      1,
+      "physickTreatment",
+    );
+
+    let laterAction;
+    for (let count = 0; count < 100; count += 1) {
+      advanceSimulationOneTick(simulation);
+      laterAction = getIndividualTreatmentActionInspection(
+        combat.individualTreatmentActionStore, 2,
+      );
+      if (laterAction?.patientEntityId === 1) break;
+    }
+    expect(laterAction).toMatchObject({
+      kind: "physickRestoreGlobalHit",
+      healerEntityId: 2,
+      patientEntityId: 1,
+      progressTicks: 0,
+    });
+    expect(getActiveIndividualTreatmentActionCount(
+      combat.individualTreatmentActionStore,
+    )).toBe(1);
+  });
+
   it("owns start-tick pause, grants exactly 600 later progress ticks, restores before death advancement, and supports a fresh dying episode", () => {
     const simulation = createTreatmentSimulation({ physick: true, herbs: 0 });
     const combat = requireCombat(simulation);
@@ -865,6 +990,90 @@ function createTreatmentSimulation(config: {
           },
         },
         unit(3, 2, 240, 1),
+      ],
+    },
+  });
+}
+
+function createChirurgeonOnlyRescueSimulation(): SimulationState {
+  return createSimulation({
+    seed: 0x6e_05,
+    entityCount: 5,
+    bounds: { width: 300, height: 120 },
+    minSpeedUnitsPerTick: 1,
+    maxSpeedUnitsPerTick: 1,
+    combatSandbox: {
+      kind: "liveCombatSandbox",
+      appliedDamagePressureScale: 1,
+      units: [
+        unit(1, 1, 100, 3),
+        {
+          ...unit(2, 1, 112, 1),
+          medicalProfile: {
+            hasChirurgeon: true,
+            hasPhysick: false,
+            startingGenericHerbs: 0,
+          },
+        },
+        unit(3, 2, 280, 1),
+      ],
+    },
+  });
+}
+
+function createChirurgeonOnlyNeedsSimulation(): SimulationState {
+  return createSimulation({
+    seed: 0x6e_06,
+    entityCount: 5,
+    bounds: { width: 300, height: 120 },
+    minSpeedUnitsPerTick: 1,
+    maxSpeedUnitsPerTick: 1,
+    combatSandbox: {
+      kind: "liveCombatSandbox",
+      appliedDamagePressureScale: 1,
+      units: [
+        unit(1, 1, 100, 1),
+        unit(2, 1, 104, 1),
+        unit(3, 1, 108, 1),
+        {
+          ...unit(4, 1, 112, 1),
+          medicalProfile: {
+            hasChirurgeon: true,
+            hasPhysick: false,
+            startingGenericHerbs: 0,
+          },
+        },
+        unit(5, 2, 280, 1),
+      ],
+    },
+  });
+}
+
+function createExclusiveTreatmentSimulation(): SimulationState {
+  const zeroHerbProfile = {
+    hasChirurgeon: true,
+    hasPhysick: true,
+    startingGenericHerbs: 0,
+  } as const;
+  const herbProfile = {
+    hasChirurgeon: true,
+    hasPhysick: true,
+    startingGenericHerbs: 1,
+  } as const;
+  return createSimulation({
+    seed: 0x6e_07,
+    entityCount: 4,
+    bounds: { width: 300, height: 120 },
+    minSpeedUnitsPerTick: 1,
+    maxSpeedUnitsPerTick: 1,
+    combatSandbox: {
+      kind: "liveCombatSandbox",
+      appliedDamagePressureScale: 1,
+      units: [
+        unit(1, 1, 100, 1),
+        { ...unit(2, 1, 104, 1), medicalProfile: zeroHerbProfile },
+        { ...unit(3, 1, 112, 1), medicalProfile: herbProfile },
+        unit(4, 2, 280, 1),
       ],
     },
   });

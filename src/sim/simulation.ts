@@ -98,6 +98,7 @@ import {
   isIndividualReceivingTreatment,
   createIndividualTreatmentActionBuffers,
   createIndividualTreatmentActionStore,
+  isIndividualTreatmentParticipant,
   isIndividualTreating,
   projectIndividualTreatmentOrdinaryParticipation,
 } from "./individualTreatmentAction";
@@ -1238,7 +1239,7 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.moraleMovementStates,
       combatSandbox.individualMedicalLocalQueryStore,
       {
-        isTreating: (entityId) => isIndividualTreating(
+        isTreating: (entityId) => isIndividualTreatmentParticipant(
           combatSandbox.individualTreatmentActionStore,
           entityId,
         ),
@@ -1279,6 +1280,10 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.individualOrdinaryParticipationSnapshot,
       {
         isTreating: (entityId) => isIndividualTreating(
+          combatSandbox.individualTreatmentActionStore,
+          entityId,
+        ),
+        isTreatmentParticipant: (entityId) => isIndividualTreatmentParticipant(
           combatSandbox.individualTreatmentActionStore,
           entityId,
         ),
@@ -1331,6 +1336,10 @@ export function advanceCombatSandboxOneTick(
       tick,
       {
         isTreating: (entityId) => isIndividualTreating(
+          combatSandbox.individualTreatmentActionStore,
+          entityId,
+        ),
+        isTreatmentParticipant: (entityId) => isIndividualTreatmentParticipant(
           combatSandbox.individualTreatmentActionStore,
           entityId,
         ),
@@ -1431,7 +1440,7 @@ export function advanceCombatSandboxOneTick(
         combatSandbox.moraleMovementStates,
         combatSandbox.individualMedicalLocalQueryStore,
         {
-          isTreating: (entityId) => isIndividualTreating(
+          isTreating: (entityId) => isIndividualTreatmentParticipant(
             combatSandbox.individualTreatmentActionStore,
             entityId,
           ),
@@ -1459,6 +1468,10 @@ export function advanceCombatSandboxOneTick(
         combatSandbox.individualMedicalClaimBuffers,
         {
           isTreating: (entityId) => isIndividualTreating(
+            combatSandbox.individualTreatmentActionStore,
+            entityId,
+          ),
+          isTreatmentParticipant: (entityId) => isIndividualTreatmentParticipant(
             combatSandbox.individualTreatmentActionStore,
             entityId,
           ),
@@ -1504,6 +1517,12 @@ export function advanceCombatSandboxOneTick(
         combatSandbox.individualMedicalClaimStore,
         combatSandbox.individualTreatmentActionResult.reassessmentRequests,
         tick,
+        {
+          isTreatmentParticipant: (entityId) => isIndividualTreatmentParticipant(
+            combatSandbox.individualTreatmentActionStore,
+            entityId,
+          ),
+        },
       );
     }
     advanceIndividualDeathCountsOneTick(
@@ -1561,7 +1580,7 @@ export function advanceCombatSandboxOneTick(
         combatSandbox.moraleMovementStates,
         combatSandbox.individualMedicalLocalQueryStore,
         {
-          isTreating: (entityId) => isIndividualTreating(
+          isTreating: (entityId) => isIndividualTreatmentParticipant(
             combatSandbox.individualTreatmentActionStore,
             entityId,
           ),
@@ -1585,6 +1604,10 @@ export function advanceCombatSandboxOneTick(
           combatSandbox.casualtyAssistanceDecisionBuffers,
           {
             isTreating: (entityId) => isIndividualTreating(
+              combatSandbox.individualTreatmentActionStore,
+              entityId,
+            ),
+            isTreatmentParticipant: (entityId) => isIndividualTreatmentParticipant(
               combatSandbox.individualTreatmentActionStore,
               entityId,
             ),

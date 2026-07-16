@@ -152,6 +152,8 @@ export interface CasualtyDragMovementResult { readonly cancellationRecords: read
 export interface CasualtyAssistanceDecisionOptions {
   /** Reserved integration hook until IndividualTreatmentActionStore exists. */
   readonly isTreating?: (entityId: number) => boolean;
+  /** Any healer or patient currently owned by the treatment-action store. */
+  readonly isTreatmentParticipant?: (entityId: number) => boolean;
   /** Current 6F ownership gate supplied by the medical-claim system. */
   readonly hasClaimedPatient?: (physickEntityId: number) => boolean;
 }
@@ -853,6 +855,7 @@ function collectEligibleHelpers(
       moraleStates.get(unitId) === "routing" ||
       getIndividualCombatActionState(actionStore, entityId) !== "ready" ||
       options.isTreating?.(entityId) === true ||
+      options.isTreatmentParticipant?.(entityId) === true ||
       assistance.dragGroupIdByEntity[entityId] !== NO_ENTITY
     ) continue;
     const isPhysick = getTrustedIndividualMedicalProfile(
@@ -1004,11 +1007,12 @@ function countAvailableAlliedPhysicksNearPoint(
       entityId !== travellingPhysickEntityId &&
       getPreparedMedicalFactionId(queryStore, entityId) === sourceFaction &&
       getIndividualCharacterLifecycleState(lifecycleStore, entityId) === "active" &&
-      getTrustedIndividualMedicalProfile(medicalProfiles, entityId).hasPhysick &&
+      getTrustedIndividualMedicalProfile(medicalProfiles, entityId).hasChirurgeon &&
       moraleStates.get(getUnitIdForEntity(identityStore, entityId)) !== "routing" &&
       getIndividualTraumaticWoundInspection(traumaStore, entityId).state === "none" &&
       getIndividualCombatActionState(actionStore, entityId) === "ready" &&
       options.isTreating?.(entityId) !== true &&
+      options.isTreatmentParticipant?.(entityId) !== true &&
       options.hasClaimedPatient?.(entityId) !== true &&
       assistance.dragGroupIdByEntity[entityId] === NO_ENTITY
     ) count += 1;

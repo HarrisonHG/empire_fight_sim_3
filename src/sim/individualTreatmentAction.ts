@@ -33,6 +33,7 @@ import {
 import type { IndividualLandedHitGateDecisionRecord } from "./individualLandedHitGate";
 import {
   clearIndividualMedicalClaimCommitmentDefenceOverride,
+  getIndividualMedicalClaimInspection,
   getIndividualMedicalClaimedPatientEntityId,
   getIndividualMedicalClaimNeed,
   isIndividualMedicalClaimOwnedBy,
@@ -242,6 +243,16 @@ export function isIndividualReceivingTreatment(
   return internal.actionIndexByPatient[patientEntityId] !== NONE;
 }
 
+export function isIndividualTreatmentParticipant(
+  store: IndividualTreatmentActionStore,
+  entityId: number,
+): boolean {
+  const internal = asInternal(store);
+  assertEntityId(entityId, internal.entityCount);
+  return internal.actionIndexByHealer[entityId] !== NONE ||
+    internal.actionIndexByPatient[entityId] !== NONE;
+}
+
 export function getActiveIndividualTreatmentActionCount(store: IndividualTreatmentActionStore): number {
   return asInternal(store).activeActions.length;
 }
@@ -333,7 +344,9 @@ export function advanceIndividualTreatmentActionsOneTick(
       internal.actionIndexByPatient[healerEntityId] !== NONE ||
       internal.actionBoundaryTickByHealer[healerEntityId] === tick) continue;
     const patientEntityId = getIndividualMedicalClaimedPatientEntityId(claims, healerEntityId);
-    if (patientEntityId === NONE || internal.actionIndexByPatient[patientEntityId] !== NONE ||
+    if (patientEntityId === NONE ||
+      internal.actionIndexByHealer[patientEntityId] !== NONE ||
+      internal.actionIndexByPatient[patientEntityId] !== NONE ||
       !canStartAction(world, identity, lifecycle, presence, profiles, herbs,
         trauma, limbs, combatActions, morale, hits, claims, internal, healerEntityId,
         patientEntityId, tick)) continue;
@@ -359,6 +372,12 @@ export function advanceIndividualTreatmentActionsOneTick(
       progressTicks: 0,
       lastProcessedTick: tick,
     };
+    const incomingClaimOwner = getIndividualMedicalClaimInspection(
+      claims, healerEntityId,
+    ).physickEntityId;
+    if (incomingClaimOwner !== NONE) {
+      releaseIndividualMedicalClaim(claims, incomingClaimOwner, healerEntityId);
+    }
     if (kind === "chirurgeonDying") {
       pauseIndividualDeathCount(deathCounts, lifecycle, patientEntityId, pauseSource(action));
     }
@@ -390,6 +409,10 @@ function canStartAction(
   evidence: InternalTreatmentActionStore, healer: number, patient: number, tick: number,
 ): boolean {
   if (healer === patient ||
+    evidence.actionIndexByHealer[healer] !== NONE ||
+    evidence.actionIndexByPatient[healer] !== NONE ||
+    evidence.actionIndexByHealer[patient] !== NONE ||
+    evidence.actionIndexByPatient[patient] !== NONE ||
     !isIndividualMedicalClaimOwnedBy(claims, healer, patient) ||
     getIndividualCharacterLifecycleState(lifecycle, healer) !== "active" ||
     getIndividualTraumaticWoundInspection(trauma, healer).state !== "none" ||
@@ -690,6 +713,13 @@ function pauseSource(action: ActiveTreatmentAction): IndividualDeathCountPauseSo
 }
 
 function addAction(store: InternalTreatmentActionStore, action: ActiveTreatmentAction): void {
+  if (action.healerEntityId === action.patientEntityId ||
+    store.actionIndexByHealer[action.healerEntityId] !== NONE ||
+    store.actionIndexByPatient[action.healerEntityId] !== NONE ||
+    store.actionIndexByHealer[action.patientEntityId] !== NONE ||
+    store.actionIndexByPatient[action.patientEntityId] !== NONE) {
+    throw new Error("An entity may participate in at most one active treatment action.");
+  }
   const index = store.activeActions.length;
   store.activeActions.push(action);
   store.actionIndexByHealer[action.healerEntityId] = index;
