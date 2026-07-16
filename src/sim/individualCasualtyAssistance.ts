@@ -78,9 +78,11 @@ export interface CasualtyDragGroupRecord {
   readonly phaseEnteredTick: number;
 }
 
-interface InternalCasualtyDragGroupRecord extends Omit<CasualtyDragGroupRecord, "phase" | "phaseEnteredTick"> {
+interface InternalCasualtyDragGroupRecord extends Omit<CasualtyDragGroupRecord, "phase" | "phaseEnteredTick" | "destinationX" | "destinationY"> {
   phase: CasualtyDragGroupPhase;
   phaseEnteredTick: number;
+  destinationX: number;
+  destinationY: number;
   dragSpeedRemainder: number;
 }
 
@@ -586,6 +588,7 @@ export function advanceCasualtyDragGroupsBeforeCombat(
         if (!withinPickupRange(world, helperId, group.patientEntityId)) allReady = false;
       }
       if (allReady) {
+        resolveEffectiveGatheredDestination(world, group, assistance);
         group.phase = "dragging";
         group.phaseEnteredTick = tick;
         setGroupHandCommitment(group, hands);
@@ -630,6 +633,19 @@ export function advanceCasualtyDragGroupsBeforeCombat(
     gatheringGroupCount, draggingGroupCount, reachedSafetyGroupCount, movedParticipantCount };
 }
 
+export function refreshCasualtyDragMovementFinalPhaseCounts(
+  groupStore: CasualtyDragGroupStore,
+  result: CasualtyDragMovementResult,
+): CasualtyDragMovementResult {
+  let gatheringGroupCount = 0, draggingGroupCount = 0, reachedSafetyGroupCount = 0;
+  for (const group of asGroupStore(groupStore).activeGroups) {
+    if (group.phase === "gathering") gatheringGroupCount += 1;
+    else if (group.phase === "dragging") draggingGroupCount += 1;
+    else if (group.phase === "reachedSafety") reachedSafetyGroupCount += 1;
+  }
+  return { ...result, gatheringGroupCount, draggingGroupCount, reachedSafetyGroupCount };
+}
+
 export function cancelCasualtyDragGroupsFromPostCombatEvidence(
   identityStore: UnitIdentityStore,
   lifecycleStore: IndividualCasualtyLifecycleStore,
@@ -668,6 +684,37 @@ function withinPickupRange(world: WorldState, left: number, right: number): bool
   const dx = world.positionsX[left]! - world.positionsX[right]!;
   const dy = world.positionsY[left]! - world.positionsY[right]!;
   return dx * dx + dy * dy <= CASUALTY_DRAG_PICKUP_RANGE * CASUALTY_DRAG_PICKUP_RANGE;
+}
+
+function resolveEffectiveGatheredDestination(
+  world: WorldState,
+  group: InternalCasualtyDragGroupRecord,
+  assistance: InternalIndividualCasualtyAssistanceStore,
+): void {
+  const patientX = world.positionsX[group.patientEntityId]!;
+  const patientY = world.positionsY[group.patientEntityId]!;
+  let minimumDeltaX = -patientX;
+  let maximumDeltaX = world.bounds.width - 1 - patientX;
+  let minimumDeltaY = -patientY;
+  let maximumDeltaY = world.bounds.height - 1 - patientY;
+  for (const helperId of group.helperEntityIds) {
+    const helperX = world.positionsX[helperId]!;
+    const helperY = world.positionsY[helperId]!;
+    minimumDeltaX = Math.max(minimumDeltaX, -helperX);
+    maximumDeltaX = Math.min(maximumDeltaX, world.bounds.width - 1 - helperX);
+    minimumDeltaY = Math.max(minimumDeltaY, -helperY);
+    maximumDeltaY = Math.min(maximumDeltaY, world.bounds.height - 1 - helperY);
+  }
+  const requestedDeltaX = Math.round(group.destinationX) - patientX;
+  const requestedDeltaY = Math.round(group.destinationY) - patientY;
+  group.destinationX = patientX + Math.max(minimumDeltaX, Math.min(maximumDeltaX, requestedDeltaX));
+  group.destinationY = patientY + Math.max(minimumDeltaY, Math.min(maximumDeltaY, requestedDeltaY));
+  assistance.destinationXByEntity[group.patientEntityId] = group.destinationX;
+  assistance.destinationYByEntity[group.patientEntityId] = group.destinationY;
+  for (const helperId of group.helperEntityIds) {
+    assistance.destinationXByEntity[helperId] = group.destinationX;
+    assistance.destinationYByEntity[helperId] = group.destinationY;
+  }
 }
 
 function sharedDragDelta(world: WorldState, group: InternalCasualtyDragGroupRecord, goalX: number, goalY: number, maxStep: number): { x: number; y: number } {

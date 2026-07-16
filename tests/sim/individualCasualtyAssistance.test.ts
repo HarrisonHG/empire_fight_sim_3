@@ -6,6 +6,7 @@ import {
   createIndividualDragHandCommitmentStore,
   advanceCasualtyDragGroupsBeforeCombat,
   cancelCasualtyDragGroupsFromPostCombatEvidence,
+  refreshCasualtyDragMovementFinalPhaseCounts,
   decideIndividualCasualtyAssistance,
   getActiveCasualtyDragGroups,
   getIndividualCasualtyAssistanceInspection,
@@ -56,6 +57,7 @@ describe("individual casualty assistance and sparse drag groups", () => {
       combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore,
       hands, 5, buffers);
     expect([simulation.world.positionsX[0], simulation.world.positionsX[1]]).toEqual([startPatientX, startHelperX]);
+    expect(hands.getFreeHands(1)).toBe(2);
 
     let tick = 6;
     while (getActiveCasualtyDragGroups(combat.casualtyDragGroupStore)[0]!.phase === "gathering") {
@@ -86,6 +88,7 @@ describe("individual casualty assistance and sparse drag groups", () => {
     expect(getActiveCasualtyDragGroups(combat.casualtyDragGroupStore)[0]!.phase).toBe("reachedSafety");
     expect(getIndividualCasualtyAssistanceInspection(combat.individualCasualtyAssistanceStore, 0).state)
       .toBe("atTreatmentPosition");
+    expect(hands.getFreeHands(1)).toBe(0);
   });
 
   it("translates dragging participants coherently and cancels once on an accepted helper hit", () => {
@@ -117,6 +120,61 @@ describe("individual casualty assistance and sparse drag groups", () => {
     expect(hands.getFreeHands(1)).toBeUndefined();
     prepare(simulation);
     expect(decidePrepared(simulation, 5).groupStartedRecords).toHaveLength(0);
+  });
+
+  it("clamps effective destinations to the shared feasible translation at every world boundary", () => {
+    const cases = [
+      { patient: [1, 60], helper: [0, 60], requested: [0, 60], effective: [1, 60] },
+      { patient: [258, 60], helper: [259, 60], requested: [259, 60], effective: [258, 60] },
+      { patient: [100, 1], helper: [100, 0], requested: [100, 0], effective: [100, 1] },
+      { patient: [100, 118], helper: [100, 119], requested: [100, 119], effective: [100, 118] },
+    ] as const;
+    for (const candidate of cases) {
+      const simulation = createSimulation(scenario([
+        unit(1, 1, 100), { ...unit(2, 1, 104), medicalProfile: physick() }, unit(3, 2, 220),
+      ]));
+      const combat = requireCombat(simulation);
+      simulation.world.positionsX[0] = candidate.patient[0]; simulation.world.positionsY[0] = candidate.patient[1];
+      simulation.world.positionsX[1] = candidate.helper[0]; simulation.world.positionsY[1] = candidate.helper[1];
+      down(simulation, 0, 2); decide(simulation, 2);
+      const group = getActiveCasualtyDragGroups(combat.casualtyDragGroupStore)[0]! as
+        { destinationX: number; destinationY: number; phase: string };
+      group.destinationX = candidate.requested[0]; group.destinationY = candidate.requested[1];
+      const hands = createIndividualDragHandCommitmentStore(simulation.world.entityCount);
+      const buffers = createCasualtyDragMovementBuffers();
+      advanceCasualtyDragGroupsBeforeCombat(simulation.world, combat.identityStore, combat.formationStore,
+        combat.individualCasualtyLifecycleStore, combat.individualTraumaticWoundStore, combat.moraleMovementStates,
+        combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore, hands, 3, buffers);
+      expect([group.destinationX, group.destinationY]).toEqual(candidate.effective);
+      expect(getIndividualCasualtyAssistanceInspection(combat.individualCasualtyAssistanceStore, 0))
+        .toMatchObject({ destinationX: candidate.effective[0], destinationY: candidate.effective[1] });
+      const reached = advanceCasualtyDragGroupsBeforeCombat(simulation.world, combat.identityStore, combat.formationStore,
+        combat.individualCasualtyLifecycleStore, combat.individualTraumaticWoundStore, combat.moraleMovementStates,
+        combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore, hands, 4, buffers);
+      expect(reached.reachedSafetyRecords).toHaveLength(1);
+    }
+  });
+
+  it("tracks one free hand for each ordinary carrier and removes final dragging counts on cancellation", () => {
+    const simulation = createSimulation(scenario([
+      multiUnit(1, 1, 100, 3), unit(2, 2, 220),
+    ]));
+    const combat = requireCombat(simulation);
+    simulation.world.positionsX[1] = 104; simulation.world.positionsX[2] = 96;
+    down(simulation, 0, 3); decide(simulation, 3);
+    const hands = createIndividualDragHandCommitmentStore(simulation.world.entityCount);
+    const buffers = createCasualtyDragMovementBuffers();
+    const movement = advanceCasualtyDragGroupsBeforeCombat(simulation.world, combat.identityStore, combat.formationStore,
+      combat.individualCasualtyLifecycleStore, combat.individualTraumaticWoundStore, combat.moraleMovementStates,
+      combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore, hands, 4, buffers);
+    expect([hands.getFreeHands(1), hands.getFreeHands(2)]).toEqual([1, 1]);
+    const cancellations: typeof buffers.cancellationRecords = [];
+    cancelCasualtyDragGroupsFromPostCombatEvidence(combat.identityStore, combat.individualCasualtyLifecycleStore,
+      combat.individualTraumaticWoundStore, new Map([[1, "routing" as const], [2, "steady" as const]]),
+      combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore, hands, [], 4, cancellations);
+    const final = refreshCasualtyDragMovementFinalPhaseCounts(combat.casualtyDragGroupStore, movement);
+    expect(final).toMatchObject({ gatheringGroupCount: 0, draggingGroupCount: 0, reachedSafetyGroupCount: 0, movedParticipantCount: movement.movedParticipantCount });
+    expect([hands.getFreeHands(1), hands.getFreeHands(2)]).toEqual([undefined, undefined]);
   });
   it("forms one sparse group with a zero-herb Physick and reserves both participants", () => {
     const simulation = createSimulation(scenario([

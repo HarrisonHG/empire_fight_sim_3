@@ -31,6 +31,10 @@ import {
 } from "./formationBehaviour";
 import type { UnitMoraleMovementStateSource } from "./moraleMovement";
 import {
+  isIndividualOrdinaryParticipationEligible,
+  type IndividualOrdinaryParticipationSnapshot,
+} from "./individualOrdinaryParticipation";
+import {
   buildSpatialGrid,
   createSpatialGrid,
   queryEntitiesWithinRadiusInto,
@@ -320,6 +324,7 @@ export function advanceIndividualCombatPressureOneTick(
   } = {},
   tickStartMoraleStates?: UnitMoraleMovementStateSource,
   lifecycleStore?: IndividualCasualtyLifecycleStore,
+  ordinaryParticipation?: IndividualOrdinaryParticipationSnapshot,
 ): CombatPressureTickResult {
   validateStores(identityStore, formationStore);
   if (
@@ -329,6 +334,9 @@ export function advanceIndividualCombatPressureOneTick(
     throw new RangeError(
       "Individual combat pressure dependencies must match entity count.",
     );
+  }
+  if (ordinaryParticipation !== undefined && ordinaryParticipation.entityCount !== identityStore.entityCount) {
+    throw new RangeError("Individual combat pressure ordinary participation must match entity count.");
   }
   if (
     lifecycleStore !== undefined &&
@@ -364,9 +372,9 @@ export function advanceIndividualCombatPressureOneTick(
     gateDecisions,
     hitApplications,
     zeroHitEvents,
-    eligibility,
     appliedDamagePressureScale,
     lifecycleStore,
+    ordinaryParticipation,
   );
 
   out.length = 0;
@@ -383,6 +391,7 @@ export function advanceIndividualCombatPressureOneTick(
         tickStartMoraleStates,
         lifecycleStore,
         eligibility,
+        ordinaryParticipation,
       ),
     );
   }
@@ -394,8 +403,8 @@ function prepareIndividualProximityFloors(
   world: WorldState,
   identityStore: UnitIdentityStore,
   store: InternalCombatPressureStore,
-  eligibility: IndividualCombatEligibilitySnapshot,
   lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
+  ordinaryParticipation: IndividualOrdinaryParticipationSnapshot | undefined,
 ): void {
   if (
     store.individualPressureGrid === undefined ||
@@ -413,13 +422,13 @@ function prepareIndividualProximityFloors(
     store.individualPressureGrid,
     world,
     lifecycleStore === undefined
-      ? undefined
-      : (entityId) => isIndividualCharacterActive(lifecycleStore, entityId),
+      ? (entityId) => isIndividualOrdinaryParticipationEligible(ordinaryParticipation, entityId)
+      : (entityId) => isIndividualCharacterActive(lifecycleStore, entityId) &&
+          isIndividualOrdinaryParticipationEligible(ordinaryParticipation, entityId),
   );
 
   for (let entityId = 0; entityId < world.entityCount; entityId += 1) {
     if (
-      !isIndividualCombatEligible(eligibility, entityId) ||
       (lifecycleStore !== undefined &&
         !isIndividualCharacterActive(lifecycleStore, entityId))
     ) continue;
@@ -438,7 +447,7 @@ function prepareIndividualProximityFloors(
       const otherEntityId = nearby[index]!;
       if (
         otherEntityId === entityId ||
-        !isIndividualCombatEligible(eligibility, otherEntityId) ||
+        !isIndividualOrdinaryParticipationEligible(ordinaryParticipation, otherEntityId) ||
         (lifecycleStore !== undefined &&
           !isIndividualCharacterActive(lifecycleStore, otherEntityId))
       ) {
@@ -471,6 +480,7 @@ function applyIndividualUnitPressureUpdate(
   tickStartMoraleStates: UnitMoraleMovementStateSource | undefined,
   lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
   eligibility: IndividualCombatEligibilitySnapshot,
+  ordinaryParticipation: IndividualOrdinaryParticipationSnapshot | undefined,
 ): UnitPressureUpdate {
   const members = getUnitMembers(identityStore, unitId);
   const confidenceAverage = calculateActiveAverageConfidence(
@@ -509,12 +519,9 @@ function applyIndividualUnitPressureUpdate(
 
   for (let memberIndex = 0; memberIndex < members.length; memberIndex += 1) {
     const entityId = members[memberIndex]!;
-    if (
-      !isIndividualCombatEligible(eligibility, entityId) ||
-      (lifecycleStore !== undefined &&
-        !isIndividualCharacterActive(lifecycleStore, entityId))
-    ) continue;
-    activeMemberCount += 1;
+    if (lifecycleStore !== undefined && !isIndividualCharacterActive(lifecycleStore, entityId)) continue;
+    const contributesToAggregate = isIndividualOrdinaryParticipationEligible(ordinaryParticipation, entityId) &&
+      isIndividualCombatEligible(eligibility, entityId);
     const before = getIndividualPressure(formationStore, entityId);
     const after = applyIndividualPressureForEntity(
       formationStore,
@@ -522,13 +529,16 @@ function applyIndividualUnitPressureUpdate(
       entityId,
       cohesionPressureDeltaPerMember,
     );
-    pressureBeforeTotal += before;
-    pressureAfterTotal += after;
-    floorTotal += store.proximityFloorByEntity[entityId]!;
-    attackImpulseTotal += store.incomingAttackImpulseByEntity[entityId]!;
-    hitImpulseTotal += store.incomingHitImpulseByEntity[entityId]!;
-    blockImpulseTotal += store.blockedStrikeImpulseByEntity[entityId]!;
-    recoveredPressureTotal += store.pressureRecoveredByEntity[entityId]!;
+    if (contributesToAggregate) {
+      activeMemberCount += 1;
+      pressureBeforeTotal += before;
+      pressureAfterTotal += after;
+      floorTotal += store.proximityFloorByEntity[entityId]!;
+      attackImpulseTotal += store.incomingAttackImpulseByEntity[entityId]!;
+      hitImpulseTotal += store.incomingHitImpulseByEntity[entityId]!;
+      blockImpulseTotal += store.blockedStrikeImpulseByEntity[entityId]!;
+      recoveredPressureTotal += store.pressureRecoveredByEntity[entityId]!;
+    }
   }
 
   const hasFreshPressure =
@@ -709,9 +719,9 @@ function prepareIndividualSourceScratch(
   _gateDecisions: readonly IndividualLandedHitGateDecisionRecord[],
   hitApplications: readonly IndividualLandedHitApplicationRecord[],
   _zeroHitEvents: readonly IndividualZeroHitEvent[],
-  eligibility: IndividualCombatEligibilitySnapshot,
   appliedDamagePressureScale: number,
   lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
+  ordinaryParticipation: IndividualOrdinaryParticipationSnapshot | undefined,
 ): void {
   store.engagedByUnit.fill(0);
   store.consequencePressureByUnit.fill(0);
@@ -731,8 +741,8 @@ function prepareIndividualSourceScratch(
     world,
     identityStore,
     store,
-    eligibility,
     lifecycleStore,
+    ordinaryParticipation,
   );
 
   for (let index = 0; index < individualConsequences.length; index += 1) {

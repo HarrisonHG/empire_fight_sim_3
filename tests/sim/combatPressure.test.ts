@@ -15,6 +15,10 @@ import {
   type UnitPressureUpdate,
 } from "../../src/sim/combatPressure";
 import { createIndividualCombatEligibilitySnapshot } from "../../src/sim/individualCombatEligibility";
+import {
+  createIndividualOrdinaryParticipationSnapshot,
+  setIndividualOrdinaryParticipationEligible,
+} from "../../src/sim/individualOrdinaryParticipation";
 import type { IndividualCombatUnitConsequenceSummary } from "../../src/sim/individualCombatConsequences";
 import type { IndividualMeleeDefenceRecord } from "../../src/sim/individualMeleeDefence";
 import {
@@ -383,6 +387,23 @@ describe("combat pressure stage", () => {
     }
   });
 
+  it("applies personal attack, block and hit pressure to an active ordinary-ineligible recipient without aggregating it", () => {
+    const harness = createHarness();
+    const ordinary = createIndividualOrdinaryParticipationSnapshot(harness.identity.entityCount);
+    setIndividualOrdinaryParticipationEligible(ordinary, 2, false);
+    const updates = advanceIndividualPressure(harness, [individualSummary(TARGET_UNIT_ID)], {
+      defenceRecords: [successfulBlock(0, 2, "shieldBlocked")],
+      hitApplications: [hitApplication(0, 2)],
+    }, undefined, ordinary);
+    const inspection = getIndividualCombatPressureInspection(harness.formation, harness.store, 2);
+    expect(inspection).toMatchObject({ selectedOutcomeContribution: 3, incomingHitImpulse: 8, recoveryPauseTicksRemaining: 20 });
+    expect(getIndividualPressure(harness.formation, 2)).toBe(14);
+    expect(findUpdate(updates, TARGET_UNIT_ID)).toMatchObject({
+      individualIncomingAttackImpulseAverage: 0,
+      individualIncomingHitImpulseAverage: 0,
+    });
+  });
+
   it("applies one frustration impulse without pausing or clearing attacker recovery", () => {
     const harness = createHarness();
     setIndividualPressure(harness.formation, 0, 8);
@@ -699,6 +720,7 @@ function advanceIndividualPressure(
     number,
     "steady" | "strained" | "shaken" | "wavering" | "routing" | "recovering"
   >,
+  ordinaryParticipation?: ReturnType<typeof createIndividualOrdinaryParticipationSnapshot>,
 ): readonly UnitPressureUpdate[] {
   const eligibility = createIndividualCombatEligibilitySnapshot({
     entityCount: harness.identity.entityCount,
@@ -718,6 +740,8 @@ function advanceIndividualPressure(
     harness.updates,
     { appliedDamagePressureScale: 10 },
     tickStartMoraleStates,
+    undefined,
+    ordinaryParticipation,
   );
   return result.updates.slice();
 }

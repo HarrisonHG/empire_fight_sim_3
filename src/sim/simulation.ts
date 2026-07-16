@@ -68,6 +68,7 @@ import {
   advanceCasualtyDragGroupsBeforeCombat,
   cancelCasualtyDragGroupsFromPostCombatEvidence,
   projectCasualtyDragOrdinaryParticipation,
+  refreshCasualtyDragMovementFinalPhaseCounts,
   decideIndividualCasualtyAssistance,
   getActiveCasualtyDragGroups,
   getIndividualCasualtyAssistanceInspection,
@@ -1301,6 +1302,11 @@ export function advanceCombatSandboxOneTick(
       tick,
       combatSandbox.casualtyDragMovementBuffers.cancellationRecords,
     );
+    combatSandbox.casualtyDragMovementResult =
+      refreshCasualtyDragMovementFinalPhaseCounts(
+        combatSandbox.casualtyDragGroupStore,
+        combatSandbox.casualtyDragMovementResult,
+      );
     prepareIndividualCasualtyLocalQuery(
       world,
       combatSandbox.individualCasualtyLifecycleStore,
@@ -1383,6 +1389,7 @@ export function advanceCombatSandboxOneTick(
       },
       combatSandbox.moraleMovementStates,
       combatSandbox.individualCasualtyLifecycleStore,
+      combatSandbox.individualOrdinaryParticipationSnapshot,
     ),
   );
   runStage("routingContagion", () =>
