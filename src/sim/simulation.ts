@@ -82,13 +82,23 @@ import {
   initializeIndividualDeathCountsFromZeroHitTransitions,
 } from "./individualDeathCount";
 import {
+  advanceIndividualMedicalClaimApproachMovementOneTick,
   createIndividualMedicalClaimBuffers,
   createIndividualMedicalClaimStore,
   decideIndividualMedicalClaimsAndHandoffs,
+  getIndividualMedicalClaimCommitmentDefenceHandAvailability,
   hasIndividualMedicalClaimDecisionWork,
   hasIndividualMedicalPatientClaim,
   getIndividualMedicalClaimInspection,
+  projectIndividualMedicalClaimCommitmentOrdinaryParticipation,
 } from "./individualMedicalClaims";
+import {
+  advanceIndividualTreatmentActionsOneTick,
+  createIndividualTreatmentActionBuffers,
+  createIndividualTreatmentActionStore,
+  isIndividualTreating,
+  projectIndividualTreatmentOrdinaryParticipation,
+} from "./individualTreatmentAction";
 import {
   createIndividualGenericHerbStore,
   createTrustedIndividualMedicalProfileStore,
@@ -135,6 +145,7 @@ import {
 } from "./recoveryThreat";
 import type { MoraleMovementState } from "./moraleMovement";
 import {
+  createPrioritizedIndividualDefenceHandAvailabilitySource,
   getDefenceRecoveryTicksRemaining,
   getReadinessRecoveredThisTick,
   getReadinessSpentThisTick,
@@ -628,6 +639,20 @@ function createCombatSandbox(
     createCasualtyAssistanceDecisionBuffers();
   const casualtyDragMovementBuffers = createCasualtyDragMovementBuffers();
   const individualMedicalClaimBuffers = createIndividualMedicalClaimBuffers();
+  const individualTreatmentActionBuffers = createIndividualTreatmentActionBuffers();
+  const individualCasualtyAssistanceStore =
+    createIndividualCasualtyAssistanceStore(world.entityCount);
+  const individualDragHandCommitmentStore =
+    createIndividualDragHandCommitmentStore(world.entityCount);
+  const individualMedicalClaimStore =
+    createIndividualMedicalClaimStore(world.entityCount);
+  const individualDefenceHandAvailabilitySource =
+    createPrioritizedIndividualDefenceHandAvailabilitySource(
+      individualDragHandCommitmentStore,
+      getIndividualMedicalClaimCommitmentDefenceHandAvailability(
+        individualMedicalClaimStore,
+      ),
+    );
   const combatSandbox: CombatSandboxSimulationState = {
     battleSeed: seed >>> 0,
     identityStore,
@@ -660,11 +685,10 @@ function createCombatSandbox(
       world.entityCount,
       world.bounds,
     ),
-    individualCasualtyAssistanceStore:
-      createIndividualCasualtyAssistanceStore(world.entityCount),
+    individualCasualtyAssistanceStore,
     casualtyDragGroupStore: createCasualtyDragGroupStore(world.entityCount),
-    individualDragHandCommitmentStore:
-      createIndividualDragHandCommitmentStore(world.entityCount),
+    individualDragHandCommitmentStore,
+    individualDefenceHandAvailabilitySource,
     casualtyDragMovementBuffers,
     casualtyDragMovementResult: {
       cancellationRecords: casualtyDragMovementBuffers.cancellationRecords,
@@ -674,7 +698,7 @@ function createCombatSandbox(
       reachedSafetyGroupCount: 0,
       movedParticipantCount: 0,
     },
-    individualMedicalClaimStore: createIndividualMedicalClaimStore(world.entityCount),
+    individualMedicalClaimStore,
     individualMedicalClaimBuffers,
     individualMedicalClaimResult: {
       claimRecords: individualMedicalClaimBuffers.claimRecords,
@@ -683,6 +707,15 @@ function createCombatSandbox(
       staleClaimRecords: individualMedicalClaimBuffers.staleClaimRecords,
       activeClaimCount: 0,
       localCandidateCount: 0,
+    },
+    individualTreatmentActionStore: createIndividualTreatmentActionStore(world.entityCount),
+    individualTreatmentActionBuffers,
+    individualTreatmentActionResult: {
+      startedRecords: individualTreatmentActionBuffers.startedRecords,
+      interruptedRecords: individualTreatmentActionBuffers.interruptedRecords,
+      completedRecords: individualTreatmentActionBuffers.completedRecords,
+      activeActionCount: 0,
+      progressedActionCount: 0,
     },
     casualtyAssistanceDecisionBuffers,
     casualtyAssistanceDecisionResult: {
@@ -1196,6 +1229,12 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.individualOrdinaryParticipationSnapshot,
       combatSandbox.moraleMovementStates,
       combatSandbox.individualMedicalLocalQueryStore,
+      {
+        isTreating: (entityId) => isIndividualTreating(
+          combatSandbox.individualTreatmentActionStore,
+          entityId,
+        ),
+      },
     );
     updateIndividualMedicalDiscoveryAndWithdrawalIntents(
       world,
@@ -1209,6 +1248,32 @@ export function advanceCombatSandboxOneTick(
     projectCasualtyDragOrdinaryParticipation(
       combatSandbox.casualtyDragGroupStore,
       combatSandbox.individualOrdinaryParticipationSnapshot,
+    );
+    projectIndividualTreatmentOrdinaryParticipation(
+      combatSandbox.individualTreatmentActionStore,
+      combatSandbox.individualOrdinaryParticipationSnapshot,
+    );
+    projectIndividualMedicalClaimCommitmentOrdinaryParticipation(
+      world,
+      combatSandbox.identityStore,
+      combatSandbox.individualCasualtyLifecycleStore,
+      combatSandbox.individualPlayerPresenceStore,
+      combatSandbox.individualGlobalHitStore,
+      combatSandbox.trustedIndividualMedicalProfileStore,
+      combatSandbox.individualGenericHerbStore,
+      combatSandbox.individualTraumaticWoundStore,
+      combatSandbox.individualCombatActionStore,
+      combatSandbox.moraleMovementStates,
+      combatSandbox.individualCasualtyAssistanceStore,
+      combatSandbox.individualMedicalClaimStore,
+      tick,
+      combatSandbox.individualOrdinaryParticipationSnapshot,
+      {
+        isTreating: (entityId) => isIndividualTreating(
+          combatSandbox.individualTreatmentActionStore,
+          entityId,
+        ),
+      },
     );
     projectIndividualCombatEligibilityFromHits(
       combatSandbox.individualGlobalHitStore,
@@ -1239,6 +1304,28 @@ export function advanceCombatSandboxOneTick(
         tick,
         combatSandbox.casualtyDragMovementBuffers,
       );
+    advanceIndividualMedicalClaimApproachMovementOneTick(
+      world,
+      combatSandbox.formationStore,
+      combatSandbox.identityStore,
+      combatSandbox.individualCasualtyLifecycleStore,
+      combatSandbox.individualPlayerPresenceStore,
+      combatSandbox.individualGlobalHitStore,
+      combatSandbox.trustedIndividualMedicalProfileStore,
+      combatSandbox.individualGenericHerbStore,
+      combatSandbox.individualTraumaticWoundStore,
+      combatSandbox.individualCombatActionStore,
+      combatSandbox.moraleMovementStates,
+      combatSandbox.individualCasualtyAssistanceStore,
+      combatSandbox.individualMedicalClaimStore,
+      tick,
+      {
+        isTreating: (entityId) => isIndividualTreating(
+          combatSandbox.individualTreatmentActionStore,
+          entityId,
+        ),
+      },
+    );
     advanceIndividualTraumaWithdrawalMovementOneTick(
       world,
       combatSandbox.formationStore,
@@ -1259,7 +1346,7 @@ export function advanceCombatSandboxOneTick(
         ordinaryParticipation:
           combatSandbox.individualOrdinaryParticipationSnapshot,
         defenceHandAvailability:
-          combatSandbox.individualDragHandCommitmentStore,
+          combatSandbox.individualDefenceHandAvailabilitySource,
       },
     );
     applyIndividualZeroHitLifecycleTransitions(
@@ -1329,6 +1416,12 @@ export function advanceCombatSandboxOneTick(
         combatSandbox.individualOrdinaryParticipationSnapshot,
         combatSandbox.moraleMovementStates,
         combatSandbox.individualMedicalLocalQueryStore,
+        {
+          isTreating: (entityId) => isIndividualTreating(
+            combatSandbox.individualTreatmentActionStore,
+            entityId,
+          ),
+        },
       );
     }
     combatSandbox.individualMedicalClaimResult =
@@ -1349,8 +1442,33 @@ export function advanceCombatSandboxOneTick(
         combatSandbox.individualMedicalClaimStore,
         tick,
         combatSandbox.individualMedicalClaimBuffers,
+        {
+          isTreating: (entityId) => isIndividualTreating(
+            combatSandbox.individualTreatmentActionStore,
+            entityId,
+          ),
+        },
       );
-    // Future treatment completion belongs immediately before this boundary.
+    combatSandbox.individualTreatmentActionResult =
+      advanceIndividualTreatmentActionsOneTick(
+        world,
+        combatSandbox.identityStore,
+        combatSandbox.individualCasualtyLifecycleStore,
+        combatSandbox.individualPlayerPresenceStore,
+        combatSandbox.trustedIndividualMedicalProfileStore,
+        combatSandbox.individualTraumaticWoundStore,
+        combatSandbox.individualCombatActionStore,
+        combatSandbox.moraleMovementStates,
+        combatSandbox.individualDeathCountStore,
+        combatSandbox.individualGlobalHitStore,
+        combatSandbox.individualMedicalClaimStore,
+        combatSandbox.individualCasualtyAssistanceStore,
+        individualCombatExchange.actions.attackAttempts,
+        individualCombatExchange.gate.decisions,
+        tick,
+        combatSandbox.individualTreatmentActionStore,
+        combatSandbox.individualTreatmentActionBuffers,
+      );
     advanceIndividualDeathCountsOneTick(
       combatSandbox.individualDeathCountStore,
       combatSandbox.individualCasualtyLifecycleStore,
@@ -1405,6 +1523,12 @@ export function advanceCombatSandboxOneTick(
         combatSandbox.individualOrdinaryParticipationSnapshot,
         combatSandbox.moraleMovementStates,
         combatSandbox.individualMedicalLocalQueryStore,
+        {
+          isTreating: (entityId) => isIndividualTreating(
+            combatSandbox.individualTreatmentActionStore,
+            entityId,
+          ),
+        },
       );
       combatSandbox.casualtyAssistanceDecisionResult =
         decideIndividualCasualtyAssistance(
@@ -1423,6 +1547,10 @@ export function advanceCombatSandboxOneTick(
           tick,
           combatSandbox.casualtyAssistanceDecisionBuffers,
           {
+            isTreating: (entityId) => isIndividualTreating(
+              combatSandbox.individualTreatmentActionStore,
+              entityId,
+            ),
             hasClaimedPatient: (entityId) =>
               hasIndividualMedicalPatientClaim(
                 combatSandbox.individualMedicalClaimStore,

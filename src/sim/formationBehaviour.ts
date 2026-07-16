@@ -38,6 +38,7 @@ export type MovementMode =
   | "moveToFormationSlot"
   | "advanceWithUnit"
   | "withdrawForTreatment"
+  | "approachClaimedPatient"
   | "gatherForCasualty"
   | "dragCasualty"
   | "waitAtTreatmentPosition";

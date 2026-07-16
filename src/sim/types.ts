@@ -82,7 +82,13 @@ import type {
   IndividualMedicalClaimStore,
 } from "./individualMedicalClaims";
 import type {
+  IndividualTreatmentActionBuffers,
+  IndividualTreatmentActionResult,
+  IndividualTreatmentActionStore,
+} from "./individualTreatmentAction";
+import type {
   DefenceCoverageTier,
+  IndividualDefenceHandAvailabilitySource,
   IndividualMeleeDefenceResolution,
   IndividualMeleeDefenceStore,
   IndividualMeleeDefenceType,
@@ -535,11 +541,15 @@ export interface CombatSandboxSimulationState {
   readonly individualCasualtyAssistanceStore: IndividualCasualtyAssistanceStore;
   readonly casualtyDragGroupStore: CasualtyDragGroupStore;
   readonly individualDragHandCommitmentStore: IndividualDragHandCommitmentStore;
+  readonly individualDefenceHandAvailabilitySource: IndividualDefenceHandAvailabilitySource;
   readonly casualtyDragMovementBuffers: CasualtyDragMovementBuffers;
   casualtyDragMovementResult: CasualtyDragMovementResult;
   readonly individualMedicalClaimStore: IndividualMedicalClaimStore;
   readonly individualMedicalClaimBuffers: IndividualMedicalClaimBuffers;
   individualMedicalClaimResult: IndividualMedicalClaimResult;
+  readonly individualTreatmentActionStore: IndividualTreatmentActionStore;
+  readonly individualTreatmentActionBuffers: IndividualTreatmentActionBuffers;
+  individualTreatmentActionResult: IndividualTreatmentActionResult;
   readonly casualtyAssistanceDecisionBuffers: CasualtyAssistanceDecisionBuffers;
   casualtyAssistanceDecisionResult: CasualtyAssistanceDecisionResult;
   readonly individualLifecycleTransitions: IndividualZeroHitLifecycleTransitionRecord[];

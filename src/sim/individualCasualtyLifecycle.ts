@@ -134,6 +134,47 @@ export function transitionIndividualDyingToTerminal(
     cause === "deathCountExpired" ? 1 : 2;
 }
 
+export interface IndividualDyingRestorationRecord {
+  readonly entityId: number;
+  readonly tick: number;
+  readonly previousLifecycleState: "dying";
+  readonly lifecycleState: "active";
+  readonly previousPresenceState: "downedPresence";
+  readonly presenceState: "activePresence";
+}
+
+export function transitionIndividualDyingToActive(
+  lifecycleStore: IndividualCasualtyLifecycleStore,
+  presenceStore: IndividualPlayerPresenceStore,
+  entityId: number,
+  tick: number,
+): IndividualDyingRestorationRecord {
+  const lifecycle = asInternal(lifecycleStore);
+  const presence = asInternalPresence(presenceStore);
+  if (lifecycle.entityCount !== presence.entityCount) {
+    throw new RangeError("Restored lifecycle and presence stores must match entity count.");
+  }
+  assertEntityId(entityId, lifecycle.entityCount, "Casualty restoration");
+  assertNonNegativeSafeInteger(tick, "tick");
+  if (lifecycle.stateByEntity[entityId] !== 1) {
+    throw new Error("Only a dying character may be restored to active.");
+  }
+  if (presence.stateByEntity[entityId] !== 1) {
+    throw new Error("Dying restoration requires downed player presence.");
+  }
+  lifecycle.stateByEntity[entityId] = 0;
+  presence.stateByEntity[entityId] = 0;
+  presence.lastTransitionTickByEntity[entityId] = tick;
+  return {
+    entityId,
+    tick,
+    previousLifecycleState: "dying",
+    lifecycleState: "active",
+    previousPresenceState: "downedPresence",
+    presenceState: "activePresence",
+  };
+}
+
 export type PlayerPresenceState =
   | "activePresence"
   | "downedPresence"

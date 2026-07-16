@@ -257,6 +257,27 @@ export function resumeIndividualDeathCount(
   clearPauseSource(internal, entityId);
 }
 
+export function releaseIndividualDeathCountPause(
+  store: IndividualDeathCountStore,
+  entityId: number,
+  source: IndividualDeathCountPauseSource,
+): void {
+  const internal = asInternal(store);
+  assertEntityId(entityId, internal.entityCount);
+  assertEntityId(source.healerEntityId, internal.entityCount);
+  assertNonNegativeSafeInteger(source.treatmentStartTick, "treatmentStartTick");
+  if (source.kind !== "chirurgeonTreatment") {
+    throw new RangeError("Unknown death-count pause source kind.");
+  }
+  if (internal.pausedByEntity[entityId] === 0) {
+    throw new Error("Cannot release a death-count pause that is not active.");
+  }
+  if (!pauseSourceMatches(internal, entityId, source)) {
+    throw new Error("Only the matching pause source may release this death count.");
+  }
+  clearPauseSource(internal, entityId);
+}
+
 export function advanceIndividualDeathCountsOneTick(
   store: IndividualDeathCountStore,
   lifecycleStore: IndividualCasualtyLifecycleStore,

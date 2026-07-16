@@ -152,6 +152,21 @@ export interface IndividualDefenceHandAvailabilitySource {
   getFreeHands(entityId: number): number | undefined;
 }
 
+export function createPrioritizedIndividualDefenceHandAvailabilitySource(
+  primary: IndividualDefenceHandAvailabilitySource,
+  fallback: IndividualDefenceHandAvailabilitySource,
+): IndividualDefenceHandAvailabilitySource {
+  if (primary.entityCount !== fallback.entityCount) {
+    throw new RangeError("Defence hand availability sources must share entity count.");
+  }
+  return {
+    entityCount: primary.entityCount,
+    getFreeHands(entityId: number): number | undefined {
+      return primary.getFreeHands(entityId) ?? fallback.getFreeHands(entityId);
+    },
+  };
+}
+
 interface InternalIndividualMeleeDefenceStore
   extends IndividualMeleeDefenceStore {
   readonly guardReadinessByEntity: Int16Array;

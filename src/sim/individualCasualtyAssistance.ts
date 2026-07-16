@@ -569,6 +569,21 @@ export function releaseReachedSafetyDragGroup(
   return group;
 }
 
+/** Clears a completed patient's treatment-position reservation without changing another participant. */
+export function releaseIndividualTreatmentPositionReservation(
+  store: IndividualCasualtyAssistanceStore,
+  patientEntityId: number,
+): void {
+  const internal = asAssistanceStore(store);
+  assertEntityId(patientEntityId, internal.entityCount);
+  if (internal.stateByEntity[patientEntityId] !== STATE_AT_TREATMENT_POSITION) {
+    throw new Error("Only a patient at a treatment position may release that reservation.");
+  }
+  releaseParticipant(internal, patientEntityId);
+  internal.rescueRequestedTickByEntity[patientEntityId] = NO_ENTITY;
+  internal.blockedReformationTickByEntity[patientEntityId] = NO_ENTITY;
+}
+
 export function projectCasualtyDragOrdinaryParticipation(
   groupStore: CasualtyDragGroupStore,
   snapshot: IndividualOrdinaryParticipationSnapshot,

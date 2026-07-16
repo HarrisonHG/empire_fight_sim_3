@@ -1207,31 +1207,25 @@ No treatment progress or hit restoration yet.
 
 ---
 
-## 6G — Battlefield treatment actions, finite herbs, trauma, and limb restoration
+## 6G-1 — Chirurgeon dying treatment and canonical restoration
 
 ### Purpose
 
-Implement actual Chirurgeon and Physick work, including herb-backed trauma treatment and slower no-herb limb care.
+Establish the treatment-action, death-count pause, and restoration boundaries with the herb-free Chirurgeon treatment for a dying patient.
 
 ### Deliver
 
 - canonical global-hit restoration API;
-- `IndividualTreatmentActionStore`;
+- sparse/entity-indexed `IndividualTreatmentActionStore`;
 - Chirurgeon zero-hit treatment;
-- Physick missing-hit treatment;
-- Physick traumatic-wound treatment;
-- herb-backed 30-second arm/leg treatment hooks;
-- no-herb two-minute arm/leg treatment hooks;
 - immediate death-count pause on valid Chirurgeon start;
 - progress only on later valid ticks;
 - interruption/restart;
-- herb reservation/release/consumption;
 - one-hit restoration;
-- traumatic-wound clearing;
-- disabled-limb clearing through generic hooks;
 - dying-to-active transition;
-- patient reassessment;
-- treatment records and casualty-history counts.
+- downed-presence-to-active-presence transition;
+- action and claim cleanup;
+- bounded transition-only treatment records.
 
 ### Tests
 
@@ -1239,24 +1233,54 @@ Implement actual Chirurgeon and Physick work, including herb-backed trauma treat
 - death count pauses throughout valid treatment;
 - completion restores exactly one hit and ends dying;
 - Chirurgeon treatment uses no herb;
+- a zero-herb Physick may still perform Chirurgeon treatment;
+- no partial treatment progress survives interruption;
+- terminal patients cannot be restored;
+- gate-accepted landed hits interrupt;
+- parried/blocked attacks do not;
+- valid attack attempts by healer/patient interrupt;
+- completion before death-count advancement can save a patient on the boundary tick;
+- restored fighters become combat eligible according to the documented next eligibility snapshot;
+- unresolved traumatic wounds survive restoration and drive withdrawal on the next tick;
+- a genuinely later zero-hit episode initializes a new full death count.
+
+### Boundary
+
+No Physick missing-hit healing, herb reservation/consumption/release, trauma treatment, limb treatment, treatment reassessment, execution, comfort, or egress.
+
+---
+
+## 6G-2 — Physick treatment breadth, finite herbs, trauma, and limb restoration
+
+### Purpose
+
+Extend the accepted 6G-1 treatment boundary to the remaining Physick actions and finite-resource rules.
+
+### Deliver
+
+- Physick missing-hit treatment;
+- Physick traumatic-wound treatment;
+- herb-backed 30-second arm/leg treatment hooks;
+- no-herb two-minute arm/leg treatment hooks;
+- herb reservation/release/consumption;
+- traumatic-wound clearing;
+- disabled-limb clearing through generic hooks;
+- patient reassessment into another valid action;
+- remaining treatment records and casualty-history counts.
+
+### Tests
+
 - Physick hit, trauma, and fast limb treatment reserve then consume one herb;
 - trauma treatment cannot begin without an available herb;
-- a zero-herb Physick may still perform Chirurgeon treatment;
 - a zero-herb Physick may perform a two-minute limb treatment;
 - interruption releases a reserved herb;
-- no partial treatment progress survives interruption;
-- Physick cannot treat self;
-- terminal patients cannot be restored;
+- Physick cannot treat self for applicable actions;
 - traumatic-wound treatment completes after exactly 600 progress ticks and clears only trauma;
 - traumatic-wound treatment never revives a dying or terminal patient;
 - limb treatment with a herb completes after exactly 600 progress ticks;
 - limb treatment without a herb completes after exactly 2,400 progress ticks;
 - one selected limb issue is cleared per action;
-- gate-accepted landed hits interrupt;
-- parried/blocked attacks do not;
-- valid attack attempts by healer/patient interrupt;
-- completion before death-count advancement can save a patient on the boundary tick;
-- restored fighters become combat eligible according to the documented next eligibility snapshot.
+- reassessment begins only after completion or interruption boundaries.
 
 ### Boundary
 

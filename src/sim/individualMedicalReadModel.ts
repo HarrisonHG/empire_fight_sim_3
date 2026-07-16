@@ -332,6 +332,7 @@ export function prepareIndividualMedicalLocalQueries(
   ordinaryParticipation: IndividualOrdinaryParticipationSnapshot,
   moraleStates: UnitMoraleMovementStateSource,
   store: IndividualMedicalLocalQueryStore,
+  options: IndividualMedicalLocalQueryPreparationOptions = {},
 ): void {
   const internal = requireQueryStore(store, world.entityCount);
   validateMatchingEntityCounts(world.entityCount, identityStore, lifecycleStore,
@@ -357,13 +358,18 @@ export function prepareIndividualMedicalLocalQueries(
       medical.hasPhysick &&
       getIndividualAvailableGenericHerbs(herbs, entityId) > 0 &&
       getIndividualTraumaticWoundInspection(traumaStore, entityId).state === "none" &&
-      moraleStates.get(unitId) !== "routing"
+      moraleStates.get(unitId) !== "routing" &&
+      options.isTreating?.(entityId) !== true
         ? 1
         : 0;
   }
   buildSpatialGrid(internal.grid, world);
   internal.prepared = true;
   internal.preparationCount += 1;
+}
+
+export interface IndividualMedicalLocalQueryPreparationOptions {
+  readonly isTreating?: (entityId: number) => boolean;
 }
 
 export function queryIndividualAlliedPatientsWithinRadiusInto(

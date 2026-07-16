@@ -11,6 +11,10 @@ import {
   type IndividualMeleeDefenceType,
   type IndividualMeleeLandedReason,
 } from "./individualMeleeDefence";
+import {
+  getIndividualCharacterLifecycleState,
+  type IndividualCasualtyLifecycleStore,
+} from "./individualCasualtyLifecycle";
 
 export type IndividualHitApplicationReason =
   | "ordinaryLandedStrike"
@@ -55,6 +59,18 @@ export interface IndividualGlobalHitTickResult {
   readonly landedRecordCount: number;
   readonly totalAppliedHitLoss: number;
   readonly alreadyZeroApplicationCount: number;
+}
+
+export type IndividualGlobalHitRestorationReason = "chirurgeonTreatment";
+
+export interface IndividualGlobalHitRestorationRecord {
+  readonly entityId: number;
+  readonly reason: IndividualGlobalHitRestorationReason;
+  readonly requestedHitRestoration: number;
+  readonly appliedHitRestoration: number;
+  readonly maximumGlobalHits: number;
+  readonly currentHitsBefore: number;
+  readonly currentHitsAfter: number;
 }
 
 interface InternalIndividualGlobalHitStore extends IndividualGlobalHitStore {
@@ -140,6 +156,45 @@ export function hasIndividualReachedZeroHits(
   const internal = asInternal(store);
   assertEntityId(entityId, internal.entityCount);
   return internal.zeroReachedByEntity[entityId] !== 0;
+}
+
+export function restoreIndividualGlobalHits(
+  store: IndividualGlobalHitStore,
+  lifecycleStore: IndividualCasualtyLifecycleStore,
+  entityId: number,
+  requestedHitRestoration: number,
+  reason: IndividualGlobalHitRestorationReason,
+): IndividualGlobalHitRestorationRecord {
+  const internal = asInternal(store);
+  if (internal.entityCount !== lifecycleStore.entityCount) {
+    throw new RangeError("Global-hit restoration lifecycle must match entity count.");
+  }
+  assertEntityId(entityId, internal.entityCount);
+  assertPositiveSafeInteger(requestedHitRestoration, "requestedHitRestoration");
+  if (reason !== "chirurgeonTreatment") {
+    throw new RangeError("Unknown individual global-hit restoration reason.");
+  }
+  if (getIndividualCharacterLifecycleState(lifecycleStore, entityId) === "terminal") {
+    throw new Error("Terminal characters cannot have global hits restored.");
+  }
+  const maximumGlobalHits = internal.maximumGlobalHitsByEntity[entityId]!;
+  const currentHitsBefore = internal.currentGlobalHitsByEntity[entityId]!;
+  const currentHitsAfter = Math.min(
+    maximumGlobalHits,
+    currentHitsBefore + requestedHitRestoration,
+  );
+  const appliedHitRestoration = currentHitsAfter - currentHitsBefore;
+  internal.currentGlobalHitsByEntity[entityId] = currentHitsAfter;
+  if (currentHitsAfter > 0) internal.zeroReachedByEntity[entityId] = 0;
+  return {
+    entityId,
+    reason,
+    requestedHitRestoration,
+    appliedHitRestoration,
+    maximumGlobalHits,
+    currentHitsBefore,
+    currentHitsAfter,
+  };
 }
 
 export function applyIndividualLandedHits(

@@ -23,6 +23,7 @@ import {
   type IndividualWeaponCategory,
 } from "../../src/sim/individualCombatProfile";
 import {
+  createPrioritizedIndividualDefenceHandAvailabilitySource,
   createIndividualMeleeDefenceStore,
   getDefenceRecoveryTicksRemaining,
   getIndividualGuardState,
@@ -48,9 +49,13 @@ describe("individual melee defence resolution", () => {
       entity(100, 100, 2, "greatWeapon", -1),
     ]);
     const oneFreeHand = { entityCount: 2, getFreeHands: (entityId: number) => entityId === 1 ? 1 : undefined };
+    const claimedTwoHands = { entityCount: 2, getFreeHands: (entityId: number) => entityId === 1 ? 2 : undefined };
+    const dragBeforeClaim = createPrioritizedIndividualDefenceHandAvailabilitySource(
+      oneFreeHand, claimedTwoHands,
+    );
     const result = resolveIndividualMeleeDefences(twoHanded.world, twoHanded.identity,
       twoHanded.formation, twoHanded.actions, twoHanded.profiles, twoHanded.defence,
-      [attempt(0, 1)], twoHanded.records, twoHanded.events, undefined, 0, oneFreeHand);
+      [attempt(0, 1)], twoHanded.records, twoHanded.events, undefined, 0, dragBeforeClaim);
     expect(result.records[0]).toMatchObject({ availableDefenceType: "none", outcome: "landed" });
 
     const shield = createHarness([
@@ -61,6 +66,18 @@ describe("individual melee defence resolution", () => {
       shield.formation, shield.actions, shield.profiles, shield.defence,
       [attempt(0, 1)], shield.records, shield.events, undefined, 0, oneFreeHand);
     expect(strongest.records[0]!.availableDefenceType).toBe("shieldBlock");
+
+    const noFreeDragHands = createPrioritizedIndividualDefenceHandAvailabilitySource(
+      { entityCount: 2, getFreeHands: (entityId: number) => entityId === 1 ? 0 : undefined },
+      claimedTwoHands,
+    );
+    const dragging = resolveIndividualMeleeDefences(shield.world, shield.identity,
+      shield.formation, shield.actions, shield.profiles, shield.defence,
+      [attempt(0, 1)], [], [], undefined, 1, noFreeDragHands);
+    expect(dragging.records[0]).toMatchObject({
+      availableDefenceType: "none",
+      outcome: "landed",
+    });
   });
   it("parries a ready frontal attack and consumes guard", () => {
     const harness = createHarness([
