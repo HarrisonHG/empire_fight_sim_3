@@ -82,6 +82,13 @@ import {
   initializeIndividualDeathCountsFromZeroHitTransitions,
 } from "./individualDeathCount";
 import {
+  createIndividualMedicalClaimBuffers,
+  createIndividualMedicalClaimStore,
+  decideIndividualMedicalClaimsAndHandoffs,
+  hasIndividualMedicalClaimDecisionWork,
+  getIndividualMedicalClaimInspection,
+} from "./individualMedicalClaims";
+import {
   createIndividualGenericHerbStore,
   createTrustedIndividualMedicalProfileStore,
   getIndividualGenericHerbInspection,
@@ -619,6 +626,7 @@ function createCombatSandbox(
   const casualtyAssistanceDecisionBuffers =
     createCasualtyAssistanceDecisionBuffers();
   const casualtyDragMovementBuffers = createCasualtyDragMovementBuffers();
+  const individualMedicalClaimBuffers = createIndividualMedicalClaimBuffers();
   const combatSandbox: CombatSandboxSimulationState = {
     battleSeed: seed >>> 0,
     identityStore,
@@ -664,6 +672,16 @@ function createCombatSandbox(
       draggingGroupCount: 0,
       reachedSafetyGroupCount: 0,
       movedParticipantCount: 0,
+    },
+    individualMedicalClaimStore: createIndividualMedicalClaimStore(world.entityCount),
+    individualMedicalClaimBuffers,
+    individualMedicalClaimResult: {
+      claimRecords: individualMedicalClaimBuffers.claimRecords,
+      handoffRecords: individualMedicalClaimBuffers.handoffRecords,
+      safeReleaseRecords: individualMedicalClaimBuffers.safeReleaseRecords,
+      staleClaimRecords: individualMedicalClaimBuffers.staleClaimRecords,
+      activeClaimCount: 0,
+      localCandidateCount: 0,
     },
     casualtyAssistanceDecisionBuffers,
     casualtyAssistanceDecisionResult: {
@@ -1282,6 +1300,55 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.individualProfileStore,
       combatSandbox.individualLifecycleTransitions,
     );
+    cancelCasualtyDragGroupsFromPostCombatEvidence(
+      combatSandbox.identityStore,
+      combatSandbox.individualCasualtyLifecycleStore,
+      combatSandbox.individualTraumaticWoundStore,
+      combatSandbox.moraleMovementStates,
+      combatSandbox.individualCasualtyAssistanceStore,
+      combatSandbox.casualtyDragGroupStore,
+      combatSandbox.individualDragHandCommitmentStore,
+      individualCombatExchange.gate.decisions,
+      tick,
+      combatSandbox.casualtyDragMovementBuffers.cancellationRecords,
+    );
+    if (hasIndividualMedicalClaimDecisionWork(
+      combatSandbox.individualMedicalUrgencyStore,
+      combatSandbox.individualMedicalClaimStore,
+      combatSandbox.casualtyDragGroupStore,
+    )) {
+      prepareIndividualMedicalLocalQueries(
+        world,
+        combatSandbox.identityStore,
+        combatSandbox.individualCasualtyLifecycleStore,
+        combatSandbox.trustedIndividualMedicalProfileStore,
+        combatSandbox.individualGenericHerbStore,
+        combatSandbox.individualTraumaticWoundStore,
+        combatSandbox.individualMedicalUrgencyStore,
+        combatSandbox.individualOrdinaryParticipationSnapshot,
+        combatSandbox.moraleMovementStates,
+        combatSandbox.individualMedicalLocalQueryStore,
+      );
+    }
+    combatSandbox.individualMedicalClaimResult =
+      decideIndividualMedicalClaimsAndHandoffs(
+        world,
+        combatSandbox.identityStore,
+        combatSandbox.individualCasualtyLifecycleStore,
+        combatSandbox.trustedIndividualMedicalProfileStore,
+        combatSandbox.individualGenericHerbStore,
+        combatSandbox.individualTraumaticWoundStore,
+        combatSandbox.individualMedicalUrgencyStore,
+        combatSandbox.individualCombatActionStore,
+        combatSandbox.moraleMovementStates,
+        combatSandbox.individualMedicalLocalQueryStore,
+        combatSandbox.individualCasualtyAssistanceStore,
+        combatSandbox.casualtyDragGroupStore,
+        combatSandbox.individualDragHandCommitmentStore,
+        combatSandbox.individualMedicalClaimStore,
+        tick,
+        combatSandbox.individualMedicalClaimBuffers,
+      );
     // Future treatment completion belongs immediately before this boundary.
     advanceIndividualDeathCountsOneTick(
       combatSandbox.individualDeathCountStore,
@@ -1298,7 +1365,7 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.individualCasualtyAssistanceStore,
       combatSandbox.casualtyDragGroupStore,
       combatSandbox.individualDragHandCommitmentStore,
-      individualCombatExchange.gate.decisions,
+      [],
       tick,
       combatSandbox.casualtyDragMovementBuffers.cancellationRecords,
     );
@@ -1645,6 +1712,11 @@ function createEmptyCombatDebugSnapshot(): LiveCombatDebugSnapshot {
     reachedSafetyDragGroupCount: 0,
     dragCancellationCount: 0,
     dragReachedSafetyCount: 0,
+    activeMedicalClaimCount: 0,
+    medicalClaimStartedCount: 0,
+    medicalHandoffCount: 0,
+    medicalSafeReleaseCount: 0,
+    medicalStaleClaimCount: 0,
     tickStartEligibleMemberCount: 0,
     endOfTickEligibleMemberCount: 0,
     endOfTickZeroHitMemberCount: 0,
@@ -1745,6 +1817,11 @@ function createCombatDebugSnapshot(
     reachedSafetyDragGroupCount: combatSandbox.casualtyDragMovementResult.reachedSafetyGroupCount,
     dragCancellationCount: combatSandbox.casualtyDragMovementResult.cancellationRecords.length,
     dragReachedSafetyCount: combatSandbox.casualtyDragMovementResult.reachedSafetyRecords.length,
+    activeMedicalClaimCount: combatSandbox.individualMedicalClaimResult.activeClaimCount,
+    medicalClaimStartedCount: combatSandbox.individualMedicalClaimResult.claimRecords.length,
+    medicalHandoffCount: combatSandbox.individualMedicalClaimResult.handoffRecords.length,
+    medicalSafeReleaseCount: combatSandbox.individualMedicalClaimResult.safeReleaseRecords.length,
+    medicalStaleClaimCount: combatSandbox.individualMedicalClaimResult.staleClaimRecords.length,
     tickStartEligibleMemberCount:
       combatSandbox.individualTickStartCombatEligibleMemberCount,
     endOfTickEligibleMemberCount:
@@ -1842,6 +1919,10 @@ function collectInspectedIndividualSnapshots(
     );
     const casualtyDragFreeHands =
       combatSandbox.individualDragHandCommitmentStore.getFreeHands(entityId);
+    const medicalClaim = getIndividualMedicalClaimInspection(
+      combatSandbox.individualMedicalClaimStore,
+      entityId,
+    );
 
     out.push({
       entityId,
@@ -1898,6 +1979,8 @@ function collectInspectedIndividualSnapshots(
       ...(casualtyDragFreeHands === undefined
         ? {}
         : { casualtyDragFreeHands }),
+      claimedMedicalPatientEntityId: medicalClaim.patientEntityId,
+      claimedMedicalPhysickEntityId: medicalClaim.physickEntityId,
       tickStartCombatEligible: isIndividualCombatEligible(
         combatSandbox.individualCombatEligibilitySnapshot,
         entityId,
@@ -2558,6 +2641,11 @@ function createLegacyCombatFoundationDebugSnapshot(
     reachedSafetyDragGroupCount: 0,
     dragCancellationCount: 0,
     dragReachedSafetyCount: 0,
+    activeMedicalClaimCount: 0,
+    medicalClaimStartedCount: 0,
+    medicalHandoffCount: 0,
+    medicalSafeReleaseCount: 0,
+    medicalStaleClaimCount: 0,
     tickStartEligibleMemberCount: legacySandbox.identityStore.entityCount,
     endOfTickEligibleMemberCount: legacySandbox.identityStore.entityCount,
     endOfTickZeroHitMemberCount: 0,

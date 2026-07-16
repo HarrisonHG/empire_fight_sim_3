@@ -38,6 +38,10 @@ import {
   decideIndividualCasualtyAssistance,
   getActiveCasualtyDragGroups,
 } from "../../src/sim/individualCasualtyAssistance";
+import {
+  createIndividualMedicalClaimBuffers,
+  decideIndividualMedicalClaimsAndHandoffs,
+} from "../../src/sim/individualMedicalClaims";
 
 describe("individual casualty lifecycle structural performance", () => {
   it.each([100, 500, 1_000, 2_000])(
@@ -469,6 +473,18 @@ describe("individual casualty lifecycle structural performance", () => {
         2, createCasualtyDragMovementBuffers(),
       );
       expect(movement.movedParticipantCount).toBeLessThanOrEqual(casualtyCount * 2);
+      const claimsStartedAt = performance.now();
+      const claims = decideIndividualMedicalClaimsAndHandoffs(
+        simulation.world, combat.identityStore, combat.individualCasualtyLifecycleStore,
+        combat.trustedIndividualMedicalProfileStore, combat.individualGenericHerbStore,
+        combat.individualTraumaticWoundStore, combat.individualMedicalUrgencyStore,
+        combat.individualCombatActionStore, combat.moraleMovementStates,
+        combat.individualMedicalLocalQueryStore, combat.individualCasualtyAssistanceStore,
+        combat.casualtyDragGroupStore, combat.individualDragHandCommitmentStore,
+        combat.individualMedicalClaimStore, 2, createIndividualMedicalClaimBuffers(),
+      );
+      const claimElapsedMilliseconds = performance.now() - claimsStartedAt;
+      expect(claims.localCandidateCount).toBeLessThan(entityCount * casualtyCount);
       process.stdout.write(
         `\nCasualty assistance performance report\n${JSON.stringify({
           entityCount,
@@ -476,6 +492,7 @@ describe("individual casualty lifecycle structural performance", () => {
           activeDragGroups: casualtyCount,
           localCandidateCount: result.localCandidateCount,
           elapsedMilliseconds,
+          claimElapsedMilliseconds,
           timingPolicy: "Structural assertions only; sparse groups and bounded prepared-grid queries.",
         }, null, 2)}\n`,
       );

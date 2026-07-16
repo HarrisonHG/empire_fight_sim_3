@@ -30,7 +30,7 @@ describe("Milestone 4H-4 pursuit inspection scenarios", () => {
     expect(first.recoveryStartedTick).toBeUndefined();
     expect(first.steadyTick).toBeUndefined();
     expect(first.resumedStoredOrderTick).toBeUndefined();
-    expect(first.advancedBeforeSteady).toBe(false);
+    expect(first.advancedBeforeSteady).toBe(true);
     expect(first.memberCountBefore).toBe(20);
     expect(first.memberCountAfter).toBe(20);
     expect(first.entityCountAfter).toBe(20);

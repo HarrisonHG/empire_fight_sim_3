@@ -77,6 +77,11 @@ import type {
 } from "./individualTraumaticWound";
 import type { IndividualLandedHitGateStore } from "./individualLandedHitGate";
 import type {
+  IndividualMedicalClaimBuffers,
+  IndividualMedicalClaimResult,
+  IndividualMedicalClaimStore,
+} from "./individualMedicalClaims";
+import type {
   DefenceCoverageTier,
   IndividualMeleeDefenceResolution,
   IndividualMeleeDefenceStore,
@@ -371,6 +376,8 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly casualtyAssistanceDestinationX?: number;
   readonly casualtyAssistanceDestinationY?: number;
   readonly casualtyDragFreeHands?: number;
+  readonly claimedMedicalPatientEntityId?: number;
+  readonly claimedMedicalPhysickEntityId?: number;
   readonly tickStartCombatEligible: boolean;
   readonly selectedTargetEntityId: number | null;
   readonly selectedTargetDistanceSquared: number | null;
@@ -475,6 +482,11 @@ export interface LiveCombatDebugSnapshot {
   readonly reachedSafetyDragGroupCount: number;
   readonly dragCancellationCount: number;
   readonly dragReachedSafetyCount: number;
+  readonly activeMedicalClaimCount: number;
+  readonly medicalClaimStartedCount: number;
+  readonly medicalHandoffCount: number;
+  readonly medicalSafeReleaseCount: number;
+  readonly medicalStaleClaimCount: number;
   readonly tickStartEligibleMemberCount: number;
   readonly endOfTickEligibleMemberCount: number;
   readonly endOfTickZeroHitMemberCount: number;
@@ -525,6 +537,9 @@ export interface CombatSandboxSimulationState {
   readonly individualDragHandCommitmentStore: IndividualDragHandCommitmentStore;
   readonly casualtyDragMovementBuffers: CasualtyDragMovementBuffers;
   casualtyDragMovementResult: CasualtyDragMovementResult;
+  readonly individualMedicalClaimStore: IndividualMedicalClaimStore;
+  readonly individualMedicalClaimBuffers: IndividualMedicalClaimBuffers;
+  individualMedicalClaimResult: IndividualMedicalClaimResult;
   readonly casualtyAssistanceDecisionBuffers: CasualtyAssistanceDecisionBuffers;
   casualtyAssistanceDecisionResult: CasualtyAssistanceDecisionResult;
   readonly individualLifecycleTransitions: IndividualZeroHitLifecycleTransitionRecord[];

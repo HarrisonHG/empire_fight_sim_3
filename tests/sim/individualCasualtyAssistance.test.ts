@@ -30,6 +30,12 @@ import {
   resolveIndividualTraumaticWoundOpportunities,
 } from "../../src/sim/individualTraumaticWound";
 import { advanceSimulationOneTick, createSimulation } from "../../src/sim/simulation";
+import {
+  createIndividualMedicalClaimBuffers,
+  createIndividualMedicalClaimStore,
+  decideIndividualMedicalClaimsAndHandoffs,
+  getIndividualMedicalClaimInspection,
+} from "../../src/sim/individualMedicalClaims";
 import type { IndividualMeleeDefenceRecord } from "../../src/sim/individualMeleeDefence";
 import type {
   CombatSandboxSimulationState,
@@ -39,6 +45,82 @@ import type {
 } from "../../src/sim/types";
 
 describe("individual casualty assistance and sparse drag groups", () => {
+  it("hands a reached casualty directly to its zero-herb solo Physick carrier and releases hands", () => {
+    const simulation = createSimulation(scenario([
+      unit(1, 1, 100), { ...unit(2, 1, 104), medicalProfile: physick(0) }, unit(3, 2, 220),
+    ]));
+    const combat = requireCombat(simulation);
+    down(simulation, 0, 2); decide(simulation, 2);
+    reachFirstGroup(simulation, 3);
+    prepare(simulation);
+    const claims = createIndividualMedicalClaimStore(simulation.world.entityCount);
+    const result = decideClaims(simulation, claims, 5);
+    expect(result.claimRecords).toEqual([{ physickEntityId: 1, patientEntityId: 0, need: "dying", tick: 5, origin: "soloCarrier" }]);
+    expect(result.handoffRecords[0]).toMatchObject({ patientEntityId: 0, physickEntityId: 1, releasedHelperEntityIds: [1] });
+    expect(combat.individualDragHandCommitmentStore.getFreeHands(1)).toBeUndefined();
+    expect(getActiveCasualtyDragGroups(combat.casualtyDragGroupStore)).toHaveLength(0);
+    expect(getIndividualMedicalClaimInspection(claims, 0)).toMatchObject({ physickEntityId: 1, need: "dying" });
+  });
+
+  it("releases ordinary carriers after deterministic handoff and retains current ownership", () => {
+    const simulation = createSimulation(scenario([
+      multiUnit(1, 1, 100, 3), { ...unit(2, 1, 112), medicalProfile: physick(0) }, unit(3, 2, 220),
+    ]));
+    const combat = requireCombat(simulation);
+    simulation.world.positionsX[1] = 104; simulation.world.positionsX[2] = 96;
+    down(simulation, 0, 2); decide(simulation, 2); reachFirstGroup(simulation, 3); prepare(simulation);
+    const claims = createIndividualMedicalClaimStore(simulation.world.entityCount);
+    const first = decideClaims(simulation, claims, 5);
+    expect(first.claimRecords[0]).toMatchObject({ patientEntityId: 0, physickEntityId: 3, origin: "handoff" });
+    expect([combat.individualDragHandCommitmentStore.getFreeHands(1), combat.individualDragHandCommitmentStore.getFreeHands(2)])
+      .toEqual([undefined, undefined]);
+    expect(getIndividualCasualtyAssistanceInspection(combat.individualCasualtyAssistanceStore, 1).state).toBe("none");
+    const second = decideClaims(simulation, claims, 6);
+    expect(second.claimRecords).toHaveLength(0);
+    expect(getIndividualMedicalClaimInspection(claims, 3).patientEntityId).toBe(0);
+  });
+
+  it("releases safely without a Physick, prevents redrag, then permits a later in-place claim", () => {
+    const simulation = createSimulation(scenario([
+      multiUnit(1, 1, 100, 3), { ...unit(2, 1, 250), medicalProfile: physick(0) }, unit(3, 2, 220),
+    ]));
+    down(simulation, 0, 2); decide(simulation, 2); reachFirstGroup(simulation, 3); prepare(simulation);
+    const claims = createIndividualMedicalClaimStore(simulation.world.entityCount);
+    expect(decideClaims(simulation, claims, 5, { isTreating: (entityId) => entityId === 3 }).safeReleaseRecords).toHaveLength(1);
+    const combat = requireCombat(simulation);
+    expect(getIndividualCasualtyAssistanceInspection(combat.individualCasualtyAssistanceStore, 0).state).toBe("atTreatmentPosition");
+    expect(decide(simulation, 6).groupStartedRecords).toHaveLength(0);
+    simulation.world.positionsX[3] = 110;
+    prepare(simulation);
+    expect(decideClaims(simulation, claims, 7).claimRecords[0]).toMatchObject({ patientEntityId: 0, physickEntityId: 3, origin: "triage" });
+  });
+
+  it("retains a current patient across a more urgent arrival and clears stale ownership canonically", () => {
+    const simulation = createSimulation(scenario([
+      unit(1, 1, 100), unit(2, 1, 108), { ...unit(3, 1, 104), medicalProfile: physick(1) }, unit(4, 2, 220),
+    ]));
+    const combat = requireCombat(simulation);
+    applyLosses(combat, 0, 1); prepare(simulation);
+    const claims = createIndividualMedicalClaimStore(simulation.world.entityCount);
+    expect(decideClaims(simulation, claims, 2).claimRecords[0]).toMatchObject({ patientEntityId: 0, physickEntityId: 2, need: "livingMissingHits" });
+    down(simulation, 1, 3); prepare(simulation);
+    expect(decideClaims(simulation, claims, 3).claimRecords).toHaveLength(0);
+    expect(getIndividualMedicalClaimInspection(claims, 2).patientEntityId).toBe(0);
+    combat.moraleMovementStates.set(3, "routing");
+    const stale = decideClaims(simulation, claims, 4);
+    expect(stale.staleClaimRecords).toEqual([{ physickEntityId: 2, patientEntityId: 0, tick: 4 }]);
+    expect(getIndividualMedicalClaimInspection(claims, 2).patientEntityId).toBe(-1);
+  });
+
+  it("requires an available herb for living missing-hit ownership", () => {
+    const simulation = createSimulation(scenario([
+      unit(1, 1, 100), { ...unit(2, 1, 104), medicalProfile: physick(0) }, unit(3, 2, 220),
+    ]));
+    const combat = requireCombat(simulation);
+    applyLosses(combat, 0, 1); prepare(simulation);
+    const claims = createIndividualMedicalClaimStore(simulation.world.entityCount);
+    expect(decideClaims(simulation, claims, 2).claimRecords).toHaveLength(0);
+  });
   it("gathers before pickup and gives neither creation nor phase-transition ticks free drag movement", () => {
     const simulation = createSimulation(scenario([
       unit(1, 1, 100), { ...unit(2, 1, 120), medicalProfile: physick() }, unit(3, 2, 230),
@@ -556,6 +638,38 @@ function decide(
 ): ReturnType<typeof decideIndividualCasualtyAssistance> {
   prepare(simulation);
   return decidePrepared(simulation, tick);
+}
+
+function reachFirstGroup(simulation: SimulationState, firstTick: number): void {
+  const combat = requireCombat(simulation);
+  const buffers = createCasualtyDragMovementBuffers();
+  for (let tick = firstTick; tick < firstTick + 20; tick += 1) {
+    advanceCasualtyDragGroupsBeforeCombat(simulation.world, combat.identityStore,
+      combat.formationStore, combat.individualCasualtyLifecycleStore,
+      combat.individualTraumaticWoundStore, combat.moraleMovementStates,
+      combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore,
+      combat.individualDragHandCommitmentStore, tick, buffers);
+    if (getActiveCasualtyDragGroups(combat.casualtyDragGroupStore)[0]?.phase === "reachedSafety") return;
+  }
+  throw new Error("Expected casualty group to reach safety.");
+}
+
+function decideClaims(
+  simulation: SimulationState,
+  claims: ReturnType<typeof createIndividualMedicalClaimStore>,
+  tick: number,
+  options: Parameters<typeof decideIndividualMedicalClaimsAndHandoffs>[16] = {},
+) {
+  const combat = requireCombat(simulation);
+  return decideIndividualMedicalClaimsAndHandoffs(
+    simulation.world, combat.identityStore, combat.individualCasualtyLifecycleStore,
+    combat.trustedIndividualMedicalProfileStore, combat.individualGenericHerbStore,
+    combat.individualTraumaticWoundStore, combat.individualMedicalUrgencyStore,
+    combat.individualCombatActionStore, combat.moraleMovementStates,
+    combat.individualMedicalLocalQueryStore, combat.individualCasualtyAssistanceStore,
+    combat.casualtyDragGroupStore, combat.individualDragHandCommitmentStore,
+    claims, tick, createIndividualMedicalClaimBuffers(), options,
+  );
 }
 
 function decidePrepared(

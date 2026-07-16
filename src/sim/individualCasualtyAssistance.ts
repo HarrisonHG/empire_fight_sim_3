@@ -276,6 +276,15 @@ export function isIndividualDragEligiblePatient(
   return getIndividualCharacterLifecycleState(lifecycleStore, entityId) === "dying";
 }
 
+export function isIndividualAtTreatmentPosition(
+  store: IndividualCasualtyAssistanceStore,
+  entityId: number,
+): boolean {
+  const internal = asAssistanceStore(store);
+  assertEntityId(entityId, internal.entityCount);
+  return internal.stateByEntity[entityId] === STATE_AT_TREATMENT_POSITION;
+}
+
 export function hasUnreservedDragEligiblePatient(
   lifecycleStore: IndividualCasualtyLifecycleStore,
   assistanceStore: IndividualCasualtyAssistanceStore,
@@ -289,6 +298,7 @@ export function hasUnreservedDragEligiblePatient(
   for (let entityId = 0; entityId < lifecycleStore.entityCount; entityId += 1) {
     if (
       assistance.dragGroupIdByEntity[entityId] === NO_ENTITY &&
+      assistance.stateByEntity[entityId] !== STATE_AT_TREATMENT_POSITION &&
       isIndividualDragEligiblePatient(lifecycleStore, entityId)
     ) return true;
   }
@@ -324,6 +334,7 @@ export function queryDragEligibleAlliedPatientsWithinRadiusInto(
       getPreparedMedicalFactionId(queryStore, entityId) === seekerFaction &&
       isIndividualDragEligiblePatient(lifecycleStore, entityId) &&
       assistance.dragGroupIdByEntity[entityId] === NO_ENTITY
+      && assistance.stateByEntity[entityId] !== STATE_AT_TREATMENT_POSITION
     ) {
       out[writeIndex] = entityId;
       writeIndex += 1;
@@ -368,6 +379,7 @@ export function decideIndividualCasualtyAssistance(
     if (
       isIndividualDragEligiblePatient(lifecycleStore, entityId) &&
       assistance.dragGroupIdByEntity[entityId] === NO_ENTITY &&
+      assistance.stateByEntity[entityId] !== STATE_AT_TREATMENT_POSITION &&
       assistance.blockedReformationTickByEntity[entityId] !== tick
     ) {
       patients.push({
@@ -526,6 +538,33 @@ export function decideIndividualCasualtyAssistance(
     dragEligiblePatientCount: patients.length,
     localCandidateCount,
   };
+}
+
+export function releaseReachedSafetyDragGroup(
+  assistanceStore: IndividualCasualtyAssistanceStore,
+  groupStore: CasualtyDragGroupStore,
+  handStore: IndividualDragHandCommitmentStore,
+  groupId: number,
+): CasualtyDragGroupRecord {
+  const assistance = asAssistanceStore(assistanceStore);
+  const groups = asGroupStore(groupStore);
+  const hands = asHandStore(handStore);
+  validateEntityCounts(assistance.entityCount, groups, hands);
+  const index = groups.activeGroups.findIndex((group) => group.groupId === groupId);
+  if (index < 0) throw new RangeError("Reached-safety drag group does not exist.");
+  const group = groups.activeGroups[index]!;
+  if (group.phase !== "reachedSafety") throw new RangeError("Only reached-safety drag groups may be released.");
+  for (const helperId of group.helperEntityIds) {
+    releaseParticipant(assistance, helperId);
+    hands.occupiedByEntity[helperId] = 0;
+    hands.committedHandsByEntity[helperId] = 0;
+  }
+  releaseParticipant(assistance, group.patientEntityId);
+  assistance.stateByEntity[group.patientEntityId] = STATE_AT_TREATMENT_POSITION;
+  assistance.destinationXByEntity[group.patientEntityId] = group.destinationX;
+  assistance.destinationYByEntity[group.patientEntityId] = group.destinationY;
+  groups.activeGroups.splice(index, 1);
+  return group;
 }
 
 export function projectCasualtyDragOrdinaryParticipation(
