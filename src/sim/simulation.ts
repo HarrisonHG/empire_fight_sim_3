@@ -74,6 +74,16 @@ import {
   type TrustedIndividualMedicalProfileConfig,
 } from "./individualMedicalProfile";
 import {
+  advanceIndividualTraumaWithdrawalMovementOneTick,
+  createIndividualMedicalLocalQueryStore,
+  createIndividualMedicalUrgencyStore,
+  getIndividualMedicalUrgencyInspection,
+  prepareIndividualMedicalLocalQueries,
+  projectIndividualMedicalUrgency,
+  updateIndividualMedicalDiscoveryAndWithdrawalIntents,
+} from "./individualMedicalReadModel";
+import { createIndividualOrdinaryParticipationSnapshot } from "./individualOrdinaryParticipation";
+import {
   createIndividualTraumaticWoundStore,
   getIndividualTraumaticWoundInspection,
   resolveIndividualTraumaticWoundOpportunities,
@@ -86,7 +96,10 @@ import {
   getIndividualCombatFacing,
   getLockedAttackTargetEntityId,
 } from "./individualCombatAction";
-import { isIndividualCombatEligible } from "./individualCombatEligibility";
+import {
+  isIndividualCombatEligible,
+  projectIndividualCombatEligibilityFromHits,
+} from "./individualCombatEligibility";
 import { getIndividualCombatProfile } from "./individualCombatProfile";
 import { getIndividualCombatUnitSummaries } from "./individualCombatAggregation";
 import {
@@ -579,6 +592,15 @@ function createCombatSandbox(
     persistentMoraleStore,
     moraleMovementStates,
   );
+  const individualGenericHerbStore = createIndividualGenericHerbStore(
+    trustedIndividualMedicalProfileStore,
+  );
+  const individualTraumaticWoundStore =
+    createIndividualTraumaticWoundStore(world.entityCount);
+  const individualMedicalUrgencyStore =
+    createIndividualMedicalUrgencyStore(world.entityCount);
+  const individualOrdinaryParticipationSnapshot =
+    createIndividualOrdinaryParticipationSnapshot(world.entityCount);
   const combatSandbox: CombatSandboxSimulationState = {
     battleSeed: seed >>> 0,
     identityStore,
@@ -599,11 +621,14 @@ function createCombatSandbox(
     individualPlayerPresenceStore,
     individualDeathCountStore: createIndividualDeathCountStore(world.entityCount),
     trustedIndividualMedicalProfileStore,
-    individualGenericHerbStore: createIndividualGenericHerbStore(
-      trustedIndividualMedicalProfileStore,
+    individualGenericHerbStore,
+    individualTraumaticWoundStore,
+    individualMedicalUrgencyStore,
+    individualMedicalLocalQueryStore: createIndividualMedicalLocalQueryStore(
+      world.entityCount,
+      world.bounds,
     ),
-    individualTraumaticWoundStore:
-      createIndividualTraumaticWoundStore(world.entityCount),
+    individualOrdinaryParticipationSnapshot,
     individualCasualtyLocalQueryStore: createIndividualCasualtyLocalQueryStore(
       world.entityCount,
       world.bounds,
@@ -1089,16 +1114,59 @@ export function advanceCombatSandboxOneTick(
   const runStage = <T>(stage: CombatSandboxTickStage, run: () => T): T =>
     instrumentation === undefined ? run() : instrumentation.runStage(stage, run);
 
-  const formationResult = runStage("formation", () =>
-    advanceFormationOneTick(
+  const formationResult = runStage("formation", () => {
+    projectIndividualMedicalUrgency(
+      combatSandbox.identityStore,
+      combatSandbox.formationStore,
+      combatSandbox.individualGlobalHitStore,
+      combatSandbox.individualCasualtyLifecycleStore,
+      combatSandbox.individualCasualtyProcedureProfileStore,
+      combatSandbox.individualTraumaticWoundStore,
+      combatSandbox.individualOrdinaryParticipationSnapshot,
+      combatSandbox.individualMedicalUrgencyStore,
+    );
+    prepareIndividualMedicalLocalQueries(
+      world,
+      combatSandbox.identityStore,
+      combatSandbox.individualCasualtyLifecycleStore,
+      combatSandbox.trustedIndividualMedicalProfileStore,
+      combatSandbox.individualGenericHerbStore,
+      combatSandbox.individualTraumaticWoundStore,
+      combatSandbox.individualMedicalUrgencyStore,
+      combatSandbox.moraleMovementStates,
+      combatSandbox.individualMedicalLocalQueryStore,
+    );
+    updateIndividualMedicalDiscoveryAndWithdrawalIntents(
+      world,
+      combatSandbox.identityStore,
+      combatSandbox.formationStore,
+      combatSandbox.trustedIndividualMedicalProfileStore,
+      combatSandbox.individualGenericHerbStore,
+      combatSandbox.individualMedicalUrgencyStore,
+      combatSandbox.individualMedicalLocalQueryStore,
+    );
+    projectIndividualCombatEligibilityFromHits(
+      combatSandbox.individualGlobalHitStore,
+      combatSandbox.individualCombatEligibilitySnapshot,
+      combatSandbox.individualCasualtyLifecycleStore,
+      combatSandbox.individualOrdinaryParticipationSnapshot,
+    );
+    const result = advanceFormationOneTick(
       world,
       combatSandbox.identityStore,
       combatSandbox.formationStore,
       combatSandbox.moraleMovementStates,
       instrumentation?.formationDiagnostics,
       combatSandbox.individualCasualtyLifecycleStore,
-    ),
-  );
+      combatSandbox.individualOrdinaryParticipationSnapshot,
+    );
+    advanceIndividualTraumaWithdrawalMovementOneTick(
+      world,
+      combatSandbox.formationStore,
+      combatSandbox.individualMedicalUrgencyStore,
+    );
+    return result;
+  });
   const individualCombatResult = runStage("individualPipeline", () => {
     const individualCombatExchange = advanceIndividualCombatExchangeOneTick(
       world,
@@ -1107,7 +1175,11 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.individualCombatPipelineStores,
       combatSandbox.individualCombatPipelineBuffers,
       tick,
-      { lifecycleStore: combatSandbox.individualCasualtyLifecycleStore },
+      {
+        lifecycleStore: combatSandbox.individualCasualtyLifecycleStore,
+        ordinaryParticipation:
+          combatSandbox.individualOrdinaryParticipationSnapshot,
+      },
     );
     applyIndividualZeroHitLifecycleTransitions(
       combatSandbox.individualCasualtyLifecycleStore,
@@ -1165,7 +1237,11 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.identityStore,
       combatSandbox.individualCombatPipelineStores,
       individualCombatExchange,
-      { lifecycleStore: combatSandbox.individualCasualtyLifecycleStore },
+      {
+        lifecycleStore: combatSandbox.individualCasualtyLifecycleStore,
+        ordinaryParticipation:
+          combatSandbox.individualOrdinaryParticipationSnapshot,
+      },
     );
   });
   runStage("individualPressureAndCohesion", () =>
@@ -1199,6 +1275,7 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.routingContagionStore,
       combatSandbox.routingContagionSummaries,
       combatSandbox.individualCasualtyLifecycleStore,
+      combatSandbox.individualOrdinaryParticipationSnapshot,
     ),
   );
   runStage("recoveryThreat", () =>
@@ -1209,6 +1286,7 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.recoveryThreatStore,
       combatSandbox.recoveryThreatSummaries,
       combatSandbox.individualCasualtyLifecycleStore,
+      combatSandbox.individualOrdinaryParticipationSnapshot,
     ),
   );
   runStage("moraleAssessmentAndPersistence", () => {
@@ -1218,6 +1296,7 @@ export function advanceCombatSandboxOneTick(
       individualCombatResult.consequenceSummaries,
       combatSandbox.moraleAssessments,
       combatSandbox.individualCasualtyLifecycleStore,
+      combatSandbox.individualCombatEligibilitySnapshot,
     );
     advancePersistentMoraleOneTick(
       combatSandbox.identityStore,
@@ -1230,6 +1309,8 @@ export function advanceCombatSandboxOneTick(
         routingContagionSummaries: combatSandbox.routingContagionSummaries,
         recoveryThreatSummaries: combatSandbox.recoveryThreatSummaries,
         lifecycleStore: combatSandbox.individualCasualtyLifecycleStore,
+        ordinaryParticipation:
+          combatSandbox.individualOrdinaryParticipationSnapshot,
       },
     );
     syncMoraleMovementStates(combatSandbox);
@@ -1601,6 +1682,10 @@ function collectInspectedIndividualSnapshots(
       combatSandbox.individualTraumaticWoundStore,
       entityId,
     );
+    const medicalUrgency = getIndividualMedicalUrgencyInspection(
+      combatSandbox.individualMedicalUrgencyStore,
+      entityId,
+    );
 
     out.push({
       entityId,
@@ -1641,6 +1726,14 @@ function collectInspectedIndividualSnapshots(
       latestTraumaticWoundAttackerEntityId:
         traumaticWound.latestAttackerEntityId,
       latestTraumaticWoundTriggerKind: traumaticWound.latestTriggerKind,
+      medicalUrgencyKind: medicalUrgency.urgencyKind,
+      medicalUrgencyPriority: medicalUrgency.urgencyPriority,
+      traumaWithdrawalActive: medicalUrgency.traumaWithdrawalActive,
+      traumaWithdrawalGoalKind: medicalUrgency.withdrawalGoalKind,
+      withdrawalTargetPhysickEntityId:
+        medicalUrgency.withdrawalTargetPhysickEntityId,
+      localPatientCandidateCount: medicalUrgency.localPatientCandidateCount,
+      localPhysickCandidateCount: medicalUrgency.localPhysickCandidateCount,
       tickStartCombatEligible: isIndividualCombatEligible(
         combatSandbox.individualCombatEligibilitySnapshot,
         entityId,

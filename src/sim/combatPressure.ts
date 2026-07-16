@@ -382,6 +382,7 @@ export function advanceIndividualCombatPressureOneTick(
         unitIndex,
         tickStartMoraleStates,
         lifecycleStore,
+        eligibility,
       ),
     );
   }
@@ -469,12 +470,14 @@ function applyIndividualUnitPressureUpdate(
   unitIndex: number,
   tickStartMoraleStates: UnitMoraleMovementStateSource | undefined,
   lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
+  eligibility: IndividualCombatEligibilitySnapshot,
 ): UnitPressureUpdate {
   const members = getUnitMembers(identityStore, unitId);
   const confidenceAverage = calculateActiveAverageConfidence(
     formationStore,
     members,
     lifecycleStore,
+    eligibility,
   );
   const engaged = store.engagedByUnit[unitIndex] === 1;
   const inContact = isHostileContactMovementStyle(
@@ -507,8 +510,9 @@ function applyIndividualUnitPressureUpdate(
   for (let memberIndex = 0; memberIndex < members.length; memberIndex += 1) {
     const entityId = members[memberIndex]!;
     if (
-      lifecycleStore !== undefined &&
-      !isIndividualCharacterActive(lifecycleStore, entityId)
+      !isIndividualCombatEligible(eligibility, entityId) ||
+      (lifecycleStore !== undefined &&
+        !isIndividualCharacterActive(lifecycleStore, entityId))
     ) continue;
     activeMemberCount += 1;
     const before = getIndividualPressure(formationStore, entityId);
@@ -557,7 +561,7 @@ function applyIndividualUnitPressureUpdate(
     cohesionPressureDeltaPerMember,
     decayPerMember:
       tickStartMoraleStates?.get(unitId) === "routing"
-        ? routingPressureDecayBonus(formationStore, members, lifecycleStore)
+        ? routingPressureDecayBonus(formationStore, members, lifecycleStore, eligibility)
         : 0,
     individualProximityFloorAverage: activeMemberCount === 0 ? 0 : Math.trunc(floorTotal / activeMemberCount),
     individualIncomingAttackImpulseAverage: Math.trunc(
@@ -931,13 +935,15 @@ function routingPressureDecayBonus(
   formationStore: FormationBehaviourStore,
   members: readonly number[],
   lifecycleStore?: IndividualCasualtyLifecycleStore,
+  eligibility?: IndividualCombatEligibilitySnapshot,
 ): number {
   let total = 0;
   let activeCount = 0;
   for (let index = 0; index < members.length; index += 1) {
     if (
-      lifecycleStore !== undefined &&
-      !isIndividualCharacterActive(lifecycleStore, members[index]!)
+      !isIndividualCombatEligible(eligibility, members[index]!) ||
+      (lifecycleStore !== undefined &&
+        !isIndividualCharacterActive(lifecycleStore, members[index]!))
     ) continue;
     total += ROUTING_PRESSURE_DECAY_BONUS[
       getIndividualRole(formationStore, members[index]!)
@@ -962,14 +968,16 @@ function calculateActiveAverageConfidence(
   formationStore: FormationBehaviourStore,
   members: readonly number[],
   lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
+  eligibility?: IndividualCombatEligibilitySnapshot,
 ): number {
   let total = 0;
   let count = 0;
   for (let index = 0; index < members.length; index += 1) {
     const entityId = members[index]!;
     if (
-      lifecycleStore !== undefined &&
-      !isIndividualCharacterActive(lifecycleStore, entityId)
+      !isIndividualCombatEligible(eligibility, entityId) ||
+      (lifecycleStore !== undefined &&
+        !isIndividualCharacterActive(lifecycleStore, entityId))
     ) continue;
     total += getIndividualConfidence(formationStore, entityId);
     count += 1;

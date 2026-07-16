@@ -6,6 +6,10 @@ import {
   isIndividualCharacterActive,
   type IndividualCasualtyLifecycleStore,
 } from "./individualCasualtyLifecycle";
+import {
+  isIndividualOrdinaryParticipationEligible,
+  type IndividualOrdinaryParticipationSnapshot,
+} from "./individualOrdinaryParticipation";
 
 export interface IndividualCombatEligibilitySnapshot {
   readonly entityCount: number;
@@ -23,6 +27,7 @@ export interface IndividualCombatEligibilityProjectionResult {
 interface InternalIndividualCombatEligibilitySnapshot
   extends IndividualCombatEligibilitySnapshot {
   readonly eligibleByEntity: Uint8Array;
+  readonly targetEligibleByEntity: Uint8Array;
 }
 
 export function createIndividualCombatEligibilitySnapshot(
@@ -34,6 +39,7 @@ export function createIndividualCombatEligibilitySnapshot(
   return {
     entityCount: config.entityCount,
     eligibleByEntity,
+    targetEligibleByEntity: eligibleByEntity.slice(),
   } as InternalIndividualCombatEligibilitySnapshot;
 }
 
@@ -41,6 +47,7 @@ export function projectIndividualCombatEligibilityFromHits(
   globalHitStore: IndividualGlobalHitStore,
   snapshot: IndividualCombatEligibilitySnapshot,
   lifecycleStore?: IndividualCasualtyLifecycleStore,
+  ordinaryParticipation?: IndividualOrdinaryParticipationSnapshot,
 ): IndividualCombatEligibilityProjectionResult {
   const internal = asInternal(snapshot);
   if (globalHitStore.entityCount !== internal.entityCount) {
@@ -56,15 +63,29 @@ export function projectIndividualCombatEligibilityFromHits(
       "Individual combat eligibility snapshot must match lifecycle entity count.",
     );
   }
+  if (
+    ordinaryParticipation !== undefined &&
+    ordinaryParticipation.entityCount !== internal.entityCount
+  ) {
+    throw new RangeError(
+      "Individual combat eligibility ordinary participation must match entity count.",
+    );
+  }
 
   let eligibleCount = 0;
   for (let entityId = 0; entityId < internal.entityCount; entityId += 1) {
-    const eligible =
+    const targetEligible =
       getIndividualCurrentGlobalHits(globalHitStore, entityId) > 0 &&
       (lifecycleStore === undefined ||
         isIndividualCharacterActive(lifecycleStore, entityId))
         ? 1
         : 0;
+    const eligible =
+      targetEligible !== 0 &&
+      isIndividualOrdinaryParticipationEligible(ordinaryParticipation, entityId)
+        ? 1
+        : 0;
+    internal.targetEligibleByEntity[entityId] = targetEligible;
     internal.eligibleByEntity[entityId] = eligible;
     eligibleCount += eligible;
   }
@@ -83,6 +104,16 @@ export function isIndividualCombatEligible(
   const internal = asInternal(snapshot);
   assertEntityId(entityId, internal.entityCount);
   return internal.eligibleByEntity[entityId] !== 0;
+}
+
+export function isIndividualCombatTargetEligible(
+  snapshot: IndividualCombatEligibilitySnapshot | undefined,
+  entityId: number,
+): boolean {
+  if (snapshot === undefined) return true;
+  const internal = asInternal(snapshot);
+  assertEntityId(entityId, internal.entityCount);
+  return internal.targetEligibleByEntity[entityId] !== 0;
 }
 
 function asInternal(

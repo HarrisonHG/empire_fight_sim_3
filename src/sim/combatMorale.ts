@@ -15,6 +15,10 @@ import {
   isIndividualCharacterActive,
   type IndividualCasualtyLifecycleStore,
 } from "./individualCasualtyLifecycle";
+import {
+  isIndividualCombatEligible,
+  type IndividualCombatEligibilitySnapshot,
+} from "./individualCombatEligibility";
 
 export type CombatMoraleState =
   | "steady"
@@ -113,6 +117,7 @@ export function collectCombatMoraleAssessmentsFromIndividualConsequences(
   individualConsequences: readonly IndividualCombatUnitConsequenceSummary[],
   out: CombatMoraleAssessment[] = [],
   lifecycleStore?: IndividualCasualtyLifecycleStore,
+  eligibility?: IndividualCombatEligibilitySnapshot,
 ): CombatMoraleTickResult {
   validateCombatMoraleInputs(identityStore, formationStore);
   const contextByUnitId = new Map<UnitId, IndividualCombatUnitConsequenceSummary>();
@@ -133,6 +138,7 @@ export function collectCombatMoraleAssessmentsFromIndividualConsequences(
         unitId,
         contextByUnitId.get(unitId),
         lifecycleStore,
+        eligibility,
       ),
     );
   }
@@ -185,9 +191,15 @@ function assessValidatedUnitCombatMoraleFromIndividualContext(
   unitId: UnitId,
   recentContext: IndividualCombatUnitConsequenceSummary | undefined,
   lifecycleStore?: IndividualCasualtyLifecycleStore,
+  eligibility?: IndividualCombatEligibilitySnapshot,
 ): CombatMoraleAssessment {
   const memberEntityIds = getUnitMembers(identityStore, unitId);
-  const pressure = computePressureSummary(formationStore, memberEntityIds, lifecycleStore);
+  const pressure = computePressureSummary(
+    formationStore,
+    memberEntityIds,
+    lifecycleStore,
+    eligibility,
+  );
   const cohesion = getUnitCohesion(formationStore, unitId);
   const recentCombatShockValue =
     recentContext?.incomingZeroHitTransitions ?? 0;
@@ -225,6 +237,7 @@ function computePressureSummary(
   formationStore: FormationBehaviourStore,
   memberEntityIds: readonly number[],
   lifecycleStore?: IndividualCasualtyLifecycleStore,
+  eligibility?: IndividualCombatEligibilitySnapshot,
 ): {
   readonly total: number;
   readonly average: number;
@@ -235,8 +248,9 @@ function computePressureSummary(
   let activeCount = 0;
   for (let index = 0; index < memberEntityIds.length; index += 1) {
     if (
-      lifecycleStore !== undefined &&
-      !isIndividualCharacterActive(lifecycleStore, memberEntityIds[index]!)
+      !isIndividualCombatEligible(eligibility, memberEntityIds[index]!) ||
+      (lifecycleStore !== undefined &&
+        !isIndividualCharacterActive(lifecycleStore, memberEntityIds[index]!))
     ) continue;
     const pressure = getIndividualPressure(
       formationStore,

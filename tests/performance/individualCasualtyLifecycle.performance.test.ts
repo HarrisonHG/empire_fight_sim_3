@@ -24,6 +24,13 @@ import {
   createIndividualTraumaticWoundStore,
   resolveIndividualTraumaticWoundOpportunities,
 } from "../../src/sim/individualTraumaticWound";
+import {
+  getIndividualMedicalLocalQueryPreparationCount,
+  prepareIndividualMedicalLocalQueries,
+  projectIndividualMedicalUrgency,
+  updateIndividualMedicalDiscoveryAndWithdrawalIntents,
+} from "../../src/sim/individualMedicalReadModel";
+import { createSimulation } from "../../src/sim/simulation";
 
 describe("individual casualty lifecycle structural performance", () => {
   it.each([100, 500, 1_000, 2_000])(
@@ -238,6 +245,133 @@ describe("individual casualty lifecycle structural performance", () => {
           traumaApplications: result.appliedCount,
           elapsedMilliseconds,
           timingPolicy: "Structural assertions only; immutable/entity-indexed stores and one keyed opportunity pass.",
+        }, null, 2)}\n`,
+      );
+    },
+  );
+
+  it.each([100, 500, 1_000, 2_000])(
+    "prepares medical read models and bounded local discovery for %i entities",
+    (entityCount) => {
+      const simulation = createSimulation({
+        seed: 0x6c_21,
+        entityCount,
+        bounds: { width: entityCount * 8 + 64, height: 128 },
+        minSpeedUnitsPerTick: 1,
+        maxSpeedUnitsPerTick: 1,
+        combatSandbox: {
+          kind: "liveCombatSandbox",
+          appliedDamagePressureScale: 1,
+          units: [{
+            unitId: 1,
+            factionId: 1,
+            memberCount: Math.floor(entityCount / 2),
+            deploymentZone: {
+              minX: 16,
+              maxX: Math.floor(entityCount / 2) * 8,
+              minY: 64,
+              maxY: 64,
+            },
+            anchorX: 16,
+            anchorY: 64,
+            headingX: 1,
+            headingY: 0,
+            spacing: 4,
+            rows: 1,
+            cols: Math.floor(entityCount / 2),
+            unitSpeed: 0,
+            order: "hold",
+            role: "regular",
+            memberMaxStep: 1,
+            weaponCategory: "unarmed",
+            weaponReachBand: "none",
+            armourClass: "none",
+            shieldClass: "none",
+            attackIntervalTicks: 20,
+            maxDamageCapacity: 1_000_000,
+            casualtyProcedure: {
+              procedureKind: "citizen",
+              deathCountPolicy: { kind: "normalFortitude" },
+            },
+            medicalProfile: { hasChirurgeon: true, hasPhysick: true },
+          }, {
+            unitId: 2,
+            factionId: 2,
+            memberCount: entityCount - Math.floor(entityCount / 2),
+            deploymentZone: {
+              minX: Math.floor(entityCount / 2) * 8 + 32,
+              maxX: entityCount * 8,
+              minY: 64,
+              maxY: 64,
+            },
+            anchorX: entityCount * 8,
+            anchorY: 64,
+            headingX: -1,
+            headingY: 0,
+            spacing: 4,
+            rows: 1,
+            cols: entityCount - Math.floor(entityCount / 2),
+            unitSpeed: 0,
+            order: "hold",
+            role: "regular",
+            memberMaxStep: 1,
+            weaponCategory: "unarmed",
+            weaponReachBand: "none",
+            armourClass: "none",
+            shieldClass: "none",
+            attackIntervalTicks: 20,
+            maxDamageCapacity: 1_000_000,
+            casualtyProcedure: {
+              procedureKind: "citizen",
+              deathCountPolicy: { kind: "normalFortitude" },
+            },
+            medicalProfile: { hasChirurgeon: true, hasPhysick: true },
+          }],
+        },
+      });
+      const combat = simulation.combatSandbox!;
+      const startedAt = performance.now();
+      projectIndividualMedicalUrgency(
+        combat.identityStore,
+        combat.formationStore,
+        combat.individualGlobalHitStore,
+        combat.individualCasualtyLifecycleStore,
+        combat.individualCasualtyProcedureProfileStore,
+        combat.individualTraumaticWoundStore,
+        combat.individualOrdinaryParticipationSnapshot,
+        combat.individualMedicalUrgencyStore,
+      );
+      prepareIndividualMedicalLocalQueries(
+        simulation.world,
+        combat.identityStore,
+        combat.individualCasualtyLifecycleStore,
+        combat.trustedIndividualMedicalProfileStore,
+        combat.individualGenericHerbStore,
+        combat.individualTraumaticWoundStore,
+        combat.individualMedicalUrgencyStore,
+        combat.moraleMovementStates,
+        combat.individualMedicalLocalQueryStore,
+      );
+      updateIndividualMedicalDiscoveryAndWithdrawalIntents(
+        simulation.world,
+        combat.identityStore,
+        combat.formationStore,
+        combat.trustedIndividualMedicalProfileStore,
+        combat.individualGenericHerbStore,
+        combat.individualMedicalUrgencyStore,
+        combat.individualMedicalLocalQueryStore,
+      );
+      const elapsedMilliseconds = performance.now() - startedAt;
+
+      expect(getIndividualMedicalLocalQueryPreparationCount(
+        combat.individualMedicalLocalQueryStore,
+      )).toBe(1);
+      process.stdout.write(
+        `\nMedical discovery performance report\n${JSON.stringify({
+          entityCount,
+          preparations: 1,
+          elapsedMilliseconds,
+          timingPolicy: "Structural assertions only; one prepared grid and bounded local candidate queries.",
         }, null, 2)}\n`,
       );
     },

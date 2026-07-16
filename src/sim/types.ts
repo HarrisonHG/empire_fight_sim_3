@@ -52,6 +52,13 @@ import type {
   TrustedIndividualMedicalProfileStore,
 } from "./individualMedicalProfile";
 import type {
+  IndividualMedicalLocalQueryStore,
+  IndividualMedicalUrgencyKind,
+  IndividualMedicalUrgencyStore,
+  IndividualTraumaWithdrawalGoalKind,
+} from "./individualMedicalReadModel";
+import type { IndividualOrdinaryParticipationSnapshot } from "./individualOrdinaryParticipation";
+import type {
   IndividualTraumaticWoundAppliedRecord,
   IndividualTraumaticWoundOpportunity,
   IndividualTraumaticWoundStore,
@@ -341,6 +348,13 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly latestTraumaticWoundTick?: number;
   readonly latestTraumaticWoundAttackerEntityId?: number;
   readonly latestTraumaticWoundTriggerKind?: TraumaticWoundTriggerKind | "none";
+  readonly medicalUrgencyKind?: IndividualMedicalUrgencyKind;
+  readonly medicalUrgencyPriority?: number;
+  readonly traumaWithdrawalActive?: boolean;
+  readonly traumaWithdrawalGoalKind?: IndividualTraumaWithdrawalGoalKind;
+  readonly withdrawalTargetPhysickEntityId?: number;
+  readonly localPatientCandidateCount?: number;
+  readonly localPhysickCandidateCount?: number;
   readonly tickStartCombatEligible: boolean;
   readonly selectedTargetEntityId: number | null;
   readonly selectedTargetDistanceSquared: number | null;
@@ -477,6 +491,9 @@ export interface CombatSandboxSimulationState {
   readonly trustedIndividualMedicalProfileStore: TrustedIndividualMedicalProfileStore;
   readonly individualGenericHerbStore: IndividualGenericHerbStore;
   readonly individualTraumaticWoundStore: IndividualTraumaticWoundStore;
+  readonly individualMedicalUrgencyStore: IndividualMedicalUrgencyStore;
+  readonly individualMedicalLocalQueryStore: IndividualMedicalLocalQueryStore;
+  readonly individualOrdinaryParticipationSnapshot: IndividualOrdinaryParticipationSnapshot;
   readonly individualCasualtyLocalQueryStore: IndividualCasualtyLocalQueryStore;
   readonly individualLifecycleTransitions: IndividualZeroHitLifecycleTransitionRecord[];
   readonly individualTerminalTransitions: IndividualDeathCountTerminalTransitionRecord[];

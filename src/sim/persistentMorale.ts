@@ -24,6 +24,10 @@ import {
   isIndividualCharacterActive,
   type IndividualCasualtyLifecycleStore,
 } from "./individualCasualtyLifecycle";
+import {
+  isIndividualOrdinaryParticipationEligible,
+  type IndividualOrdinaryParticipationSnapshot,
+} from "./individualOrdinaryParticipation";
 
 export type PersistentUnitMoraleState = MoraleMovementState;
 
@@ -69,6 +73,7 @@ export interface PersistentMoraleContext {
   /** Compact 4G local hostile safety summaries in deterministic unit order. */
   readonly recoveryThreatSummaries?: readonly UnitRecoveryThreatSummary[];
   readonly lifecycleStore?: IndividualCasualtyLifecycleStore;
+  readonly ordinaryParticipation?: IndividualOrdinaryParticipationSnapshot;
 }
 
 interface InternalPersistentMoraleStore extends PersistentMoraleStore {
@@ -193,7 +198,11 @@ export function advancePersistentMoraleOneTick(
     const unitId = unitIds[unitIndex]!;
     const assessment = assessments[unitIndex]!;
     const members = getUnitMembers(identityStore, unitId);
-    const activeMemberCount = countActiveMembers(members, context.lifecycleStore);
+    const activeMemberCount = countActiveMembers(
+      members,
+      context.lifecycleStore,
+      context.ordinaryParticipation,
+    );
     if (activeMemberCount === 0 && assessment.recentCombatShockValue === 0) {
       continue;
     }
@@ -204,6 +213,7 @@ export function advancePersistentMoraleOneTick(
       unitIndex,
       assessment,
       context.lifecycleStore,
+      context.ordinaryParticipation,
     );
 
     const profile = collectUnitMoraleProfile(
@@ -212,6 +222,7 @@ export function advancePersistentMoraleOneTick(
       members,
       assessment,
       context.lifecycleStore,
+      context.ordinaryParticipation,
     );
     internal.experienceAdjustment[unitIndex] = profile.experienceAdjustment;
     const pressureUpdate = context.pressureUpdates?.[unitIndex];
@@ -317,6 +328,7 @@ function refreshObservedInputs(
   unitIndex: number,
   assessment: CombatMoraleAssessment,
   lifecycleStore?: IndividualCasualtyLifecycleStore,
+  ordinaryParticipation?: IndividualOrdinaryParticipationSnapshot,
 ): void {
   store.pressure[unitIndex] = assessment.pressureAverage;
   store.cohesion[unitIndex] = assessment.cohesion;
@@ -324,6 +336,7 @@ function refreshObservedInputs(
     formationStore,
     getUnitMembers(identityStore, assessment.unitId),
     lifecycleStore,
+    ordinaryParticipation,
   );
 }
 
@@ -331,13 +344,18 @@ function calculateAverageConfidence(
   formationStore: FormationBehaviourStore,
   memberEntityIds: readonly number[],
   lifecycleStore?: IndividualCasualtyLifecycleStore,
+  ordinaryParticipation?: IndividualOrdinaryParticipationSnapshot,
 ): number {
   let total = 0;
   let activeCount = 0;
   for (let index = 0; index < memberEntityIds.length; index += 1) {
     if (
-      lifecycleStore !== undefined &&
-      !isIndividualCharacterActive(lifecycleStore, memberEntityIds[index]!)
+      !isIndividualOrdinaryParticipationEligible(
+        ordinaryParticipation,
+        memberEntityIds[index]!,
+      ) ||
+      (lifecycleStore !== undefined &&
+        !isIndividualCharacterActive(lifecycleStore, memberEntityIds[index]!))
     ) continue;
     total += getIndividualConfidence(formationStore, memberEntityIds[index]!);
     activeCount += 1;
@@ -348,11 +366,16 @@ function calculateAverageConfidence(
 function countActiveMembers(
   members: readonly number[],
   lifecycleStore?: IndividualCasualtyLifecycleStore,
+  ordinaryParticipation?: IndividualOrdinaryParticipationSnapshot,
 ): number {
-  if (lifecycleStore === undefined) return members.length;
   let count = 0;
   for (let index = 0; index < members.length; index += 1) {
-    if (isIndividualCharacterActive(lifecycleStore, members[index]!)) count += 1;
+    const entityId = members[index]!;
+    if (
+      (lifecycleStore === undefined ||
+        isIndividualCharacterActive(lifecycleStore, entityId)) &&
+      isIndividualOrdinaryParticipationEligible(ordinaryParticipation, entityId)
+    ) count += 1;
   }
   return count;
 }
@@ -452,6 +475,7 @@ function collectUnitMoraleProfile(
   members: readonly number[],
   assessment: CombatMoraleAssessment,
   lifecycleStore?: IndividualCasualtyLifecycleStore,
+  ordinaryParticipation?: IndividualOrdinaryParticipationSnapshot,
 ): UnitMoraleProfile {
   let confidenceTotal = 0;
   let experienceTotal = 0;
@@ -459,8 +483,9 @@ function collectUnitMoraleProfile(
   for (let index = 0; index < members.length; index += 1) {
     const entityId = members[index]!;
     if (
-      lifecycleStore !== undefined &&
-      !isIndividualCharacterActive(lifecycleStore, entityId)
+      !isIndividualOrdinaryParticipationEligible(ordinaryParticipation, entityId) ||
+      (lifecycleStore !== undefined &&
+        !isIndividualCharacterActive(lifecycleStore, entityId))
     ) continue;
     confidenceTotal += getIndividualConfidence(formationStore, entityId);
     experienceTotal += experienceAdjustmentForRole(

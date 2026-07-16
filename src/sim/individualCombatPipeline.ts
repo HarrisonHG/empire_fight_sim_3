@@ -65,6 +65,7 @@ import {
 } from "./individualMeleeTargetSelection";
 import type { FormationBehaviourStore } from "./formationBehaviour";
 import type { IndividualCasualtyLifecycleStore } from "./individualCasualtyLifecycle";
+import type { IndividualOrdinaryParticipationSnapshot } from "./individualOrdinaryParticipation";
 import type { WorldState } from "./types";
 import {
   getUnitIds,
@@ -159,6 +160,7 @@ export type IndividualCombatPipelineStageRunner = <T>(
 export interface IndividualCombatPipelineAdvanceOptions {
   readonly runStage?: IndividualCombatPipelineStageRunner;
   readonly lifecycleStore?: IndividualCasualtyLifecycleStore;
+  readonly ordinaryParticipation?: IndividualOrdinaryParticipationSnapshot;
 }
 
 export interface IndividualCombatExchangeTickResult {
@@ -265,6 +267,7 @@ export function advanceIndividualCombatExchangeOneTick(
       stores.globalHitStore,
       stores.eligibilitySnapshot,
       options.lifecycleStore,
+      options.ordinaryParticipation,
     ),
   );
   const targetResult = runStage("targetSelection", () =>

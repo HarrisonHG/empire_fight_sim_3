@@ -13,6 +13,7 @@ import {
 } from "./individualCombatProfile";
 import {
   isIndividualCombatEligible,
+  isIndividualCombatTargetEligible,
   type IndividualCombatEligibilitySnapshot,
 } from "./individualCombatEligibility";
 import {
@@ -283,7 +284,7 @@ export function advanceIndividualCombatActions(
       const targetEntityId = internal.lockedTargetByEntity[entityId]!;
       if (
         !targetExists(targetEntityId, world.entityCount) ||
-        !isIndividualCombatEligible(eligibility, targetEntityId)
+        !isIndividualCombatTargetEligible(eligibility, targetEntityId)
       ) {
         cancelCommitmentIfActive(internal, entityId, actionStateEventsOut);
         continue;
@@ -344,7 +345,7 @@ function tryBeginCommitment(
   if (targetEntityId === NO_INDIVIDUAL_TARGET) return;
   if (
     !isIndividualCombatEligible(eligibility, entityId) ||
-    !isIndividualCombatEligible(eligibility, targetEntityId)
+    !isIndividualCombatTargetEligible(eligibility, targetEntityId)
   ) {
     return;
   }
@@ -467,7 +468,7 @@ function resolveCommittedAttack(
   }
   if (
     !isIndividualCombatEligible(eligibility, attackerEntityId) ||
-    !isIndividualCombatEligible(eligibility, targetEntityId)
+    !isIndividualCombatTargetEligible(eligibility, targetEntityId)
   ) {
     return invalidatedRecord(common, -1, false, "targetMissing");
   }

@@ -121,6 +121,15 @@ export function getIndividualGenericHerbInspection(
   };
 }
 
+export function getIndividualAvailableGenericHerbs(
+  store: IndividualGenericHerbStore,
+  entityId: number,
+): number {
+  const internal = store as InternalIndividualGenericHerbStore;
+  assertEntityId(entityId, internal.entityCount);
+  return internal.currentByEntity[entityId]! - internal.reservedByEntity[entityId]!;
+}
+
 function assertGenericHerbCount(value: number, name: string): void {
   if (!Number.isSafeInteger(value) || value < 0 || value > MAX_GENERIC_HERBS) {
     throw new RangeError(`${name} must be an integer from 0 to ${MAX_GENERIC_HERBS}.`);

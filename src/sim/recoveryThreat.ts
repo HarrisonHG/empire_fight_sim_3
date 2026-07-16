@@ -22,6 +22,10 @@ import {
   isIndividualCharacterActive,
   type IndividualCasualtyLifecycleStore,
 } from "./individualCasualtyLifecycle";
+import {
+  isIndividualOrdinaryParticipationEligible,
+  type IndividualOrdinaryParticipationSnapshot,
+} from "./individualOrdinaryParticipation";
 
 export interface UnitRecoveryThreatSummary {
   readonly unitId: UnitId;
@@ -66,6 +70,7 @@ export function collectRecoveryThreatSummaries(
   store: RecoveryThreatStore,
   out: UnitRecoveryThreatSummary[] = [],
   lifecycleStore?: IndividualCasualtyLifecycleStore,
+  ordinaryParticipation?: IndividualOrdinaryParticipationSnapshot,
 ): readonly UnitRecoveryThreatSummary[] {
   const internal = asInternal(store);
   if (
@@ -78,8 +83,9 @@ export function collectRecoveryThreatSummaries(
   }
 
   buildSpatialGrid(internal.grid, world, (entityId) =>
-    lifecycleStore === undefined ||
-    isIndividualCharacterActive(lifecycleStore, entityId),
+    (lifecycleStore === undefined ||
+      isIndividualCharacterActive(lifecycleStore, entityId)) &&
+    isIndividualOrdinaryParticipationEligible(ordinaryParticipation, entityId),
   );
   out.length = 0;
   const unitIds = getUnitIds(identityStore);
@@ -88,7 +94,8 @@ export function collectRecoveryThreatSummaries(
     if (
       lifecycleStore !== undefined &&
       !getUnitMembers(identityStore, unitId).some((entityId) =>
-        isIndividualCharacterActive(lifecycleStore, entityId),
+        isIndividualCharacterActive(lifecycleStore, entityId) &&
+        isIndividualOrdinaryParticipationEligible(ordinaryParticipation, entityId),
       )
     ) {
       out.push({ unitId, hostileNearby: false });

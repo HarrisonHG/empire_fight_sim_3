@@ -26,13 +26,18 @@ import {
   isIndividualCharacterActive,
   type IndividualCasualtyLifecycleStore,
 } from "./individualCasualtyLifecycle";
+import {
+  isIndividualOrdinaryParticipationEligible,
+  type IndividualOrdinaryParticipationSnapshot,
+} from "./individualOrdinaryParticipation";
 
 export type UnitOrder = "hold" | "advance" | "advanceCautious";
 export type IndividualRole = "recruit" | "regular" | "veteran";
 export type MovementMode =
   | "holdPosition"
   | "moveToFormationSlot"
-  | "advanceWithUnit";
+  | "advanceWithUnit"
+  | "withdrawForTreatment";
 
 export type UnitMovementStyle =
   | "formedMarch" // Normal advancing style when no blocker changes movement.
@@ -562,6 +567,43 @@ export function getIndividualConfiguredMaxStep(
   return internal.memberMaxStep[entityId]!;
 }
 
+/** Applies one already-arbitrated individual intent through formation-owned movement limits. */
+export function applyIndividualExternalMovementIntent(
+  world: WorldState,
+  store: FormationBehaviourStore,
+  entityId: number,
+  goalX: number,
+  goalY: number,
+  mode: MovementMode,
+): boolean {
+  const internal = asInternal(store);
+  if (world.entityCount !== internal.entityCount) {
+    throw new RangeError("External movement world must match formation entity count.");
+  }
+  assertEntityIdInRange(entityId, internal.entityCount);
+  if (!Number.isFinite(goalX) || !Number.isFinite(goalY)) {
+    throw new RangeError("External movement goal must be finite.");
+  }
+  const currentX = world.positionsX[entityId]!;
+  const currentY = world.positionsY[entityId]!;
+  const maxStep = internal.memberMaxStep[entityId]!;
+  const nextX = clampWorldCoordinate(
+    currentX + clampComponent(goalX - currentX, maxStep),
+    world.bounds.width,
+  );
+  const nextY = clampWorldCoordinate(
+    currentY + clampComponent(goalY - currentY, maxStep),
+    world.bounds.height,
+  );
+  world.positionsX[entityId] = nextX;
+  world.positionsY[entityId] = nextY;
+  internal.movementMode[entityId] =
+    nextX === currentX && nextY === currentY ? "holdPosition" : mode;
+  internal.stuckTicks[entityId] = 0;
+  internal.isStuck[entityId] = 0;
+  return nextX !== currentX || nextY !== currentY;
+}
+
 export function setIndividualPressure(
   store: FormationBehaviourStore,
   entityId: number,
@@ -614,6 +656,7 @@ export function advanceFormationOneTick(
   moraleMovementStates?: UnitMoraleMovementStateSource,
   diagnostics?: FormationTickDiagnostics,
   lifecycleStore?: IndividualCasualtyLifecycleStore,
+  ordinaryParticipation?: IndividualOrdinaryParticipationSnapshot,
 ): FormationTickResult {
   const internal = asInternal(store);
   validateWorldForBehaviour(world, internal, identityStore);
@@ -623,6 +666,12 @@ export function advanceFormationOneTick(
   ) {
     throw new RangeError("Formation lifecycle store must match world entity count.");
   }
+  if (
+    ordinaryParticipation !== undefined &&
+    ordinaryParticipation.entityCount !== world.entityCount
+  ) {
+    throw new RangeError("Formation ordinary participation must match world entity count.");
+  }
 
   const events: FormationEvent[] = [];
   internal.routingPassThroughCount = 0;
@@ -630,7 +679,7 @@ export function advanceFormationOneTick(
   const blockerGrid =
     unitIds.length > 1
       ? runFormationDiagnosticStage(diagnostics, "blockerGridBuild", () =>
-          prepareBlockerGrid(internal, world, lifecycleStore),
+          prepareBlockerGrid(internal, world, lifecycleStore, ordinaryParticipation),
         )
       : undefined;
   if (blockerGrid !== undefined) {
@@ -669,6 +718,7 @@ export function advanceFormationOneTick(
       events,
       diagnostics,
       lifecycleStore,
+      ordinaryParticipation,
     );
   }
   if (diagnostics !== undefined) {
@@ -705,9 +755,10 @@ function processUnit(
   events: FormationEvent[],
   diagnostics: FormationTickDiagnostics | undefined,
   lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
+  ordinaryParticipation: IndividualOrdinaryParticipationSnapshot | undefined,
 ): void {
   const unitMembers = getUnitMembers(identityStore, unitId);
-  if (!hasFormationParticipant(unitMembers, lifecycleStore)) {
+  if (!hasFormationParticipant(unitMembers, lifecycleStore, ordinaryParticipation)) {
     store.anchorMovementRemainder[unitIndex] = 0;
     store.routingHeadingX[unitIndex] = 0;
     store.routingHeadingY[unitIndex] = 0;
@@ -747,6 +798,7 @@ function processUnit(
       events,
       diagnostics,
       lifecycleStore,
+      ordinaryParticipation,
     );
     return;
   }
@@ -773,6 +825,7 @@ function processUnit(
     moraleMovementState,
     diagnostics,
     lifecycleStore,
+    ordinaryParticipation,
   );
   store.unitMovementStyle[unitIndex] = style;
   if (store.lastEmittedUnitStyle[unitIndex] !== style) {
@@ -842,7 +895,7 @@ function processUnit(
   let maxForwardProgress = -Number.MAX_SAFE_INTEGER;
   for (let index = 0; index < members.length; index += 1) {
     const entityId = members[index]!;
-    if (!isFormationParticipant(lifecycleStore, entityId)) continue;
+    if (!isFormationParticipant(lifecycleStore, entityId, ordinaryParticipation)) continue;
     diagnostics !== undefined && (diagnostics.memberSlotEvaluations += 1);
     const fp = forwardProgress(
       world.positionsX[entityId]!,
@@ -869,7 +922,7 @@ function processUnit(
 
   for (let index = 0; index < members.length; index += 1) {
     const entityId = members[index]!;
-    if (!isFormationParticipant(lifecycleStore, entityId)) {
+    if (!isFormationParticipant(lifecycleStore, entityId, ordinaryParticipation)) {
       store.movementMode[entityId] = "holdPosition";
       store.stuckTicks[entityId] = 0;
       store.isStuck[entityId] = 0;
@@ -1029,7 +1082,7 @@ function processUnit(
     for (let otherIndex = 0; otherIndex < members.length; otherIndex += 1) {
       const otherId = members[otherIndex]!;
       if (otherId === entityId) continue;
-      if (!isFormationParticipant(lifecycleStore, otherId)) continue;
+      if (!isFormationParticipant(lifecycleStore, otherId, ordinaryParticipation)) continue;
       diagnostics !== undefined &&
         (diagnostics.sameUnitOvertakingComparisons += 1);
       const otherRow = store.slotRow[otherId]!;
@@ -1278,6 +1331,7 @@ function processRoutingUnit(
   events: FormationEvent[],
   diagnostics: FormationTickDiagnostics | undefined,
   lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
+  ordinaryParticipation: IndividualOrdinaryParticipationSnapshot | undefined,
 ): void {
   const routeHeadingX = store.routingHeadingX[unitIndex]!;
   const routeHeadingY = store.routingHeadingY[unitIndex]!;
@@ -1311,6 +1365,7 @@ function processRoutingUnit(
     unitSpeed,
     diagnostics,
     lifecycleStore,
+    ordinaryParticipation,
   );
   store.anchorX[unitIndex] = clampWorldCoordinate(
     store.anchorX[unitIndex]! + routeHeadingX * anchorForwardStep,
@@ -1323,7 +1378,7 @@ function processRoutingUnit(
 
   for (let memberIndex = 0; memberIndex < members.length; memberIndex += 1) {
     const entityId = members[memberIndex]!;
-    if (!isFormationParticipant(lifecycleStore, entityId)) {
+    if (!isFormationParticipant(lifecycleStore, entityId, ordinaryParticipation)) {
       store.movementMode[entityId] = "holdPosition";
       store.stuckTicks[entityId] = 0;
       store.isStuck[entityId] = 0;
@@ -1419,11 +1474,12 @@ function getRoutingAnchorForwardStep(
   requestedAnchorStep: number,
   diagnostics?: FormationTickDiagnostics,
   lifecycleStore?: IndividualCasualtyLifecycleStore,
+  ordinaryParticipation?: IndividualOrdinaryParticipationSnapshot,
 ): number {
   let allowedAnchorStep = requestedAnchorStep;
   for (let memberIndex = 0; memberIndex < members.length; memberIndex += 1) {
     const entityId = members[memberIndex]!;
-    if (!isFormationParticipant(lifecycleStore, entityId)) continue;
+    if (!isFormationParticipant(lifecycleStore, entityId, ordinaryParticipation)) continue;
     const hostileQueryStep = Math.max(
       store.memberMaxStep[entityId]!,
       requestedAnchorStep,
@@ -1838,6 +1894,7 @@ function prepareBlockerGrid(
   store: InternalFormationBehaviourStore,
   world: WorldState,
   lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
+  ordinaryParticipation: IndividualOrdinaryParticipationSnapshot | undefined,
 ): SpatialGrid {
   let grid = store.blockerGrid;
   if (
@@ -1857,9 +1914,10 @@ function prepareBlockerGrid(
   buildSpatialGrid(
     grid,
     world,
-    lifecycleStore === undefined
-      ? undefined
-      : (entityId) => isIndividualCharacterActive(lifecycleStore, entityId),
+    (entityId) =>
+      (lifecycleStore === undefined ||
+        isIndividualCharacterActive(lifecycleStore, entityId)) &&
+      isIndividualOrdinaryParticipationEligible(ordinaryParticipation, entityId),
   );
   snapshotFormationTickStart(store, world);
   return grid;
@@ -2057,6 +2115,7 @@ function chooseUnitMovementStyle(
   moraleMovementState: MoraleMovementState,
   diagnostics: FormationTickDiagnostics | undefined,
   lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
+  ordinaryParticipation: IndividualOrdinaryParticipationSnapshot | undefined,
 ): UnitMovementStyle {
   if (!isAdvancing) {
     store.styleCommitmentTicksRemaining[unitIndex] = 0;
@@ -2096,6 +2155,7 @@ function chooseUnitMovementStyle(
       unitId,
       unitIndex,
       lifecycleStore,
+      ordinaryParticipation,
     );
   }
 
@@ -2384,17 +2444,20 @@ function chooseAlliedBlockerStyle(
   unitId: UnitId,
   unitIndex: number,
   lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
+  ordinaryParticipation: IndividualOrdinaryParticipationSnapshot | undefined,
 ): UnitMovementStyle {
   const members = getUnitMembers(identityStore, unitId);
   const averageConfidence = computeAverageActiveConfidence(
     store,
     members,
     lifecycleStore,
+    ordinaryParticipation,
   );
   const averagePressure = computeAverageActivePressure(
     store,
     members,
     lifecycleStore,
+    ordinaryParticipation,
   );
   const cohesion = store.cohesion[unitIndex]!;
 
@@ -2525,12 +2588,13 @@ function computeAverageActiveConfidence(
   store: InternalFormationBehaviourStore,
   members: readonly number[],
   lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
+  ordinaryParticipation: IndividualOrdinaryParticipationSnapshot | undefined,
 ): number {
   let total = 0;
   let count = 0;
   for (let index = 0; index < members.length; index += 1) {
     const entityId = members[index]!;
-    if (!isFormationParticipant(lifecycleStore, entityId)) continue;
+    if (!isFormationParticipant(lifecycleStore, entityId, ordinaryParticipation)) continue;
     total += store.confidence[entityId]!;
     count += 1;
   }
@@ -2541,12 +2605,13 @@ function computeAverageActivePressure(
   store: InternalFormationBehaviourStore,
   members: readonly number[],
   lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
+  ordinaryParticipation: IndividualOrdinaryParticipationSnapshot | undefined,
 ): number {
   let total = 0;
   let count = 0;
   for (let index = 0; index < members.length; index += 1) {
     const entityId = members[index]!;
-    if (!isFormationParticipant(lifecycleStore, entityId)) continue;
+    if (!isFormationParticipant(lifecycleStore, entityId, ordinaryParticipation)) continue;
     total += store.pressure[entityId]!;
     count += 1;
   }
@@ -2556,19 +2621,22 @@ function computeAverageActivePressure(
 function isFormationParticipant(
   lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
   entityId: number,
+  ordinaryParticipation?: IndividualOrdinaryParticipationSnapshot,
 ): boolean {
   return (
-    lifecycleStore === undefined ||
-    isIndividualCharacterActive(lifecycleStore, entityId)
+    (lifecycleStore === undefined ||
+      isIndividualCharacterActive(lifecycleStore, entityId)) &&
+    isIndividualOrdinaryParticipationEligible(ordinaryParticipation, entityId)
   );
 }
 
 function hasFormationParticipant(
   members: readonly number[],
   lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
+  ordinaryParticipation?: IndividualOrdinaryParticipationSnapshot,
 ): boolean {
   for (let index = 0; index < members.length; index += 1) {
-    if (isFormationParticipant(lifecycleStore, members[index]!)) return true;
+    if (isFormationParticipant(lifecycleStore, members[index]!, ordinaryParticipation)) return true;
   }
   return false;
 }

@@ -6,6 +6,7 @@ import {
 } from "./individualCombatProfile";
 import {
   isIndividualCombatEligible,
+  isIndividualCombatTargetEligible,
   type IndividualCombatEligibilitySnapshot,
 } from "./individualCombatEligibility";
 import {
@@ -183,7 +184,7 @@ export function advanceIndividualMeleeTargetSelection(
     for (let index = 0; index < candidateIds.length; index += 1) {
       const targetEntityId = candidateIds[index]!;
       if (targetEntityId === sourceEntityId) continue;
-      if (!isIndividualCombatEligible(eligibility, targetEntityId)) continue;
+      if (!isIndividualCombatTargetEligible(eligibility, targetEntityId)) continue;
       const targetUnitId = getUnitIdForEntity(identityStore, targetEntityId);
       if (getFactionIdForUnit(identityStore, targetUnitId) === sourceFactionId) {
         continue;
