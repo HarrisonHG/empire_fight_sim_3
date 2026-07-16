@@ -129,6 +129,73 @@ export interface IndividualMedicalLocalQueryResult<T> {
   readonly candidateCount: number;
 }
 
+/** Canonical local entity IDs from the already-prepared medical spatial grid. */
+export function queryPreparedMedicalLocalEntityIdsWithinRadiusInto(
+  store: IndividualMedicalLocalQueryStore,
+  world: WorldState,
+  sourceEntityId: number,
+  radius: number,
+  out: number[] = [],
+): readonly number[] {
+  assertEntityId(sourceEntityId, world.entityCount);
+  return queryPreparedMedicalLocalEntityIdsNearPointInto(
+    store,
+    world,
+    world.positionsX[sourceEntityId]!,
+    world.positionsY[sourceEntityId]!,
+    radius,
+    out,
+  );
+}
+
+/** Bounded point query used by local casualty decisions; never rebuilds the grid. */
+export function queryPreparedMedicalLocalEntityIdsNearPointInto(
+  store: IndividualMedicalLocalQueryStore,
+  world: WorldState,
+  x: number,
+  y: number,
+  radius: number,
+  out: number[] = [],
+): readonly number[] {
+  const internal = requirePrepared(store, world.entityCount);
+  const records = queryEntitiesWithinRadiusInto(
+    internal.grid,
+    Math.round(x),
+    Math.round(y),
+    radius,
+    out,
+  );
+  records.sort(compareEntityIds);
+  return records;
+}
+
+export function getPreparedMedicalFactionId(
+  store: IndividualMedicalLocalQueryStore,
+  entityId: number,
+): number {
+  const internal = requirePrepared(store, store.entityCount);
+  assertEntityId(entityId, internal.entityCount);
+  return internal.factionByEntity[entityId]!;
+}
+
+export function isPreparedMedicalThreatEligible(
+  store: IndividualMedicalLocalQueryStore,
+  entityId: number,
+): boolean {
+  const internal = requirePrepared(store, store.entityCount);
+  assertEntityId(entityId, internal.entityCount);
+  return internal.threatEligibleByEntity[entityId] !== 0;
+}
+
+export function isPreparedMedicalPhysickAvailable(
+  store: IndividualMedicalLocalQueryStore,
+  entityId: number,
+): boolean {
+  const internal = requirePrepared(store, store.entityCount);
+  assertEntityId(entityId, internal.entityCount);
+  return internal.physickEligibleByEntity[entityId] !== 0;
+}
+
 const URGENCY_NONE = 0;
 const URGENCY_COMFORTABLE = 1;
 const URGENCY_BELOW_HALF = 2;
@@ -639,6 +706,10 @@ function compareDistanceThenEntity(
   return left.distanceSquared !== right.distanceSquared
     ? left.distanceSquared - right.distanceSquared
     : left.entityId - right.entityId;
+}
+
+function compareEntityIds(left: number, right: number): number {
+  return left - right;
 }
 
 function distanceSquared(world: WorldState, left: number, right: number): number {

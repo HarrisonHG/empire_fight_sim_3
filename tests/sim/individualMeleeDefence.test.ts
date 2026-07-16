@@ -42,6 +42,26 @@ import {
 } from "../../src/sim/unitIdentity";
 
 describe("individual melee defence resolution", () => {
+  it("limits active defence sources to equipment that fits externally free hands", () => {
+    const twoHanded = createHarness([
+      entity(92, 100, 1, "oneHanded", 1),
+      entity(100, 100, 2, "greatWeapon", -1),
+    ]);
+    const oneFreeHand = { entityCount: 2, getFreeHands: (entityId: number) => entityId === 1 ? 1 : undefined };
+    const result = resolveIndividualMeleeDefences(twoHanded.world, twoHanded.identity,
+      twoHanded.formation, twoHanded.actions, twoHanded.profiles, twoHanded.defence,
+      [attempt(0, 1)], twoHanded.records, twoHanded.events, undefined, 0, oneFreeHand);
+    expect(result.records[0]).toMatchObject({ availableDefenceType: "none", outcome: "landed" });
+
+    const shield = createHarness([
+      entity(92, 100, 1, "oneHanded", 1),
+      entity(100, 100, 2, "oneHanded", -1, "shield", "held"),
+    ]);
+    const strongest = resolveIndividualMeleeDefences(shield.world, shield.identity,
+      shield.formation, shield.actions, shield.profiles, shield.defence,
+      [attempt(0, 1)], shield.records, shield.events, undefined, 0, oneFreeHand);
+    expect(strongest.records[0]!.availableDefenceType).toBe("shieldBlock");
+  });
   it("parries a ready frontal attack and consumes guard", () => {
     const harness = createHarness([
       entity(92, 100, 1, "oneHanded", 1),

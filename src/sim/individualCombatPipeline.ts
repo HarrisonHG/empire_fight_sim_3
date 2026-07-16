@@ -55,6 +55,7 @@ import {
   type IndividualMeleeDefenceRecord,
   type IndividualMeleeDefenceStore,
   type IndividualMeleeDefenceTickResult,
+  type IndividualDefenceHandAvailabilitySource,
 } from "./individualMeleeDefence";
 import {
   advanceIndividualMeleeTargetSelection,
@@ -161,6 +162,7 @@ export interface IndividualCombatPipelineAdvanceOptions {
   readonly runStage?: IndividualCombatPipelineStageRunner;
   readonly lifecycleStore?: IndividualCasualtyLifecycleStore;
   readonly ordinaryParticipation?: IndividualOrdinaryParticipationSnapshot;
+  readonly defenceHandAvailability?: IndividualDefenceHandAvailabilitySource;
 }
 
 export interface IndividualCombatExchangeTickResult {
@@ -308,6 +310,7 @@ export function advanceIndividualCombatExchangeOneTick(
       buffers.guardStateEvents,
       stores.eligibilitySnapshot,
       currentTick,
+      options.defenceHandAvailability,
     ),
   );
   const gateResult = runStage("gate", () =>

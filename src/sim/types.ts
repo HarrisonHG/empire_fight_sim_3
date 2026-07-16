@@ -43,6 +43,16 @@ import type {
 } from "./individualCasualtyLifecycle";
 import type { IndividualCasualtyLocalQueryStore } from "./individualCasualtyLocalQuery";
 import type {
+  CasualtyAssistanceDecisionBuffers,
+  CasualtyAssistanceDecisionResult,
+  CasualtyDragGroupStore,
+  CasualtyDragMovementBuffers,
+  CasualtyDragMovementResult,
+  IndividualDragHandCommitmentStore,
+  IndividualCasualtyAssistanceState,
+  IndividualCasualtyAssistanceStore,
+} from "./individualCasualtyAssistance";
+import type {
   IndividualDeathCountStore,
   IndividualDeathCountPauseSource,
   IndividualDeathCountTerminalTransitionRecord,
@@ -356,6 +366,11 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly localPatientCandidateCount?: number;
   readonly localPhysickCandidateCount?: number;
   readonly withdrawalThreatCount?: number;
+  readonly casualtyAssistanceState?: IndividualCasualtyAssistanceState;
+  readonly casualtyDragGroupId?: number;
+  readonly casualtyAssistanceDestinationX?: number;
+  readonly casualtyAssistanceDestinationY?: number;
+  readonly casualtyDragFreeHands?: number;
   readonly tickStartCombatEligible: boolean;
   readonly selectedTargetEntityId: number | null;
   readonly selectedTargetDistanceSquared: number | null;
@@ -451,6 +466,15 @@ export interface LiveCombatDebugSnapshot {
   readonly newlyZeroMemberCount: number;
   readonly lifecycleTransitionCount: number;
   readonly terminalTransitionCount: number;
+  readonly activeDragGroupCount: number;
+  readonly rescueRequestedCount: number;
+  readonly dragGroupStartedCount: number;
+  readonly noRescueCount: number;
+  readonly gatheringDragGroupCount: number;
+  readonly draggingDragGroupCount: number;
+  readonly reachedSafetyDragGroupCount: number;
+  readonly dragCancellationCount: number;
+  readonly dragReachedSafetyCount: number;
   readonly tickStartEligibleMemberCount: number;
   readonly endOfTickEligibleMemberCount: number;
   readonly endOfTickZeroHitMemberCount: number;
@@ -496,6 +520,13 @@ export interface CombatSandboxSimulationState {
   readonly individualMedicalLocalQueryStore: IndividualMedicalLocalQueryStore;
   readonly individualOrdinaryParticipationSnapshot: IndividualOrdinaryParticipationSnapshot;
   readonly individualCasualtyLocalQueryStore: IndividualCasualtyLocalQueryStore;
+  readonly individualCasualtyAssistanceStore: IndividualCasualtyAssistanceStore;
+  readonly casualtyDragGroupStore: CasualtyDragGroupStore;
+  readonly individualDragHandCommitmentStore: IndividualDragHandCommitmentStore;
+  readonly casualtyDragMovementBuffers: CasualtyDragMovementBuffers;
+  casualtyDragMovementResult: CasualtyDragMovementResult;
+  readonly casualtyAssistanceDecisionBuffers: CasualtyAssistanceDecisionBuffers;
+  casualtyAssistanceDecisionResult: CasualtyAssistanceDecisionResult;
   readonly individualLifecycleTransitions: IndividualZeroHitLifecycleTransitionRecord[];
   readonly individualTerminalTransitions: IndividualDeathCountTerminalTransitionRecord[];
   readonly individualTraumaticWoundOpportunities: IndividualTraumaticWoundOpportunity[];

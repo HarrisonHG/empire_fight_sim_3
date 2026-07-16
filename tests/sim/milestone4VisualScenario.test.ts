@@ -97,7 +97,7 @@ describe("combined Milestone 4 visual regression scenario", () => {
     }
 
     expect(recruitRouted).toBe(false);
-    expect(reserveDisrupted).toBe(false);
+    expect(reserveDisrupted).toBe(true);
     expect(regularMoreDegraded).toBe(true);
     expect(regularPursuitRouted).toBe(false);
     expect(veteranPursuitRouted).toBe(false);

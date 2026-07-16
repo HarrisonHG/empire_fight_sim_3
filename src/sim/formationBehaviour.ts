@@ -37,7 +37,10 @@ export type MovementMode =
   | "holdPosition"
   | "moveToFormationSlot"
   | "advanceWithUnit"
-  | "withdrawForTreatment";
+  | "withdrawForTreatment"
+  | "gatherForCasualty"
+  | "dragCasualty"
+  | "waitAtTreatmentPosition";
 
 export type UnitMovementStyle =
   | "formedMarch" // Normal advancing style when no blocker changes movement.
@@ -601,6 +604,28 @@ export function applyIndividualExternalMovementIntent(
     nextX === currentX && nextY === currentY ? "holdPosition" : mode;
   internal.stuckTicks[entityId] = 0;
   internal.isStuck[entityId] = 0;
+  return nextX !== currentX || nextY !== currentY;
+}
+
+/** Applies a caller-bounded shared-group delta without independently reclamping its magnitude. */
+export function applyIndividualExternalSharedMovementDelta(
+  world: WorldState,
+  store: FormationBehaviourStore,
+  entityId: number,
+  deltaX: number,
+  deltaY: number,
+  mode: MovementMode,
+): boolean {
+  const internal = asInternal(store);
+  if (world.entityCount !== internal.entityCount) throw new RangeError("External shared movement world must match formation entity count.");
+  assertEntityIdInRange(entityId, internal.entityCount);
+  if (!Number.isSafeInteger(deltaX) || !Number.isSafeInteger(deltaY)) throw new RangeError("External shared movement delta must use integer coordinates.");
+  const currentX = world.positionsX[entityId]!, currentY = world.positionsY[entityId]!;
+  const nextX = clampWorldCoordinate(currentX + deltaX, world.bounds.width);
+  const nextY = clampWorldCoordinate(currentY + deltaY, world.bounds.height);
+  world.positionsX[entityId] = nextX; world.positionsY[entityId] = nextY;
+  internal.movementMode[entityId] = nextX === currentX && nextY === currentY ? "holdPosition" : mode;
+  internal.stuckTicks[entityId] = 0; internal.isStuck[entityId] = 0;
   return nextX !== currentX || nextY !== currentY;
 }
 

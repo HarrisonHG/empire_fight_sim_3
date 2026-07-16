@@ -146,6 +146,12 @@ export interface IndividualMeleeDefenceTickResult {
   readonly rearDefenceAttempts: number;
 }
 
+export interface IndividualDefenceHandAvailabilitySource {
+  readonly entityCount: number;
+  /** Undefined means the entity is not subject to an external hand commitment. */
+  getFreeHands(entityId: number): number | undefined;
+}
+
 interface InternalIndividualMeleeDefenceStore
   extends IndividualMeleeDefenceStore {
   readonly guardReadinessByEntity: Int16Array;
@@ -314,6 +320,7 @@ export function resolveIndividualMeleeDefences(
   guardStateEventsOut: IndividualGuardStateEvent[] = [],
   eligibility?: IndividualCombatEligibilitySnapshot,
   currentTick = 0,
+  handAvailability?: IndividualDefenceHandAvailabilitySource,
 ): IndividualMeleeDefenceTickResult {
   validateStores(
     world,
@@ -330,6 +337,9 @@ export function resolveIndividualMeleeDefences(
     throw new RangeError(
       "Individual melee defence eligibility must match world entity count.",
     );
+  }
+  if (handAvailability !== undefined && handAvailability.entityCount !== world.entityCount) {
+    throw new RangeError("Defence hand availability must match world entity count.");
   }
   const internal = asInternal(defenceStore);
   recordsOut.length = 0;
@@ -351,6 +361,7 @@ export function resolveIndividualMeleeDefences(
         guardStateEventsOut,
         eligibility,
         currentTick,
+        handAvailability,
       ),
     );
   }
@@ -407,6 +418,7 @@ function resolveAttempt(
   eventsOut: IndividualGuardStateEvent[],
   eligibility: IndividualCombatEligibilitySnapshot | undefined,
   currentTick: number,
+  handAvailability: IndividualDefenceHandAvailabilitySource | undefined,
 ): IndividualMeleeDefenceRecord {
   const defenderEntityId = attempt.targetEntityId;
   const attackerEntityId = attempt.attackerEntityId;
@@ -429,11 +441,14 @@ function resolveAttempt(
     store.snapshottedActionStateByEntity[defenderEntityId]!;
   const guardStateBeforeResolution =
     getIndividualGuardState(store, defenderEntityId);
+  const externallyAvailableHands = handAvailability?.getFreeHands(defenderEntityId);
+  const availableHands = externallyAvailableHands ?? 2;
   const legalActiveDefenceExists = hasLegalActiveDefence(
     defenderProfile,
     defenderActiveWeapon,
     shieldCategory,
     shieldCarriedState,
+    availableHands,
   );
   const rearDesperateDefence =
     legalActiveDefenceExists &&
@@ -447,6 +462,7 @@ function resolveAttempt(
         shieldCarriedState,
         defenderFacing,
         incomingDirection,
+        availableHands,
       );
   const common = {
     attackerEntityId,
@@ -464,7 +480,7 @@ function resolveAttempt(
     awkwardDistance: attempt.awkwardDistance,
   };
 
-  if (!isIndividualCombatEligible(eligibility, defenderEntityId)) {
+  if (!isIndividualCombatEligible(eligibility, defenderEntityId) && externallyAvailableHands === undefined) {
     return landedRecord(common, "none", "noActiveDefence");
   }
   if (availableDefence === "none") {
@@ -578,12 +594,14 @@ function chooseAvailableDefence(
   shieldCarriedState: IndividualShieldCarriedState,
   defenderFacing: ReturnType<typeof quantizeEightDirection>,
   incomingDirection: ReturnType<typeof quantizeEightDirection>,
+  availableHands: number,
 ): Exclude<IndividualMeleeDefenceType, "none"> | "none" {
   let selected: Exclude<IndividualMeleeDefenceType, "none"> | "none" = "none";
   let selectedTier: DefenceCoverageTier = "none";
   if (
     shieldCategory === "shield" &&
     shieldCarriedState === "held" &&
+    availableHands >= 1 &&
     areEightDirectionsWithinOctants(defenderFacing, incomingDirection, 2)
   ) {
     selected = "shieldBlock";
@@ -592,6 +610,7 @@ function chooseAvailableDefence(
   if (
     shieldCategory === "buckler" &&
     shieldCarriedState === "held" &&
+    availableHands >= 1 &&
     areEightDirectionsWithinOctants(defenderFacing, incomingDirection, 1) &&
     isCoverageTierBetter("medium", selectedTier)
   ) {
@@ -600,6 +619,7 @@ function chooseAvailableDefence(
   }
   if (
     weaponCanParry(profile, activeWeapon) &&
+    availableHands >= requiredHandsForWeapon(profile) &&
     areEightDirectionsWithinOctants(defenderFacing, incomingDirection, 1)
   ) {
     const weaponTier = WEAPON_DEFENCE_COVERAGE[activeWeapon];
@@ -709,12 +729,18 @@ function hasLegalActiveDefence(
   activeWeapon: IndividualWeaponCategory,
   shieldCategory: IndividualShieldCategory,
   shieldCarriedState: IndividualShieldCarriedState,
+  availableHands: number,
 ): boolean {
   return (
-    (shieldCarriedState === "held" &&
+    (availableHands >= 1 && shieldCarriedState === "held" &&
       (shieldCategory === "shield" || shieldCategory === "buckler")) ||
-    weaponCanParry(profile, activeWeapon)
+    (availableHands >= requiredHandsForWeapon(profile) && weaponCanParry(profile, activeWeapon))
   );
+}
+
+function requiredHandsForWeapon(profile: IndividualCombatProfile): number {
+  return profile.handRequirement === "one" ? 1 :
+    profile.handRequirement === "two" || profile.handRequirement === "twoWhileFiring" ? 2 : 0;
 }
 
 function defenceCoverageTierForType(

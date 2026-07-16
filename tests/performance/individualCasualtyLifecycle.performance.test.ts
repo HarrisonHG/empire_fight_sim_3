@@ -31,6 +31,13 @@ import {
   updateIndividualMedicalDiscoveryAndWithdrawalIntents,
 } from "../../src/sim/individualMedicalReadModel";
 import { createSimulation } from "../../src/sim/simulation";
+import {
+  createCasualtyAssistanceDecisionBuffers,
+  createCasualtyDragMovementBuffers,
+  advanceCasualtyDragGroupsBeforeCombat,
+  decideIndividualCasualtyAssistance,
+  getActiveCasualtyDragGroups,
+} from "../../src/sim/individualCasualtyAssistance";
 
 describe("individual casualty lifecycle structural performance", () => {
   it.each([100, 500, 1_000, 2_000])(
@@ -377,4 +384,139 @@ describe("individual casualty lifecycle structural performance", () => {
       );
     },
   );
+
+  it.each([100, 500, 1_000, 2_000])(
+    "forms sparse drag groups from bounded local queries for %i entities",
+    (entityCount) => {
+      const half = Math.floor(entityCount / 2);
+      const simulation = createSimulation({
+        seed: 0x6d,
+        entityCount,
+        bounds: { width: entityCount * 8 + 64, height: 128 },
+        minSpeedUnitsPerTick: 1,
+        maxSpeedUnitsPerTick: 1,
+        combatSandbox: {
+          kind: "liveCombatSandbox",
+          appliedDamagePressureScale: 1,
+          units: [performanceUnit(1, 1, half, 16, half * 8, 1),
+            performanceUnit(2, 2, entityCount - half, half * 8 + 32, entityCount * 8, -1)],
+        },
+      });
+      const combat = simulation.combatSandbox!;
+      const casualtyCount = 5;
+      applyIndividualZeroHitLifecycleTransitions(
+        combat.individualCasualtyLifecycleStore,
+        combat.individualPlayerPresenceStore,
+        combat.individualCasualtyProcedureProfileStore,
+        simulation.world,
+        Array.from({ length: casualtyCount }, (_, entityId) => ({
+          entityId,
+          attackerEntityId: half,
+          previousHits: 1,
+        })),
+        1,
+      );
+      projectIndividualMedicalUrgency(
+        combat.identityStore,
+        combat.formationStore,
+        combat.individualGlobalHitStore,
+        combat.individualCasualtyLifecycleStore,
+        combat.individualCasualtyProcedureProfileStore,
+        combat.individualTraumaticWoundStore,
+        combat.individualOrdinaryParticipationSnapshot,
+        combat.individualMedicalUrgencyStore,
+      );
+      prepareIndividualMedicalLocalQueries(
+        simulation.world,
+        combat.identityStore,
+        combat.individualCasualtyLifecycleStore,
+        combat.trustedIndividualMedicalProfileStore,
+        combat.individualGenericHerbStore,
+        combat.individualTraumaticWoundStore,
+        combat.individualMedicalUrgencyStore,
+        combat.individualOrdinaryParticipationSnapshot,
+        combat.moraleMovementStates,
+        combat.individualMedicalLocalQueryStore,
+      );
+      const startedAt = performance.now();
+      const result = decideIndividualCasualtyAssistance(
+        simulation.world,
+        combat.identityStore,
+        combat.formationStore,
+        combat.individualCasualtyLifecycleStore,
+        combat.trustedIndividualMedicalProfileStore,
+        combat.individualTraumaticWoundStore,
+        combat.individualOrdinaryParticipationSnapshot,
+        combat.individualCombatActionStore,
+        combat.moraleMovementStates,
+        combat.individualMedicalLocalQueryStore,
+        combat.individualCasualtyAssistanceStore,
+        combat.casualtyDragGroupStore,
+        1,
+        createCasualtyAssistanceDecisionBuffers(),
+      );
+      const elapsedMilliseconds = performance.now() - startedAt;
+
+      expect(result.dragEligiblePatientCount).toBe(casualtyCount);
+      expect(getActiveCasualtyDragGroups(combat.casualtyDragGroupStore).length)
+        .toBe(casualtyCount);
+      expect(result.localCandidateCount).toBeLessThan(entityCount * casualtyCount);
+      const movement = advanceCasualtyDragGroupsBeforeCombat(
+        simulation.world, combat.identityStore, combat.formationStore,
+        combat.individualCasualtyLifecycleStore, combat.individualTraumaticWoundStore,
+        combat.moraleMovementStates, combat.individualCasualtyAssistanceStore,
+        combat.casualtyDragGroupStore, combat.individualDragHandCommitmentStore,
+        2, createCasualtyDragMovementBuffers(),
+      );
+      expect(movement.movedParticipantCount).toBeLessThanOrEqual(casualtyCount * 2);
+      process.stdout.write(
+        `\nCasualty assistance performance report\n${JSON.stringify({
+          entityCount,
+          casualtyCount,
+          activeDragGroups: casualtyCount,
+          localCandidateCount: result.localCandidateCount,
+          elapsedMilliseconds,
+          timingPolicy: "Structural assertions only; sparse groups and bounded prepared-grid queries.",
+        }, null, 2)}\n`,
+      );
+    },
+  );
 });
+
+function performanceUnit(
+  unitId: number,
+  factionId: number,
+  memberCount: number,
+  minX: number,
+  maxX: number,
+  headingX: -1 | 1,
+) {
+  return {
+    unitId,
+    factionId,
+    memberCount,
+    deploymentZone: { minX, maxX, minY: 64, maxY: 64 },
+    anchorX: minX,
+    anchorY: 64,
+    headingX,
+    headingY: 0,
+    spacing: 4,
+    rows: 1,
+    cols: memberCount,
+    unitSpeed: 0,
+    order: "hold" as const,
+    role: "regular" as const,
+    memberMaxStep: 1,
+    weaponCategory: "unarmed" as const,
+    weaponReachBand: "none" as const,
+    armourClass: "none" as const,
+    shieldClass: "none" as const,
+    attackIntervalTicks: 20,
+    maxDamageCapacity: 1_000_000,
+    casualtyProcedure: {
+      procedureKind: "citizen" as const,
+      deathCountPolicy: { kind: "normalFortitude" as const },
+    },
+    medicalProfile: { hasChirurgeon: true, hasPhysick: true },
+  };
+}
