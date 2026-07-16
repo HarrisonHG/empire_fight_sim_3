@@ -94,6 +94,47 @@ export interface IndividualMedicalUrgencyInspection {
   readonly withdrawalThreatCount: number;
 }
 
+export interface IndividualAuthoritativeMedicalUrgency {
+  readonly urgencyKind: IndividualMedicalUrgencyKind;
+  readonly urgencyPriority: number;
+}
+
+export function getAuthoritativeIndividualMedicalUrgency(
+  formationStore: FormationBehaviourStore,
+  hitStore: IndividualGlobalHitStore,
+  lifecycleStore: IndividualCasualtyLifecycleStore,
+  traumaStore: IndividualTraumaticWoundStore,
+  entityId: number,
+): IndividualAuthoritativeMedicalUrgency {
+  validateMatchingEntityCounts(formationStore.entityCount, hitStore,
+    lifecycleStore, traumaStore);
+  assertEntityId(entityId, formationStore.entityCount);
+  const lifecycle = getIndividualCharacterLifecycleState(lifecycleStore, entityId);
+  const currentHits = getIndividualCurrentGlobalHits(hitStore, entityId);
+  if (lifecycle === "dying") {
+    return currentHits === 0
+      ? { urgencyKind: "dying", urgencyPriority: 500 }
+      : { urgencyKind: "none", urgencyPriority: 0 };
+  }
+  if (lifecycle !== "active") return { urgencyKind: "none", urgencyPriority: 0 };
+  if (getIndividualTraumaticWoundInspection(traumaStore, entityId).state === "active") {
+    return { urgencyKind: "traumaticWound", urgencyPriority: 400 };
+  }
+  const maximumHits = getIndividualMaximumGlobalHits(hitStore, entityId);
+  if (currentHits <= 0) return { urgencyKind: "none", urgencyPriority: 0 };
+  const roleAdjustment = lowHitRoleAdjustment(formationStore, entityId);
+  if (currentHits === 1 && maximumHits > 1) {
+    return { urgencyKind: "dangerouslyLowHits", urgencyPriority: 300 + roleAdjustment };
+  }
+  if (currentHits * 2 < maximumHits) {
+    return { urgencyKind: "belowHalfHits", urgencyPriority: 200 + roleAdjustment };
+  }
+  if (currentHits < maximumHits) {
+    return { urgencyKind: "comfortableMissingHits", urgencyPriority: 100 + roleAdjustment };
+  }
+  return { urgencyKind: "none", urgencyPriority: 0 };
+}
+
 export interface IndividualMedicalLocalQueryStore {
   readonly entityCount: number;
   readonly bounds: SimulationBounds;

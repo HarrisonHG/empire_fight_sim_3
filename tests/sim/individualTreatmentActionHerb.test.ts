@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { getIndividualCharacterLifecycleState, getIndividualPlayerPresenceState } from "../../src/sim/individualCasualtyLifecycle";
+import {
+  applyIndividualZeroHitLifecycleTransitions,
+  getIndividualCharacterLifecycleState,
+  getIndividualPlayerPresenceState,
+} from "../../src/sim/individualCasualtyLifecycle";
+import { initializeIndividualDeathCountsFromZeroHitTransitions } from "../../src/sim/individualDeathCount";
 import { applyIndividualLandedHits, getIndividualCurrentGlobalHits, getIndividualMaximumGlobalHits } from "../../src/sim/individualGlobalHits";
-import { getIndividualMedicalClaimInspection } from "../../src/sim/individualMedicalClaims";
+import { restoreIndividualGlobalHits } from "../../src/sim/individualGlobalHits";
+import {
+  getIndividualMedicalClaimInspection,
+  reassessIndividualMedicalClaimsAtActionBoundaries,
+} from "../../src/sim/individualMedicalClaims";
+import { prepareIndividualMedicalLocalQueries } from "../../src/sim/individualMedicalReadModel";
 import {
   getIndividualGenericHerbInspection,
   getIndividualGenericHerbReservationInspection,
@@ -149,6 +159,12 @@ describe("Milestone 6G-2a herb-backed Physick treatment", () => {
       progressTicksLost: 1,
       releasedGenericHerbs: 1,
     });
+    expect(combat.individualTreatmentActionResult.startedRecords).toHaveLength(0);
+    expect(combat.individualTreatmentActionResult.reassessmentRequests[0]).toMatchObject({
+      healerEntityId: 1,
+      previousPatientEntityId: 0,
+      boundary: "interrupted",
+    });
     expect(getIndividualGenericHerbInspection(
       combat.individualGenericHerbStore, 1,
     )).toEqual({ current: 1, maximum: 1, reserved: 0 });
@@ -198,7 +214,7 @@ describe("Milestone 6G-2a herb-backed Physick treatment", () => {
     ).patientEntityId).toBe(0);
   });
 
-  it("continues the current patient before a nearby alternative after completion", () => {
+  it("keeps an equal-priority current patient at the boundary without restarting in the completion call", () => {
     const simulation = createReassessmentSimulation();
     const combat = requireCombat(simulation);
     const patientMaximum = getIndividualMaximumGlobalHits(
@@ -215,11 +231,11 @@ describe("Milestone 6G-2a herb-backed Physick treatment", () => {
       patientEntityId: 0,
       consumedGenericHerbs: 1,
     });
-    expect(combat.individualTreatmentActionResult.startedRecords[0]).toMatchObject({
+    expect(combat.individualTreatmentActionResult.startedRecords).toHaveLength(0);
+    expect(combat.individualTreatmentActionResult.reassessmentRequests[0]).toMatchObject({
       healerEntityId: 2,
-      patientEntityId: 0,
-      kind: "physickRestoreGlobalHit",
-      progressTicks: 0,
+      previousPatientEntityId: 0,
+      boundary: "completed",
     });
     expect(getIndividualMedicalClaimInspection(
       combat.individualMedicalClaimStore, 2,
@@ -229,7 +245,118 @@ describe("Milestone 6G-2a herb-backed Physick treatment", () => {
     ).physickEntityId).toBe(-1);
     expect(getIndividualGenericHerbInspection(
       combat.individualGenericHerbStore, 2,
+    )).toEqual({ current: 1, maximum: 2, reserved: 0 });
+
+    advanceSimulationOneTick(simulation);
+    expect(combat.individualTreatmentActionResult.startedRecords[0]).toMatchObject({
+      healerEntityId: 2,
+      patientEntityId: 0,
+      kind: "physickRestoreGlobalHit",
+      progressTicks: 0,
+    });
+    expect(getIndividualGenericHerbInspection(
+      combat.individualGenericHerbStore, 2,
     )).toEqual({ current: 1, maximum: 2, reserved: 1 });
+  });
+
+  it("assigns a nearby newly dying patient after living-hit completion and reserves no follow-up herb", () => {
+    const simulation = createReassessmentSimulation();
+    const combat = requireCombat(simulation);
+    applyHitLosses(combat, 0, 1);
+    advanceUntilActionStarts(simulation, "physickRestoreGlobalHit", 2, 0);
+    advanceProgressTicks(simulation, 599);
+    downPatient(simulation, 1, simulation.tick);
+
+    advanceSimulationOneTick(simulation);
+
+    expect(combat.individualTreatmentActionResult.completedRecords[0]).toMatchObject({
+      kind: "physickRestoreGlobalHit",
+      consumedGenericHerbs: 1,
+    });
+    expect(combat.individualTreatmentActionResult.startedRecords).toHaveLength(0);
+    expect(getIndividualMedicalClaimInspection(
+      combat.individualMedicalClaimStore, 2,
+    ).patientEntityId).toBe(1);
+    expect(getIndividualMedicalClaimInspection(
+      combat.individualMedicalClaimStore, 1,
+    ).need).toBe("dying");
+    expect(getIndividualGenericHerbInspection(
+      combat.individualGenericHerbStore, 2,
+    )).toEqual({ current: 1, maximum: 2, reserved: 0 });
+
+    advanceSimulationOneTick(simulation);
+    expect(combat.individualTreatmentActionResult.startedRecords[0]).toMatchObject({
+      kind: "chirurgeonDying",
+      patientEntityId: 1,
+      reservedGenericHerbs: 0,
+      progressTicks: 0,
+    });
+  });
+
+  it("lets a nearby dying patient outrank post-trauma missing hits using post-completion state", () => {
+    const simulation = createReassessmentSimulation();
+    const combat = requireCombat(simulation);
+    applyHitLosses(combat, 0, 2);
+    applyTrauma(combat, 0, 1);
+    advanceUntilActionStarts(simulation, "physickTraumaticWound", 2, 0);
+    advanceProgressTicks(simulation, 599);
+    downPatient(simulation, 1, simulation.tick);
+
+    advanceSimulationOneTick(simulation);
+
+    expect(combat.individualTreatmentActionResult.completedRecords[0]).toMatchObject({
+      kind: "physickTraumaticWound",
+      traumaCleared: true,
+      consumedGenericHerbs: 1,
+    });
+    expect(getIndividualCurrentGlobalHits(combat.individualGlobalHitStore, 0))
+      .toBeLessThan(getIndividualMaximumGlobalHits(combat.individualGlobalHitStore, 0));
+    expect(getIndividualMedicalClaimInspection(
+      combat.individualMedicalClaimStore, 2,
+    ).patientEntityId).toBe(1);
+    expect(getIndividualMedicalClaimInspection(
+      combat.individualMedicalClaimStore, 1,
+    ).need).toBe("dying");
+    expect(getIndividualGenericHerbInspection(
+      combat.individualGenericHerbStore, 2,
+    )).toEqual({ current: 1, maximum: 2, reserved: 0 });
+  });
+
+  it("releases exactly once and reassigns only at an interruption boundary", () => {
+    const simulation = createReassessmentSimulation();
+    const combat = requireCombat(simulation);
+    applyHitLosses(combat, 0, 1);
+    advanceUntilActionStarts(simulation, "physickRestoreGlobalHit", 2, 0);
+    advanceSimulationOneTick(simulation);
+    downPatient(simulation, 1, simulation.tick);
+    simulation.world.positionsX[2] = simulation.world.positionsX[0]! +
+      INDIVIDUAL_TREATMENT_TOUCH_RANGE + 1;
+
+    advanceSimulationOneTick(simulation);
+
+    expect(combat.individualTreatmentActionResult.interruptedRecords[0]).toMatchObject({
+      kind: "physickRestoreGlobalHit",
+      reason: "rangeLost",
+      releasedGenericHerbs: 1,
+    });
+    expect(combat.individualTreatmentActionResult.startedRecords).toHaveLength(0);
+    expect(getIndividualMedicalClaimInspection(
+      combat.individualMedicalClaimStore, 2,
+    ).patientEntityId).toBe(1);
+    expect(getIndividualGenericHerbInspection(
+      combat.individualGenericHerbStore, 2,
+    )).toEqual({ current: 2, maximum: 2, reserved: 0 });
+  });
+
+  it("produces identical claims when local candidate construction is reversed", () => {
+    const normal = createCandidateOrderSimulation();
+    const reversed = createCandidateOrderSimulation();
+
+    const normalClaim = runSyntheticBoundaryReassessment(normal, false);
+    const reversedClaim = runSyntheticBoundaryReassessment(reversed, true);
+
+    expect(normalClaim).toBe(1);
+    expect(reversedClaim).toBe(normalClaim);
   });
 
   it("does not assign herb-dependent or self claims to a zero-herb Physick", () => {
@@ -349,6 +476,36 @@ function applyHitLosses(
   );
 }
 
+function downPatient(
+  simulation: SimulationState,
+  entityId: number,
+  tick: number,
+): void {
+  const combat = requireCombat(simulation);
+  const currentHits = getIndividualCurrentGlobalHits(
+    combat.individualGlobalHitStore, entityId,
+  );
+  const hitResult = applyIndividualLandedHits(
+    combat.individualGlobalHitStore,
+    Array.from({ length: currentHits }, () => landedRecord(entityId)),
+  );
+  const transitions = applyIndividualZeroHitLifecycleTransitions(
+    combat.individualCasualtyLifecycleStore,
+    combat.individualPlayerPresenceStore,
+    combat.individualCasualtyProcedureProfileStore,
+    simulation.world,
+    hitResult.zeroHitEvents,
+    tick,
+  );
+  initializeIndividualDeathCountsFromZeroHitTransitions(
+    combat.individualDeathCountStore,
+    combat.individualCasualtyLifecycleStore,
+    combat.individualCasualtyProcedureProfileStore,
+    combat.individualProfileStore,
+    transitions.transitions,
+  );
+}
+
 function applyTrauma(
   combat: CombatSandboxSimulationState,
   entityId: number,
@@ -433,7 +590,7 @@ function createReassessmentSimulation(): SimulationState {
       appliedDamagePressureScale: 1,
       units: [
         unit(1, 1, 100, "heavy"),
-        unit(2, 1, 106, "none"),
+        unit(2, 1, 106, "heavy"),
         {
           ...unit(3, 1, 104, "none"),
           medicalProfile: {
@@ -446,6 +603,113 @@ function createReassessmentSimulation(): SimulationState {
       ],
     },
   });
+}
+
+function createCandidateOrderSimulation(): SimulationState {
+  const simulation = createSimulation({
+    seed: 0x6e_2c,
+    entityCount: 5,
+    bounds: { width: 400, height: 120 },
+    minSpeedUnitsPerTick: 1,
+    maxSpeedUnitsPerTick: 1,
+    combatSandbox: {
+      kind: "liveCombatSandbox",
+      appliedDamagePressureScale: 1,
+      units: [
+        unit(1, 1, 100, "heavy"),
+        unit(2, 1, 140, "heavy"),
+        unit(3, 1, 160, "heavy"),
+        {
+          ...unit(4, 1, 150, "none"),
+          medicalProfile: {
+            hasChirurgeon: true,
+            hasPhysick: true,
+            startingGenericHerbs: 2,
+          },
+        },
+        unit(5, 2, 380, "none"),
+      ],
+    },
+  });
+  const combat = requireCombat(simulation);
+  applyHitLosses(combat, 0, 1);
+  for (let count = 0; count < 5; count += 1) {
+    advanceSimulationOneTick(simulation);
+    if (getIndividualMedicalClaimInspection(
+      combat.individualMedicalClaimStore, 3,
+    ).patientEntityId === 0) return simulation;
+  }
+  throw new Error("Expected initial current-patient claim.");
+}
+
+function runSyntheticBoundaryReassessment(
+  simulation: SimulationState,
+  reverseConstruction: boolean,
+): number {
+  const combat = requireCombat(simulation);
+  restoreIndividualGlobalHits(
+    combat.individualGlobalHitStore,
+    combat.individualCasualtyLifecycleStore,
+    0,
+    1,
+    "physickTreatment",
+  );
+  applyHitLosses(combat, 1, 1);
+  applyHitLosses(combat, 2, 1);
+  const savedIds = simulation.world.ids.slice();
+  const savedX = simulation.world.positionsX.slice();
+  const savedY = simulation.world.positionsY.slice();
+  if (reverseConstruction) {
+    for (let index = 0; index < simulation.world.entityCount; index += 1) {
+      const entityId = savedIds[simulation.world.entityCount - index - 1]!;
+      simulation.world.ids[index] = entityId;
+      simulation.world.positionsX[index] = savedX[entityId]!;
+      simulation.world.positionsY[index] = savedY[entityId]!;
+    }
+  }
+  prepareIndividualMedicalLocalQueries(
+    simulation.world,
+    combat.identityStore,
+    combat.individualCasualtyLifecycleStore,
+    combat.trustedIndividualMedicalProfileStore,
+    combat.individualGenericHerbStore,
+    combat.individualTraumaticWoundStore,
+    combat.individualMedicalUrgencyStore,
+    combat.individualOrdinaryParticipationSnapshot,
+    combat.moraleMovementStates,
+    combat.individualMedicalLocalQueryStore,
+  );
+  if (reverseConstruction) {
+    simulation.world.ids.set(savedIds);
+    simulation.world.positionsX.set(savedX);
+    simulation.world.positionsY.set(savedY);
+  }
+  reassessIndividualMedicalClaimsAtActionBoundaries(
+    simulation.world,
+    combat.identityStore,
+    combat.formationStore,
+    combat.individualCasualtyLifecycleStore,
+    combat.trustedIndividualMedicalProfileStore,
+    combat.individualGenericHerbStore,
+    combat.individualTraumaticWoundStore,
+    combat.individualGlobalHitStore,
+    combat.individualCombatActionStore,
+    combat.moraleMovementStates,
+    combat.individualMedicalLocalQueryStore,
+    combat.individualCasualtyAssistanceStore,
+    combat.individualMedicalClaimStore,
+    [{
+      actionId: 100,
+      healerEntityId: 3,
+      previousPatientEntityId: 0,
+      tick: simulation.tick,
+      boundary: "completed",
+    }],
+    simulation.tick,
+  );
+  return getIndividualMedicalClaimInspection(
+    combat.individualMedicalClaimStore, 3,
+  ).patientEntityId;
 }
 
 function unit(

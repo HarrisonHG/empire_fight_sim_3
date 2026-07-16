@@ -101,6 +101,7 @@ interface InternalTreatmentActionStore extends IndividualTreatmentActionStore {
   readonly completedCountByEntity: Uint32Array;
   readonly restoredHitCountByEntity: Uint32Array;
   readonly clearedTraumaCountByEntity: Uint32Array;
+  readonly actionBoundaryTickByHealer: Float64Array;
   nextActionId: number;
 }
 
@@ -132,6 +133,14 @@ export interface IndividualTreatmentCompletedRecord extends IndividualTreatmentA
   readonly consumedGenericHerbs: 0 | 1;
 }
 
+export interface IndividualTreatmentReassessmentRequest {
+  readonly actionId: number;
+  readonly healerEntityId: number;
+  readonly previousPatientEntityId: number;
+  readonly tick: number;
+  readonly boundary: "completed" | "interrupted";
+}
+
 export interface IndividualTreatmentHistoryInspection {
   readonly startedCount: number;
   readonly interruptedCount: number;
@@ -144,11 +153,13 @@ export interface IndividualTreatmentActionBuffers {
   readonly startedRecords: IndividualTreatmentStartedRecord[];
   readonly interruptedRecords: IndividualTreatmentInterruptedRecord[];
   readonly completedRecords: IndividualTreatmentCompletedRecord[];
+  readonly reassessmentRequests: IndividualTreatmentReassessmentRequest[];
 }
 export interface IndividualTreatmentActionResult {
   readonly startedRecords: readonly IndividualTreatmentStartedRecord[];
   readonly interruptedRecords: readonly IndividualTreatmentInterruptedRecord[];
   readonly completedRecords: readonly IndividualTreatmentCompletedRecord[];
+  readonly reassessmentRequests: readonly IndividualTreatmentReassessmentRequest[];
   readonly activeActionCount: number;
   readonly progressedActionCount: number;
 }
@@ -161,6 +172,8 @@ export function createIndividualTreatmentActionStore(entityCount: number): Indiv
   const actionIndexByPatient = new Int32Array(entityCount); actionIndexByPatient.fill(NONE);
   const attackAttemptTickByEntity = new Float64Array(entityCount); attackAttemptTickByEntity.fill(NONE);
   const acceptedHitTickByEntity = new Float64Array(entityCount); acceptedHitTickByEntity.fill(NONE);
+  const actionBoundaryTickByHealer = new Float64Array(entityCount);
+  actionBoundaryTickByHealer.fill(NONE);
   return {
     entityCount,
     activeActions: [],
@@ -173,12 +186,18 @@ export function createIndividualTreatmentActionStore(entityCount: number): Indiv
     completedCountByEntity: new Uint32Array(entityCount),
     restoredHitCountByEntity: new Uint32Array(entityCount),
     clearedTraumaCountByEntity: new Uint32Array(entityCount),
+    actionBoundaryTickByHealer,
     nextActionId: 0,
   } as InternalTreatmentActionStore;
 }
 
 export function createIndividualTreatmentActionBuffers(): IndividualTreatmentActionBuffers {
-  return { startedRecords: [], interruptedRecords: [], completedRecords: [] };
+  return {
+    startedRecords: [],
+    interruptedRecords: [],
+    completedRecords: [],
+    reassessmentRequests: [],
+  };
 }
 
 export function getIndividualTreatmentActionInspection(
@@ -264,6 +283,7 @@ export function advanceIndividualTreatmentActionsOneTick(
   buffers.startedRecords.length = 0;
   buffers.interruptedRecords.length = 0;
   buffers.completedRecords.length = 0;
+  buffers.reassessmentRequests.length = 0;
   prepareInterruptionEvidence(internal, attackAttempts, gateDecisions, tick);
   let progressedActionCount = 0;
 
@@ -275,7 +295,7 @@ export function advanceIndividualTreatmentActionsOneTick(
       trauma, combatActions, morale, hits, claims, internal, action, tick);
     if (reason !== undefined) {
       interruptAction(lifecycle, deathCounts, herbs, claims, internal, index, action, tick,
-        reason, buffers.interruptedRecords);
+        reason, buffers.interruptedRecords, buffers.reassessmentRequests);
       continue;
     }
     action.lastProcessedTick = tick;
@@ -286,12 +306,13 @@ export function advanceIndividualTreatmentActionsOneTick(
       continue;
     }
     completeAction(lifecycle, presence, deathCounts, hits, herbs, trauma, claims, assistance, internal, index,
-      action, tick, buffers.completedRecords);
+      action, tick, buffers.completedRecords, buffers.reassessmentRequests);
   }
 
   for (let healerEntityId = 0; healerEntityId < internal.entityCount; healerEntityId += 1) {
     if (internal.actionIndexByHealer[healerEntityId] !== NONE ||
-      internal.actionIndexByPatient[healerEntityId] !== NONE) continue;
+      internal.actionIndexByPatient[healerEntityId] !== NONE ||
+      internal.actionBoundaryTickByHealer[healerEntityId] === tick) continue;
     const patientEntityId = getIndividualMedicalClaimedPatientEntityId(claims, healerEntityId);
     if (patientEntityId === NONE || internal.actionIndexByPatient[patientEntityId] !== NONE ||
       !canStartAction(world, identity, lifecycle, presence, profiles, herbs,
@@ -328,6 +349,7 @@ export function advanceIndividualTreatmentActionsOneTick(
     startedRecords: buffers.startedRecords,
     interruptedRecords: buffers.interruptedRecords,
     completedRecords: buffers.completedRecords,
+    reassessmentRequests: buffers.reassessmentRequests,
     activeActionCount: internal.activeActions.length,
     progressedActionCount,
   };
@@ -420,6 +442,7 @@ function interruptAction(
   index: number, action: ActiveTreatmentAction, tick: number,
   reason: IndividualTreatmentInterruptionReason,
   out: IndividualTreatmentInterruptedRecord[],
+  reassessmentOut: IndividualTreatmentReassessmentRequest[],
 ): void {
   if (action.kind === "chirurgeonDying") {
     if (getIndividualCharacterLifecycleState(lifecycle, action.patientEntityId) === "dying") {
@@ -440,6 +463,14 @@ function interruptAction(
     "treatment interrupted count");
   out.push({ ...inspect(action), tick, reason, progressTicksLost: action.progressTicks,
     releasedGenericHerbs: action.reservedGenericHerbs });
+  store.actionBoundaryTickByHealer[action.healerEntityId] = tick;
+  reassessmentOut.push({
+    actionId: action.actionId,
+    healerEntityId: action.healerEntityId,
+    previousPatientEntityId: action.patientEntityId,
+    tick,
+    boundary: "interrupted",
+  });
   removeAction(store, index);
 }
 
@@ -451,6 +482,7 @@ function completeAction(
   store: InternalTreatmentActionStore,
   index: number, action: ActiveTreatmentAction, tick: number,
   out: IndividualTreatmentCompletedRecord[],
+  reassessmentOut: IndividualTreatmentReassessmentRequest[],
 ): void {
   let hitRestoration: IndividualGlobalHitRestorationRecord | undefined;
   let lifecycleRestoration: IndividualDyingRestorationRecord | undefined;
@@ -498,6 +530,14 @@ function completeAction(
     ...(lifecycleRestoration === undefined ? {} : { lifecycleRestoration }),
     traumaCleared,
     consumedGenericHerbs: action.reservedGenericHerbs,
+  });
+  store.actionBoundaryTickByHealer[action.healerEntityId] = tick;
+  reassessmentOut.push({
+    actionId: action.actionId,
+    healerEntityId: action.healerEntityId,
+    previousPatientEntityId: action.patientEntityId,
+    tick,
+    boundary: "completed",
   });
   removeAction(store, index);
 }
@@ -608,6 +648,7 @@ function sortRecords(buffers: IndividualTreatmentActionBuffers): void {
   buffers.startedRecords.sort(compare);
   buffers.interruptedRecords.sort(compare);
   buffers.completedRecords.sort(compare);
+  buffers.reassessmentRequests.sort(compare);
 }
 
 function asInternal(store: IndividualTreatmentActionStore): InternalTreatmentActionStore {

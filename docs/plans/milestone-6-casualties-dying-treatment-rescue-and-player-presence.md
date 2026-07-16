@@ -1285,7 +1285,7 @@ No limb-disability treatment, active CLEAVE/IMPALE source, VENOM, WEAKNESS, poti
 
 ### Purpose
 
-Extend the accepted 6G-2a treatment and finite-herb boundary to disabled-limb restoration only when the authoritative limb-disability system is ready.
+Complete the Milestone 6 treatment boundary by extending accepted 6G-2a treatment and finite-herb behaviour to disabled-limb restoration. Milestone 6G-2b remains part of Milestone 6; its limb-disability sources may use explicit test/runtime hooks until Milestone 13 supplies authoritative CLEAVE/IMPALE integration.
 
 ### Deliver
 

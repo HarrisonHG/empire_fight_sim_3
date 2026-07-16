@@ -91,6 +91,7 @@ import {
   hasIndividualMedicalPatientClaim,
   getIndividualMedicalClaimInspection,
   projectIndividualMedicalClaimCommitmentOrdinaryParticipation,
+  reassessIndividualMedicalClaimsAtActionBoundaries,
 } from "./individualMedicalClaims";
 import {
   advanceIndividualTreatmentActionsOneTick,
@@ -715,6 +716,7 @@ function createCombatSandbox(
       startedRecords: individualTreatmentActionBuffers.startedRecords,
       interruptedRecords: individualTreatmentActionBuffers.interruptedRecords,
       completedRecords: individualTreatmentActionBuffers.completedRecords,
+      reassessmentRequests: individualTreatmentActionBuffers.reassessmentRequests,
       activeActionCount: 0,
       progressedActionCount: 0,
     },
@@ -1475,6 +1477,25 @@ export function advanceCombatSandboxOneTick(
         combatSandbox.individualTreatmentActionStore,
         combatSandbox.individualTreatmentActionBuffers,
       );
+    if (combatSandbox.individualTreatmentActionResult.reassessmentRequests.length > 0) {
+      reassessIndividualMedicalClaimsAtActionBoundaries(
+        world,
+        combatSandbox.identityStore,
+        combatSandbox.formationStore,
+        combatSandbox.individualCasualtyLifecycleStore,
+        combatSandbox.trustedIndividualMedicalProfileStore,
+        combatSandbox.individualGenericHerbStore,
+        combatSandbox.individualTraumaticWoundStore,
+        combatSandbox.individualGlobalHitStore,
+        combatSandbox.individualCombatActionStore,
+        combatSandbox.moraleMovementStates,
+        combatSandbox.individualMedicalLocalQueryStore,
+        combatSandbox.individualCasualtyAssistanceStore,
+        combatSandbox.individualMedicalClaimStore,
+        combatSandbox.individualTreatmentActionResult.reassessmentRequests,
+        tick,
+      );
+    }
     advanceIndividualDeathCountsOneTick(
       combatSandbox.individualDeathCountStore,
       combatSandbox.individualCasualtyLifecycleStore,
