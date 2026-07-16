@@ -66,7 +66,7 @@ describe("trusted individual medical runtime data", () => {
 });
 
 describe("individual traumatic wounds", () => {
-  it("uses a keyed citizen-only roll, does not stack, and may recur after clear", () => {
+  it("does not recur when the same successful opportunity is replayed after clear", () => {
     const procedures = createProcedures();
     const store = createIndividualTraumaticWoundStore(2);
     const battleSeed = 0x6c_01;
@@ -93,22 +93,77 @@ describe("individual traumatic wounds", () => {
       triggerKind: "zeroHit",
       episodeCount: 1,
     });
-
+    expect(clearIndividualTraumaticWound(store, 0)).toBe(true);
     expect(resolveIndividualTraumaticWoundOpportunities(
       battleSeed,
       procedures,
       store,
-      [{ ...zeroHit, tick: zeroHit.tick + 1 }],
+      [zeroHit],
       out,
     )).toMatchObject({ rollCount: 0, appliedCount: 0 });
-    expect(getIndividualTraumaticWoundInspection(store, 0).episodeCount).toBe(1);
+    expect(getIndividualTraumaticWoundInspection(store, 0)).toMatchObject({
+      state: "none",
+      episodeCount: 1,
+    });
+  });
 
-    expect(clearIndividualTraumaticWound(store, 0)).toBe(true);
+  it("does not reroll failed opportunities", () => {
+    const procedures = createProcedures();
+    const store = createIndividualTraumaticWoundStore(2);
+    const opportunity = findFailedOpportunity(91, 0, 1, "zeroHit");
+
+    expect(resolveIndividualTraumaticWoundOpportunities(
+      91,
+      procedures,
+      store,
+      [opportunity],
+    )).toMatchObject({ rollCount: 1, appliedCount: 0 });
+    expect(resolveIndividualTraumaticWoundOpportunities(
+      91,
+      procedures,
+      store,
+      [opportunity],
+    )).toMatchObject({ rollCount: 0, appliedCount: 0 });
+  });
+
+  it("marks opportunities received while active and allows only a newer event after clear", () => {
+    const procedures = createProcedures();
+    const store = createIndividualTraumaticWoundStore(2);
+    const battleSeed = 0x6c_02;
+    const first = findSuccessfulOpportunity(battleSeed, 0, 1, "zeroHit");
+    resolveIndividualTraumaticWoundOpportunities(
+      battleSeed,
+      procedures,
+      store,
+      [first],
+    );
+    const whileActive = findSuccessfulOpportunity(
+      battleSeed,
+      0,
+      1,
+      "limbCleave",
+      first.tick + 1,
+    );
+    expect(resolveIndividualTraumaticWoundOpportunities(
+      battleSeed,
+      procedures,
+      store,
+      [whileActive],
+    )).toMatchObject({ rollCount: 0, appliedCount: 0 });
+
+    clearIndividualTraumaticWound(store, 0);
+    expect(resolveIndividualTraumaticWoundOpportunities(
+      battleSeed,
+      procedures,
+      store,
+      [whileActive],
+    )).toMatchObject({ rollCount: 0, appliedCount: 0 });
     const limbCleave = findSuccessfulOpportunity(
       battleSeed,
       0,
       1,
       "limbCleave",
+      whileActive.tick + 1,
     );
     const limbBoundary = createLimbCleaveTraumaticWoundOpportunity(
       0,
@@ -120,7 +175,6 @@ describe("individual traumatic wounds", () => {
       procedures,
       store,
       [limbBoundary],
-      out,
     );
     expect(getIndividualTraumaticWoundInspection(store, 0)).toEqual({
       state: "active",
@@ -129,6 +183,78 @@ describe("individual traumatic wounds", () => {
       latestAttackerEntityId: 1,
       latestTriggerKind: "limbCleave",
     });
+  });
+
+  it("stops rolling later same-batch opportunities after the first canonical success", () => {
+    const procedures = createProcedures();
+    const store = createIndividualTraumaticWoundStore(2);
+    const battleSeed = 0x6c_03;
+    const success = findSuccessfulOpportunity(battleSeed, 0, 1, "zeroHit");
+    const later = findFailedOpportunity(
+      battleSeed,
+      0,
+      1,
+      "limbCleave",
+      success.tick + 1,
+    );
+    const result = resolveIndividualTraumaticWoundOpportunities(
+      battleSeed,
+      procedures,
+      store,
+      [later, success],
+    );
+
+    expect(result).toMatchObject({ rollCount: 1, appliedCount: 1 });
+    expect(result.records[0]).toMatchObject({
+      tick: success.tick,
+      triggerKind: "zeroHit",
+    });
+  });
+
+  it("is identical for reversed opportunity input and reuses caller output", () => {
+    const procedures = createProcedures();
+    const battleSeed = 0x6c_04;
+    const failed = findFailedOpportunity(battleSeed, 0, 1, "zeroHit");
+    const success = findSuccessfulOpportunity(
+      battleSeed,
+      0,
+      1,
+      "limbCleave",
+      failed.tick + 1,
+    );
+    const later = findFailedOpportunity(
+      battleSeed,
+      0,
+      1,
+      "zeroHit",
+      success.tick + 1,
+    );
+    const forwardOut: import("../../src/sim/individualTraumaticWound").IndividualTraumaticWoundAppliedRecord[] = [];
+    const reverseOut: import("../../src/sim/individualTraumaticWound").IndividualTraumaticWoundAppliedRecord[] = [];
+    const forwardStore = createIndividualTraumaticWoundStore(2);
+    const reverseStore = createIndividualTraumaticWoundStore(2);
+    const forward = resolveIndividualTraumaticWoundOpportunities(
+      battleSeed,
+      procedures,
+      forwardStore,
+      [failed, success, later],
+      forwardOut,
+    );
+    const reverse = resolveIndividualTraumaticWoundOpportunities(
+      battleSeed,
+      procedures,
+      reverseStore,
+      [later, success, failed],
+      reverseOut,
+    );
+
+    expect(forward.records).toBe(forwardOut);
+    expect(reverse.records).toBe(reverseOut);
+    expect(reverse.records).toEqual(forward.records);
+    expect(reverse.rollCount).toBe(forward.rollCount);
+    expect(getIndividualTraumaticWoundInspection(reverseStore, 0)).toEqual(
+      getIndividualTraumaticWoundInspection(forwardStore, 0),
+    );
   });
 
   it("does not roll for barbarians and is stable for identical keyed identity", () => {
@@ -143,6 +269,12 @@ describe("individual traumatic wounds", () => {
     expect(calculateTraumaticWoundOpportunityRoll(123, opportunity)).toBe(
       calculateTraumaticWoundOpportunityRoll(123, { ...opportunity }),
     );
+    expect(resolveIndividualTraumaticWoundOpportunities(
+      123,
+      procedures,
+      store,
+      [opportunity],
+    )).toMatchObject({ opportunityCount: 1, rollCount: 0, appliedCount: 0 });
     expect(resolveIndividualTraumaticWoundOpportunities(
       123,
       procedures,
@@ -179,8 +311,9 @@ function findSuccessfulOpportunity(
   targetEntityId: number,
   attackerEntityId: number,
   triggerKind: IndividualTraumaticWoundOpportunity["triggerKind"],
+  startTick = 0,
 ): IndividualTraumaticWoundOpportunity {
-  for (let tick = 0; tick < 10_000; tick += 1) {
+  for (let tick = startTick; tick < startTick + 10_000; tick += 1) {
     const opportunity = {
       targetEntityId,
       attackerEntityId,
@@ -192,4 +325,20 @@ function findSuccessfulOpportunity(
     }
   }
   throw new Error("Expected a successful deterministic trauma opportunity.");
+}
+
+function findFailedOpportunity(
+  battleSeed: number,
+  targetEntityId: number,
+  attackerEntityId: number,
+  triggerKind: IndividualTraumaticWoundOpportunity["triggerKind"],
+  startTick = 0,
+): IndividualTraumaticWoundOpportunity {
+  for (let tick = startTick; tick < startTick + 10_000; tick += 1) {
+    const opportunity = { targetEntityId, attackerEntityId, tick, triggerKind };
+    if (calculateTraumaticWoundOpportunityRoll(battleSeed, opportunity) >= 100) {
+      return opportunity;
+    }
+  }
+  throw new Error("Expected a failed deterministic trauma opportunity.");
 }

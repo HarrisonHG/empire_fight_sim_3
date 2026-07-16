@@ -24,11 +24,10 @@ interface InternalIndividualTraumaticWoundStore
   readonly latestEpisodeTickByEntity: Float64Array;
   readonly latestAttackerByEntity: Float64Array;
   readonly latestTriggerKindByEntity: Uint8Array;
-  readonly candidatePresentByEntity: Uint8Array;
-  readonly candidateTickByEntity: Float64Array;
-  readonly candidateAttackerByEntity: Float64Array;
-  readonly candidateTriggerKindByEntity: Uint8Array;
-  readonly candidateRollByEntity: Uint16Array;
+  readonly latestProcessedTickByEntity: Float64Array;
+  readonly latestProcessedAttackerByEntity: Float64Array;
+  readonly latestProcessedTriggerKindByEntity: Uint8Array;
+  readonly orderedOpportunityBuffer: IndividualTraumaticWoundOpportunity[];
 }
 
 export interface IndividualTraumaticWoundInspection {
@@ -64,8 +63,12 @@ export function createIndividualTraumaticWoundStore(
   assertPositiveSafeInteger(entityCount, "entityCount");
   const latestEpisodeTickByEntity = new Float64Array(entityCount);
   const latestAttackerByEntity = new Float64Array(entityCount);
+  const latestProcessedTickByEntity = new Float64Array(entityCount);
+  const latestProcessedAttackerByEntity = new Float64Array(entityCount);
   latestEpisodeTickByEntity.fill(-1);
   latestAttackerByEntity.fill(-1);
+  latestProcessedTickByEntity.fill(-1);
+  latestProcessedAttackerByEntity.fill(-1);
   return {
     entityCount,
     stateByEntity: new Uint8Array(entityCount),
@@ -73,11 +76,10 @@ export function createIndividualTraumaticWoundStore(
     latestEpisodeTickByEntity,
     latestAttackerByEntity,
     latestTriggerKindByEntity: new Uint8Array(entityCount),
-    candidatePresentByEntity: new Uint8Array(entityCount),
-    candidateTickByEntity: new Float64Array(entityCount),
-    candidateAttackerByEntity: new Float64Array(entityCount),
-    candidateTriggerKindByEntity: new Uint8Array(entityCount),
-    candidateRollByEntity: new Uint16Array(entityCount),
+    latestProcessedTickByEntity,
+    latestProcessedAttackerByEntity,
+    latestProcessedTriggerKindByEntity: new Uint8Array(entityCount),
+    orderedOpportunityBuffer: [],
   } as InternalIndividualTraumaticWoundStore;
 }
 
@@ -146,60 +148,50 @@ export function resolveIndividualTraumaticWoundOpportunities(
   if (opportunities.length === 0) {
     return { records: out, opportunityCount: 0, rollCount: 0, appliedCount: 0 };
   }
-  internal.candidatePresentByEntity.fill(0);
-  let rollCount = 0;
+  const ordered = internal.orderedOpportunityBuffer;
+  ordered.length = opportunities.length;
   for (let index = 0; index < opportunities.length; index += 1) {
     const opportunity = opportunities[index]!;
     validateOpportunity(opportunity, internal.entityCount);
+    ordered[index] = opportunity;
+  }
+  ordered.sort(compareOpportunitiesCanonically);
+  let rollCount = 0;
+  for (let index = 0; index < ordered.length; index += 1) {
+    const opportunity = ordered[index]!;
+    const entityId = opportunity.targetEntityId;
+    if (!isNewerThanLatestProcessed(internal, opportunity)) continue;
     const profile = getIndividualCasualtyProcedureProfile(
       procedureStore,
-      opportunity.targetEntityId,
+      entityId,
     );
-    if (
-      profile.procedureKind !== "citizen" ||
-      internal.stateByEntity[opportunity.targetEntityId] !== 0
-    ) continue;
+    markOpportunityProcessed(internal, opportunity);
+    if (profile.procedureKind !== "citizen") continue;
+    if (internal.stateByEntity[entityId] !== 0) continue;
     rollCount += 1;
     const roll = calculateTraumaticWoundOpportunityRoll(battleSeed, opportunity);
     if (roll >= TRAUMA_ROLL_SUCCESS_LIMIT) continue;
-    if (isEarlierCanonicalCandidate(internal, opportunity)) {
-      const entityId = opportunity.targetEntityId;
-      internal.candidatePresentByEntity[entityId] = 1;
-      internal.candidateTickByEntity[entityId] = opportunity.tick;
-      internal.candidateAttackerByEntity[entityId] = opportunity.attackerEntityId;
-      internal.candidateTriggerKindByEntity[entityId] =
-        triggerIdentity(opportunity.triggerKind);
-      internal.candidateRollByEntity[entityId] = roll;
-    }
-  }
-
-  for (let entityId = 0; entityId < internal.entityCount; entityId += 1) {
-    if (internal.candidatePresentByEntity[entityId] === 0) continue;
-    internal.stateByEntity[entityId] = 1;
     const previousEpisodeCount = internal.episodeCountByEntity[entityId]!;
     if (previousEpisodeCount === 0xffffffff) {
       throw new RangeError(`traumatic-wound episode count overflow for entity ${entityId}`);
     }
     const episodeCount = previousEpisodeCount + 1;
+    internal.stateByEntity[entityId] = 1;
     internal.episodeCountByEntity[entityId] = episodeCount;
-    const triggerKind = internal.candidateTriggerKindByEntity[entityId] === 1
-      ? "zeroHit"
-      : "limbCleave";
-    internal.latestEpisodeTickByEntity[entityId] =
-      internal.candidateTickByEntity[entityId]!;
-    internal.latestAttackerByEntity[entityId] =
-      internal.candidateAttackerByEntity[entityId]!;
+    internal.latestEpisodeTickByEntity[entityId] = opportunity.tick;
+    internal.latestAttackerByEntity[entityId] = opportunity.attackerEntityId;
     internal.latestTriggerKindByEntity[entityId] =
-      internal.candidateTriggerKindByEntity[entityId]!;
+      triggerIdentity(opportunity.triggerKind);
     out.push({
       entityId,
-      attackerEntityId: internal.candidateAttackerByEntity[entityId]!,
-      tick: internal.candidateTickByEntity[entityId]!,
-      triggerKind,
-      roll: internal.candidateRollByEntity[entityId]!,
+      attackerEntityId: opportunity.attackerEntityId,
+      tick: opportunity.tick,
+      triggerKind: opportunity.triggerKind,
+      roll,
       episodeCount,
     });
   }
+  ordered.length = 0;
   return {
     records: out,
     opportunityCount: opportunities.length,
@@ -216,20 +208,51 @@ export function createLimbCleaveTraumaticWoundOpportunity(
   return { targetEntityId, attackerEntityId, tick, triggerKind: "limbCleave" };
 }
 
-function isEarlierCanonicalCandidate(
+function compareOpportunitiesCanonically(
+  left: IndividualTraumaticWoundOpportunity,
+  right: IndividualTraumaticWoundOpportunity,
+): number {
+  if (left.targetEntityId !== right.targetEntityId) {
+    return left.targetEntityId - right.targetEntityId;
+  }
+  return compareOpportunityIdentity(left, right);
+}
+
+function compareOpportunityIdentity(
+  left: IndividualTraumaticWoundOpportunity,
+  right: IndividualTraumaticWoundOpportunity,
+): number {
+  if (left.tick !== right.tick) return left.tick - right.tick;
+  if (left.attackerEntityId !== right.attackerEntityId) {
+    return left.attackerEntityId - right.attackerEntityId;
+  }
+  return triggerIdentity(left.triggerKind) - triggerIdentity(right.triggerKind);
+}
+
+function isNewerThanLatestProcessed(
   store: InternalIndividualTraumaticWoundStore,
   opportunity: IndividualTraumaticWoundOpportunity,
 ): boolean {
   const entityId = opportunity.targetEntityId;
-  if (store.candidatePresentByEntity[entityId] === 0) return true;
-  const candidateTick = store.candidateTickByEntity[entityId]!;
-  if (opportunity.tick !== candidateTick) return opportunity.tick < candidateTick;
-  const candidateAttacker = store.candidateAttackerByEntity[entityId]!;
-  if (opportunity.attackerEntityId !== candidateAttacker) {
-    return opportunity.attackerEntityId < candidateAttacker;
+  const latestTick = store.latestProcessedTickByEntity[entityId]!;
+  if (opportunity.tick !== latestTick) return opportunity.tick > latestTick;
+  const latestAttacker = store.latestProcessedAttackerByEntity[entityId]!;
+  if (opportunity.attackerEntityId !== latestAttacker) {
+    return opportunity.attackerEntityId > latestAttacker;
   }
-  return triggerIdentity(opportunity.triggerKind) <
-    store.candidateTriggerKindByEntity[entityId]!;
+  return triggerIdentity(opportunity.triggerKind) >
+    store.latestProcessedTriggerKindByEntity[entityId]!;
+}
+
+function markOpportunityProcessed(
+  store: InternalIndividualTraumaticWoundStore,
+  opportunity: IndividualTraumaticWoundOpportunity,
+): void {
+  const entityId = opportunity.targetEntityId;
+  store.latestProcessedTickByEntity[entityId] = opportunity.tick;
+  store.latestProcessedAttackerByEntity[entityId] = opportunity.attackerEntityId;
+  store.latestProcessedTriggerKindByEntity[entityId] =
+    triggerIdentity(opportunity.triggerKind);
 }
 
 function validateOpportunity(
