@@ -207,6 +207,7 @@ export function advanceIndividualMeleeTargetSelection(
       const targetFacingSource =
         -deltaX * targetHeading.x + -deltaY * targetHeading.y > 0;
       const targetCanThreatSource =
+        isIndividualCombatEligible(eligibility, targetEntityId) &&
         targetDistances.threat > 0 &&
         targetFacingSource &&
         distanceSquared <= targetDistances.threat * targetDistances.threat;

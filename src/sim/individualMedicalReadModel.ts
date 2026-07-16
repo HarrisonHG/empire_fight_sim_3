@@ -18,6 +18,7 @@ import {
   type TrustedIndividualMedicalProfileStore,
 } from "./individualMedicalProfile";
 import {
+  isIndividualOrdinaryParticipationEligible,
   setIndividualOrdinaryParticipationEligible,
   type IndividualOrdinaryParticipationSnapshot,
 } from "./individualOrdinaryParticipation";
@@ -75,6 +76,7 @@ interface InternalIndividualMedicalUrgencyStore
   readonly withdrawalGoalYByEntity: Float64Array;
   readonly localPatientCandidateCountByEntity: Uint16Array;
   readonly localPhysickCandidateCountByEntity: Uint16Array;
+  readonly withdrawalThreatCountByEntity: Uint16Array;
   readonly patientQueryScratch: IndividualMedicalPatientCandidate[];
   readonly physickQueryScratch: IndividualAvailablePhysickCandidate[];
 }
@@ -89,6 +91,7 @@ export interface IndividualMedicalUrgencyInspection {
   readonly withdrawalGoalY: number;
   readonly localPatientCandidateCount: number;
   readonly localPhysickCandidateCount: number;
+  readonly withdrawalThreatCount: number;
 }
 
 export interface IndividualMedicalLocalQueryStore {
@@ -102,7 +105,7 @@ interface InternalIndividualMedicalLocalQueryStore
   readonly factionByEntity: Float64Array;
   readonly patientEligibleByEntity: Uint8Array;
   readonly physickEligibleByEntity: Uint8Array;
-  readonly activeByEntity: Uint8Array;
+  readonly threatEligibleByEntity: Uint8Array;
   readonly candidateScratch: number[];
   prepared: boolean;
   preparationCount: number;
@@ -159,6 +162,7 @@ export function createIndividualMedicalUrgencyStore(
     withdrawalGoalYByEntity: goalY,
     localPatientCandidateCountByEntity: new Uint16Array(entityCount),
     localPhysickCandidateCountByEntity: new Uint16Array(entityCount),
+    withdrawalThreatCountByEntity: new Uint16Array(entityCount),
     patientQueryScratch: [],
     physickQueryScratch: [],
   } as InternalIndividualMedicalUrgencyStore;
@@ -180,7 +184,7 @@ export function createIndividualMedicalLocalQueryStore(
     factionByEntity: new Float64Array(entityCount),
     patientEligibleByEntity: new Uint8Array(entityCount),
     physickEligibleByEntity: new Uint8Array(entityCount),
-    activeByEntity: new Uint8Array(entityCount),
+    threatEligibleByEntity: new Uint8Array(entityCount),
     candidateScratch: [],
     prepared: false,
     preparationCount: 0,
@@ -246,6 +250,7 @@ export function projectIndividualMedicalUrgency(
     internal.withdrawalGoalYByEntity[entityId] = -1;
     internal.localPatientCandidateCountByEntity[entityId] = 0;
     internal.localPhysickCandidateCountByEntity[entityId] = 0;
+    internal.withdrawalThreatCountByEntity[entityId] = 0;
   }
 }
 
@@ -257,19 +262,24 @@ export function prepareIndividualMedicalLocalQueries(
   herbs: IndividualGenericHerbStore,
   traumaStore: IndividualTraumaticWoundStore,
   urgencyStore: IndividualMedicalUrgencyStore,
+  ordinaryParticipation: IndividualOrdinaryParticipationSnapshot,
   moraleStates: UnitMoraleMovementStateSource,
   store: IndividualMedicalLocalQueryStore,
 ): void {
   const internal = requireQueryStore(store, world.entityCount);
   validateMatchingEntityCounts(world.entityCount, identityStore, lifecycleStore,
-    medicalProfiles, herbs, traumaStore, urgencyStore);
+    medicalProfiles, herbs, traumaStore, urgencyStore, ordinaryParticipation);
   const urgency = urgencyStore as InternalIndividualMedicalUrgencyStore;
   for (let entityId = 0; entityId < world.entityCount; entityId += 1) {
     const unitId = getUnitIdForEntity(identityStore, entityId);
     internal.factionByEntity[entityId] = getFactionIdForUnit(identityStore, unitId);
     const lifecycle = getIndividualCharacterLifecycleState(lifecycleStore, entityId);
     const active = lifecycle === "active";
-    internal.activeByEntity[entityId] = active ? 1 : 0;
+    internal.threatEligibleByEntity[entityId] =
+      active && isIndividualOrdinaryParticipationEligible(
+        ordinaryParticipation,
+        entityId,
+      ) ? 1 : 0;
     internal.patientEligibleByEntity[entityId] =
       lifecycle !== "terminal" && urgency.urgencyKindByEntity[entityId] !== URGENCY_NONE
         ? 1
@@ -410,33 +420,24 @@ export function updateIndividualMedicalDiscoveryAndWithdrawalIntents(
     }
     const unitId = getUnitIdForEntity(identityStore, entityId);
     const heading = getUnitHeading(formationStore, unitId);
-    const rearX = -heading.x;
-    const rearY = -heading.y;
-    const leftX = -rearY;
-    const leftY = rearX;
-    const directions = [
-      [rearX, rearY],
-      [rearX + leftX, rearY + leftY],
-      [rearX - leftX, rearY - leftY],
-    ] as const;
-    let bestX = rearX;
-    let bestY = rearY;
+    const goals = calculateTraumaWithdrawalCandidateGoals(
+      world.positionsX[entityId]!,
+      world.positionsY[entityId]!,
+      heading.x,
+      heading.y,
+      world.bounds,
+    );
+    let bestX = goals[0]!.x;
+    let bestY = goals[0]!.y;
     let bestThreatCount = Number.MAX_SAFE_INTEGER;
-    for (let directionIndex = 0; directionIndex < directions.length; directionIndex += 1) {
-      const direction = directions[directionIndex]!;
-      const goalX = clampCoordinate(
-        world.positionsX[entityId]! + direction[0] * WITHDRAWAL_GOAL_DISTANCE,
-        world.bounds.width,
-      );
-      const goalY = clampCoordinate(
-        world.positionsY[entityId]! + direction[1] * WITHDRAWAL_GOAL_DISTANCE,
-        world.bounds.height,
-      );
+    for (let directionIndex = 0; directionIndex < goals.length; directionIndex += 1) {
+      const goalX = goals[directionIndex]!.x;
+      const goalY = goals[directionIndex]!.y;
       const threatCount = countHostilesNearPoint(
         query,
         entityId,
-        goalX,
-        goalY,
+        Math.round(goalX),
+        Math.round(goalY),
         LOCAL_MEDICAL_DISCOVERY_RADIUS,
       );
       if (threatCount < bestThreatCount) {
@@ -448,6 +449,8 @@ export function updateIndividualMedicalDiscoveryAndWithdrawalIntents(
     urgency.withdrawalGoalKindByEntity[entityId] = 2;
     urgency.withdrawalGoalXByEntity[entityId] = bestX;
     urgency.withdrawalGoalYByEntity[entityId] = bestY;
+    urgency.withdrawalThreatCountByEntity[entityId] =
+      clampUint16(bestThreatCount);
   }
 }
 
@@ -472,7 +475,63 @@ export function getIndividualMedicalUrgencyInspection(
       internal.localPatientCandidateCountByEntity[entityId]!,
     localPhysickCandidateCount:
       internal.localPhysickCandidateCountByEntity[entityId]!,
+    withdrawalThreatCount:
+      internal.withdrawalThreatCountByEntity[entityId]!,
   };
+}
+
+export function calculateTraumaWithdrawalCandidateGoals(
+  patientX: number,
+  patientY: number,
+  headingX: number,
+  headingY: number,
+  bounds: SimulationBounds,
+): readonly [
+  { readonly x: number; readonly y: number },
+  { readonly x: number; readonly y: number },
+  { readonly x: number; readonly y: number },
+] {
+  const rearX = -headingX;
+  const rearY = -headingY;
+  const leftX = -rearY;
+  const leftY = rearX;
+  const diagonalScale = Math.SQRT1_2;
+  return [
+    {
+      x: clampCoordinate(
+        patientX + rearX * WITHDRAWAL_GOAL_DISTANCE,
+        bounds.width,
+      ),
+      y: clampCoordinate(
+        patientY + rearY * WITHDRAWAL_GOAL_DISTANCE,
+        bounds.height,
+      ),
+    },
+    {
+      x: clampCoordinate(
+        patientX +
+          (rearX + leftX) * diagonalScale * WITHDRAWAL_GOAL_DISTANCE,
+        bounds.width,
+      ),
+      y: clampCoordinate(
+        patientY +
+          (rearY + leftY) * diagonalScale * WITHDRAWAL_GOAL_DISTANCE,
+        bounds.height,
+      ),
+    },
+    {
+      x: clampCoordinate(
+        patientX +
+          (rearX - leftX) * diagonalScale * WITHDRAWAL_GOAL_DISTANCE,
+        bounds.width,
+      ),
+      y: clampCoordinate(
+        patientY +
+          (rearY - leftY) * diagonalScale * WITHDRAWAL_GOAL_DISTANCE,
+        bounds.height,
+      ),
+    },
+  ];
 }
 
 export function advanceIndividualTraumaWithdrawalMovementOneTick(
@@ -488,8 +547,8 @@ export function advanceIndividualTraumaWithdrawalMovementOneTick(
       world,
       formationStore,
       entityId,
-      internal.withdrawalGoalXByEntity[entityId]!,
-      internal.withdrawalGoalYByEntity[entityId]!,
+      Math.round(internal.withdrawalGoalXByEntity[entityId]!),
+      Math.round(internal.withdrawalGoalYByEntity[entityId]!),
       "withdrawForTreatment",
     )) movedCount += 1;
   }
@@ -556,7 +615,7 @@ function countHostilesNearPoint(
   for (let index = 0; index < candidates.length; index += 1) {
     const entityId = candidates[index]!;
     if (
-      store.activeByEntity[entityId] !== 0 &&
+      store.threatEligibleByEntity[entityId] !== 0 &&
       store.factionByEntity[entityId] !== store.factionByEntity[sourceEntityId]
     ) count += 1;
   }

@@ -12,6 +12,7 @@ import {
   setIndividualPressure,
 } from "../../src/sim/formationBehaviour";
 import {
+  calculateTraumaWithdrawalCandidateGoals,
   getIndividualMedicalLocalQueryPreparationCount,
   getIndividualMedicalUrgencyInspection,
   prepareIndividualMedicalLocalQueries,
@@ -155,6 +156,7 @@ describe("individual medical urgency and prepared discovery", () => {
       combat.individualGenericHerbStore,
       combat.individualTraumaticWoundStore,
       combat.individualMedicalUrgencyStore,
+      combat.individualOrdinaryParticipationSnapshot,
       combat.moraleMovementStates,
       combat.individualMedicalLocalQueryStore,
     );
@@ -225,6 +227,12 @@ describe("production trauma withdrawal", () => {
       .toBe(NO_INDIVIDUAL_TARGET);
     expect(getSelectedTargetEntityId(combat.individualTargetSelectionStore, 2))
       .toBe(0);
+    expect(combat.individualCombatPipelineBuffers.selectedTargetRecords.find(
+      (record) => record.sourceEntityId === 2,
+    )).toMatchObject({
+      targetEntityId: 0,
+      targetCanThreatSource: false,
+    });
     expect(getIndividualCharacterLifecycleState(
       combat.individualCasualtyLifecycleStore,
       0,
@@ -266,6 +274,68 @@ describe("production trauma withdrawal", () => {
       localPhysickCandidateCount: 0,
     });
     expect(simulation.world.positionsX[0]).toBeLessThan(beforeX);
+  });
+
+  it("prefers an ordinary fighter over an armed traumatised target as the genuine mutual threat", () => {
+    const traumatised = unit(1, 1, 70, "none", "regular", "oneHanded");
+    const fighter = unit(2, 1, 70, "none", "regular", "oneHanded");
+    const attacker = unit(3, 2, 80, "none", "regular", "oneHanded", -1);
+    const simulation = createSimulation(
+      medicalScenario([traumatised, fighter, attacker]),
+    );
+    const combat = requireCombat(simulation);
+    applyTrauma(combat, 0);
+
+    advanceSimulationOneTick(simulation);
+
+    expect(getSelectedTargetEntityId(combat.individualTargetSelectionStore, 2))
+      .toBe(1);
+    expect(combat.individualCombatPipelineBuffers.selectedTargetRecords.find(
+      (record) => record.sourceEntityId === 2,
+    )).toMatchObject({
+      targetEntityId: 1,
+      targetCanThreatSource: true,
+    });
+  });
+
+  it("excludes traumatised hostiles from fallback threat counts and keeps the canonical direction tie", () => {
+    const patient = unit(1, 1, 100, "none", "regular", "oneHanded");
+    const traumatisedHostile = unit(
+      2, 2, 40, "none", "regular", "oneHanded", -1,
+    );
+    const simulation = createSimulation(
+      medicalScenario([patient, traumatisedHostile]),
+    );
+    const combat = requireCombat(simulation);
+    applyTrauma(combat, 0);
+    applyTrauma(combat, 1);
+
+    advanceSimulationOneTick(simulation);
+
+    expect(getIndividualMedicalUrgencyInspection(
+      combat.individualMedicalUrgencyStore,
+      0,
+    )).toMatchObject({
+      withdrawalGoalKind: "lowThreatRear",
+      withdrawalGoalX: 36,
+      withdrawalGoalY: 60,
+      withdrawalThreatCount: 0,
+    });
+  });
+
+  it("projects all fallback directions the same fixed distance in stable order", () => {
+    const first = calculateTraumaWithdrawalCandidateGoals(
+      100, 100, 1, 0, { width: 300, height: 300 },
+    );
+    const second = calculateTraumaWithdrawalCandidateGoals(
+      100, 100, 1, 0, { width: 300, height: 300 },
+    );
+
+    expect(second).toEqual(first);
+    expect(first[0]).toEqual({ x: 36, y: 100 });
+    for (const goal of first) {
+      expect(Math.hypot(goal.x - 100, goal.y - 100)).toBeCloseTo(64, 10);
+    }
   });
 });
 

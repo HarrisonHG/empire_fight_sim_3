@@ -1133,6 +1133,7 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.individualGenericHerbStore,
       combatSandbox.individualTraumaticWoundStore,
       combatSandbox.individualMedicalUrgencyStore,
+      combatSandbox.individualOrdinaryParticipationSnapshot,
       combatSandbox.moraleMovementStates,
       combatSandbox.individualMedicalLocalQueryStore,
     );
@@ -1734,6 +1735,7 @@ function collectInspectedIndividualSnapshots(
         medicalUrgency.withdrawalTargetPhysickEntityId,
       localPatientCandidateCount: medicalUrgency.localPatientCandidateCount,
       localPhysickCandidateCount: medicalUrgency.localPhysickCandidateCount,
+      withdrawalThreatCount: medicalUrgency.withdrawalThreatCount,
       tickStartCombatEligible: isIndividualCombatEligible(
         combatSandbox.individualCombatEligibilitySnapshot,
         entityId,

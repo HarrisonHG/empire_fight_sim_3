@@ -355,6 +355,7 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly withdrawalTargetPhysickEntityId?: number;
   readonly localPatientCandidateCount?: number;
   readonly localPhysickCandidateCount?: number;
+  readonly withdrawalThreatCount?: number;
   readonly tickStartCombatEligible: boolean;
   readonly selectedTargetEntityId: number | null;
   readonly selectedTargetDistanceSquared: number | null;

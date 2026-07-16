@@ -349,6 +349,7 @@ describe("individual casualty lifecycle structural performance", () => {
         combat.individualGenericHerbStore,
         combat.individualTraumaticWoundStore,
         combat.individualMedicalUrgencyStore,
+        combat.individualOrdinaryParticipationSnapshot,
         combat.moraleMovementStates,
         combat.individualMedicalLocalQueryStore,
       );
