@@ -27,6 +27,9 @@ interface InternalIndividualDeathCountStore extends IndividualDeathCountStore {
   readonly remainingByEntity: Int32Array;
   readonly initializedByEntity: Uint8Array;
   readonly pausedByEntity: Uint8Array;
+  readonly pauseSourceKindByEntity: Uint8Array;
+  readonly pauseHealerEntityIdByEntity: Int32Array;
+  readonly pauseTreatmentStartTickByEntity: Float64Array;
   readonly lastDecrementTickByEntity: Float64Array;
   readonly firstZeroHitTickByEntity: Float64Array;
   readonly latestZeroHitTickByEntity: Float64Array;
@@ -35,12 +38,20 @@ interface InternalIndividualDeathCountStore extends IndividualDeathCountStore {
   readonly terminalCauseByEntity: Uint8Array;
   readonly terminalXByEntity: Int32Array;
   readonly terminalYByEntity: Int32Array;
+  readonly initializationCandidateTickByEntity: Float64Array;
 }
 
 export interface IndividualDeathCountInspection {
   readonly durationTicks: number;
   readonly remainingTicks: number;
   readonly paused: boolean;
+  readonly pauseSource: IndividualDeathCountPauseSource | undefined;
+}
+
+export interface IndividualDeathCountPauseSource {
+  readonly kind: "chirurgeonTreatment";
+  readonly healerEntityId: number;
+  readonly treatmentStartTick: number;
 }
 
 export interface IndividualCasualtyHistoryInspection {
@@ -77,16 +88,25 @@ export function createIndividualDeathCountStore(
   const latestZeroHitTickByEntity = new Float64Array(entityCount);
   const terminalTickByEntity = new Float64Array(entityCount);
   const lastDecrementTickByEntity = new Float64Array(entityCount);
+  const pauseHealerEntityIdByEntity = new Int32Array(entityCount);
+  const pauseTreatmentStartTickByEntity = new Float64Array(entityCount);
+  const initializationCandidateTickByEntity = new Float64Array(entityCount);
   firstZeroHitTickByEntity.fill(-1);
   latestZeroHitTickByEntity.fill(-1);
   terminalTickByEntity.fill(-1);
   lastDecrementTickByEntity.fill(-1);
+  pauseHealerEntityIdByEntity.fill(-1);
+  pauseTreatmentStartTickByEntity.fill(-1);
+  initializationCandidateTickByEntity.fill(-1);
   return {
     entityCount,
     durationByEntity: new Int32Array(entityCount),
     remainingByEntity: new Int32Array(entityCount),
     initializedByEntity: new Uint8Array(entityCount),
     pausedByEntity: new Uint8Array(entityCount),
+    pauseSourceKindByEntity: new Uint8Array(entityCount),
+    pauseHealerEntityIdByEntity,
+    pauseTreatmentStartTickByEntity,
     lastDecrementTickByEntity,
     firstZeroHitTickByEntity,
     latestZeroHitTickByEntity,
@@ -95,6 +115,7 @@ export function createIndividualDeathCountStore(
     terminalCauseByEntity: new Uint8Array(entityCount),
     terminalXByEntity: new Int32Array(entityCount),
     terminalYByEntity: new Int32Array(entityCount),
+    initializationCandidateTickByEntity,
   } as InternalIndividualDeathCountStore;
 }
 
@@ -125,18 +146,45 @@ export function resolveIndividualDeathCountDurationTicks(
 
 export function initializeIndividualDeathCountsFromZeroHitTransitions(
   store: IndividualDeathCountStore,
+  lifecycleStore: IndividualCasualtyLifecycleStore,
   procedureStore: IndividualCasualtyProcedureProfileStore,
   combatProfileStore: IndividualCombatProfileStore,
   transitions: readonly IndividualZeroHitLifecycleTransitionRecord[],
 ): void {
   const internal = asInternal(store);
   validateCounts(internal, procedureStore, combatProfileStore);
+  validateLifecycleCount(internal, lifecycleStore);
+  if (transitions.length === 0) return;
+  internal.initializationCandidateTickByEntity.fill(-1);
   for (let index = 0; index < transitions.length; index += 1) {
     const transition = transitions[index]!;
     assertEntityId(transition.entityId, internal.entityCount);
-    if (internal.initializedByEntity[transition.entityId] !== 0) {
-      throw new Error("A death count cannot be restarted without an explicit future new-life reset boundary.");
+    assertNonNegativeSafeInteger(transition.tick, "transition tick");
+    if (
+      getIndividualCharacterLifecycleState(lifecycleStore, transition.entityId) !==
+      "dying"
+    ) {
+      throw new Error(
+        "A death count may initialize only for a currently dying character.",
+      );
     }
+    const latestZeroHitTick =
+      internal.latestZeroHitTickByEntity[transition.entityId]!;
+    if (transition.tick <= latestZeroHitTick) {
+      throw new RangeError(
+        "Death-count transition tick must be later than the latest recorded zero-hit tick.",
+      );
+    }
+    if (internal.initializationCandidateTickByEntity[transition.entityId] !== -1) {
+      throw new RangeError(
+        "Duplicate death-count initialization transition for one entity.",
+      );
+    }
+    internal.initializationCandidateTickByEntity[transition.entityId] =
+      transition.tick;
+  }
+  for (let index = 0; index < transitions.length; index += 1) {
+    const transition = transitions[index]!;
     const procedure = getIndividualCasualtyProcedureProfile(
       procedureStore,
       transition.entityId,
@@ -152,7 +200,7 @@ export function initializeIndividualDeathCountsFromZeroHitTransitions(
     internal.durationByEntity[transition.entityId] = duration;
     internal.remainingByEntity[transition.entityId] = duration;
     internal.initializedByEntity[transition.entityId] = 1;
-    internal.pausedByEntity[transition.entityId] = 0;
+    clearPauseSource(internal, transition.entityId);
     internal.lastDecrementTickByEntity[transition.entityId] = transition.tick;
     if (internal.firstZeroHitTickByEntity[transition.entityId] === -1) {
       internal.firstZeroHitTickByEntity[transition.entityId] = transition.tick;
@@ -164,22 +212,40 @@ export function initializeIndividualDeathCountsFromZeroHitTransitions(
 }
 
 /** Future treatment may call this before advancement in the production tick. */
-export function setIndividualDeathCountPaused(
+export function pauseIndividualDeathCount(
   store: IndividualDeathCountStore,
   lifecycleStore: IndividualCasualtyLifecycleStore,
   entityId: number,
-  paused: boolean,
+  source: IndividualDeathCountPauseSource,
 ): void {
   const internal = asInternal(store);
-  validateLifecycleCount(internal, lifecycleStore);
-  assertEntityId(entityId, internal.entityCount);
-  if (getIndividualCharacterLifecycleState(lifecycleStore, entityId) !== "dying") {
-    throw new Error("Only a dying character's death count may be paused or resumed.");
+  validatePauseRequest(internal, lifecycleStore, entityId, source);
+  if (internal.pausedByEntity[entityId] !== 0) {
+    if (pauseSourceMatches(internal, entityId, source)) return;
+    throw new Error("A different source already owns this death-count pause.");
   }
-  if (internal.initializedByEntity[entityId] === 0) {
-    throw new Error("Cannot pause an uninitialized death count.");
+  internal.pausedByEntity[entityId] = 1;
+  internal.pauseSourceKindByEntity[entityId] = 1;
+  internal.pauseHealerEntityIdByEntity[entityId] = source.healerEntityId;
+  internal.pauseTreatmentStartTickByEntity[entityId] =
+    source.treatmentStartTick;
+}
+
+export function resumeIndividualDeathCount(
+  store: IndividualDeathCountStore,
+  lifecycleStore: IndividualCasualtyLifecycleStore,
+  entityId: number,
+  source: IndividualDeathCountPauseSource,
+): void {
+  const internal = asInternal(store);
+  validatePauseRequest(internal, lifecycleStore, entityId, source);
+  if (internal.pausedByEntity[entityId] === 0) {
+    throw new Error("Cannot resume a death count that is not paused.");
   }
-  internal.pausedByEntity[entityId] = paused ? 1 : 0;
+  if (!pauseSourceMatches(internal, entityId, source)) {
+    throw new Error("Only the matching pause source may resume this death count.");
+  }
+  clearPauseSource(internal, entityId);
 }
 
 export function advanceIndividualDeathCountsOneTick(
@@ -225,7 +291,7 @@ export function advanceIndividualDeathCountsOneTick(
       tick,
       "deathCountExpired",
     );
-    internal.pausedByEntity[entityId] = 0;
+    clearPauseSource(internal, entityId);
     internal.terminalTickByEntity[entityId] = tick;
     internal.terminalCauseByEntity[entityId] = 1;
     internal.terminalXByEntity[entityId] = terminalX;
@@ -253,6 +319,7 @@ export function getIndividualDeathCountInspection(
     durationTicks: internal.durationByEntity[entityId]!,
     remainingTicks: internal.remainingByEntity[entityId]!,
     paused: internal.pausedByEntity[entityId] !== 0,
+    pauseSource: getPauseSource(internal, entityId),
   };
 }
 
@@ -291,6 +358,62 @@ function validateLifecycleCount(
   if (store.entityCount !== lifecycleStore.entityCount) {
     throw new RangeError("Death-count lifecycle store must match entity count.");
   }
+}
+
+function validatePauseRequest(
+  store: InternalIndividualDeathCountStore,
+  lifecycleStore: IndividualCasualtyLifecycleStore,
+  entityId: number,
+  source: IndividualDeathCountPauseSource,
+): void {
+  validateLifecycleCount(store, lifecycleStore);
+  assertEntityId(entityId, store.entityCount);
+  if (getIndividualCharacterLifecycleState(lifecycleStore, entityId) !== "dying") {
+    throw new Error("Only a dying character's death count may be paused or resumed.");
+  }
+  if (store.initializedByEntity[entityId] === 0) {
+    throw new Error("Cannot pause or resume an uninitialized death count.");
+  }
+  if (source.kind !== "chirurgeonTreatment") {
+    throw new RangeError("Unknown death-count pause source kind.");
+  }
+  assertEntityId(source.healerEntityId, store.entityCount);
+  assertNonNegativeSafeInteger(source.treatmentStartTick, "treatmentStartTick");
+}
+
+function pauseSourceMatches(
+  store: InternalIndividualDeathCountStore,
+  entityId: number,
+  source: IndividualDeathCountPauseSource,
+): boolean {
+  return (
+    store.pauseSourceKindByEntity[entityId] === 1 &&
+    store.pauseHealerEntityIdByEntity[entityId] === source.healerEntityId &&
+    store.pauseTreatmentStartTickByEntity[entityId] ===
+      source.treatmentStartTick
+  );
+}
+
+function clearPauseSource(
+  store: InternalIndividualDeathCountStore,
+  entityId: number,
+): void {
+  store.pausedByEntity[entityId] = 0;
+  store.pauseSourceKindByEntity[entityId] = 0;
+  store.pauseHealerEntityIdByEntity[entityId] = -1;
+  store.pauseTreatmentStartTickByEntity[entityId] = -1;
+}
+
+function getPauseSource(
+  store: InternalIndividualDeathCountStore,
+  entityId: number,
+): IndividualDeathCountPauseSource | undefined {
+  if (store.pauseSourceKindByEntity[entityId] === 0) return undefined;
+  return {
+    kind: "chirurgeonTreatment",
+    healerEntityId: store.pauseHealerEntityIdByEntity[entityId]!,
+    treatmentStartTick: store.pauseTreatmentStartTickByEntity[entityId]!,
+  };
 }
 
 function asInternal(store: IndividualDeathCountStore): InternalIndividualDeathCountStore {

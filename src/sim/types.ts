@@ -44,6 +44,7 @@ import type {
 import type { IndividualCasualtyLocalQueryStore } from "./individualCasualtyLocalQuery";
 import type {
   IndividualDeathCountStore,
+  IndividualDeathCountPauseSource,
   IndividualDeathCountTerminalTransitionRecord,
 } from "./individualDeathCount";
 import type { IndividualLandedHitGateStore } from "./individualLandedHitGate";
@@ -306,6 +307,7 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly deathCountDurationTicks?: number;
   readonly deathCountRemainingTicks?: number;
   readonly deathCountPaused?: boolean;
+  readonly deathCountPauseSource?: IndividualDeathCountPauseSource;
   readonly firstZeroHitTick?: number;
   readonly latestZeroHitTick?: number;
   readonly dyingTransitionCount?: number;

@@ -152,6 +152,7 @@ describe("individual casualty lifecycle structural performance", () => {
       const startedAt = performance.now();
       initializeIndividualDeathCountsFromZeroHitTransitions(
         deathCounts,
+        lifecycle,
         procedures,
         combatProfiles,
         zeroTransitions,

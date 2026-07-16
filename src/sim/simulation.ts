@@ -1085,6 +1085,7 @@ export function advanceCombatSandboxOneTick(
     );
     initializeIndividualDeathCountsFromZeroHitTransitions(
       combatSandbox.individualDeathCountStore,
+      combatSandbox.individualCasualtyLifecycleStore,
       combatSandbox.individualCasualtyProcedureProfileStore,
       combatSandbox.individualProfileStore,
       combatSandbox.individualLifecycleTransitions,
@@ -1549,6 +1550,9 @@ function collectInspectedIndividualSnapshots(
       deathCountDurationTicks: deathCount.durationTicks,
       deathCountRemainingTicks: deathCount.remainingTicks,
       deathCountPaused: deathCount.paused,
+      ...(deathCount.pauseSource === undefined
+        ? {}
+        : { deathCountPauseSource: deathCount.pauseSource }),
       firstZeroHitTick: casualtyHistory.firstZeroHitTick,
       latestZeroHitTick: casualtyHistory.latestZeroHitTick,
       dyingTransitionCount: casualtyHistory.dyingTransitionCount,

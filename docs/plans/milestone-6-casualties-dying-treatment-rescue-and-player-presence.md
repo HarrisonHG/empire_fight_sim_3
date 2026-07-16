@@ -991,7 +991,7 @@ Advance deterministic dying timers and make terminal state authoritative.
 - no 6B API can return a terminal character to active;
 - citizen terminal remains unavailable for the battle;
 - citizen comfort, barbarian respawn egress, and `waitingAtRespawn` remain 6H work;
-- a second later dying event receives a fresh duration only after a future explicit new-life/reset boundary, not from ordinary healing;
+- every later fresh zero-hit transition starts a new full death count;
 - integer bounds are validated.
 
 ### Boundary
