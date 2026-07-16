@@ -75,6 +75,7 @@ import type {
   TraumaticWoundState,
   TraumaticWoundTriggerKind,
 } from "./individualTraumaticWound";
+import type { IndividualLimbDisabilityStore } from "./individualLimbDisability";
 import type { IndividualLandedHitGateStore } from "./individualLandedHitGate";
 import type {
   IndividualMedicalClaimBuffers,
@@ -534,6 +535,7 @@ export interface CombatSandboxSimulationState {
   readonly trustedIndividualMedicalProfileStore: TrustedIndividualMedicalProfileStore;
   readonly individualGenericHerbStore: IndividualGenericHerbStore;
   readonly individualTraumaticWoundStore: IndividualTraumaticWoundStore;
+  readonly individualLimbDisabilityStore: IndividualLimbDisabilityStore;
   readonly individualMedicalUrgencyStore: IndividualMedicalUrgencyStore;
   readonly individualMedicalLocalQueryStore: IndividualMedicalLocalQueryStore;
   readonly individualOrdinaryParticipationSnapshot: IndividualOrdinaryParticipationSnapshot;

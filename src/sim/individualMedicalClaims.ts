@@ -30,6 +30,10 @@ import {
 } from "./individualMedicalReadModel";
 import type { IndividualTreatmentReassessmentRequest } from "./individualTreatmentAction";
 import {
+  getHighestPriorityIndividualLimbDisability,
+  type IndividualLimbDisabilityStore,
+} from "./individualLimbDisability";
+import {
   getIndividualAvailableGenericHerbs,
   getTrustedIndividualMedicalProfile,
   type IndividualGenericHerbStore,
@@ -72,7 +76,8 @@ interface ActionBoundaryPatientCandidate {
 const NONE = -1;
 const CLAIM_RADIUS = 192;
 export const PHYSICK_HANDOFF_RANGE = CASUALTY_DRAG_PICKUP_RANGE;
-const NEED_NONE = 0, NEED_DYING = 1, NEED_TRAUMA = 2, NEED_MISSING = 3;
+const NEED_NONE = 0, NEED_DYING = 1, NEED_TRAUMA = 2, NEED_MISSING = 3,
+  NEED_LIMB = 4;
 
 export function createIndividualMedicalClaimStore(entityCount: number): IndividualMedicalClaimStore {
   if (!Number.isSafeInteger(entityCount) || entityCount <= 0) throw new RangeError("entityCount must be a positive safe integer.");
@@ -158,6 +163,7 @@ export function projectIndividualMedicalClaimCommitmentOrdinaryParticipation(
   profiles: TrustedIndividualMedicalProfileStore,
   herbs: IndividualGenericHerbStore,
   trauma: IndividualTraumaticWoundStore,
+  limbs: IndividualLimbDisabilityStore,
   actions: IndividualCombatActionStore,
   morale: UnitMoraleMovementStateSource,
   assistance: IndividualCasualtyAssistanceStore,
@@ -167,11 +173,11 @@ export function projectIndividualMedicalClaimCommitmentOrdinaryParticipation(
   options: IndividualMedicalClaimCommitmentOptions = {},
 ): void {
   validateCounts(world.entityCount, identity, lifecycle, presence, hits, profiles,
-    herbs, trauma, actions, assistance, claims, snapshot);
+    herbs, trauma, limbs, actions, assistance, claims, snapshot);
   const internal = claims as InternalClaimStore;
   for (let physickId = 0; physickId < internal.entityCount; physickId += 1) {
     const committed = isClaimedPhysickCommitted(identity, lifecycle, presence, hits, profiles,
-      herbs, trauma, actions, morale, assistance, internal, physickId, tick,
+      herbs, trauma, limbs, actions, morale, assistance, internal, physickId, tick,
       options);
     internal.committedByPhysick[physickId] = committed ? 1 : 0;
     if (committed) {
@@ -190,6 +196,7 @@ export function advanceIndividualMedicalClaimApproachMovementOneTick(
   profiles: TrustedIndividualMedicalProfileStore,
   herbs: IndividualGenericHerbStore,
   trauma: IndividualTraumaticWoundStore,
+  limbs: IndividualLimbDisabilityStore,
   actions: IndividualCombatActionStore,
   morale: UnitMoraleMovementStateSource,
   assistance: IndividualCasualtyAssistanceStore,
@@ -198,12 +205,12 @@ export function advanceIndividualMedicalClaimApproachMovementOneTick(
   options: IndividualMedicalClaimCommitmentOptions = {},
 ): number {
   validateCounts(world.entityCount, formation, identity, lifecycle, presence, hits,
-    profiles, herbs, trauma, actions, assistance, claims);
+    profiles, herbs, trauma, limbs, actions, assistance, claims);
   const internal = claims as InternalClaimStore;
   let movedCount = 0;
   for (let physickId = 0; physickId < internal.entityCount; physickId += 1) {
     if (!isClaimedPhysickCommitted(identity, lifecycle, presence, hits, profiles,
-      herbs, trauma, actions, morale, assistance, internal, physickId, tick,
+      herbs, trauma, limbs, actions, morale, assistance, internal, physickId, tick,
       options)) continue;
     const patientId = internal.patientByPhysick[physickId]!;
     if (isWithinTreatmentTouchRange(world, physickId, patientId)) continue;
@@ -230,14 +237,15 @@ export function hasIndividualMedicalClaimDecisionWork(
 export function decideIndividualMedicalClaimsAndHandoffs(
   world: WorldState, identity: UnitIdentityStore, lifecycle: IndividualCasualtyLifecycleStore,
   profiles: TrustedIndividualMedicalProfileStore, herbs: IndividualGenericHerbStore,
-  trauma: IndividualTraumaticWoundStore, urgency: IndividualMedicalUrgencyStore,
+  trauma: IndividualTraumaticWoundStore, limbs: IndividualLimbDisabilityStore,
+  urgency: IndividualMedicalUrgencyStore,
   actions: IndividualCombatActionStore, morale: UnitMoraleMovementStateSource,
   query: IndividualMedicalLocalQueryStore, assistance: IndividualCasualtyAssistanceStore,
   groups: CasualtyDragGroupStore, hands: IndividualDragHandCommitmentStore,
   claims: IndividualMedicalClaimStore, tick: number, buffers: IndividualMedicalClaimBuffers,
   options: IndividualMedicalClaimOptions = {},
 ): IndividualMedicalClaimResult {
-  validateCounts(world.entityCount, identity, lifecycle, profiles, herbs, trauma, urgency, actions, query, assistance, groups, hands, claims);
+  validateCounts(world.entityCount, identity, lifecycle, profiles, herbs, trauma, limbs, urgency, actions, query, assistance, groups, hands, claims);
   const store = claims as InternalClaimStore;
   buffers.claimRecords.length = 0; buffers.handoffRecords.length = 0; buffers.safeReleaseRecords.length = 0; buffers.staleClaimRecords.length = 0;
   clearStaleClaims(identity, lifecycle, profiles, herbs, trauma, urgency, actions, morale, assistance, store, tick, buffers.staleClaimRecords, options);
@@ -314,6 +322,7 @@ export function reassessIndividualMedicalClaimsAtActionBoundaries(
   profiles: TrustedIndividualMedicalProfileStore,
   herbs: IndividualGenericHerbStore,
   trauma: IndividualTraumaticWoundStore,
+  limbs: IndividualLimbDisabilityStore,
   hits: IndividualGlobalHitStore,
   actions: IndividualCombatActionStore,
   morale: UnitMoraleMovementStateSource,
@@ -324,7 +333,7 @@ export function reassessIndividualMedicalClaimsAtActionBoundaries(
   tick: number,
 ): number {
   validateCounts(world.entityCount, identity, formation, lifecycle, profiles, herbs,
-    trauma, hits, actions, query, assistance, claims);
+    trauma, limbs, hits, actions, query, assistance, claims);
   const store = claims as InternalClaimStore;
   const orderedRequests = requests.slice().sort((left, right) =>
     left.healerEntityId - right.healerEntityId || left.actionId - right.actionId);
@@ -345,7 +354,7 @@ export function reassessIndividualMedicalClaimsAtActionBoundaries(
     }
     let best = getActionBoundaryCandidate(
       world, identity, formation, lifecycle, profiles, herbs, trauma, hits,
-      actions, morale, assistance, store, healerId, previousPatientId,
+      limbs, actions, morale, assistance, store, healerId, previousPatientId,
       previousPatientId,
     );
     const nearby = queryPreparedMedicalLocalEntityIdsWithinRadiusInto(
@@ -356,7 +365,7 @@ export function reassessIndividualMedicalClaimsAtActionBoundaries(
       if (patientId === previousPatientId) continue;
       const candidate = getActionBoundaryCandidate(
         world, identity, formation, lifecycle, profiles, herbs, trauma, hits,
-        actions, morale, assistance, store, healerId, patientId,
+        limbs, actions, morale, assistance, store, healerId, patientId,
         previousPatientId,
       );
       if (candidate !== undefined &&
@@ -381,6 +390,7 @@ function getActionBoundaryCandidate(
   herbs: IndividualGenericHerbStore,
   trauma: IndividualTraumaticWoundStore,
   hits: IndividualGlobalHitStore,
+  limbs: IndividualLimbDisabilityStore,
   actions: IndividualCombatActionStore,
   morale: UnitMoraleMovementStateSource,
   assistance: IndividualCasualtyAssistanceStore,
@@ -402,7 +412,7 @@ function getActionBoundaryCandidate(
     return undefined;
   }
   const urgency = getAuthoritativeIndividualMedicalUrgency(
-    formation, hits, lifecycle, trauma, patientId,
+    formation, hits, lifecycle, trauma, limbs, patientId,
   );
   const need = claimNeedFromUrgencyKind(urgency.urgencyKind);
   if (need === undefined || requiresHerb(need) &&
@@ -437,6 +447,7 @@ function claimNeedFromUrgencyKind(
   kind: import("./individualMedicalReadModel").IndividualMedicalUrgencyKind,
 ): IndividualMedicalClaimNeed | undefined {
   if (kind === "dying") return "dying";
+  if (kind === "disabledArm" || kind === "disabledLeg") return "limbDisability";
   if (kind === "traumaticWound") return "traumaticWound";
   if (kind === "dangerouslyLowHits" || kind === "belowHalfHits" ||
     kind === "comfortableMissingHits") return "livingMissingHits";
@@ -446,7 +457,7 @@ function canExistingClaimRemain(identity: UnitIdentityStore, lifecycle: Individu
   if (need === undefined || getPreparedFaction(identity, physickId) !== getPreparedFaction(identity, patientId)) return false;
   return getIndividualCharacterLifecycleState(lifecycle, physickId) === "active" && getTrustedIndividualMedicalProfile(profiles, physickId).hasPhysick && getIndividualTraumaticWoundInspection(trauma, physickId).state === "none" && morale.get(getUnitIdForEntity(identity, physickId)) !== "routing" && getIndividualCombatActionState(actions, physickId) === "ready" && getIndividualCasualtyAssistanceInspection(assistance, physickId).dragGroupId === NONE && (!requiresHerb(need) || getIndividualAvailableGenericHerbs(herbs, physickId) > 0);
 }
-function isClaimedPhysickCommitted(identity: UnitIdentityStore, lifecycle: IndividualCasualtyLifecycleStore, presence: IndividualPlayerPresenceStore, hits: IndividualGlobalHitStore, profiles: TrustedIndividualMedicalProfileStore, herbs: IndividualGenericHerbStore, trauma: IndividualTraumaticWoundStore, actions: IndividualCombatActionStore, morale: UnitMoraleMovementStateSource, assistance: IndividualCasualtyAssistanceStore, claims: InternalClaimStore, physickId: number, tick: number, options: IndividualMedicalClaimCommitmentOptions): boolean {
+function isClaimedPhysickCommitted(identity: UnitIdentityStore, lifecycle: IndividualCasualtyLifecycleStore, presence: IndividualPlayerPresenceStore, hits: IndividualGlobalHitStore, profiles: TrustedIndividualMedicalProfileStore, herbs: IndividualGenericHerbStore, trauma: IndividualTraumaticWoundStore, limbs: IndividualLimbDisabilityStore, actions: IndividualCombatActionStore, morale: UnitMoraleMovementStateSource, assistance: IndividualCasualtyAssistanceStore, claims: InternalClaimStore, physickId: number, tick: number, options: IndividualMedicalClaimCommitmentOptions): boolean {
   const patientId = claims.patientByPhysick[physickId]!;
   const storedNeed = patientId === NONE ? "none" :
     needFromId(claims.needByPatient[patientId]!);
@@ -470,6 +481,9 @@ function isClaimedPhysickCommitted(identity: UnitIdentityStore, lifecycle: Indiv
   if (need === NEED_TRAUMA) {
     return getIndividualTraumaticWoundInspection(trauma, patientId).state === "active";
   }
+  if (need === NEED_LIMB) {
+    return getHighestPriorityIndividualLimbDisability(limbs, patientId) !== undefined;
+  }
   return need === NEED_MISSING &&
     currentHits < getIndividualMaximumGlobalHits(hits, patientId);
 }
@@ -478,14 +492,14 @@ function isWithinTreatmentTouchRange(world: WorldState, physickId: number, patie
   const dy = world.positionsY[physickId]! - world.positionsY[patientId]!;
   return dx * dx + dy * dy <= PHYSICK_HANDOFF_RANGE * PHYSICK_HANDOFF_RANGE;
 }
-function getClaimNeed(urgency: IndividualMedicalUrgencyStore, entityId: number): IndividualMedicalClaimNeed | undefined { const kind = getIndividualMedicalUrgencyInspection(urgency, entityId).urgencyKind; if (kind === "dying") return "dying"; if (kind === "traumaticWound") return "traumaticWound"; if (kind === "dangerouslyLowHits" || kind === "belowHalfHits" || kind === "comfortableMissingHits") return "livingMissingHits"; return undefined; }
-function requiresHerb(need: IndividualMedicalClaimNeed): boolean { return need === "traumaticWound" || need === "livingMissingHits" || need === "limbDisability"; }
+function getClaimNeed(urgency: IndividualMedicalUrgencyStore, entityId: number): IndividualMedicalClaimNeed | undefined { const kind = getIndividualMedicalUrgencyInspection(urgency, entityId).urgencyKind; if (kind === "dying") return "dying"; if (kind === "disabledArm" || kind === "disabledLeg") return "limbDisability"; if (kind === "traumaticWound") return "traumaticWound"; if (kind === "dangerouslyLowHits" || kind === "belowHalfHits" || kind === "comfortableMissingHits") return "livingMissingHits"; return undefined; }
+function requiresHerb(need: IndividualMedicalClaimNeed): boolean { return need === "traumaticWound" || need === "livingMissingHits"; }
 function assignClaim(store: InternalClaimStore, physickId: number, patientId: number, need: IndividualMedicalClaimNeed, tick: number): void { store.patientByPhysick[physickId] = patientId; store.physickByPatient[patientId] = physickId; store.claimedTickByPatient[patientId] = tick; store.needByPatient[patientId] = needId(need); store.committedByPhysick[physickId] = 0; }
 function clearClaim(store: InternalClaimStore, physickId: number, patientId: number): void { store.patientByPhysick[physickId] = NONE; store.physickByPatient[patientId] = NONE; store.claimedTickByPatient[patientId] = NONE; store.needByPatient[patientId] = NEED_NONE; store.committedByPhysick[physickId] = 0; }
 function countClaims(store: InternalClaimStore): number { let count = 0; for (const patient of store.patientByPhysick) if (patient !== NONE) count += 1; return count; }
 function wasSafelyReleasedThisDecision(records: readonly IndividualMedicalSafeReleaseRecord[], patientId: number): boolean { for (const record of records) if (record.patientEntityId === patientId) return true; return false; }
-function needId(need: IndividualMedicalClaimNeed): number { return need === "dying" ? NEED_DYING : need === "traumaticWound" ? NEED_TRAUMA : need === "livingMissingHits" ? NEED_MISSING : NEED_NONE; }
-function needFromId(id: number): IndividualMedicalClaimNeed | "none" { return id === NEED_DYING ? "dying" : id === NEED_TRAUMA ? "traumaticWound" : id === NEED_MISSING ? "livingMissingHits" : "none"; }
+function needId(need: IndividualMedicalClaimNeed): number { return need === "dying" ? NEED_DYING : need === "traumaticWound" ? NEED_TRAUMA : need === "livingMissingHits" ? NEED_MISSING : need === "limbDisability" ? NEED_LIMB : NEED_NONE; }
+function needFromId(id: number): IndividualMedicalClaimNeed | "none" { return id === NEED_DYING ? "dying" : id === NEED_TRAUMA ? "traumaticWound" : id === NEED_MISSING ? "livingMissingHits" : id === NEED_LIMB ? "limbDisability" : "none"; }
 function getPreparedFaction(identity: UnitIdentityStore, entityId: number): number { return getFactionIdForUnit(identity, getUnitIdForEntity(identity, entityId)); }
 function assertEntity(entityId: number, count: number): void { if (!Number.isSafeInteger(entityId) || entityId < 0 || entityId >= count) throw new RangeError("Medical claim entity ID out of bounds."); }
 function validateCounts(count: number, ...stores: readonly { readonly entityCount: number }[]): void { for (const store of stores) if (store.entityCount !== count) throw new RangeError("Medical claim stores must share entityCount."); }

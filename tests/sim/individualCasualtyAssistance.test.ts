@@ -792,13 +792,14 @@ function decideClaims(
   simulation: SimulationState,
   claims: ReturnType<typeof createIndividualMedicalClaimStore>,
   tick: number,
-  options: Parameters<typeof decideIndividualMedicalClaimsAndHandoffs>[16] = {},
+  options: Parameters<typeof decideIndividualMedicalClaimsAndHandoffs>[17] = {},
 ) {
   const combat = requireCombat(simulation);
   return decideIndividualMedicalClaimsAndHandoffs(
     simulation.world, combat.identityStore, combat.individualCasualtyLifecycleStore,
     combat.trustedIndividualMedicalProfileStore, combat.individualGenericHerbStore,
-    combat.individualTraumaticWoundStore, combat.individualMedicalUrgencyStore,
+    combat.individualTraumaticWoundStore, combat.individualLimbDisabilityStore,
+    combat.individualMedicalUrgencyStore,
     combat.individualCombatActionStore, combat.moraleMovementStates,
     combat.individualMedicalLocalQueryStore, combat.individualCasualtyAssistanceStore,
     combat.casualtyDragGroupStore, combat.individualDragHandCommitmentStore,
@@ -840,6 +841,7 @@ function prepare(simulation: SimulationState): void {
     combat.individualCasualtyLifecycleStore,
     combat.individualCasualtyProcedureProfileStore,
     combat.individualTraumaticWoundStore,
+    combat.individualLimbDisabilityStore,
     combat.individualOrdinaryParticipationSnapshot,
     combat.individualMedicalUrgencyStore,
   );

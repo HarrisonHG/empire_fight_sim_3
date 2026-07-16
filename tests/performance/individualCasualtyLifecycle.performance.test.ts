@@ -29,6 +29,12 @@ import {
   resolveIndividualTraumaticWoundOpportunities,
 } from "../../src/sim/individualTraumaticWound";
 import {
+  applyTrustedIndividualLimbDisability,
+  clearIndividualLimbDisability,
+  createIndividualLimbDisabilityStore,
+  getIndividualLimbDisabilityInspection,
+} from "../../src/sim/individualLimbDisability";
+import {
   getIndividualMedicalLocalQueryPreparationCount,
   prepareIndividualMedicalLocalQueries,
   projectIndividualMedicalUrgency,
@@ -244,6 +250,17 @@ describe("individual casualty lifecycle structural performance", () => {
       });
       const herbs = createIndividualGenericHerbStore(medicalProfiles);
       const trauma = createIndividualTraumaticWoundStore(entityCount);
+      const limbs = createIndividualLimbDisabilityStore(entityCount);
+      for (let entityId = 0; entityId < entityCount; entityId += 1) {
+        applyTrustedIndividualLimbDisability(
+          limbs,
+          entityId,
+          entityId % 2 === 0 ? "disabledLeg" : "disabledArm",
+        );
+      }
+      for (let entityId = 0; entityId < entityCount; entityId += 2) {
+        clearIndividualLimbDisability(limbs, entityId, "disabledLeg");
+      }
       let reservationCount = 0;
       for (let entityId = 0; entityId < entityCount; entityId += 20) {
         expect(reserveIndividualGenericHerbForTreatment(
@@ -275,6 +292,16 @@ describe("individual casualty lifecycle structural performance", () => {
       const elapsedMilliseconds = performance.now() - startedAt;
 
       expect(herbs.entityCount).toBe(entityCount);
+      expect(getIndividualLimbDisabilityInspection(limbs, 0)).toMatchObject({
+        disabledArm: false,
+        disabledLeg: false,
+        legEpisodeCount: 1,
+        legClearedCount: 1,
+      });
+      expect(getIndividualLimbDisabilityInspection(limbs, entityCount - 1)
+        .armEpisodeCount + getIndividualLimbDisabilityInspection(
+          limbs, entityCount - 1,
+        ).legEpisodeCount).toBe(1);
       expect(result.opportunityCount).toBe(entityCount);
       expect(result.rollCount).toBe(entityCount);
       expect(result.records.map((record) => record.entityId)).toEqual(
@@ -284,6 +311,7 @@ describe("individual casualty lifecycle structural performance", () => {
         `\nMedical and trauma performance report\n${JSON.stringify({
           entityCount,
           herbReservationOperations: reservationCount * 2,
+          limbConditionOperations: entityCount + Math.ceil(entityCount / 2),
           traumaApplications: result.appliedCount,
           elapsedMilliseconds,
           timingPolicy: "Structural assertions only; immutable/entity-indexed stores, constant-time reservation ownership, and one keyed opportunity pass.",
@@ -380,6 +408,7 @@ describe("individual casualty lifecycle structural performance", () => {
         combat.individualCasualtyLifecycleStore,
         combat.individualCasualtyProcedureProfileStore,
         combat.individualTraumaticWoundStore,
+        combat.individualLimbDisabilityStore,
         combat.individualOrdinaryParticipationSnapshot,
         combat.individualMedicalUrgencyStore,
       );
@@ -458,6 +487,7 @@ describe("individual casualty lifecycle structural performance", () => {
         combat.individualCasualtyLifecycleStore,
         combat.individualCasualtyProcedureProfileStore,
         combat.individualTraumaticWoundStore,
+        combat.individualLimbDisabilityStore,
         combat.individualOrdinaryParticipationSnapshot,
         combat.individualMedicalUrgencyStore,
       );
@@ -508,7 +538,8 @@ describe("individual casualty lifecycle structural performance", () => {
       const claims = decideIndividualMedicalClaimsAndHandoffs(
         simulation.world, combat.identityStore, combat.individualCasualtyLifecycleStore,
         combat.trustedIndividualMedicalProfileStore, combat.individualGenericHerbStore,
-        combat.individualTraumaticWoundStore, combat.individualMedicalUrgencyStore,
+        combat.individualTraumaticWoundStore, combat.individualLimbDisabilityStore,
+        combat.individualMedicalUrgencyStore,
         combat.individualCombatActionStore, combat.moraleMovementStates,
         combat.individualMedicalLocalQueryStore, combat.individualCasualtyAssistanceStore,
         combat.casualtyDragGroupStore, combat.individualDragHandCommitmentStore,
@@ -592,6 +623,7 @@ describe("individual casualty lifecycle structural performance", () => {
         combat.trustedIndividualMedicalProfileStore,
         combat.individualGenericHerbStore,
         combat.individualTraumaticWoundStore,
+        combat.individualLimbDisabilityStore,
         combat.individualCombatActionStore,
         combat.moraleMovementStates,
         combat.individualDeathCountStore,
@@ -610,6 +642,7 @@ describe("individual casualty lifecycle structural performance", () => {
         combat.trustedIndividualMedicalProfileStore,
         combat.individualGenericHerbStore,
         combat.individualTraumaticWoundStore,
+        combat.individualLimbDisabilityStore,
         combat.individualCombatActionStore,
         combat.moraleMovementStates,
         combat.individualDeathCountStore,

@@ -80,6 +80,7 @@ describe("individual medical urgency and prepared discovery", () => {
       combat.individualCasualtyLifecycleStore,
       combat.individualCasualtyProcedureProfileStore,
       combat.individualTraumaticWoundStore,
+      combat.individualLimbDisabilityStore,
       combat.individualOrdinaryParticipationSnapshot,
       combat.individualMedicalUrgencyStore,
     );
@@ -145,6 +146,7 @@ describe("individual medical urgency and prepared discovery", () => {
       combat.individualCasualtyLifecycleStore,
       combat.individualCasualtyProcedureProfileStore,
       combat.individualTraumaticWoundStore,
+      combat.individualLimbDisabilityStore,
       combat.individualOrdinaryParticipationSnapshot,
       combat.individualMedicalUrgencyStore,
     );

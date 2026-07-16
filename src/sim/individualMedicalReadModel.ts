@@ -27,6 +27,10 @@ import {
   type IndividualTraumaticWoundStore,
 } from "./individualTraumaticWound";
 import {
+  getHighestPriorityIndividualLimbDisability,
+  type IndividualLimbDisabilityStore,
+} from "./individualLimbDisability";
+import {
   applyIndividualExternalMovementIntent,
   getIndividualPressure,
   getIndividualRole,
@@ -53,6 +57,8 @@ export type IndividualMedicalUrgencyKind =
   | "belowHalfHits"
   | "dangerouslyLowHits"
   | "traumaticWound"
+  | "disabledArm"
+  | "disabledLeg"
   | "dying"
   | "terminalComfort";
 
@@ -104,10 +110,11 @@ export function getAuthoritativeIndividualMedicalUrgency(
   hitStore: IndividualGlobalHitStore,
   lifecycleStore: IndividualCasualtyLifecycleStore,
   traumaStore: IndividualTraumaticWoundStore,
+  limbStore: IndividualLimbDisabilityStore,
   entityId: number,
 ): IndividualAuthoritativeMedicalUrgency {
   validateMatchingEntityCounts(formationStore.entityCount, hitStore,
-    lifecycleStore, traumaStore);
+    lifecycleStore, traumaStore, limbStore);
   assertEntityId(entityId, formationStore.entityCount);
   const lifecycle = getIndividualCharacterLifecycleState(lifecycleStore, entityId);
   const currentHits = getIndividualCurrentGlobalHits(hitStore, entityId);
@@ -117,6 +124,13 @@ export function getAuthoritativeIndividualMedicalUrgency(
       : { urgencyKind: "none", urgencyPriority: 0 };
   }
   if (lifecycle !== "active") return { urgencyKind: "none", urgencyPriority: 0 };
+  const limb = getHighestPriorityIndividualLimbDisability(limbStore, entityId);
+  if (limb === "disabledLeg") {
+    return { urgencyKind: "disabledLeg", urgencyPriority: 450 };
+  }
+  if (limb === "disabledArm") {
+    return { urgencyKind: "disabledArm", urgencyPriority: 425 };
+  }
   if (getIndividualTraumaticWoundInspection(traumaStore, entityId).state === "active") {
     return { urgencyKind: "traumaticWound", urgencyPriority: 400 };
   }
@@ -244,6 +258,8 @@ const URGENCY_DANGEROUS = 3;
 const URGENCY_TRAUMA = 4;
 const URGENCY_DYING = 5;
 const URGENCY_TERMINAL_COMFORT = 6;
+const URGENCY_DISABLED_ARM = 7;
+const URGENCY_DISABLED_LEG = 8;
 const MEDICAL_QUERY_CELL_SIZE = 64;
 export const LOCAL_MEDICAL_DISCOVERY_RADIUS = 192;
 const WITHDRAWAL_GOAL_DISTANCE = 64;
@@ -306,12 +322,13 @@ export function projectIndividualMedicalUrgency(
   lifecycleStore: IndividualCasualtyLifecycleStore,
   procedureStore: IndividualCasualtyProcedureProfileStore,
   traumaStore: IndividualTraumaticWoundStore,
+  limbStore: IndividualLimbDisabilityStore,
   participation: IndividualOrdinaryParticipationSnapshot,
   store: IndividualMedicalUrgencyStore,
 ): void {
   const internal = requireUrgencyStore(store, identityStore.entityCount);
   validateMatchingEntityCounts(identityStore.entityCount, formationStore, hitStore,
-    lifecycleStore, procedureStore, traumaStore, participation);
+    lifecycleStore, procedureStore, traumaStore, limbStore, participation);
   for (let entityId = 0; entityId < internal.entityCount; entityId += 1) {
     const lifecycle = getIndividualCharacterLifecycleState(lifecycleStore, entityId);
     const traumaActive = getIndividualTraumaticWoundInspection(
@@ -330,28 +347,13 @@ export function projectIndividualMedicalUrgency(
       lifecycle === "active" && !withdrawing,
     );
 
-    const currentHits = getIndividualCurrentGlobalHits(hitStore, entityId);
-    const maximumHits = getIndividualMaximumGlobalHits(hitStore, entityId);
-    let kind = URGENCY_NONE;
-    let priority = 0;
-    if (lifecycle === "dying") {
-      kind = URGENCY_DYING;
-      priority = 500;
-    } else if (lifecycle === "active" && traumaActive) {
-      kind = URGENCY_TRAUMA;
-      priority = 400;
-    } else if (lifecycle === "active" && currentHits === 1 && maximumHits > 1) {
-      kind = URGENCY_DANGEROUS;
-      priority = 300 + lowHitRoleAdjustment(formationStore, entityId);
-    } else if (lifecycle === "active" && currentHits * 2 < maximumHits) {
-      kind = URGENCY_BELOW_HALF;
-      priority = 200 + lowHitRoleAdjustment(formationStore, entityId);
-    } else if (lifecycle === "active" && currentHits < maximumHits) {
-      kind = URGENCY_COMFORTABLE;
-      priority = 100 + lowHitRoleAdjustment(formationStore, entityId);
-    }
-    internal.urgencyKindByEntity[entityId] = kind;
-    internal.urgencyPriorityByEntity[entityId] = priority;
+    const urgency = getAuthoritativeIndividualMedicalUrgency(
+      formationStore, hitStore, lifecycleStore, traumaStore, limbStore, entityId,
+    );
+    internal.urgencyKindByEntity[entityId] = urgencyIdentityFromKind(
+      urgency.urgencyKind,
+    );
+    internal.urgencyPriorityByEntity[entityId] = urgency.urgencyPriority;
     internal.withdrawalGoalKindByEntity[entityId] = 0;
     internal.withdrawalTargetPhysickByEntity[entityId] = -1;
     internal.withdrawalGoalXByEntity[entityId] = -1;
@@ -775,7 +777,23 @@ function urgencyKindFromIdentity(identity: number): IndividualMedicalUrgencyKind
     case URGENCY_TRAUMA: return "traumaticWound";
     case URGENCY_DYING: return "dying";
     case URGENCY_TERMINAL_COMFORT: return "terminalComfort";
+    case URGENCY_DISABLED_ARM: return "disabledArm";
+    case URGENCY_DISABLED_LEG: return "disabledLeg";
     default: return "none";
+  }
+}
+
+function urgencyIdentityFromKind(kind: IndividualMedicalUrgencyKind): number {
+  switch (kind) {
+    case "comfortableMissingHits": return URGENCY_COMFORTABLE;
+    case "belowHalfHits": return URGENCY_BELOW_HALF;
+    case "dangerouslyLowHits": return URGENCY_DANGEROUS;
+    case "traumaticWound": return URGENCY_TRAUMA;
+    case "dying": return URGENCY_DYING;
+    case "terminalComfort": return URGENCY_TERMINAL_COMFORT;
+    case "disabledArm": return URGENCY_DISABLED_ARM;
+    case "disabledLeg": return URGENCY_DISABLED_LEG;
+    default: return URGENCY_NONE;
   }
 }
 

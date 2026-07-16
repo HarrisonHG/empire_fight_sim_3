@@ -123,6 +123,7 @@ import {
   getIndividualTraumaticWoundInspection,
   resolveIndividualTraumaticWoundOpportunities,
 } from "./individualTraumaticWound";
+import { createIndividualLimbDisabilityStore } from "./individualLimbDisability";
 import {
   getActiveMeleeWeaponCategory,
   getAttackCommitmentTicksRemaining,
@@ -633,6 +634,8 @@ function createCombatSandbox(
   );
   const individualTraumaticWoundStore =
     createIndividualTraumaticWoundStore(world.entityCount);
+  const individualLimbDisabilityStore =
+    createIndividualLimbDisabilityStore(world.entityCount);
   const individualMedicalUrgencyStore =
     createIndividualMedicalUrgencyStore(world.entityCount);
   const individualOrdinaryParticipationSnapshot =
@@ -677,6 +680,7 @@ function createCombatSandbox(
     trustedIndividualMedicalProfileStore,
     individualGenericHerbStore,
     individualTraumaticWoundStore,
+    individualLimbDisabilityStore,
     individualMedicalUrgencyStore,
     individualMedicalLocalQueryStore: createIndividualMedicalLocalQueryStore(
       world.entityCount,
@@ -1218,6 +1222,7 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.individualCasualtyLifecycleStore,
       combatSandbox.individualCasualtyProcedureProfileStore,
       combatSandbox.individualTraumaticWoundStore,
+      combatSandbox.individualLimbDisabilityStore,
       combatSandbox.individualOrdinaryParticipationSnapshot,
       combatSandbox.individualMedicalUrgencyStore,
     );
@@ -1265,6 +1270,7 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.trustedIndividualMedicalProfileStore,
       combatSandbox.individualGenericHerbStore,
       combatSandbox.individualTraumaticWoundStore,
+      combatSandbox.individualLimbDisabilityStore,
       combatSandbox.individualCombatActionStore,
       combatSandbox.moraleMovementStates,
       combatSandbox.individualCasualtyAssistanceStore,
@@ -1317,6 +1323,7 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.trustedIndividualMedicalProfileStore,
       combatSandbox.individualGenericHerbStore,
       combatSandbox.individualTraumaticWoundStore,
+      combatSandbox.individualLimbDisabilityStore,
       combatSandbox.individualCombatActionStore,
       combatSandbox.moraleMovementStates,
       combatSandbox.individualCasualtyAssistanceStore,
@@ -1439,6 +1446,7 @@ export function advanceCombatSandboxOneTick(
         combatSandbox.trustedIndividualMedicalProfileStore,
         combatSandbox.individualGenericHerbStore,
         combatSandbox.individualTraumaticWoundStore,
+        combatSandbox.individualLimbDisabilityStore,
         combatSandbox.individualMedicalUrgencyStore,
         combatSandbox.individualCombatActionStore,
         combatSandbox.moraleMovementStates,
@@ -1465,6 +1473,7 @@ export function advanceCombatSandboxOneTick(
         combatSandbox.trustedIndividualMedicalProfileStore,
         combatSandbox.individualGenericHerbStore,
         combatSandbox.individualTraumaticWoundStore,
+        combatSandbox.individualLimbDisabilityStore,
         combatSandbox.individualCombatActionStore,
         combatSandbox.moraleMovementStates,
         combatSandbox.individualDeathCountStore,
@@ -1486,6 +1495,7 @@ export function advanceCombatSandboxOneTick(
         combatSandbox.trustedIndividualMedicalProfileStore,
         combatSandbox.individualGenericHerbStore,
         combatSandbox.individualTraumaticWoundStore,
+        combatSandbox.individualLimbDisabilityStore,
         combatSandbox.individualGlobalHitStore,
         combatSandbox.individualCombatActionStore,
         combatSandbox.moraleMovementStates,
