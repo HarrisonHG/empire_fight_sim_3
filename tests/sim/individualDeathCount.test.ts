@@ -156,7 +156,7 @@ describe("individual death counts", () => {
     )).toThrow(/currently dying/i);
   });
 
-  it("reinitializes a later dying episode fully while preserving bounded history", () => {
+  it("rejects a fabricated later transition during the same dying episode", () => {
     const harness = createHarness(5);
     const first = beginDying(harness, 10);
     advanceIndividualDeathCountsOneTick(
@@ -170,41 +170,27 @@ describe("individual death counts", () => {
     pauseIndividualDeathCount(
       harness.deathCount, harness.lifecycle, 0, source,
     );
-    const second = { ...first, tick: 20 };
-    initializeIndividualDeathCountsFromZeroHitTransitions(
+    expect(() => initializeIndividualDeathCountsFromZeroHitTransitions(
       harness.deathCount,
       harness.lifecycle,
       harness.procedure,
       harness.combatProfile,
-      [second],
-    );
-
+      [{ ...first, tick: 20 }],
+    )).toThrow(/match the lifecycle entered-dying tick/i);
     expect(getIndividualDeathCountInspection(harness.deathCount, 0)).toEqual({
       durationTicks: 5,
-      remainingTicks: 5,
-      paused: false,
-      pauseSource: undefined,
+      remainingTicks: 4,
+      paused: true,
+      pauseSource: source,
     });
     expect(getIndividualCasualtyHistoryInspection(harness.deathCount, 0))
       .toMatchObject({
         firstZeroHitTick: 10,
-        latestZeroHitTick: 20,
-        dyingTransitionCount: 2,
+        latestZeroHitTick: 10,
+        dyingTransitionCount: 1,
       });
-    expect(() => initializeIndividualDeathCountsFromZeroHitTransitions(
-      harness.deathCount,
-      harness.lifecycle,
-      harness.procedure,
-      harness.combatProfile,
-      [second],
-    )).toThrow(/later than the latest/i);
-    expect(() => initializeIndividualDeathCountsFromZeroHitTransitions(
-      harness.deathCount,
-      harness.lifecycle,
-      harness.procedure,
-      harness.combatProfile,
-      [{ ...second, tick: 19 }],
-    )).toThrow(/later than the latest/i);
+    // A genuine later lifecycle transition will carry a newly authoritative
+    // enteredDyingTick and may overwrite this timer. That integration is 6G.
   });
 
   it("rejects pause ownership for an active character", () => {

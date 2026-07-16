@@ -1,5 +1,6 @@
 import {
   getIndividualCharacterLifecycleState,
+  getIndividualEnteredDyingTick,
   transitionIndividualDyingToTerminal,
   type IndividualCasualtyLifecycleStore,
   type IndividualZeroHitLifecycleTransitionRecord,
@@ -166,6 +167,14 @@ export function initializeIndividualDeathCountsFromZeroHitTransitions(
     ) {
       throw new Error(
         "A death count may initialize only for a currently dying character.",
+      );
+    }
+    if (
+      transition.tick !==
+      getIndividualEnteredDyingTick(lifecycleStore, transition.entityId)
+    ) {
+      throw new RangeError(
+        "Death-count transition tick must match the lifecycle entered-dying tick.",
       );
     }
     const latestZeroHitTick =
