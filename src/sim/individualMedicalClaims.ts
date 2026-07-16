@@ -15,7 +15,11 @@ import {
   type IndividualCasualtyLifecycleStore,
   type IndividualPlayerPresenceStore,
 } from "./individualCasualtyLifecycle";
-import { getIndividualCurrentGlobalHits, type IndividualGlobalHitStore } from "./individualGlobalHits";
+import {
+  getIndividualCurrentGlobalHits,
+  getIndividualMaximumGlobalHits,
+  type IndividualGlobalHitStore,
+} from "./individualGlobalHits";
 import type { IndividualDefenceHandAvailabilitySource } from "./individualMeleeDefence";
 import {
   getIndividualMedicalUrgencyInspection,
@@ -289,7 +293,7 @@ function canPhysickClaim(identity: UnitIdentityStore, lifecycle: IndividualCasua
   return !requiresHerb(need) || getIndividualAvailableGenericHerbs(herbs, physickId) > 0;
 }
 function clearStaleClaims(identity: UnitIdentityStore, lifecycle: IndividualCasualtyLifecycleStore, profiles: TrustedIndividualMedicalProfileStore, herbs: IndividualGenericHerbStore, trauma: IndividualTraumaticWoundStore, urgency: IndividualMedicalUrgencyStore, actions: IndividualCombatActionStore, morale: UnitMoraleMovementStateSource, assistance: IndividualCasualtyAssistanceStore, claims: InternalClaimStore, tick: number, out: IndividualMedicalStaleClaimRecord[], options: IndividualMedicalClaimOptions): void {
-  for (let physickId = 0; physickId < claims.entityCount; physickId += 1) { const patientId = claims.patientByPhysick[physickId]!; if (patientId === NONE) continue; const need = getClaimNeed(urgency, patientId); if (claims.physickByPatient[patientId] !== physickId || !canExistingClaimRemain(identity, lifecycle, profiles, herbs, trauma, actions, morale, assistance, physickId, patientId, need, options)) { clearClaim(claims, physickId, patientId); out.push({ physickEntityId: physickId, patientEntityId: patientId, tick }); } else { claims.needByPatient[patientId] = needId(need!); } }
+  for (let physickId = 0; physickId < claims.entityCount; physickId += 1) { const patientId = claims.patientByPhysick[physickId]!; if (patientId === NONE) continue; if (claims.physickByPatient[patientId] === physickId && options.isTreating?.(physickId) === true) continue; const need = getClaimNeed(urgency, patientId); if (claims.physickByPatient[patientId] !== physickId || !canExistingClaimRemain(identity, lifecycle, profiles, herbs, trauma, actions, morale, assistance, physickId, patientId, need, options)) { clearClaim(claims, physickId, patientId); out.push({ physickEntityId: physickId, patientEntityId: patientId, tick }); } else { claims.needByPatient[patientId] = needId(need!); } }
 }
 function canExistingClaimRemain(identity: UnitIdentityStore, lifecycle: IndividualCasualtyLifecycleStore, profiles: TrustedIndividualMedicalProfileStore, herbs: IndividualGenericHerbStore, trauma: IndividualTraumaticWoundStore, actions: IndividualCombatActionStore, morale: UnitMoraleMovementStateSource, assistance: IndividualCasualtyAssistanceStore, physickId: number, patientId: number, need: IndividualMedicalClaimNeed | undefined, _options: IndividualMedicalClaimOptions): boolean {
   if (need === undefined || getPreparedFaction(identity, physickId) !== getPreparedFaction(identity, patientId)) return false;
@@ -297,16 +301,30 @@ function canExistingClaimRemain(identity: UnitIdentityStore, lifecycle: Individu
 }
 function isClaimedPhysickCommitted(identity: UnitIdentityStore, lifecycle: IndividualCasualtyLifecycleStore, presence: IndividualPlayerPresenceStore, hits: IndividualGlobalHitStore, profiles: TrustedIndividualMedicalProfileStore, herbs: IndividualGenericHerbStore, trauma: IndividualTraumaticWoundStore, actions: IndividualCombatActionStore, morale: UnitMoraleMovementStateSource, assistance: IndividualCasualtyAssistanceStore, claims: InternalClaimStore, physickId: number, tick: number, options: IndividualMedicalClaimCommitmentOptions): boolean {
   const patientId = claims.patientByPhysick[physickId]!;
+  const storedNeed = patientId === NONE ? "none" :
+    needFromId(claims.needByPatient[patientId]!);
   if (patientId === NONE || claims.physickByPatient[patientId] !== physickId ||
-    claims.needByPatient[patientId] !== NEED_DYING ||
+    storedNeed === "none" ||
     tick <= claims.claimedTickByPatient[patientId]! ||
     options.isTreating?.(physickId) === true ||
-    getIndividualCharacterLifecycleState(lifecycle, patientId) !== "dying" ||
-    getIndividualPlayerPresenceState(presence, patientId) !== "downedPresence" ||
-    getIndividualCurrentGlobalHits(hits, patientId) !== 0 ||
     !canExistingClaimRemain(identity, lifecycle, profiles, herbs, trauma, actions,
-      morale, assistance, physickId, patientId, "dying", {})) return false;
-  return true;
+      morale, assistance, physickId, patientId,
+      storedNeed, {})) return false;
+  const need = claims.needByPatient[patientId]!;
+  const patientLifecycle = getIndividualCharacterLifecycleState(lifecycle, patientId);
+  const patientPresence = getIndividualPlayerPresenceState(presence, patientId);
+  const currentHits = getIndividualCurrentGlobalHits(hits, patientId);
+  if (need === NEED_DYING) {
+    return patientLifecycle === "dying" && patientPresence === "downedPresence" &&
+      currentHits === 0;
+  }
+  if (patientLifecycle !== "active" || patientPresence !== "activePresence" ||
+    currentHits <= 0) return false;
+  if (need === NEED_TRAUMA) {
+    return getIndividualTraumaticWoundInspection(trauma, patientId).state === "active";
+  }
+  return need === NEED_MISSING &&
+    currentHits < getIndividualMaximumGlobalHits(hits, patientId);
 }
 function isWithinTreatmentTouchRange(world: WorldState, physickId: number, patientId: number): boolean {
   const dx = world.positionsX[physickId]! - world.positionsX[patientId]!;

@@ -61,7 +61,9 @@ export interface IndividualGlobalHitTickResult {
   readonly alreadyZeroApplicationCount: number;
 }
 
-export type IndividualGlobalHitRestorationReason = "chirurgeonTreatment";
+export type IndividualGlobalHitRestorationReason =
+  | "chirurgeonTreatment"
+  | "physickTreatment";
 
 export interface IndividualGlobalHitRestorationRecord {
   readonly entityId: number;
@@ -171,7 +173,7 @@ export function restoreIndividualGlobalHits(
   }
   assertEntityId(entityId, internal.entityCount);
   assertPositiveSafeInteger(requestedHitRestoration, "requestedHitRestoration");
-  if (reason !== "chirurgeonTreatment") {
+  if (reason !== "chirurgeonTreatment" && reason !== "physickTreatment") {
     throw new RangeError("Unknown individual global-hit restoration reason.");
   }
   if (getIndividualCharacterLifecycleState(lifecycleStore, entityId) === "terminal") {

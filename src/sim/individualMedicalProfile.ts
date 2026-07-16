@@ -32,12 +32,18 @@ interface InternalIndividualGenericHerbStore extends IndividualGenericHerbStore 
   readonly currentByEntity: Uint16Array;
   readonly maximumByEntity: Uint16Array;
   readonly reservedByEntity: Uint16Array;
+  readonly reservationActionIdByEntity: Float64Array;
 }
 
 export interface IndividualGenericHerbInspection {
   readonly current: number;
   readonly maximum: number;
   readonly reserved: number;
+}
+
+export interface IndividualGenericHerbReservationInspection {
+  readonly reserved: number;
+  readonly treatmentActionId: number;
 }
 
 export function createTrustedIndividualMedicalProfileStore(config: {
@@ -100,12 +106,73 @@ export function createIndividualGenericHerbStore(
     currentByEntity[entityId] = count;
     maximumByEntity[entityId] = count;
   }
+  const reservationActionIdByEntity = new Float64Array(profiles.entityCount);
+  reservationActionIdByEntity.fill(-1);
   return {
     entityCount: profiles.entityCount,
     currentByEntity,
     maximumByEntity,
     reservedByEntity: new Uint16Array(profiles.entityCount),
+    reservationActionIdByEntity,
   } as InternalIndividualGenericHerbStore;
+}
+
+export function getIndividualGenericHerbReservationInspection(
+  store: IndividualGenericHerbStore,
+  entityId: number,
+): IndividualGenericHerbReservationInspection {
+  const internal = store as InternalIndividualGenericHerbStore;
+  assertEntityId(entityId, internal.entityCount);
+  return {
+    reserved: internal.reservedByEntity[entityId]!,
+    treatmentActionId: internal.reservationActionIdByEntity[entityId]!,
+  };
+}
+
+export function reserveIndividualGenericHerbForTreatment(
+  store: IndividualGenericHerbStore,
+  entityId: number,
+  treatmentActionId: number,
+): boolean {
+  const internal = store as InternalIndividualGenericHerbStore;
+  assertEntityId(entityId, internal.entityCount);
+  assertNonNegativeSafeInteger(treatmentActionId, "treatmentActionId");
+  if (internal.reservedByEntity[entityId] !== 0) {
+    throw new Error("A Physick may own only one generic-herb reservation.");
+  }
+  if (getIndividualAvailableGenericHerbs(store, entityId) < 1) return false;
+  internal.reservedByEntity[entityId] = 1;
+  internal.reservationActionIdByEntity[entityId] = treatmentActionId;
+  return true;
+}
+
+export function releaseIndividualGenericHerbTreatmentReservation(
+  store: IndividualGenericHerbStore,
+  entityId: number,
+  treatmentActionId: number,
+): void {
+  const internal = requireMatchingTreatmentReservation(
+    store, entityId, treatmentActionId,
+  );
+  internal.reservedByEntity[entityId] = 0;
+  internal.reservationActionIdByEntity[entityId] = -1;
+}
+
+export function consumeIndividualGenericHerbTreatmentReservation(
+  store: IndividualGenericHerbStore,
+  entityId: number,
+  treatmentActionId: number,
+): void {
+  const internal = requireMatchingTreatmentReservation(
+    store, entityId, treatmentActionId,
+  );
+  const current = internal.currentByEntity[entityId]!;
+  if (current < 1) {
+    throw new Error("Reserved generic herb inventory cannot be empty.");
+  }
+  internal.currentByEntity[entityId] = current - 1;
+  internal.reservedByEntity[entityId] = 0;
+  internal.reservationActionIdByEntity[entityId] = -1;
 }
 
 export function getIndividualGenericHerbInspection(
@@ -136,6 +203,21 @@ function assertGenericHerbCount(value: number, name: string): void {
   }
 }
 
+function requireMatchingTreatmentReservation(
+  store: IndividualGenericHerbStore,
+  entityId: number,
+  treatmentActionId: number,
+): InternalIndividualGenericHerbStore {
+  const internal = store as InternalIndividualGenericHerbStore;
+  assertEntityId(entityId, internal.entityCount);
+  assertNonNegativeSafeInteger(treatmentActionId, "treatmentActionId");
+  if (internal.reservedByEntity[entityId] !== 1 ||
+    internal.reservationActionIdByEntity[entityId] !== treatmentActionId) {
+    throw new Error("Only the matching treatment action may use its generic-herb reservation.");
+  }
+  return internal;
+}
+
 function assertEntityId(entityId: number, entityCount: number): void {
   if (!Number.isSafeInteger(entityId) || entityId < 0 || entityId >= entityCount) {
     throw new RangeError("Medical profile entity ID is out of bounds.");
@@ -145,6 +227,12 @@ function assertEntityId(entityId: number, entityCount: number): void {
 function assertPositiveSafeInteger(value: number, name: string): void {
   if (!Number.isSafeInteger(value) || value <= 0) {
     throw new RangeError(`${name} must be a positive safe integer.`);
+  }
+}
+
+function assertNonNegativeSafeInteger(value: number, name: string): void {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new RangeError(`${name} must be a non-negative safe integer.`);
   }
 }
 

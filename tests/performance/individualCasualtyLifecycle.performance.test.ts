@@ -17,8 +17,12 @@ import {
 } from "../../src/sim/individualDeathCount";
 import { createIndividualCombatProfileStore } from "../../src/sim/individualCombatProfile";
 import {
+  consumeIndividualGenericHerbTreatmentReservation,
   createIndividualGenericHerbStore,
   createTrustedIndividualMedicalProfileStore,
+  getIndividualGenericHerbInspection,
+  releaseIndividualGenericHerbTreatmentReservation,
+  reserveIndividualGenericHerbForTreatment,
 } from "../../src/sim/individualMedicalProfile";
 import {
   createIndividualTraumaticWoundStore,
@@ -240,6 +244,28 @@ describe("individual casualty lifecycle structural performance", () => {
       });
       const herbs = createIndividualGenericHerbStore(medicalProfiles);
       const trauma = createIndividualTraumaticWoundStore(entityCount);
+      let reservationCount = 0;
+      for (let entityId = 0; entityId < entityCount; entityId += 20) {
+        expect(reserveIndividualGenericHerbForTreatment(
+          herbs, entityId, entityId,
+        )).toBe(true);
+        reservationCount += 1;
+      }
+      for (let entityId = 0; entityId < entityCount; entityId += 20) {
+        if (entityId % 40 === 0) {
+          consumeIndividualGenericHerbTreatmentReservation(
+            herbs, entityId, entityId,
+          );
+          expect(getIndividualGenericHerbInspection(herbs, entityId))
+            .toMatchObject({ current: 11, reserved: 0 });
+        } else {
+          releaseIndividualGenericHerbTreatmentReservation(
+            herbs, entityId, entityId,
+          );
+          expect(getIndividualGenericHerbInspection(herbs, entityId))
+            .toMatchObject({ current: 12, reserved: 0 });
+        }
+      }
       const result = resolveIndividualTraumaticWoundOpportunities(
         0x6c_01,
         procedures,
@@ -257,9 +283,10 @@ describe("individual casualty lifecycle structural performance", () => {
       process.stdout.write(
         `\nMedical and trauma performance report\n${JSON.stringify({
           entityCount,
+          herbReservationOperations: reservationCount * 2,
           traumaApplications: result.appliedCount,
           elapsedMilliseconds,
-          timingPolicy: "Structural assertions only; immutable/entity-indexed stores and one keyed opportunity pass.",
+          timingPolicy: "Structural assertions only; immutable/entity-indexed stores, constant-time reservation ownership, and one keyed opportunity pass.",
         }, null, 2)}\n`,
       );
     },
@@ -563,6 +590,7 @@ describe("individual casualty lifecycle structural performance", () => {
         combat.individualCasualtyLifecycleStore,
         combat.individualPlayerPresenceStore,
         combat.trustedIndividualMedicalProfileStore,
+        combat.individualGenericHerbStore,
         combat.individualTraumaticWoundStore,
         combat.individualCombatActionStore,
         combat.moraleMovementStates,
@@ -580,6 +608,7 @@ describe("individual casualty lifecycle structural performance", () => {
         combat.individualCasualtyLifecycleStore,
         combat.individualPlayerPresenceStore,
         combat.trustedIndividualMedicalProfileStore,
+        combat.individualGenericHerbStore,
         combat.individualTraumaticWoundStore,
         combat.individualCombatActionStore,
         combat.moraleMovementStates,

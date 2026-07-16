@@ -94,6 +94,7 @@ import {
 } from "./individualMedicalClaims";
 import {
   advanceIndividualTreatmentActionsOneTick,
+  isIndividualReceivingTreatment,
   createIndividualTreatmentActionBuffers,
   createIndividualTreatmentActionStore,
   isIndividualTreating,
@@ -1330,6 +1331,10 @@ export function advanceCombatSandboxOneTick(
       world,
       combatSandbox.formationStore,
       combatSandbox.individualMedicalUrgencyStore,
+      (entityId) => isIndividualReceivingTreatment(
+        combatSandbox.individualTreatmentActionStore,
+        entityId,
+      ),
     );
     return result;
   });
@@ -1456,6 +1461,7 @@ export function advanceCombatSandboxOneTick(
         combatSandbox.individualCasualtyLifecycleStore,
         combatSandbox.individualPlayerPresenceStore,
         combatSandbox.trustedIndividualMedicalProfileStore,
+        combatSandbox.individualGenericHerbStore,
         combatSandbox.individualTraumaticWoundStore,
         combatSandbox.individualCombatActionStore,
         combatSandbox.moraleMovementStates,

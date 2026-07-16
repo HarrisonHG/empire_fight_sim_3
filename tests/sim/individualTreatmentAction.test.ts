@@ -647,6 +647,7 @@ function advanceTreatment(
   combat.individualTreatmentActionResult = advanceIndividualTreatmentActionsOneTick(
     simulation.world, combat.identityStore, combat.individualCasualtyLifecycleStore,
     combat.individualPlayerPresenceStore, combat.trustedIndividualMedicalProfileStore,
+    combat.individualGenericHerbStore,
     combat.individualTraumaticWoundStore, combat.individualCombatActionStore,
     combat.moraleMovementStates, combat.individualDeathCountStore,
     combat.individualGlobalHitStore, combat.individualMedicalClaimStore,

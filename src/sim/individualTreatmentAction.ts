@@ -25,6 +25,7 @@ import {
 } from "./individualDeathCount";
 import {
   getIndividualCurrentGlobalHits,
+  getIndividualMaximumGlobalHits,
   restoreIndividualGlobalHits,
   type IndividualGlobalHitRestorationRecord,
   type IndividualGlobalHitStore,
@@ -39,11 +40,20 @@ import {
   type IndividualMedicalClaimStore,
 } from "./individualMedicalClaims";
 import {
+  consumeIndividualGenericHerbTreatmentReservation,
+  getIndividualAvailableGenericHerbs,
   getTrustedIndividualMedicalProfile,
+  releaseIndividualGenericHerbTreatmentReservation,
+  reserveIndividualGenericHerbForTreatment,
+  type IndividualGenericHerbStore,
   type TrustedIndividualMedicalProfileStore,
 } from "./individualMedicalProfile";
 import { setIndividualOrdinaryParticipationEligible, type IndividualOrdinaryParticipationSnapshot } from "./individualOrdinaryParticipation";
-import { getIndividualTraumaticWoundInspection, type IndividualTraumaticWoundStore } from "./individualTraumaticWound";
+import {
+  clearIndividualTraumaticWound,
+  getIndividualTraumaticWoundInspection,
+  type IndividualTraumaticWoundStore,
+} from "./individualTraumaticWound";
 import type { UnitMoraleMovementStateSource } from "./moraleMovement";
 import { getUnitIdForEntity, type UnitIdentityStore } from "./unitIdentity";
 import type { WorldState } from "./types";
@@ -51,7 +61,10 @@ import type { WorldState } from "./types";
 export const CHIRURGEON_DYING_TREATMENT_PROGRESS_TICKS = 600;
 export const INDIVIDUAL_TREATMENT_TOUCH_RANGE = CASUALTY_DRAG_PICKUP_RANGE;
 
-export type IndividualTreatmentActionKind = "chirurgeonDying";
+export type IndividualTreatmentActionKind =
+  | "chirurgeonDying"
+  | "physickRestoreGlobalHit"
+  | "physickTraumaticWound";
 export type IndividualTreatmentInterruptionReason =
   | "healerAttackAttempt"
   | "patientAttackAttempt"
@@ -67,10 +80,11 @@ export type IndividualTreatmentInterruptionReason =
 
 interface ActiveTreatmentAction {
   readonly actionId: number;
-  readonly kind: "chirurgeonDying";
+  readonly kind: IndividualTreatmentActionKind;
   readonly healerEntityId: number;
   readonly patientEntityId: number;
   readonly startedTick: number;
+  readonly reservedGenericHerbs: 0 | 1;
   progressTicks: number;
   lastProcessedTick: number;
 }
@@ -82,6 +96,11 @@ interface InternalTreatmentActionStore extends IndividualTreatmentActionStore {
   readonly actionIndexByPatient: Int32Array;
   readonly attackAttemptTickByEntity: Float64Array;
   readonly acceptedHitTickByEntity: Float64Array;
+  readonly startedCountByEntity: Uint32Array;
+  readonly interruptedCountByEntity: Uint32Array;
+  readonly completedCountByEntity: Uint32Array;
+  readonly restoredHitCountByEntity: Uint32Array;
+  readonly clearedTraumaCountByEntity: Uint32Array;
   nextActionId: number;
 }
 
@@ -93,6 +112,7 @@ export interface IndividualTreatmentActionInspection {
   readonly startedTick: number;
   readonly progressTicks: number;
   readonly requiredProgressTicks: number;
+  readonly reservedGenericHerbs: 0 | 1;
 }
 
 export interface IndividualTreatmentStartedRecord extends IndividualTreatmentActionInspection {
@@ -102,11 +122,22 @@ export interface IndividualTreatmentInterruptedRecord extends IndividualTreatmen
   readonly tick: number;
   readonly reason: IndividualTreatmentInterruptionReason;
   readonly progressTicksLost: number;
+  readonly releasedGenericHerbs: 0 | 1;
 }
 export interface IndividualTreatmentCompletedRecord extends IndividualTreatmentActionInspection {
   readonly tick: number;
-  readonly hitRestoration: IndividualGlobalHitRestorationRecord;
-  readonly lifecycleRestoration: IndividualDyingRestorationRecord;
+  readonly hitRestoration?: IndividualGlobalHitRestorationRecord;
+  readonly lifecycleRestoration?: IndividualDyingRestorationRecord;
+  readonly traumaCleared: boolean;
+  readonly consumedGenericHerbs: 0 | 1;
+}
+
+export interface IndividualTreatmentHistoryInspection {
+  readonly startedCount: number;
+  readonly interruptedCount: number;
+  readonly completedCount: number;
+  readonly restoredHitCount: number;
+  readonly clearedTraumaCount: number;
 }
 
 export interface IndividualTreatmentActionBuffers {
@@ -137,6 +168,11 @@ export function createIndividualTreatmentActionStore(entityCount: number): Indiv
     actionIndexByPatient,
     attackAttemptTickByEntity,
     acceptedHitTickByEntity,
+    startedCountByEntity: new Uint32Array(entityCount),
+    interruptedCountByEntity: new Uint32Array(entityCount),
+    completedCountByEntity: new Uint32Array(entityCount),
+    restoredHitCountByEntity: new Uint32Array(entityCount),
+    clearedTraumaCountByEntity: new Uint32Array(entityCount),
     nextActionId: 0,
   } as InternalTreatmentActionStore;
 }
@@ -161,8 +197,32 @@ export function isIndividualTreating(store: IndividualTreatmentActionStore, heal
   return internal.actionIndexByHealer[healerEntityId] !== NONE;
 }
 
+export function isIndividualReceivingTreatment(
+  store: IndividualTreatmentActionStore,
+  patientEntityId: number,
+): boolean {
+  const internal = asInternal(store);
+  assertEntityId(patientEntityId, internal.entityCount);
+  return internal.actionIndexByPatient[patientEntityId] !== NONE;
+}
+
 export function getActiveIndividualTreatmentActionCount(store: IndividualTreatmentActionStore): number {
   return asInternal(store).activeActions.length;
+}
+
+export function getIndividualTreatmentHistoryInspection(
+  store: IndividualTreatmentActionStore,
+  healerEntityId: number,
+): IndividualTreatmentHistoryInspection {
+  const internal = asInternal(store);
+  assertEntityId(healerEntityId, internal.entityCount);
+  return {
+    startedCount: internal.startedCountByEntity[healerEntityId]!,
+    interruptedCount: internal.interruptedCountByEntity[healerEntityId]!,
+    completedCount: internal.completedCountByEntity[healerEntityId]!,
+    restoredHitCount: internal.restoredHitCountByEntity[healerEntityId]!,
+    clearedTraumaCount: internal.clearedTraumaCountByEntity[healerEntityId]!,
+  };
 }
 
 export function projectIndividualTreatmentOrdinaryParticipation(
@@ -183,6 +243,7 @@ export function advanceIndividualTreatmentActionsOneTick(
   lifecycle: IndividualCasualtyLifecycleStore,
   presence: IndividualPlayerPresenceStore,
   profiles: TrustedIndividualMedicalProfileStore,
+  herbs: IndividualGenericHerbStore,
   trauma: IndividualTraumaticWoundStore,
   combatActions: IndividualCombatActionStore,
   morale: UnitMoraleMovementStateSource,
@@ -197,7 +258,7 @@ export function advanceIndividualTreatmentActionsOneTick(
   buffers: IndividualTreatmentActionBuffers,
 ): IndividualTreatmentActionResult {
   const internal = asInternal(store);
-  validateCounts(world.entityCount, identity, lifecycle, presence, profiles, trauma,
+  validateCounts(world.entityCount, identity, lifecycle, presence, profiles, herbs, trauma,
     combatActions, deathCounts, hits, claims, assistance, internal);
   assertNonNegativeSafeInteger(tick, "tick");
   buffers.startedRecords.length = 0;
@@ -213,7 +274,7 @@ export function advanceIndividualTreatmentActionsOneTick(
     const reason = getInterruptionReason(world, identity, lifecycle, presence, profiles,
       trauma, combatActions, morale, hits, claims, internal, action, tick);
     if (reason !== undefined) {
-      interruptAction(lifecycle, deathCounts, claims, internal, index, action, tick,
+      interruptAction(lifecycle, deathCounts, herbs, claims, internal, index, action, tick,
         reason, buffers.interruptedRecords);
       continue;
     }
@@ -224,7 +285,7 @@ export function advanceIndividualTreatmentActionsOneTick(
       index += 1;
       continue;
     }
-    completeAction(lifecycle, presence, deathCounts, hits, claims, assistance, internal, index,
+    completeAction(lifecycle, presence, deathCounts, hits, herbs, trauma, claims, assistance, internal, index,
       action, tick, buffers.completedRecords);
   }
 
@@ -233,22 +294,32 @@ export function advanceIndividualTreatmentActionsOneTick(
       internal.actionIndexByPatient[healerEntityId] !== NONE) continue;
     const patientEntityId = getIndividualMedicalClaimedPatientEntityId(claims, healerEntityId);
     if (patientEntityId === NONE || internal.actionIndexByPatient[patientEntityId] !== NONE ||
-      !canStartAction(world, identity, lifecycle, presence, profiles, trauma,
-        combatActions, morale, hits, claims, internal, healerEntityId,
+      !canStartAction(world, identity, lifecycle, presence, profiles, herbs,
+        trauma, combatActions, morale, hits, claims, internal, healerEntityId,
         patientEntityId, tick)) continue;
+    const kind = treatmentKindForClaim(claims, patientEntityId);
+    if (kind === undefined) continue;
+    const actionId = internal.nextActionId;
+    const reservedGenericHerbs = kind === "chirurgeonDying" ? 0 : 1;
+    if (reservedGenericHerbs === 1 &&
+      !reserveIndividualGenericHerbForTreatment(herbs, healerEntityId, actionId)) continue;
     const action: ActiveTreatmentAction = {
-      actionId: internal.nextActionId,
-      kind: "chirurgeonDying",
+      actionId,
+      kind,
       healerEntityId,
       patientEntityId,
       startedTick: tick,
+      reservedGenericHerbs,
       progressTicks: 0,
       lastProcessedTick: tick,
     };
-    pauseIndividualDeathCount(deathCounts, lifecycle, patientEntityId, pauseSource(action));
+    if (kind === "chirurgeonDying") {
+      pauseIndividualDeathCount(deathCounts, lifecycle, patientEntityId, pauseSource(action));
+    }
     internal.nextActionId += 1;
     addAction(internal, action);
     clearIndividualMedicalClaimCommitmentDefenceOverride(claims, healerEntityId);
+    incrementBounded(internal.startedCountByEntity, healerEntityId, "treatment started count");
     buffers.startedRecords.push({ ...inspect(action), tick });
   }
 
@@ -265,27 +336,40 @@ export function advanceIndividualTreatmentActionsOneTick(
 function canStartAction(
   world: WorldState, identity: UnitIdentityStore,
   lifecycle: IndividualCasualtyLifecycleStore, presence: IndividualPlayerPresenceStore,
-  profiles: TrustedIndividualMedicalProfileStore, trauma: IndividualTraumaticWoundStore,
+  profiles: TrustedIndividualMedicalProfileStore, herbs: IndividualGenericHerbStore,
+  trauma: IndividualTraumaticWoundStore,
   combatActions: IndividualCombatActionStore, morale: UnitMoraleMovementStateSource,
   hits: IndividualGlobalHitStore, claims: IndividualMedicalClaimStore,
   evidence: InternalTreatmentActionStore, healer: number, patient: number, tick: number,
 ): boolean {
-  return healer !== patient &&
-    isIndividualMedicalClaimOwnedBy(claims, healer, patient) &&
-    getIndividualMedicalClaimNeed(claims, patient) === "dying" &&
-    getTrustedIndividualMedicalProfile(profiles, healer).hasChirurgeon &&
-    getIndividualCharacterLifecycleState(lifecycle, healer) === "active" &&
-    getIndividualCharacterLifecycleState(lifecycle, patient) === "dying" &&
-    getIndividualPlayerPresenceState(presence, patient) === "downedPresence" &&
-    getIndividualCurrentGlobalHits(hits, patient) === 0 &&
-    getIndividualTraumaticWoundInspection(trauma, healer).state === "none" &&
-    morale.get(getUnitIdForEntity(identity, healer)) !== "routing" &&
-    getIndividualCombatActionState(combatActions, healer) === "ready" &&
-    evidence.attackAttemptTickByEntity[healer] !== tick &&
-    evidence.attackAttemptTickByEntity[patient] !== tick &&
-    evidence.acceptedHitTickByEntity[healer] !== tick &&
-    evidence.acceptedHitTickByEntity[patient] !== tick &&
-    withinTouchRange(world, healer, patient);
+  if (healer === patient ||
+    !isIndividualMedicalClaimOwnedBy(claims, healer, patient) ||
+    getIndividualCharacterLifecycleState(lifecycle, healer) !== "active" ||
+    getIndividualTraumaticWoundInspection(trauma, healer).state !== "none" ||
+    morale.get(getUnitIdForEntity(identity, healer)) === "routing" ||
+    getIndividualCombatActionState(combatActions, healer) !== "ready" ||
+    evidence.attackAttemptTickByEntity[healer] === tick ||
+    evidence.attackAttemptTickByEntity[patient] === tick ||
+    evidence.acceptedHitTickByEntity[healer] === tick ||
+    evidence.acceptedHitTickByEntity[patient] === tick ||
+    !withinTouchRange(world, healer, patient)) return false;
+  const kind = treatmentKindForClaim(claims, patient);
+  if (kind === undefined) return false;
+  const profile = getTrustedIndividualMedicalProfile(profiles, healer);
+  if (kind === "chirurgeonDying") {
+    return profile.hasChirurgeon &&
+      getIndividualCharacterLifecycleState(lifecycle, patient) === "dying" &&
+      getIndividualPlayerPresenceState(presence, patient) === "downedPresence" &&
+      getIndividualCurrentGlobalHits(hits, patient) === 0;
+  }
+  if (!profile.hasPhysick || getIndividualAvailableGenericHerbs(herbs, healer) < 1 ||
+    getIndividualCharacterLifecycleState(lifecycle, patient) !== "active" ||
+    getIndividualPlayerPresenceState(presence, patient) !== "activePresence") return false;
+  if (kind === "physickTraumaticWound") {
+    return getIndividualTraumaticWoundInspection(trauma, patient).state === "active";
+  }
+  const currentHits = getIndividualCurrentGlobalHits(hits, patient);
+  return currentHits > 0 && currentHits < getIndividualMaximumGlobalHits(hits, patient);
 }
 
 function getInterruptionReason(
@@ -302,63 +386,119 @@ function getInterruptionReason(
   if (evidence.acceptedHitTickByEntity[healer] === tick) return "healerAcceptedHit";
   if (evidence.acceptedHitTickByEntity[patient] === tick) return "patientAcceptedHit";
   if (!withinTouchRange(world, healer, patient)) return "rangeLost";
-  if (getIndividualCharacterLifecycleState(lifecycle, patient) !== "dying" ||
-    getIndividualPlayerPresenceState(presence, patient) !== "downedPresence") {
+  const patientLifecycle = getIndividualCharacterLifecycleState(lifecycle, patient);
+  const patientPresence = getIndividualPlayerPresenceState(presence, patient);
+  if (action.kind === "chirurgeonDying"
+    ? patientLifecycle !== "dying" || patientPresence !== "downedPresence"
+    : patientLifecycle !== "active" || patientPresence !== "activePresence") {
     return "patientLifecycleIncompatible";
   }
+  const medicalProfile = getTrustedIndividualMedicalProfile(profiles, healer);
   if (getIndividualCharacterLifecycleState(lifecycle, healer) !== "active" ||
-    !getTrustedIndividualMedicalProfile(profiles, healer).hasChirurgeon ||
+    (action.kind === "chirurgeonDying"
+      ? !medicalProfile.hasChirurgeon
+      : !medicalProfile.hasPhysick) ||
     getIndividualCombatActionState(combatActions, healer) !== "ready") {
     return "healerIncapacity";
   }
   if (morale.get(getUnitIdForEntity(identity, healer)) === "routing") return "healerRouting";
   if (getIndividualTraumaticWoundInspection(trauma, healer).state !== "none") return "healerTrauma";
-  if (getIndividualCurrentGlobalHits(hits, patient) !== 0) return "patientNoLongerNeedsAction";
+  if (!patientStillNeedsAction(action.kind, hits, trauma, patient)) {
+    return "patientNoLongerNeedsAction";
+  }
   if (!isIndividualMedicalClaimOwnedBy(claims, healer, patient) ||
-    getIndividualMedicalClaimNeed(claims, patient) !== "dying") return "claimLost";
+    getIndividualMedicalClaimNeed(claims, patient) !== claimNeedForKind(action.kind)) {
+    return "claimLost";
+  }
   return undefined;
 }
 
 function interruptAction(
   lifecycle: IndividualCasualtyLifecycleStore, deathCounts: IndividualDeathCountStore,
-  claims: IndividualMedicalClaimStore, store: InternalTreatmentActionStore,
+  herbs: IndividualGenericHerbStore, claims: IndividualMedicalClaimStore,
+  store: InternalTreatmentActionStore,
   index: number, action: ActiveTreatmentAction, tick: number,
   reason: IndividualTreatmentInterruptionReason,
   out: IndividualTreatmentInterruptedRecord[],
 ): void {
-  if (getIndividualCharacterLifecycleState(lifecycle, action.patientEntityId) === "dying") {
-    resumeIndividualDeathCount(deathCounts, lifecycle, action.patientEntityId, pauseSource(action));
+  if (action.kind === "chirurgeonDying") {
+    if (getIndividualCharacterLifecycleState(lifecycle, action.patientEntityId) === "dying") {
+      resumeIndividualDeathCount(deathCounts, lifecycle, action.patientEntityId, pauseSource(action));
+    } else {
+      releaseIndividualDeathCountPause(deathCounts, action.patientEntityId, pauseSource(action));
+    }
   } else {
-    releaseIndividualDeathCountPause(deathCounts, action.patientEntityId, pauseSource(action));
+    releaseIndividualGenericHerbTreatmentReservation(
+      herbs, action.healerEntityId, action.actionId,
+    );
   }
-  if (isIndividualMedicalClaimOwnedBy(claims, action.healerEntityId, action.patientEntityId)) {
+  if (action.kind === "chirurgeonDying" &&
+    isIndividualMedicalClaimOwnedBy(claims, action.healerEntityId, action.patientEntityId)) {
     releaseIndividualMedicalClaim(claims, action.healerEntityId, action.patientEntityId);
   }
-  out.push({ ...inspect(action), tick, reason, progressTicksLost: action.progressTicks });
+  incrementBounded(store.interruptedCountByEntity, action.healerEntityId,
+    "treatment interrupted count");
+  out.push({ ...inspect(action), tick, reason, progressTicksLost: action.progressTicks,
+    releasedGenericHerbs: action.reservedGenericHerbs });
   removeAction(store, index);
 }
 
 function completeAction(
   lifecycle: IndividualCasualtyLifecycleStore, presence: IndividualPlayerPresenceStore,
   deathCounts: IndividualDeathCountStore, hits: IndividualGlobalHitStore,
+  herbs: IndividualGenericHerbStore, trauma: IndividualTraumaticWoundStore,
   claims: IndividualMedicalClaimStore, assistance: IndividualCasualtyAssistanceStore,
   store: InternalTreatmentActionStore,
   index: number, action: ActiveTreatmentAction, tick: number,
   out: IndividualTreatmentCompletedRecord[],
 ): void {
-  resumeIndividualDeathCount(deathCounts, lifecycle, action.patientEntityId, pauseSource(action));
-  const hitRestoration = restoreIndividualGlobalHits(
-    hits, lifecycle, action.patientEntityId, 1, "chirurgeonTreatment",
-  );
-  if (hitRestoration.appliedHitRestoration !== 1) {
-    throw new Error("Chirurgeon dying treatment must restore exactly one hit.");
+  let hitRestoration: IndividualGlobalHitRestorationRecord | undefined;
+  let lifecycleRestoration: IndividualDyingRestorationRecord | undefined;
+  let traumaCleared = false;
+  if (action.kind === "chirurgeonDying") {
+    resumeIndividualDeathCount(deathCounts, lifecycle, action.patientEntityId, pauseSource(action));
+    hitRestoration = restoreIndividualGlobalHits(
+      hits, lifecycle, action.patientEntityId, 1, "chirurgeonTreatment",
+    );
+    if (hitRestoration.appliedHitRestoration !== 1) {
+      throw new Error("Chirurgeon dying treatment must restore exactly one hit.");
+    }
+    incrementBounded(store.restoredHitCountByEntity, action.healerEntityId,
+      "treatment restored-hit count");
+    lifecycleRestoration = transitionIndividualDyingToActive(
+      lifecycle, presence, action.patientEntityId, tick,
+    );
+    releaseIndividualTreatmentPositionReservation(assistance, action.patientEntityId);
+    releaseIndividualMedicalClaim(claims, action.healerEntityId, action.patientEntityId);
+  } else if (action.kind === "physickRestoreGlobalHit") {
+    hitRestoration = restoreIndividualGlobalHits(
+      hits, lifecycle, action.patientEntityId, 1, "physickTreatment",
+    );
+    if (hitRestoration.appliedHitRestoration !== 1) {
+      throw new Error("Physick missing-hit treatment must restore exactly one hit.");
+    }
+    incrementBounded(store.restoredHitCountByEntity, action.healerEntityId,
+      "treatment restored-hit count");
+    consumeIndividualGenericHerbTreatmentReservation(
+      herbs, action.healerEntityId, action.actionId,
+    );
+  } else {
+    traumaCleared = clearIndividualTraumaticWound(trauma, action.patientEntityId);
+    if (!traumaCleared) throw new Error("Physick trauma treatment must clear one active wound.");
+    incrementBounded(store.clearedTraumaCountByEntity, action.healerEntityId,
+      "treatment cleared-trauma count");
+    consumeIndividualGenericHerbTreatmentReservation(
+      herbs, action.healerEntityId, action.actionId,
+    );
   }
-  const lifecycleRestoration = transitionIndividualDyingToActive(
-    lifecycle, presence, action.patientEntityId, tick,
-  );
-  releaseIndividualTreatmentPositionReservation(assistance, action.patientEntityId);
-  releaseIndividualMedicalClaim(claims, action.healerEntityId, action.patientEntityId);
-  out.push({ ...inspect(action), tick, hitRestoration, lifecycleRestoration });
+  incrementBounded(store.completedCountByEntity, action.healerEntityId,
+    "treatment completed count");
+  out.push({ ...inspect(action), tick,
+    ...(hitRestoration === undefined ? {} : { hitRestoration }),
+    ...(lifecycleRestoration === undefined ? {} : { lifecycleRestoration }),
+    traumaCleared,
+    consumedGenericHerbs: action.reservedGenericHerbs,
+  });
   removeAction(store, index);
 }
 
@@ -386,6 +526,41 @@ function withinTouchRange(world: WorldState, left: number, right: number): boole
   const dx = world.positionsX[left]! - world.positionsX[right]!;
   const dy = world.positionsY[left]! - world.positionsY[right]!;
   return dx * dx + dy * dy <= INDIVIDUAL_TREATMENT_TOUCH_RANGE * INDIVIDUAL_TREATMENT_TOUCH_RANGE;
+}
+
+function treatmentKindForClaim(
+  claims: IndividualMedicalClaimStore,
+  patientEntityId: number,
+): IndividualTreatmentActionKind | undefined {
+  const need = getIndividualMedicalClaimNeed(claims, patientEntityId);
+  if (need === "dying") return "chirurgeonDying";
+  if (need === "livingMissingHits") return "physickRestoreGlobalHit";
+  if (need === "traumaticWound") return "physickTraumaticWound";
+  return undefined;
+}
+
+function claimNeedForKind(
+  kind: IndividualTreatmentActionKind,
+): "dying" | "livingMissingHits" | "traumaticWound" {
+  if (kind === "chirurgeonDying") return "dying";
+  if (kind === "physickRestoreGlobalHit") return "livingMissingHits";
+  return "traumaticWound";
+}
+
+function patientStillNeedsAction(
+  kind: IndividualTreatmentActionKind,
+  hits: IndividualGlobalHitStore,
+  trauma: IndividualTraumaticWoundStore,
+  patientEntityId: number,
+): boolean {
+  if (kind === "chirurgeonDying") {
+    return getIndividualCurrentGlobalHits(hits, patientEntityId) === 0;
+  }
+  if (kind === "physickTraumaticWound") {
+    return getIndividualTraumaticWoundInspection(trauma, patientEntityId).state === "active";
+  }
+  const currentHits = getIndividualCurrentGlobalHits(hits, patientEntityId);
+  return currentHits > 0 && currentHits < getIndividualMaximumGlobalHits(hits, patientEntityId);
 }
 
 function pauseSource(action: ActiveTreatmentAction): IndividualDeathCountPauseSource {
@@ -417,7 +592,14 @@ function inspect(action: ActiveTreatmentAction): IndividualTreatmentActionInspec
   return { actionId: action.actionId, kind: action.kind,
     healerEntityId: action.healerEntityId, patientEntityId: action.patientEntityId,
     startedTick: action.startedTick, progressTicks: action.progressTicks,
-    requiredProgressTicks: CHIRURGEON_DYING_TREATMENT_PROGRESS_TICKS };
+    requiredProgressTicks: CHIRURGEON_DYING_TREATMENT_PROGRESS_TICKS,
+    reservedGenericHerbs: action.reservedGenericHerbs };
+}
+
+function incrementBounded(array: Uint32Array, entityId: number, label: string): void {
+  const current = array[entityId]!;
+  if (current === 0xffffffff) throw new RangeError(`${label} overflow.`);
+  array[entityId] = current + 1;
 }
 
 function sortRecords(buffers: IndividualTreatmentActionBuffers): void {

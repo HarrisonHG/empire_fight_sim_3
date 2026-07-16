@@ -611,11 +611,13 @@ export function advanceIndividualTraumaWithdrawalMovementOneTick(
   world: WorldState,
   formationStore: FormationBehaviourStore,
   urgencyStore: IndividualMedicalUrgencyStore,
+  isReceivingTreatment: (entityId: number) => boolean = () => false,
 ): number {
   const internal = requireUrgencyStore(urgencyStore, world.entityCount);
   let movedCount = 0;
   for (let entityId = 0; entityId < world.entityCount; entityId += 1) {
     if (internal.withdrawingByEntity[entityId] === 0) continue;
+    if (isReceivingTreatment(entityId)) continue;
     if (applyIndividualExternalMovementIntent(
       world,
       formationStore,

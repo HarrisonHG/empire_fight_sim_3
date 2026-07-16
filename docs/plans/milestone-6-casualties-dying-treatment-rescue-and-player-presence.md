@@ -1250,37 +1250,57 @@ No Physick missing-hit healing, herb reservation/consumption/release, trauma tre
 
 ---
 
-## 6G-2 — Physick treatment breadth, finite herbs, trauma, and limb restoration
+## 6G-2a — Physick hit/trauma treatment and finite herbs
 
 ### Purpose
 
-Extend the accepted 6G-1 treatment boundary to the remaining Physick actions and finite-resource rules.
+Extend the accepted 6G-1 treatment boundary to living missing-hit and traumatic-wound actions plus finite-resource rules.
 
 ### Deliver
 
 - Physick missing-hit treatment;
 - Physick traumatic-wound treatment;
-- herb-backed 30-second arm/leg treatment hooks;
-- no-herb two-minute arm/leg treatment hooks;
 - herb reservation/release/consumption;
 - traumatic-wound clearing;
-- disabled-limb clearing through generic hooks;
 - patient reassessment into another valid action;
 - remaining treatment records and casualty-history counts.
 
 ### Tests
 
-- Physick hit, trauma, and fast limb treatment reserve then consume one herb;
+- Physick hit and trauma treatment reserve then consume one herb;
 - trauma treatment cannot begin without an available herb;
-- a zero-herb Physick may perform a two-minute limb treatment;
 - interruption releases a reserved herb;
 - Physick cannot treat self for applicable actions;
 - traumatic-wound treatment completes after exactly 600 progress ticks and clears only trauma;
 - traumatic-wound treatment never revives a dying or terminal patient;
+- reassessment begins only after completion or interruption boundaries.
+
+### Boundary
+
+No limb-disability treatment, active CLEAVE/IMPALE source, VENOM, WEAKNESS, potions, mana healing, heroic healing, traumatic-wound hospital simulation, or end-game medical report UI.
+
+---
+
+## 6G-2b — Physick limb-restoration treatment hooks
+
+### Purpose
+
+Extend the accepted 6G-2a treatment and finite-herb boundary to disabled-limb restoration only when the authoritative limb-disability system is ready.
+
+### Deliver
+
+- herb-backed 30-second arm/leg treatment hooks;
+- no-herb two-minute arm/leg treatment hooks;
+- disabled-limb clearing through generic hooks;
+- deterministic selection of one limb issue per action.
+
+### Tests
+
+- fast limb treatment reserves then consumes one herb;
+- a zero-herb Physick may perform a two-minute limb treatment;
 - limb treatment with a herb completes after exactly 600 progress ticks;
 - limb treatment without a herb completes after exactly 2,400 progress ticks;
-- one selected limb issue is cleared per action;
-- reassessment begins only after completion or interruption boundaries.
+- one selected limb issue is cleared per action.
 
 ### Boundary
 
