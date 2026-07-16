@@ -1007,7 +1007,9 @@ execution, VENOM, or faction inference.
 
 Create the minimum runtime medical content, deterministic citizen traumatic-wound condition, and casualty/low-hit prioritisation.
 
-### Deliver
+### 6C-1 — Trusted runtime data and traumatic-wound condition
+
+#### Deliver
 
 - trusted medical profile store;
 - Physick-implies-Chirurgeon validation;
@@ -1015,6 +1017,28 @@ Create the minimum runtime medical content, deterministic citizen traumatic-woun
 - `IndividualTraumaticWoundStore`;
 - deterministic keyed 10% zero-hit trauma opportunity for citizens;
 - explicit future `limbCleave` opportunity adapter;
+- bounded medical, herb, and traumatic-wound inspection data.
+
+#### Tests
+
+- Physick without Chirurgeon fails validation;
+- default Physick herbs are 12;
+- citizen zero-hit opportunities use a stable deterministic 10% rule based on the trusted casualty-procedure profile;
+- barbarian profiles never receive traumatic wounds and consume no trauma roll;
+- traumatic wounds do not alter hits, death counts, dying, execution, or terminal transitions;
+- trauma received on a zero-hit transition remains stored and dormant while dying;
+- active trauma does not stack;
+- a later trauma may occur after the condition has been cleared.
+
+#### Boundary
+
+No medical urgency, discovery, withdrawal or movement behaviour, treatment,
+herb reservation/consumption, restoration, rescue, or dragging.
+
+### 6C-2 — Urgency, withdrawal, and local discovery
+
+#### Deliver
+
 - trauma-withdrawal behaviour intent for active mobile citizens;
 - medical urgency/read-model store;
 - local allied patient query;
@@ -1023,7 +1047,7 @@ Create the minimum runtime medical content, deterministic citizen traumatic-woun
 - recruit/regular/veteran or existing behaviour-profile influence where already available;
 - no global support-role scan.
 
-### First active urgency rules
+#### First active urgency rules
 
 ```text
 dying:
@@ -1047,24 +1071,17 @@ lowest
 
 These values are behavioural inputs, not direct morale state.
 
-### Tests
+#### Tests
 
-- Physick without Chirurgeon fails validation;
-- default Physick herbs are 12;
-- citizen zero-hit opportunities use a stable deterministic 10% rule based on the trusted casualty-procedure profile;
-- barbarian profiles never receive traumatic wounds and consume no trauma roll;
-- traumatic wounds do not alter hits, death counts, dying, execution, or terminal transitions;
 - active mobile trauma patients abandon combat and seek a herb-capable Physick;
 - trauma received on a zero-hit transition remains dormant while dying and drives withdrawal after revival;
-- active trauma does not stack;
-- a later trauma may occur after successful treatment;
 - urgency ordering is deterministic;
 - dying outranks all living missing-hit cases;
 - recruit and veteran low-hit policy differs without changing combat stats;
 - only allied local patients/support roles are considered;
 - omitted medical profiles produce no medical activity.
 
-### Boundary
+#### Boundary
 
 No treatment action, drag group, physical drag movement, later call-effect source, XP validation, full perception, or end-game trauma statistics UI.
 

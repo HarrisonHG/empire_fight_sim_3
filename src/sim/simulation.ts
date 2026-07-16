@@ -67,6 +67,18 @@ import {
   initializeIndividualDeathCountsFromZeroHitTransitions,
 } from "./individualDeathCount";
 import {
+  createIndividualGenericHerbStore,
+  createTrustedIndividualMedicalProfileStore,
+  getIndividualGenericHerbInspection,
+  getTrustedIndividualMedicalProfile,
+  type TrustedIndividualMedicalProfileConfig,
+} from "./individualMedicalProfile";
+import {
+  createIndividualTraumaticWoundStore,
+  getIndividualTraumaticWoundInspection,
+  resolveIndividualTraumaticWoundOpportunities,
+} from "./individualTraumaticWound";
+import {
   getActiveMeleeWeaponCategory,
   getAttackCommitmentTicksRemaining,
   getAttackRecoveryTicksRemaining,
@@ -431,6 +443,7 @@ function createCombatSandbox(
     readonly memberMaxStep: number;
   }> = [];
   const casualtyProcedureProfiles: IndividualCasualtyProcedureProfileConfig[] = [];
+  const medicalProfiles: TrustedIndividualMedicalProfileConfig[] = [];
 
   let nextEntityId = 0;
   for (let unitIndex = 0; unitIndex < scenario.units.length; unitIndex += 1) {
@@ -466,6 +479,14 @@ function createCombatSandbox(
         entityId,
         procedureKind: unit.casualtyProcedure.procedureKind,
         deathCountPolicy: unit.casualtyProcedure.deathCountPolicy,
+      });
+      medicalProfiles.push({
+        entityId,
+        hasChirurgeon: unit.medicalProfile?.hasChirurgeon ?? false,
+        hasPhysick: unit.medicalProfile?.hasPhysick ?? false,
+        ...(unit.medicalProfile?.startingGenericHerbs === undefined
+          ? {}
+          : { startingGenericHerbs: unit.medicalProfile.startingGenericHerbs }),
       });
     }
 
@@ -535,6 +556,11 @@ function createCombatSandbox(
     createIndividualCasualtyLifecycleStore(world.entityCount);
   const individualPlayerPresenceStore =
     createIndividualPlayerPresenceStore(world.entityCount);
+  const trustedIndividualMedicalProfileStore =
+    createTrustedIndividualMedicalProfileStore({
+      entityCount: world.entityCount,
+      profiles: medicalProfiles,
+    });
   const moraleAssessments: CombatMoraleAssessment[] = [];
   collectCombatMoraleAssessments(
     identityStore,
@@ -554,6 +580,7 @@ function createCombatSandbox(
     moraleMovementStates,
   );
   const combatSandbox: CombatSandboxSimulationState = {
+    battleSeed: seed >>> 0,
     identityStore,
     loadoutStore,
     formationStore,
@@ -571,12 +598,20 @@ function createCombatSandbox(
     individualCasualtyLifecycleStore,
     individualPlayerPresenceStore,
     individualDeathCountStore: createIndividualDeathCountStore(world.entityCount),
+    trustedIndividualMedicalProfileStore,
+    individualGenericHerbStore: createIndividualGenericHerbStore(
+      trustedIndividualMedicalProfileStore,
+    ),
+    individualTraumaticWoundStore:
+      createIndividualTraumaticWoundStore(world.entityCount),
     individualCasualtyLocalQueryStore: createIndividualCasualtyLocalQueryStore(
       world.entityCount,
       world.bounds,
     ),
     individualLifecycleTransitions: [],
     individualTerminalTransitions: [],
+    individualTraumaticWoundOpportunities: [],
+    individualTraumaticWoundRecords: [],
     individualCombatUnitAggregationStore:
       individualCombatPipelineStores.unitAggregationStore,
     individualCombatUnitSummaries: getIndividualCombatUnitSummaries(
@@ -1083,6 +1118,29 @@ export function advanceCombatSandboxOneTick(
       tick,
       combatSandbox.individualLifecycleTransitions,
     );
+    const traumaOpportunities =
+      combatSandbox.individualTraumaticWoundOpportunities;
+    traumaOpportunities.length = 0;
+    for (
+      let index = 0;
+      index < combatSandbox.individualLifecycleTransitions.length;
+      index += 1
+    ) {
+      const transition = combatSandbox.individualLifecycleTransitions[index]!;
+      traumaOpportunities.push({
+        targetEntityId: transition.entityId,
+        attackerEntityId: transition.attackerEntityId,
+        tick: transition.tick,
+        triggerKind: "zeroHit",
+      });
+    }
+    resolveIndividualTraumaticWoundOpportunities(
+      combatSandbox.battleSeed,
+      combatSandbox.individualCasualtyProcedureProfileStore,
+      combatSandbox.individualTraumaticWoundStore,
+      traumaOpportunities,
+      combatSandbox.individualTraumaticWoundRecords,
+    );
     initializeIndividualDeathCountsFromZeroHitTransitions(
       combatSandbox.individualDeathCountStore,
       combatSandbox.individualCasualtyLifecycleStore,
@@ -1531,6 +1589,18 @@ function collectInspectedIndividualSnapshots(
       combatSandbox.individualDeathCountStore,
       entityId,
     );
+    const medicalProfile = getTrustedIndividualMedicalProfile(
+      combatSandbox.trustedIndividualMedicalProfileStore,
+      entityId,
+    );
+    const herbs = getIndividualGenericHerbInspection(
+      combatSandbox.individualGenericHerbStore,
+      entityId,
+    );
+    const traumaticWound = getIndividualTraumaticWoundInspection(
+      combatSandbox.individualTraumaticWoundStore,
+      entityId,
+    );
 
     out.push({
       entityId,
@@ -1560,6 +1630,17 @@ function collectInspectedIndividualSnapshots(
       terminalCause: casualtyHistory.terminalCause,
       terminalX: casualtyHistory.terminalX,
       terminalY: casualtyHistory.terminalY,
+      hasChirurgeon: medicalProfile.hasChirurgeon,
+      hasPhysick: medicalProfile.hasPhysick,
+      currentGenericHerbs: herbs.current,
+      maximumGenericHerbs: herbs.maximum,
+      reservedGenericHerbs: herbs.reserved,
+      traumaticWoundState: traumaticWound.state,
+      traumaticWoundEpisodeCount: traumaticWound.episodeCount,
+      latestTraumaticWoundTick: traumaticWound.latestEpisodeTick,
+      latestTraumaticWoundAttackerEntityId:
+        traumaticWound.latestAttackerEntityId,
+      latestTraumaticWoundTriggerKind: traumaticWound.latestTriggerKind,
       tickStartCombatEligible: isIndividualCombatEligible(
         combatSandbox.individualCombatEligibilitySnapshot,
         entityId,

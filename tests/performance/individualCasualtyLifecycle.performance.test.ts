@@ -16,6 +16,14 @@ import {
   initializeIndividualDeathCountsFromZeroHitTransitions,
 } from "../../src/sim/individualDeathCount";
 import { createIndividualCombatProfileStore } from "../../src/sim/individualCombatProfile";
+import {
+  createIndividualGenericHerbStore,
+  createTrustedIndividualMedicalProfileStore,
+} from "../../src/sim/individualMedicalProfile";
+import {
+  createIndividualTraumaticWoundStore,
+  resolveIndividualTraumaticWoundOpportunities,
+} from "../../src/sim/individualTraumaticWound";
 
 describe("individual casualty lifecycle structural performance", () => {
   it.each([100, 500, 1_000, 2_000])(
@@ -174,6 +182,62 @@ describe("individual casualty lifecycle structural performance", () => {
           terminalTransitions: terminalOut.length,
           elapsedMilliseconds,
           timingPolicy: "Structural assertions only; bounded linear stores and canonical entity-order output.",
+        }, null, 2)}\n`,
+      );
+    },
+  );
+
+  it.each([100, 500, 1_000, 2_000])(
+    "builds medical stores and resolves %i keyed trauma opportunities structurally",
+    (entityCount) => {
+      const procedures = createIndividualCasualtyProcedureProfileStore({
+        entityCount,
+        profiles: Array.from({ length: entityCount }, (_, entityId) => ({
+          entityId,
+          procedureKind: "citizen" as const,
+          deathCountPolicy: { kind: "normalFortitude" as const },
+        })),
+      });
+      const opportunities = Array.from(
+        { length: entityCount },
+        (_, entityId) => ({
+          targetEntityId: entityId,
+          attackerEntityId: (entityId + 1) % entityCount,
+          tick: 50 + entityId,
+          triggerKind: "zeroHit" as const,
+        }),
+      ).reverse();
+      const startedAt = performance.now();
+      const medicalProfiles = createTrustedIndividualMedicalProfileStore({
+        entityCount,
+        profiles: Array.from({ length: entityCount }, (_, entityId) => ({
+          entityId,
+          hasChirurgeon: entityId % 20 === 0,
+          hasPhysick: entityId % 20 === 0,
+        })),
+      });
+      const herbs = createIndividualGenericHerbStore(medicalProfiles);
+      const trauma = createIndividualTraumaticWoundStore(entityCount);
+      const result = resolveIndividualTraumaticWoundOpportunities(
+        0x6c_01,
+        procedures,
+        trauma,
+        opportunities,
+      );
+      const elapsedMilliseconds = performance.now() - startedAt;
+
+      expect(herbs.entityCount).toBe(entityCount);
+      expect(result.opportunityCount).toBe(entityCount);
+      expect(result.rollCount).toBe(entityCount);
+      expect(result.records.map((record) => record.entityId)).toEqual(
+        result.records.map((record) => record.entityId).sort((left, right) => left - right),
+      );
+      process.stdout.write(
+        `\nMedical and trauma performance report\n${JSON.stringify({
+          entityCount,
+          traumaApplications: result.appliedCount,
+          elapsedMilliseconds,
+          timingPolicy: "Structural assertions only; immutable/entity-indexed stores and one keyed opportunity pass.",
         }, null, 2)}\n`,
       );
     },

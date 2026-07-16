@@ -47,6 +47,17 @@ import type {
   IndividualDeathCountPauseSource,
   IndividualDeathCountTerminalTransitionRecord,
 } from "./individualDeathCount";
+import type {
+  IndividualGenericHerbStore,
+  TrustedIndividualMedicalProfileStore,
+} from "./individualMedicalProfile";
+import type {
+  IndividualTraumaticWoundAppliedRecord,
+  IndividualTraumaticWoundOpportunity,
+  IndividualTraumaticWoundStore,
+  TraumaticWoundState,
+  TraumaticWoundTriggerKind,
+} from "./individualTraumaticWound";
 import type { IndividualLandedHitGateStore } from "./individualLandedHitGate";
 import type {
   DefenceCoverageTier,
@@ -130,6 +141,11 @@ export interface CombatSandboxUnitScenario {
   readonly casualtyProcedure: {
     readonly procedureKind: CasualtyProcedureKind;
     readonly deathCountPolicy: DeathCountPolicy;
+  };
+  readonly medicalProfile?: {
+    readonly hasChirurgeon: boolean;
+    readonly hasPhysick: boolean;
+    readonly startingGenericHerbs?: number;
   };
   /** Optional compact inspection label; does not affect simulation rules. */
   readonly label?: string;
@@ -315,6 +331,16 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly terminalCause?: import("./individualCasualtyLifecycle").TerminalCause;
   readonly terminalX?: number;
   readonly terminalY?: number;
+  readonly hasChirurgeon?: boolean;
+  readonly hasPhysick?: boolean;
+  readonly currentGenericHerbs?: number;
+  readonly maximumGenericHerbs?: number;
+  readonly reservedGenericHerbs?: number;
+  readonly traumaticWoundState?: TraumaticWoundState;
+  readonly traumaticWoundEpisodeCount?: number;
+  readonly latestTraumaticWoundTick?: number;
+  readonly latestTraumaticWoundAttackerEntityId?: number;
+  readonly latestTraumaticWoundTriggerKind?: TraumaticWoundTriggerKind | "none";
   readonly tickStartCombatEligible: boolean;
   readonly selectedTargetEntityId: number | null;
   readonly selectedTargetDistanceSquared: number | null;
@@ -433,6 +459,7 @@ export interface LiveCombatDebugSnapshot {
  * individual pipeline.
  */
 export interface CombatSandboxSimulationState {
+  readonly battleSeed: number;
   readonly identityStore: UnitIdentityStore;
   readonly loadoutStore: UnitLoadoutStore;
   readonly formationStore: FormationBehaviourStore;
@@ -447,9 +474,14 @@ export interface CombatSandboxSimulationState {
   readonly individualCasualtyLifecycleStore: IndividualCasualtyLifecycleStore;
   readonly individualPlayerPresenceStore: IndividualPlayerPresenceStore;
   readonly individualDeathCountStore: IndividualDeathCountStore;
+  readonly trustedIndividualMedicalProfileStore: TrustedIndividualMedicalProfileStore;
+  readonly individualGenericHerbStore: IndividualGenericHerbStore;
+  readonly individualTraumaticWoundStore: IndividualTraumaticWoundStore;
   readonly individualCasualtyLocalQueryStore: IndividualCasualtyLocalQueryStore;
   readonly individualLifecycleTransitions: IndividualZeroHitLifecycleTransitionRecord[];
   readonly individualTerminalTransitions: IndividualDeathCountTerminalTransitionRecord[];
+  readonly individualTraumaticWoundOpportunities: IndividualTraumaticWoundOpportunity[];
+  readonly individualTraumaticWoundRecords: IndividualTraumaticWoundAppliedRecord[];
   readonly individualCombatUnitAggregationStore: IndividualCombatUnitAggregationStore;
   readonly individualCombatUnitSummaries: readonly IndividualCombatUnitSummary[];
   readonly individualCombatConsequenceProjectionStore: IndividualCombatConsequenceProjectionStore;

@@ -13,6 +13,14 @@ import {
 } from "../../src/sim/individualCasualtyLocalQuery";
 import { getIndividualCasualtyProcedureProfile } from "../../src/sim/individualCasualtyProcedureProfile";
 import {
+  getIndividualGenericHerbInspection,
+  getTrustedIndividualMedicalProfile,
+} from "../../src/sim/individualMedicalProfile";
+import {
+  calculateTraumaticWoundOpportunityRoll,
+  getIndividualTraumaticWoundInspection,
+} from "../../src/sim/individualTraumaticWound";
+import {
   getIndividualCombatActionState,
   getLockedAttackTargetEntityId,
 } from "../../src/sim/individualCombatAction";
@@ -108,6 +116,11 @@ describe("production casualty lifecycle integration", () => {
       combat.individualPlayerPresenceStore,
       targetEntityId,
     )).toBe("downedPresence");
+    expect(combat.individualTraumaticWoundRecords).toEqual([]);
+    expect(getIndividualTraumaticWoundInspection(
+      combat.individualTraumaticWoundStore,
+      targetEntityId,
+    )).toMatchObject({ state: "none", episodeCount: 0 });
 
     const appliedLoss = combat.individualCombatPipelineBuffers.hitApplications
       .reduce((total, application) => total + application.appliedHitLoss, 0);
@@ -327,6 +340,61 @@ describe("production casualty lifecycle integration", () => {
     expect(combat.individualTerminalTransitions).toEqual([]);
     expect(combat.totalIndividualTerminalTransitionCount).toBe(1);
   });
+
+  it("expands trusted medical data and resolves a keyed zero-hit citizen trauma without changing casualty state", () => {
+    const { simulation, transition } = findSuccessfulCitizenTraumaSimulation();
+    const combat = requireCombat(simulation);
+    const targetEntityId = 2;
+    const attackerEntityId = transition.attackerEntityId;
+
+    expect(getTrustedIndividualMedicalProfile(
+      combat.trustedIndividualMedicalProfileStore,
+      attackerEntityId,
+    )).toMatchObject({
+      hasPhysick: true,
+      hasChirurgeon: true,
+      startingGenericHerbs: 12,
+    });
+    expect(getIndividualGenericHerbInspection(
+      combat.individualGenericHerbStore,
+      attackerEntityId,
+    )).toEqual({ current: 12, maximum: 12, reserved: 0 });
+    expect(combat.individualTraumaticWoundRecords).toEqual([
+      expect.objectContaining({
+        entityId: targetEntityId,
+        attackerEntityId,
+        tick: transition.tick,
+        triggerKind: "zeroHit",
+        episodeCount: 1,
+      }),
+    ]);
+    expect(combat.individualTraumaticWoundRecords[0]!.roll).toBe(
+      calculateTraumaticWoundOpportunityRoll(combat.battleSeed, {
+        targetEntityId,
+        attackerEntityId,
+        tick: transition.tick,
+        triggerKind: "zeroHit",
+      }),
+    );
+    expect(getIndividualTraumaticWoundInspection(
+      combat.individualTraumaticWoundStore,
+      targetEntityId,
+    )).toMatchObject({ state: "active", episodeCount: 1 });
+    expect(getIndividualCurrentGlobalHits(
+      combat.individualGlobalHitStore,
+      targetEntityId,
+    )).toBe(0);
+    expect(getIndividualCharacterLifecycleState(
+      combat.individualCasualtyLifecycleStore,
+      targetEntityId,
+    )).toBe("dying");
+    expect(combat.debugSnapshot.inspectedIndividuals[0]).toMatchObject({
+      traumaticWoundState: "active",
+      traumaticWoundEpisodeCount: 1,
+      latestTraumaticWoundTick: transition.tick,
+      latestTraumaticWoundTriggerKind: "zeroHit",
+    });
+  });
 });
 
 function productionTransitionScenario(): SimulationScenario {
@@ -351,6 +419,47 @@ function productionTransitionScenario(): SimulationScenario {
       ],
     },
   };
+}
+
+function findSuccessfulCitizenTraumaSimulation(): {
+  readonly simulation: SimulationState;
+  readonly transition: CombatSandboxSimulationState["individualLifecycleTransitions"][number];
+} {
+  for (let seed = 1; seed <= 200; seed += 1) {
+    const base = productionTransitionScenario();
+    const attacker = {
+      ...base.combatSandbox!.units[0]!,
+      medicalProfile: { hasPhysick: true, hasChirurgeon: true },
+    };
+    const target = {
+      ...base.combatSandbox!.units[1]!,
+      casualtyProcedure: {
+        procedureKind: "citizen" as const,
+        deathCountPolicy: { kind: "normalFortitude" as const },
+      },
+    };
+    const simulation = createSimulation({
+      ...base,
+      seed,
+      combatSandbox: {
+        ...base.combatSandbox!,
+        units: [attacker, target],
+      },
+    });
+    const combat = requireCombat(simulation);
+    for (let tick = 0; tick < 100; tick += 1) {
+      advanceSimulationOneTick(simulation);
+      if (combat.individualLifecycleTransitions.length === 0) continue;
+      if (combat.individualTraumaticWoundRecords.length === 1) {
+        return {
+          simulation,
+          transition: combat.individualLifecycleTransitions[0]!,
+        };
+      }
+      break;
+    }
+  }
+  throw new Error("Expected a production seed with a successful citizen trauma roll.");
 }
 
 function explicitProfileScenario(): SimulationScenario {
