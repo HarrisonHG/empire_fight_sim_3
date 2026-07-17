@@ -35,6 +35,7 @@ import { getPersistentUnitMorale } from "../../src/sim/persistentMorale";
 import { getIndividualCurrentGlobalHits } from "../../src/sim/individualGlobalHits";
 import { getSelectedTargetEntityId } from "../../src/sim/individualMeleeTargetSelection";
 import { submitIndividualExecutionIntent } from "../../src/sim/individualExecutionAction";
+import { isIndividualOrdinaryParticipationEligible } from "../../src/sim/individualOrdinaryParticipation";
 import {
   advanceSimulationOneTick,
   createSimulation,
@@ -55,17 +56,40 @@ describe("production casualty lifecycle integration", () => {
     }
     expect(combat.individualExecutionActionResult.activeActionCount).toBe(0);
     setUnitOrder(combat.formationStore, 1, "hold");
+    while (getIndividualCombatActionState(combat.individualCombatActionStore, 1) !== "ready") {
+      advanceSimulationOneTick(simulation);
+    }
     simulation.world.positionsX[1] = simulation.world.positionsX[2]! - 4;
     simulation.world.positionsY[1] = simulation.world.positionsY[2]!;
     const startTick = simulation.tick;
     submitIndividualExecutionIntent(combat.individualExecutionActionStore, { executorEntityId: 1, targetEntityId: 2, requestedTick: startTick });
     advanceSimulationOneTick(simulation);
     expect(combat.individualExecutionActionResult.startedRecords[0]).toMatchObject({ startedTick: startTick, progressTicks: 0 });
-    for (let progress = 1; progress < 100; progress += 1) advanceSimulationOneTick(simulation);
+    const committedX = simulation.world.positionsX[1];
+    const committedY = simulation.world.positionsY[1];
+    advanceSimulationOneTick(simulation);
+    expect(isIndividualOrdinaryParticipationEligible(
+      combat.individualOrdinaryParticipationSnapshot,
+      1,
+    )).toBe(false);
+    expect(getSelectedTargetEntityId(combat.individualTargetSelectionStore, 1)).toBe(-1);
+    expect(getLockedAttackTargetEntityId(combat.individualCombatActionStore, 1)).toBe(-1);
+    expect(combat.individualCombatPipelineBuffers.attackAttempts.some(
+      (record) => record.attackerEntityId === 1,
+    )).toBe(false);
+    expect(simulation.world.positionsX[1]).toBe(committedX);
+    expect(simulation.world.positionsY[1]).toBe(committedY);
+    for (let progress = 2; progress < 100; progress += 1) advanceSimulationOneTick(simulation);
     expect(getIndividualCharacterLifecycleState(combat.individualCasualtyLifecycleStore, 2)).toBe("dying");
     advanceSimulationOneTick(simulation);
     expect(combat.individualExecutionActionResult.completedRecords[0]).toMatchObject({ targetEntityId: 2, tick: startTick + 100, cause: "execution" });
     expect(getIndividualCharacterLifecycleState(combat.individualCasualtyLifecycleStore, 2)).toBe("terminal");
+    expect(getIndividualPlayerPresenceState(combat.individualPlayerPresenceStore, 2)).toBe("respawnEgress");
+    advanceSimulationOneTick(simulation);
+    expect(isIndividualOrdinaryParticipationEligible(
+      combat.individualOrdinaryParticipationSnapshot,
+      1,
+    )).toBe(true);
     expect(getIndividualPlayerPresenceState(combat.individualPlayerPresenceStore, 2)).toBe("respawnEgress");
   });
   it("expands explicit unit procedure templates without faction inference", () => {

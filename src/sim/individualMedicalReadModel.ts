@@ -392,7 +392,9 @@ export function prepareIndividualMedicalLocalQueries(
         entityId,
       ) ? 1 : 0;
     internal.patientEligibleByEntity[entityId] =
-      lifecycle !== "terminal" && urgency.urgencyKindByEntity[entityId] !== URGENCY_NONE
+      lifecycle !== "terminal" &&
+      options.isUnavailable?.(entityId) !== true &&
+      urgency.urgencyKindByEntity[entityId] !== URGENCY_NONE
         ? 1
         : 0;
     const medical = getTrustedIndividualMedicalProfile(medicalProfiles, entityId);
@@ -402,7 +404,8 @@ export function prepareIndividualMedicalLocalQueries(
       getIndividualAvailableGenericHerbs(herbs, entityId) > 0 &&
       getIndividualTraumaticWoundInspection(traumaStore, entityId).state === "none" &&
       moraleStates.get(unitId) !== "routing" &&
-      options.isTreating?.(entityId) !== true
+      options.isTreating?.(entityId) !== true &&
+      options.isUnavailable?.(entityId) !== true
         ? 1
         : 0;
   }
@@ -413,6 +416,7 @@ export function prepareIndividualMedicalLocalQueries(
 
 export interface IndividualMedicalLocalQueryPreparationOptions {
   readonly isTreating?: (entityId: number) => boolean;
+  readonly isUnavailable?: (entityId: number) => boolean;
 }
 
 export function queryIndividualAlliedPatientsWithinRadiusInto(

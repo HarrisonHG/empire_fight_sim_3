@@ -156,6 +156,8 @@ export interface CasualtyAssistanceDecisionOptions {
   readonly isTreatmentParticipant?: (entityId: number) => boolean;
   /** Current 6F ownership gate supplied by the medical-claim system. */
   readonly hasClaimedPatient?: (physickEntityId: number) => boolean;
+  /** Cross-system commitment such as an active execution action. */
+  readonly isUnavailable?: (entityId: number) => boolean;
 }
 
 interface HelperCandidate {
@@ -856,6 +858,7 @@ function collectEligibleHelpers(
       getIndividualCombatActionState(actionStore, entityId) !== "ready" ||
       options.isTreating?.(entityId) === true ||
       options.isTreatmentParticipant?.(entityId) === true ||
+      options.isUnavailable?.(entityId) === true ||
       assistance.dragGroupIdByEntity[entityId] !== NO_ENTITY
     ) continue;
     const isPhysick = getTrustedIndividualMedicalProfile(
@@ -1014,6 +1017,7 @@ function countAvailableAlliedPhysicksNearPoint(
       options.isTreating?.(entityId) !== true &&
       options.isTreatmentParticipant?.(entityId) !== true &&
       options.hasClaimedPatient?.(entityId) !== true &&
+      options.isUnavailable?.(entityId) !== true &&
       assistance.dragGroupIdByEntity[entityId] === NO_ENTITY
     ) count += 1;
   }

@@ -65,10 +65,12 @@ export interface IndividualMedicalClaimResult { readonly claimRecords: readonly 
 export interface IndividualMedicalClaimOptions {
   readonly isTreating?: (entityId: number) => boolean;
   readonly isTreatmentParticipant?: (entityId: number) => boolean;
+  readonly isUnavailable?: (entityId: number) => boolean;
 }
 export interface IndividualMedicalClaimCommitmentOptions {
   readonly isTreating?: (entityId: number) => boolean;
   readonly isTreatmentParticipant?: (entityId: number) => boolean;
+  readonly isUnavailable?: (entityId: number) => boolean;
 }
 
 interface ActionBoundaryPatientCandidate {
@@ -282,6 +284,7 @@ export function decideIndividualMedicalClaimsAndHandoffs(
   }
   const patients: { entityId: number; need: IndividualMedicalClaimNeed; priority: number }[] = [];
   for (let entityId = 0; entityId < world.entityCount; entityId += 1) {
+    if (options.isUnavailable?.(entityId) === true) continue;
     if (store.physickByPatient[entityId] !== NONE) continue;
     if (wasSafelyReleasedThisDecision(buffers.safeReleaseRecords, entityId)) continue;
     const need = getClaimNeed(urgency, entityId); if (need === undefined) continue;
@@ -315,7 +318,9 @@ function canPhysickClaim(identity: UnitIdentityStore, lifecycle: IndividualCasua
   if (need === undefined || physickId === patientId ||
     claims.patientByPhysick[physickId] !== NONE ||
     getPreparedFaction(identity, physickId) !== getPreparedFaction(identity, patientId) ||
-    options.isTreatmentParticipant?.(patientId) === true) return false;
+    options.isTreatmentParticipant?.(patientId) === true ||
+    options.isUnavailable?.(physickId) === true ||
+    options.isUnavailable?.(patientId) === true) return false;
   const profile = getTrustedIndividualMedicalProfile(profiles, physickId);
   if (getIndividualCharacterLifecycleState(lifecycle, physickId) !== "active" || !hasCapabilityForNeed(profile, need) || getIndividualTraumaticWoundInspection(trauma, physickId).state !== "none" || morale.get(getUnitIdForEntity(identity, physickId)) === "routing" || getIndividualCombatActionState(actions, physickId) !== "ready" || options.isTreating?.(physickId) === true || options.isTreatmentParticipant?.(physickId) === true || (!allowReservedCarrier && getIndividualCasualtyAssistanceInspection(assistance, physickId).dragGroupId !== NONE)) return false;
   return !requiresHerb(need) || getIndividualAvailableGenericHerbs(herbs, physickId) > 0;
@@ -468,7 +473,7 @@ function claimNeedFromUrgencyKind(
   return undefined;
 }
 function canExistingClaimRemain(identity: UnitIdentityStore, lifecycle: IndividualCasualtyLifecycleStore, profiles: TrustedIndividualMedicalProfileStore, herbs: IndividualGenericHerbStore, trauma: IndividualTraumaticWoundStore, actions: IndividualCombatActionStore, morale: UnitMoraleMovementStateSource, assistance: IndividualCasualtyAssistanceStore, physickId: number, patientId: number, need: IndividualMedicalClaimNeed | undefined, options: IndividualMedicalClaimOptions): boolean {
-  if (need === undefined || getPreparedFaction(identity, physickId) !== getPreparedFaction(identity, patientId) || options.isTreatmentParticipant?.(physickId) === true || options.isTreatmentParticipant?.(patientId) === true) return false;
+  if (need === undefined || getPreparedFaction(identity, physickId) !== getPreparedFaction(identity, patientId) || options.isTreatmentParticipant?.(physickId) === true || options.isTreatmentParticipant?.(patientId) === true || options.isUnavailable?.(physickId) === true || options.isUnavailable?.(patientId) === true) return false;
   return getIndividualCharacterLifecycleState(lifecycle, physickId) === "active" && hasCapabilityForNeed(getTrustedIndividualMedicalProfile(profiles, physickId), need) && getIndividualTraumaticWoundInspection(trauma, physickId).state === "none" && morale.get(getUnitIdForEntity(identity, physickId)) !== "routing" && getIndividualCombatActionState(actions, physickId) === "ready" && getIndividualCasualtyAssistanceInspection(assistance, physickId).dragGroupId === NONE && (!requiresHerb(need) || getIndividualAvailableGenericHerbs(herbs, physickId) > 0);
 }
 function isClaimedPhysickCommitted(identity: UnitIdentityStore, lifecycle: IndividualCasualtyLifecycleStore, presence: IndividualPlayerPresenceStore, hits: IndividualGlobalHitStore, profiles: TrustedIndividualMedicalProfileStore, herbs: IndividualGenericHerbStore, trauma: IndividualTraumaticWoundStore, limbs: IndividualLimbDisabilityStore, actions: IndividualCombatActionStore, morale: UnitMoraleMovementStateSource, assistance: IndividualCasualtyAssistanceStore, claims: InternalClaimStore, physickId: number, tick: number, options: IndividualMedicalClaimCommitmentOptions): boolean {

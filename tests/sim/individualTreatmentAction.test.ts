@@ -53,6 +53,7 @@ import {
   type IndividualTreatmentInterruptionReason,
 } from "../../src/sim/individualTreatmentAction";
 import { advanceSimulationOneTick, createSimulation } from "../../src/sim/simulation";
+import { submitIndividualExecutionIntent } from "../../src/sim/individualExecutionAction";
 import type { IndividualMeleeAttackAttemptRecord } from "../../src/sim/individualCombatAction";
 import type { IndividualLandedHitGateDecisionRecord } from "../../src/sim/individualLandedHitGate";
 import {
@@ -66,6 +67,50 @@ import type {
 } from "../../src/sim/types";
 
 describe("Milestone 6G-1 Chirurgeon treatment", () => {
+  it("clears Chirurgeon treatment, claim, and pause when execution terminalises the patient", () => {
+    const simulation = createChirurgeonOnlyRescueSimulation();
+    const combat = requireCombat(simulation);
+    down(simulation, 0, 0);
+    advanceUntilTreatmentStarts(simulation, 3);
+    simulation.world.positionsX[1] = simulation.world.positionsX[0]! + 4;
+    simulation.world.positionsY[1] = simulation.world.positionsY[0]!;
+    const startTick = simulation.tick;
+    submitIndividualExecutionIntent(combat.individualExecutionActionStore, {
+      executorEntityId: 1,
+      targetEntityId: 0,
+      requestedTick: startTick,
+    });
+    advanceSimulationOneTick(simulation);
+    expect(combat.individualExecutionActionResult.startedRecords).toHaveLength(1);
+    for (let progress = 1; progress <= 100; progress += 1) {
+      advanceSimulationOneTick(simulation);
+    }
+    expect(getIndividualCharacterLifecycleState(
+      combat.individualCasualtyLifecycleStore,
+      0,
+    )).toBe("terminal");
+    expect(combat.individualTreatmentActionResult.interruptedRecords).toEqual([
+      expect.objectContaining({
+        healerEntityId: 3,
+        patientEntityId: 0,
+        reason: "patientTerminalExecution",
+        releasedGenericHerbs: 0,
+      }),
+    ]);
+    expect(getActiveIndividualTreatmentActionCount(
+      combat.individualTreatmentActionStore,
+    )).toBe(0);
+    expect(getIndividualMedicalClaimInspection(
+      combat.individualMedicalClaimStore,
+      0,
+    ).physickEntityId).toBe(-1);
+    expect(getIndividualDeathCountInspection(
+      combat.individualDeathCountStore,
+      0,
+    ).pauseSource).toBeUndefined();
+    expect(() => advanceSimulationOneTick(simulation)).not.toThrow();
+  });
+
   it("lets a Chirurgeon-only character claim and complete dying treatment without herbs or a Physick follow-up claim", () => {
     const simulation = createChirurgeonOnlyRescueSimulation();
     const combat = requireCombat(simulation);

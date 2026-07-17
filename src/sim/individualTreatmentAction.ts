@@ -87,7 +87,8 @@ export type IndividualTreatmentInterruptionReason =
   | "healerRouting"
   | "healerTrauma"
   | "patientNoLongerNeedsAction"
-  | "claimLost";
+  | "claimLost"
+  | "patientTerminalExecution";
 
 interface ActiveTreatmentAction {
   readonly actionId: number;
@@ -255,6 +256,47 @@ export function isIndividualTreatmentParticipant(
 
 export function getActiveIndividualTreatmentActionCount(store: IndividualTreatmentActionStore): number {
   return asInternal(store).activeActions.length;
+}
+
+/**
+ * Execution owns terminalisation; treatment owns releasing its claim, pause,
+ * and participant indexes after that terminal transition has occurred.
+ */
+export function interruptIndividualTreatmentForExecutedPatient(
+  lifecycle: IndividualCasualtyLifecycleStore,
+  deathCounts: IndividualDeathCountStore,
+  herbs: IndividualGenericHerbStore,
+  claims: IndividualMedicalClaimStore,
+  store: IndividualTreatmentActionStore,
+  patientEntityId: number,
+  tick: number,
+  buffers: IndividualTreatmentActionBuffers,
+): boolean {
+  const internal = asInternal(store);
+  validateCounts(internal.entityCount, lifecycle, deathCounts, herbs, claims);
+  assertEntityId(patientEntityId, internal.entityCount);
+  assertNonNegativeSafeInteger(tick, "tick");
+  const index = internal.actionIndexByPatient[patientEntityId]!;
+  if (index === NONE) return false;
+  const action = internal.activeActions[index]!;
+  if (action.kind !== "chirurgeonDying") {
+    throw new Error("Only Chirurgeon dying treatment may be invalidated by execution.");
+  }
+  interruptAction(
+    lifecycle,
+    deathCounts,
+    herbs,
+    claims,
+    internal,
+    index,
+    action,
+    tick,
+    "patientTerminalExecution",
+    buffers.interruptedRecords,
+    buffers.reassessmentRequests,
+  );
+  sortRecords(buffers);
+  return true;
 }
 
 export function getIndividualTreatmentHistoryInspection(

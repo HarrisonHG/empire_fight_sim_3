@@ -15,8 +15,11 @@ import {
   createIndividualExecutionActionBuffers,
   createIndividualExecutionActionStore,
   getIndividualExecutionActionInspection,
+  getIndividualExecutionDefenceHandAvailability,
+  projectIndividualExecutionOrdinaryParticipation,
   submitIndividualExecutionIntent,
 } from "../../src/sim/individualExecutionAction";
+import { createIndividualOrdinaryParticipationSnapshot, isIndividualOrdinaryParticipationEligible } from "../../src/sim/individualOrdinaryParticipation";
 import type { IndividualLandedHitGateDecisionRecord } from "../../src/sim/individualLandedHitGate";
 import type { IndividualMeleeAttackAttemptRecord } from "../../src/sim/individualCombatAction";
 import type { WorldState } from "../../src/sim/types";
@@ -85,6 +88,31 @@ describe("individual execution actions", () => {
       return advance(harness, 0).startedRecords.map((record) => [record.executorEntityId, record.targetEntityId]);
     };
     expect(run(false)).toEqual(run(true));
+  });
+
+  it("projects active executors out of ordinary participation while retaining two defence hands", () => {
+    const harness = createHarness("citizen");
+    submitIndividualExecutionIntent(harness.actions, { executorEntityId: 0, targetEntityId: 1, requestedTick: 0 });
+    advance(harness, 0);
+    const participation = createIndividualOrdinaryParticipationSnapshot(3);
+    projectIndividualExecutionOrdinaryParticipation(harness.actions, participation);
+    expect(isIndividualOrdinaryParticipationEligible(participation, 0)).toBe(false);
+    expect(isIndividualOrdinaryParticipationEligible(participation, 1)).toBe(true);
+    expect(getIndividualExecutionDefenceHandAvailability(harness.actions).getFreeHands(0)).toBe(2);
+    advance(harness, 1, [], [acceptedGate(1, 0)]);
+    expect(getIndividualExecutionDefenceHandAvailability(harness.actions).getFreeHands(0)).toBeUndefined();
+  });
+
+  it("rejects unavailable executors and same-tick attacks or accepted hits", () => {
+    const run = (attacks: readonly IndividualMeleeAttackAttemptRecord[], gates: readonly IndividualLandedHitGateDecisionRecord[], available = true) => {
+      const harness = createHarness("citizen");
+      submitIndividualExecutionIntent(harness.actions, { executorEntityId: 0, targetEntityId: 1, requestedTick: 0 });
+      return advanceIndividualExecutionActionsOneTick(harness.world, harness.lifecycle, harness.deathCounts,
+        harness.actions, 0, attacks, gates, harness.buffers, { isExecutorAvailable: () => available });
+    };
+    expect(run([], [], false).startedRecords).toHaveLength(0);
+    expect(run([attempt(0, 1)], []).startedRecords).toHaveLength(0);
+    expect(run([], [acceptedGate(1, 0)]).startedRecords).toHaveLength(0);
   });
 });
 

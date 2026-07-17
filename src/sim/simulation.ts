@@ -55,7 +55,10 @@ import {
   advanceIndividualExecutionActionsOneTick,
   createIndividualExecutionActionBuffers,
   createIndividualExecutionActionStore,
+  getIndividualExecutionDefenceHandAvailability,
   getIndividualExecutionActionInspection,
+  hasActiveIndividualExecutionAction,
+  projectIndividualExecutionOrdinaryParticipation,
 } from "./individualExecutionAction";
 import {
   createIndividualCasualtyProcedureProfileStore,
@@ -105,8 +108,10 @@ import {
   isIndividualReceivingTreatment,
   createIndividualTreatmentActionBuffers,
   createIndividualTreatmentActionStore,
+  getActiveIndividualTreatmentActionCount,
   isIndividualTreatmentParticipant,
   isIndividualTreating,
+  interruptIndividualTreatmentForExecutedPatient,
   projectIndividualTreatmentOrdinaryParticipation,
 } from "./individualTreatmentAction";
 import {
@@ -125,7 +130,7 @@ import {
   projectIndividualMedicalUrgency,
   updateIndividualMedicalDiscoveryAndWithdrawalIntents,
 } from "./individualMedicalReadModel";
-import { createIndividualOrdinaryParticipationSnapshot } from "./individualOrdinaryParticipation";
+import { createIndividualOrdinaryParticipationSnapshot, isIndividualOrdinaryParticipationEligible } from "./individualOrdinaryParticipation";
 import {
   createIndividualTraumaticWoundStore,
   getIndividualTraumaticWoundInspection,
@@ -660,11 +665,18 @@ function createCombatSandbox(
     createIndividualDragHandCommitmentStore(world.entityCount);
   const individualMedicalClaimStore =
     createIndividualMedicalClaimStore(world.entityCount);
+  const individualExecutionActionStore =
+    createIndividualExecutionActionStore(world.entityCount);
   const individualDefenceHandAvailabilitySource =
     createPrioritizedIndividualDefenceHandAvailabilitySource(
       individualDragHandCommitmentStore,
-      getIndividualMedicalClaimCommitmentDefenceHandAvailability(
-        individualMedicalClaimStore,
+      createPrioritizedIndividualDefenceHandAvailabilitySource(
+        getIndividualMedicalClaimCommitmentDefenceHandAvailability(
+          individualMedicalClaimStore,
+        ),
+        getIndividualExecutionDefenceHandAvailability(
+          individualExecutionActionStore,
+        ),
       ),
     );
   const combatSandbox: CombatSandboxSimulationState = {
@@ -733,7 +745,7 @@ function createCombatSandbox(
       activeActionCount: 0,
       progressedActionCount: 0,
     },
-    individualExecutionActionStore: createIndividualExecutionActionStore(world.entityCount),
+    individualExecutionActionStore,
     individualExecutionActionBuffers,
     individualExecutionActionResult: {
       startedRecords: individualExecutionActionBuffers.startedRecords,
@@ -1231,6 +1243,11 @@ export function advanceCombatSandboxOneTick(
 ): void {
   const runStage = <T>(stage: CombatSandboxTickStage, run: () => T): T =>
     instrumentation === undefined ? run() : instrumentation.runStage(stage, run);
+  const isExecutionCommitted = (entityId: number): boolean =>
+    hasActiveIndividualExecutionAction(
+      combatSandbox.individualExecutionActionStore,
+      entityId,
+    );
 
   const formationResult = runStage("formation", () => {
     projectIndividualMedicalUrgency(
@@ -1243,6 +1260,10 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.individualLimbDisabilityStore,
       combatSandbox.individualOrdinaryParticipationSnapshot,
       combatSandbox.individualMedicalUrgencyStore,
+    );
+    projectIndividualExecutionOrdinaryParticipation(
+      combatSandbox.individualExecutionActionStore,
+      combatSandbox.individualOrdinaryParticipationSnapshot,
     );
     prepareIndividualMedicalLocalQueries(
       world,
@@ -1260,6 +1281,7 @@ export function advanceCombatSandboxOneTick(
           combatSandbox.individualTreatmentActionStore,
           entityId,
         ),
+        isUnavailable: isExecutionCommitted,
       },
     );
     updateIndividualMedicalDiscoveryAndWithdrawalIntents(
@@ -1304,6 +1326,7 @@ export function advanceCombatSandboxOneTick(
           combatSandbox.individualTreatmentActionStore,
           entityId,
         ),
+        isUnavailable: isExecutionCommitted,
       },
     );
     projectIndividualCombatEligibilityFromHits(
@@ -1360,6 +1383,7 @@ export function advanceCombatSandboxOneTick(
           combatSandbox.individualTreatmentActionStore,
           entityId,
         ),
+        isUnavailable: isExecutionCommitted,
       },
     );
     advanceIndividualTraumaWithdrawalMovementOneTick(
@@ -1461,6 +1485,7 @@ export function advanceCombatSandboxOneTick(
             combatSandbox.individualTreatmentActionStore,
             entityId,
           ),
+          isUnavailable: isExecutionCommitted,
         },
       );
     }
@@ -1492,6 +1517,7 @@ export function advanceCombatSandboxOneTick(
             combatSandbox.individualTreatmentActionStore,
             entityId,
           ),
+          isUnavailable: isExecutionCommitted,
         },
       );
     combatSandbox.individualTreatmentActionResult =
@@ -1539,6 +1565,7 @@ export function advanceCombatSandboxOneTick(
             combatSandbox.individualTreatmentActionStore,
             entityId,
           ),
+          isUnavailable: isExecutionCommitted,
         },
       );
     }
@@ -1552,7 +1579,55 @@ export function advanceCombatSandboxOneTick(
         individualCombatExchange.actions.attackAttempts,
         individualCombatExchange.gate.decisions,
         combatSandbox.individualExecutionActionBuffers,
+        {
+          isExecutorAvailable: (entityId) =>
+            isIndividualOrdinaryParticipationEligible(
+              combatSandbox.individualOrdinaryParticipationSnapshot,
+              entityId,
+            ) &&
+            combatSandbox.moraleMovementStates.get(
+              getUnitIdForEntity(combatSandbox.identityStore, entityId),
+            ) !== "routing" &&
+            getIndividualTraumaticWoundInspection(
+              combatSandbox.individualTraumaticWoundStore,
+              entityId,
+            ).state === "none" &&
+            !isIndividualTreatmentParticipant(
+              combatSandbox.individualTreatmentActionStore,
+              entityId,
+            ) &&
+            !hasIndividualMedicalPatientClaim(
+              combatSandbox.individualMedicalClaimStore,
+              entityId,
+            ) &&
+            getIndividualCasualtyAssistanceInspection(
+              combatSandbox.individualCasualtyAssistanceStore,
+              entityId,
+            ).dragGroupId < 0 &&
+            getIndividualCombatActionState(
+              combatSandbox.individualCombatActionStore,
+              entityId,
+            ) === "ready",
+          onTargetTerminalized: (targetEntityId, executionTick) => {
+            interruptIndividualTreatmentForExecutedPatient(
+              combatSandbox.individualCasualtyLifecycleStore,
+              combatSandbox.individualDeathCountStore,
+              combatSandbox.individualGenericHerbStore,
+              combatSandbox.individualMedicalClaimStore,
+              combatSandbox.individualTreatmentActionStore,
+              targetEntityId,
+              executionTick,
+              combatSandbox.individualTreatmentActionBuffers,
+            );
+          },
+        },
       );
+    combatSandbox.individualTreatmentActionResult = {
+      ...combatSandbox.individualTreatmentActionResult,
+      activeActionCount: getActiveIndividualTreatmentActionCount(
+        combatSandbox.individualTreatmentActionStore,
+      ),
+    };
     advanceIndividualDeathCountsOneTick(
       combatSandbox.individualDeathCountStore,
       combatSandbox.individualCasualtyLifecycleStore,
@@ -1636,6 +1711,7 @@ export function advanceCombatSandboxOneTick(
             combatSandbox.individualTreatmentActionStore,
             entityId,
           ),
+          isUnavailable: isExecutionCommitted,
         },
       );
       combatSandbox.casualtyAssistanceDecisionResult =
@@ -1668,6 +1744,7 @@ export function advanceCombatSandboxOneTick(
                 combatSandbox.individualMedicalClaimStore,
                 entityId,
               ),
+            isUnavailable: isExecutionCommitted,
           },
         );
     } else {

@@ -1308,7 +1308,7 @@ No active CLEAVE/IMPALE source, VENOM, WEAKNESS, potions, mana healing, heroic h
 
 ---
 
-## 6H-1 — Execution commitment and post-terminal presence classification
+## 6H-1A — Execution actions and post-terminal presence classification (implemented)
 
 ### Purpose
 
@@ -1342,6 +1342,35 @@ Citizen Sentinel Gate movement is not implemented here. Milestone 9 consumes `te
 ### Boundary
 
 No terminal comfort, terminal presence movement, respawn arrival, waiting-group batching, re-entry, or Sentinel Gate movement.
+
+---
+
+## 6H-1B — Execution commitment integration
+
+### Purpose
+
+Integrate an active 6H-1A execution action with ordinary battlefield participation without changing execution timing or terminal procedure classification.
+
+### Deliver
+
+- strict production start eligibility across combat, routing, trauma, treatment, claims, rescue and ordinary participation;
+- next-tick ordinary-participation exclusion for active executors;
+- target, attack, formation, medical, rescue and morale/support suppression;
+- continued targetability, personal pressure and normal active defence through a two-free-hand prioritised defence source;
+- safe Chirurgeon treatment, claim and death-count-pause invalidation when execution terminalises its patient.
+
+### Tests
+
+- unavailable or same-tick attacking/hit executors cannot start;
+- committed executors remain stationary and do not attack, support, claim, treat or rescue;
+- weapon, shield and unarmed defence remain authoritative, while an accepted hit interrupts;
+- execution terminalisation clears active Chirurgeon treatment ownership and the following tick remains valid;
+- completion and interruption restore ordinary participation on the following projection snapshot;
+- exact 100-progress-tick timing, deterministic replay and presence classification remain unchanged.
+
+### Boundary
+
+No terminal comfort, terminal presence movement, respawn arrival, waiting-group batching, re-entry, Sentinel Gate movement, autonomous execution policy, worker, renderer or UI integration.
 
 ---
 

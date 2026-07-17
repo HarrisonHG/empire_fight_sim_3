@@ -10,6 +10,8 @@ import {
   type IndividualDeathCountStore,
 } from "./individualDeathCount";
 import type { IndividualLandedHitGateDecisionRecord } from "./individualLandedHitGate";
+import type { IndividualDefenceHandAvailabilitySource } from "./individualMeleeDefence";
+import { setIndividualOrdinaryParticipationEligible, type IndividualOrdinaryParticipationSnapshot } from "./individualOrdinaryParticipation";
 import type { WorldState } from "./types";
 
 export const INDIVIDUAL_EXECUTION_COMMITMENT_TICKS = 100;
@@ -58,6 +60,10 @@ export interface IndividualExecutionActionResult { readonly startedRecords: read
 export interface IndividualExecutionEligibilityOptions {
   /** Reserved explicit consenting-target hook; ordinary active targets remain ineligible by default. */
   readonly isExplicitConsentingTarget?: (executorEntityId: number, targetEntityId: number) => boolean;
+  /** Production-owned availability across routing, medicine, rescue, and ordinary participation. */
+  readonly isExecutorAvailable?: (executorEntityId: number) => boolean;
+  /** Narrow integration boundary for invalidating treatment after terminalisation. */
+  readonly onTargetTerminalized?: (targetEntityId: number, tick: number) => void;
 }
 
 export function createIndividualExecutionActionStore(entityCount: number): IndividualExecutionActionStore {
@@ -79,6 +85,32 @@ export function getIndividualExecutionActionInspection(store: IndividualExecutio
 }
 export function hasActiveIndividualExecutionAction(store: IndividualExecutionActionStore, entityId: number): boolean {
   const internal = asInternal(store); assertEntity(entityId, internal.entityCount); return internal.actionIndexByExecutor[entityId]! >= 0;
+}
+export function projectIndividualExecutionOrdinaryParticipation(
+  store: IndividualExecutionActionStore,
+  snapshot: IndividualOrdinaryParticipationSnapshot,
+): void {
+  const internal = asInternal(store);
+  validateCounts(internal.entityCount, snapshot);
+  for (let index = 0; index < internal.activeActions.length; index += 1) {
+    setIndividualOrdinaryParticipationEligible(
+      snapshot,
+      internal.activeActions[index]!.executorEntityId,
+      false,
+    );
+  }
+}
+export function getIndividualExecutionDefenceHandAvailability(
+  store: IndividualExecutionActionStore,
+): IndividualDefenceHandAvailabilitySource {
+  const internal = asInternal(store);
+  return {
+    entityCount: internal.entityCount,
+    getFreeHands(entityId: number): number | undefined {
+      assertEntity(entityId, internal.entityCount);
+      return internal.actionIndexByExecutor[entityId]! < 0 ? undefined : 2;
+    },
+  };
 }
 export function advanceIndividualExecutionActionsOneTick(
   world: WorldState, lifecycle: IndividualCasualtyLifecycleStore, deathCounts: IndividualDeathCountStore,
@@ -104,6 +136,7 @@ export function advanceIndividualExecutionActionsOneTick(
     if (action.progressTicks === INDIVIDUAL_EXECUTION_COMMITMENT_TICKS) {
       const terminalX = world.positionsX[action.targetEntityId]!, terminalY = world.positionsY[action.targetEntityId]!;
       transitionIndividualDyingToTerminal(lifecycle, action.targetEntityId, tick, "execution");
+      options.onTargetTerminalized?.(action.targetEntityId, tick);
       recordIndividualExecutionTerminal(deathCounts, action.targetEntityId, tick, terminalX, terminalY);
       buffers.completedRecords.push({ ...inspection(action), tick, terminalX, terminalY, cause: "execution" });
       internal.completedCountByExecutor[action.executorEntityId] = internal.completedCountByExecutor[action.executorEntityId]! + 1;
@@ -116,7 +149,7 @@ export function advanceIndividualExecutionActionsOneTick(
   for (let index = 0; index < internal.pendingIntents.length; index += 1) {
     const intent = internal.pendingIntents[index]!;
     if (intent.requestedTick > tick) { internal.pendingIntents[write++] = intent; continue; }
-    if (!canStart(world, lifecycle, internal, intent, options)) continue;
+    if (!canStart(world, lifecycle, internal, intent, attackAttempts, gateDecisions, options)) continue;
     const action: ActiveExecutionAction = { actionId: internal.nextActionId++, executorEntityId: intent.executorEntityId, targetEntityId: intent.targetEntityId, startedTick: tick, progressTicks: 0, lastProcessedTick: tick };
     internal.activeActions.push(action); rebuildIndexes(internal);
     internal.startedCountByExecutor[action.executorEntityId] = internal.startedCountByExecutor[action.executorEntityId]! + 1;
@@ -127,8 +160,15 @@ export function advanceIndividualExecutionActionsOneTick(
   return { startedRecords: buffers.startedRecords, interruptedRecords: buffers.interruptedRecords, completedRecords: buffers.completedRecords, activeActionCount: internal.activeActions.length };
 }
 
-function canStart(world: WorldState, lifecycle: IndividualCasualtyLifecycleStore, store: InternalExecutionStore, intent: IndividualExecutionIntent, options: IndividualExecutionEligibilityOptions): boolean {
+function canStart(world: WorldState, lifecycle: IndividualCasualtyLifecycleStore, store: InternalExecutionStore, intent: IndividualExecutionIntent, attacks: readonly IndividualMeleeAttackAttemptRecord[], gates: readonly IndividualLandedHitGateDecisionRecord[], options: IndividualExecutionEligibilityOptions): boolean {
   if (store.actionIndexByExecutor[intent.executorEntityId]! >= 0 || store.actionIndexByTarget[intent.targetEntityId]! >= 0 || getIndividualCharacterLifecycleState(lifecycle, intent.executorEntityId) !== "active") return false;
+  if (options.isExecutorAvailable?.(intent.executorEntityId) === false) return false;
+  for (const attack of attacks) {
+    if (attack.attackerEntityId === intent.executorEntityId && attack.outcome === "attempted") return false;
+  }
+  for (const gate of gates) {
+    if (gate.targetEntityId === intent.executorEntityId && gate.outcome === "accepted") return false;
+  }
   const targetState = getIndividualCharacterLifecycleState(lifecycle, intent.targetEntityId);
   // The hook is reserved for a later lifecycle authority that can represent
   // consenting active targets; 6H-1 starts only against dying targets.
