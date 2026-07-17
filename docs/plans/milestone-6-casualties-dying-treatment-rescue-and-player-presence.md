@@ -1345,7 +1345,7 @@ No terminal comfort, terminal presence movement, respawn arrival, waiting-group 
 
 ---
 
-## 6H-1B — Execution commitment integration
+## 6H-1B — Execution commitment integration (implemented)
 
 ### Purpose
 
@@ -1374,20 +1374,19 @@ No terminal comfort, terminal presence movement, respawn arrival, waiting-group 
 
 ---
 
-## 6H-2 — Terminal citizen comfort and barbarian egress procedure hooks
+## 6H-2A — Terminal citizen comfort (implemented)
 
 ### Purpose
 
-Advance classified terminal presences through comfort or explicitly configured barbarian egress without reactivating the battlefield character.
+Advance classified terminal citizen presences through rescue, handoff and comfort without reactivating the battlefield character.
 
 ### Deliver
 
 - two-minute no-herb Physick comfort action;
 - citizen `terminalComforted` state on completion;
-- barbarian-style respawn egress and waiting state where explicitly scenario-configured;
-- optional barbarian respawn destination anchors;
-- no-combat/no-morale/no-collision barbarian presence movement;
-- respawn-staging events.
+- lowest-priority terminal-comfort urgency and medical claim;
+- terminal citizen drag eligibility through the existing casualty-rescue pipeline;
+- bounded comfort history and inspection.
 
 ### Tests
 
@@ -1397,13 +1396,37 @@ Advance classified terminal presences through comfort or explicitly configured b
 - completion changes only player presence to `terminalComforted`;
 - the character remains terminal and cannot be restored;
 - terminalComforted citizens remain still during Milestone 6;
+- terminal citizens may be rescued by one Physick or two ordinary helpers;
+- comfort interruption and restart preserve the existing action-boundary rules;
+- comfort never changes lifecycle, hits, death count, terminal cause or physical position.
+
+### Boundary
+
+No Sentinel Gate movement or geometry, citizen battlefield exit, barbarian egress, respawn arrival, reinforcement batching, one-hour clock, capture, searching, or corpse objects.
+
+---
+
+## 6H-2B — Barbarian egress procedure hooks
+
+### Purpose
+
+Advance explicitly configured barbarian terminal presences toward respawn staging without reactivating the terminal battlefield character.
+
+### Deliver
+
+- optional barbarian respawn destination anchors;
+- no-combat/no-morale/no-collision `respawnEgress` movement;
+- `waitingAtRespawn` arrival and respawn-staging records.
+
+### Tests
+
 - barbarian presence may reach waiting-at-respawn and does not re-enter during Milestone 6;
 - waiting-at-respawn does not heal or reactivate the terminal battlefield life;
 - missing barbarian destination leaves a clear waiting-for-scenario state rather than guessing a respawn point.
 
 ### Boundary
 
-No Sentinel Gate movement or geometry, citizen battlefield exit, reinforcement batching, one-hour clock, capture, searching, or corpse objects.
+No Sentinel Gate movement, citizen battlefield exit, waiting-group batching, respawn re-entry, worker, renderer or UI integration.
 
 ---
 

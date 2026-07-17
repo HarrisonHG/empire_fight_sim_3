@@ -66,6 +66,7 @@ export interface IndividualMedicalClaimOptions {
   readonly isTreating?: (entityId: number) => boolean;
   readonly isTreatmentParticipant?: (entityId: number) => boolean;
   readonly isUnavailable?: (entityId: number) => boolean;
+  readonly isTerminalAwaitingComfort?: (entityId: number) => boolean;
 }
 export interface IndividualMedicalClaimCommitmentOptions {
   readonly isTreating?: (entityId: number) => boolean;
@@ -85,7 +86,7 @@ const NONE = -1;
 const CLAIM_RADIUS = 192;
 export const PHYSICK_HANDOFF_RANGE = CASUALTY_DRAG_PICKUP_RANGE;
 const NEED_NONE = 0, NEED_DYING = 1, NEED_TRAUMA = 2, NEED_MISSING = 3,
-  NEED_LIMB = 4;
+  NEED_LIMB = 4, NEED_TERMINAL_COMFORT = 5;
 
 export function createIndividualMedicalClaimStore(entityCount: number): IndividualMedicalClaimStore {
   if (!Number.isSafeInteger(entityCount) || entityCount <= 0) throw new RangeError("entityCount must be a positive safe integer.");
@@ -288,7 +289,9 @@ export function decideIndividualMedicalClaimsAndHandoffs(
     if (store.physickByPatient[entityId] !== NONE) continue;
     if (wasSafelyReleasedThisDecision(buffers.safeReleaseRecords, entityId)) continue;
     const need = getClaimNeed(urgency, entityId); if (need === undefined) continue;
-    if (need === "dying" && getIndividualCasualtyAssistanceInspection(assistance, entityId).state !== "atTreatmentPosition") continue;
+    if ((need === "dying" || need === "terminalComfort") &&
+      getIndividualCasualtyAssistanceInspection(assistance, entityId).state !==
+        "atTreatmentPosition") continue;
     patients.push({ entityId, need, priority: getIndividualMedicalUrgencyInspection(urgency, entityId).urgencyPriority });
   }
   patients.sort((a, b) => b.priority - a.priority || a.entityId - b.entityId);
@@ -428,9 +431,11 @@ function getActionBoundaryCandidate(
     getIndividualCasualtyAssistanceInspection(assistance, healerId).dragGroupId !== NONE) {
     return undefined;
   }
-  const urgency = getAuthoritativeIndividualMedicalUrgency(
-    formation, hits, lifecycle, trauma, limbs, patientId,
-  );
+  const urgency = options.isTerminalAwaitingComfort?.(patientId) === true
+    ? { urgencyKind: "terminalComfort" as const, urgencyPriority: 50 }
+    : getAuthoritativeIndividualMedicalUrgency(
+      formation, hits, lifecycle, trauma, limbs, patientId,
+    );
   const need = claimNeedFromUrgencyKind(urgency.urgencyKind);
   if (need === undefined ||
     !hasCapabilityForNeed(getTrustedIndividualMedicalProfile(profiles, healerId), need) ||
@@ -466,6 +471,7 @@ function claimNeedFromUrgencyKind(
   kind: import("./individualMedicalReadModel").IndividualMedicalUrgencyKind,
 ): IndividualMedicalClaimNeed | undefined {
   if (kind === "dying") return "dying";
+  if (kind === "terminalComfort") return "terminalComfort";
   if (kind === "disabledArm" || kind === "disabledLeg") return "limbDisability";
   if (kind === "traumaticWound") return "traumaticWound";
   if (kind === "dangerouslyLowHits" || kind === "belowHalfHits" ||
@@ -495,6 +501,10 @@ function isClaimedPhysickCommitted(identity: UnitIdentityStore, lifecycle: Indiv
     return patientLifecycle === "dying" && patientPresence === "downedPresence" &&
       currentHits === 0;
   }
+  if (storedNeed === "terminalComfort") {
+    return patientLifecycle === "terminal" &&
+      patientPresence === "terminalAwaitingComfort";
+  }
   if (patientLifecycle !== "active" || patientPresence !== "activePresence" ||
     currentHits <= 0) return false;
   if (need === NEED_TRAUMA) {
@@ -511,7 +521,7 @@ function isWithinTreatmentTouchRange(world: WorldState, physickId: number, patie
   const dy = world.positionsY[physickId]! - world.positionsY[patientId]!;
   return dx * dx + dy * dy <= PHYSICK_HANDOFF_RANGE * PHYSICK_HANDOFF_RANGE;
 }
-function getClaimNeed(urgency: IndividualMedicalUrgencyStore, entityId: number): IndividualMedicalClaimNeed | undefined { const kind = getIndividualMedicalUrgencyInspection(urgency, entityId).urgencyKind; if (kind === "dying") return "dying"; if (kind === "disabledArm" || kind === "disabledLeg") return "limbDisability"; if (kind === "traumaticWound") return "traumaticWound"; if (kind === "dangerouslyLowHits" || kind === "belowHalfHits" || kind === "comfortableMissingHits") return "livingMissingHits"; return undefined; }
+function getClaimNeed(urgency: IndividualMedicalUrgencyStore, entityId: number): IndividualMedicalClaimNeed | undefined { const kind = getIndividualMedicalUrgencyInspection(urgency, entityId).urgencyKind; if (kind === "dying") return "dying"; if (kind === "terminalComfort") return "terminalComfort"; if (kind === "disabledArm" || kind === "disabledLeg") return "limbDisability"; if (kind === "traumaticWound") return "traumaticWound"; if (kind === "dangerouslyLowHits" || kind === "belowHalfHits" || kind === "comfortableMissingHits") return "livingMissingHits"; return undefined; }
 function requiresHerb(need: IndividualMedicalClaimNeed): boolean { return need === "traumaticWound" || need === "livingMissingHits"; }
 function hasCapabilityForNeed(
   profile: ReturnType<typeof getTrustedIndividualMedicalProfile>,
@@ -523,8 +533,8 @@ function assignClaim(store: InternalClaimStore, physickId: number, patientId: nu
 function clearClaim(store: InternalClaimStore, physickId: number, patientId: number): void { store.patientByPhysick[physickId] = NONE; store.physickByPatient[patientId] = NONE; store.claimedTickByPatient[patientId] = NONE; store.needByPatient[patientId] = NEED_NONE; store.committedByPhysick[physickId] = 0; }
 function countClaims(store: InternalClaimStore): number { let count = 0; for (const patient of store.patientByPhysick) if (patient !== NONE) count += 1; return count; }
 function wasSafelyReleasedThisDecision(records: readonly IndividualMedicalSafeReleaseRecord[], patientId: number): boolean { for (const record of records) if (record.patientEntityId === patientId) return true; return false; }
-function needId(need: IndividualMedicalClaimNeed): number { return need === "dying" ? NEED_DYING : need === "traumaticWound" ? NEED_TRAUMA : need === "livingMissingHits" ? NEED_MISSING : need === "limbDisability" ? NEED_LIMB : NEED_NONE; }
-function needFromId(id: number): IndividualMedicalClaimNeed | "none" { return id === NEED_DYING ? "dying" : id === NEED_TRAUMA ? "traumaticWound" : id === NEED_MISSING ? "livingMissingHits" : id === NEED_LIMB ? "limbDisability" : "none"; }
+function needId(need: IndividualMedicalClaimNeed): number { return need === "dying" ? NEED_DYING : need === "traumaticWound" ? NEED_TRAUMA : need === "livingMissingHits" ? NEED_MISSING : need === "limbDisability" ? NEED_LIMB : NEED_TERMINAL_COMFORT; }
+function needFromId(id: number): IndividualMedicalClaimNeed | "none" { return id === NEED_DYING ? "dying" : id === NEED_TRAUMA ? "traumaticWound" : id === NEED_MISSING ? "livingMissingHits" : id === NEED_LIMB ? "limbDisability" : id === NEED_TERMINAL_COMFORT ? "terminalComfort" : "none"; }
 function getPreparedFaction(identity: UnitIdentityStore, entityId: number): number { return getFactionIdForUnit(identity, getUnitIdForEntity(identity, entityId)); }
 function assertEntity(entityId: number, count: number): void { if (!Number.isSafeInteger(entityId) || entityId < 0 || entityId >= count) throw new RangeError("Medical claim entity ID out of bounds."); }
 function validateCounts(count: number, ...stores: readonly { readonly entityCount: number }[]): void { for (const store of stores) if (store.entityCount !== count) throw new RangeError("Medical claim stores must share entityCount."); }

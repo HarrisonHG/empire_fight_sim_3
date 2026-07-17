@@ -235,6 +235,37 @@ export function getIndividualPlayerPresenceTransitionTick(
   return internal.lastTransitionTickByEntity[entityId]!;
 }
 
+export interface IndividualTerminalComfortTransitionRecord {
+  readonly entityId: number;
+  readonly tick: number;
+  readonly previousPresenceState: "terminalAwaitingComfort";
+  readonly presenceState: "terminalComforted";
+}
+
+export function transitionIndividualTerminalAwaitingComfortToComforted(
+  lifecycleStore: IndividualCasualtyLifecycleStore,
+  presenceStore: IndividualPlayerPresenceStore,
+  entityId: number,
+  tick: number,
+): IndividualTerminalComfortTransitionRecord {
+  const lifecycle = asInternal(lifecycleStore);
+  const presence = asInternalPresence(presenceStore);
+  if (lifecycle.entityCount !== presence.entityCount) {
+    throw new RangeError("Comfort lifecycle and presence stores must share entityCount.");
+  }
+  assertEntityId(entityId, lifecycle.entityCount, "Terminal comfort");
+  assertNonNegativeSafeInteger(tick, "tick");
+  if (lifecycle.stateByEntity[entityId] !== 2) {
+    throw new Error("Terminal comfort requires terminal character lifecycle.");
+  }
+  if (presence.stateByEntity[entityId] !== 2) {
+    throw new Error("Terminal comfort requires terminalAwaitingComfort presence.");
+  }
+  presence.stateByEntity[entityId] = 3;
+  presence.lastTransitionTickByEntity[entityId] = tick;
+  return { entityId, tick, previousPresenceState: "terminalAwaitingComfort", presenceState: "terminalComforted" };
+}
+
 export interface IndividualTerminalPresenceTransitionRecord {
   readonly entityId: number;
   readonly tick: number;

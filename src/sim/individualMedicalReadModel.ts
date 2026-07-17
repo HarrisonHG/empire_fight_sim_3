@@ -1,6 +1,8 @@
 import {
   getIndividualCharacterLifecycleState,
+  getIndividualPlayerPresenceState,
   type IndividualCasualtyLifecycleStore,
+  type IndividualPlayerPresenceStore,
 } from "./individualCasualtyLifecycle";
 import {
   getIndividualCasualtyProcedureProfile,
@@ -112,12 +114,22 @@ export function getAuthoritativeIndividualMedicalUrgency(
   traumaStore: IndividualTraumaticWoundStore,
   limbStore: IndividualLimbDisabilityStore,
   entityId: number,
+  presenceStore?: IndividualPlayerPresenceStore,
 ): IndividualAuthoritativeMedicalUrgency {
   validateMatchingEntityCounts(formationStore.entityCount, hitStore,
     lifecycleStore, traumaStore, limbStore);
   assertEntityId(entityId, formationStore.entityCount);
   const lifecycle = getIndividualCharacterLifecycleState(lifecycleStore, entityId);
   const currentHits = getIndividualCurrentGlobalHits(hitStore, entityId);
+  if (presenceStore !== undefined) {
+    if (presenceStore.entityCount !== lifecycleStore.entityCount) {
+      throw new RangeError("Medical urgency presence store must match entityCount.");
+    }
+    if (lifecycle === "terminal" &&
+      getIndividualPlayerPresenceState(presenceStore, entityId) === "terminalAwaitingComfort") {
+      return { urgencyKind: "terminalComfort", urgencyPriority: 50 };
+    }
+  }
   if (lifecycle === "dying") {
     return currentHits === 0
       ? { urgencyKind: "dying", urgencyPriority: 500 }
@@ -325,10 +337,14 @@ export function projectIndividualMedicalUrgency(
   limbStore: IndividualLimbDisabilityStore,
   participation: IndividualOrdinaryParticipationSnapshot,
   store: IndividualMedicalUrgencyStore,
+  presenceStore?: IndividualPlayerPresenceStore,
 ): void {
   const internal = requireUrgencyStore(store, identityStore.entityCount);
   validateMatchingEntityCounts(identityStore.entityCount, formationStore, hitStore,
     lifecycleStore, procedureStore, traumaStore, limbStore, participation);
+  if (presenceStore !== undefined && presenceStore.entityCount !== identityStore.entityCount) {
+    throw new RangeError("Medical urgency presence store must match entityCount.");
+  }
   for (let entityId = 0; entityId < internal.entityCount; entityId += 1) {
     const lifecycle = getIndividualCharacterLifecycleState(lifecycleStore, entityId);
     const traumaActive = getIndividualTraumaticWoundInspection(
@@ -349,6 +365,7 @@ export function projectIndividualMedicalUrgency(
 
     const urgency = getAuthoritativeIndividualMedicalUrgency(
       formationStore, hitStore, lifecycleStore, traumaStore, limbStore, entityId,
+      presenceStore,
     );
     internal.urgencyKindByEntity[entityId] = urgencyIdentityFromKind(
       urgency.urgencyKind,

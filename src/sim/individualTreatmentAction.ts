@@ -1,15 +1,18 @@
 import {
   CASUALTY_DRAG_PICKUP_RANGE,
+  isIndividualAtTreatmentPosition,
   releaseIndividualTreatmentPositionReservation,
   type IndividualCasualtyAssistanceStore,
 } from "./individualCasualtyAssistance";
 import {
   getIndividualCharacterLifecycleState,
   getIndividualPlayerPresenceState,
+  transitionIndividualTerminalAwaitingComfortToComforted,
   transitionIndividualDyingToActive,
   type IndividualCasualtyLifecycleStore,
   type IndividualDyingRestorationRecord,
   type IndividualPlayerPresenceStore,
+  type IndividualTerminalComfortTransitionRecord,
 } from "./individualCasualtyLifecycle";
 import {
   getIndividualCombatActionState,
@@ -20,6 +23,8 @@ import {
   pauseIndividualDeathCount,
   releaseIndividualDeathCountPause,
   resumeIndividualDeathCount,
+  recordIndividualTerminalComfortCompleted,
+  recordIndividualTerminalComfortStarted,
   type IndividualDeathCountPauseSource,
   type IndividualDeathCountStore,
 } from "./individualDeathCount";
@@ -68,6 +73,7 @@ import type { WorldState } from "./types";
 
 export const CHIRURGEON_DYING_TREATMENT_PROGRESS_TICKS = 600;
 export const PHYSICK_LIMB_NO_HERB_TREATMENT_PROGRESS_TICKS = 2_400;
+export const PHYSICK_TERMINAL_COMFORT_PROGRESS_TICKS = 2_400;
 export const INDIVIDUAL_TREATMENT_TOUCH_RANGE = CASUALTY_DRAG_PICKUP_RANGE;
 
 export type IndividualTreatmentActionKind =
@@ -75,7 +81,8 @@ export type IndividualTreatmentActionKind =
   | "physickRestoreGlobalHit"
   | "physickTraumaticWound"
   | "physickLimbWithHerb"
-  | "physickLimbWithoutHerb";
+  | "physickLimbWithoutHerb"
+  | "physickTerminalComfort";
 export type IndividualTreatmentInterruptionReason =
   | "healerAttackAttempt"
   | "patientAttackAttempt"
@@ -148,6 +155,7 @@ export interface IndividualTreatmentCompletedRecord extends IndividualTreatmentA
   readonly traumaCleared: boolean;
   readonly clearedLimbDisability: IndividualLimbDisabilityKind | "none";
   readonly consumedGenericHerbs: 0 | 1;
+  readonly comfortTransition?: IndividualTerminalComfortTransitionRecord;
 }
 
 export interface IndividualTreatmentReassessmentRequest {
@@ -423,6 +431,9 @@ export function advanceIndividualTreatmentActionsOneTick(
     if (kind === "chirurgeonDying") {
       pauseIndividualDeathCount(deathCounts, lifecycle, patientEntityId, pauseSource(action));
     }
+    if (kind === "physickTerminalComfort") {
+      recordIndividualTerminalComfortStarted(deathCounts, patientEntityId);
+    }
     internal.nextActionId += 1;
     addAction(internal, action);
     clearIndividualMedicalClaimCommitmentDefenceOverride(claims, healerEntityId);
@@ -474,6 +485,11 @@ function canStartAction(
       getIndividualPlayerPresenceState(presence, patient) === "downedPresence" &&
       getIndividualCurrentGlobalHits(hits, patient) === 0;
   }
+  if (kind === "physickTerminalComfort") {
+    return profile.hasPhysick &&
+      getIndividualCharacterLifecycleState(lifecycle, patient) === "terminal" &&
+      getIndividualPlayerPresenceState(presence, patient) === "terminalAwaitingComfort";
+  }
   if (!profile.hasPhysick || treatmentKindRequiresHerb(kind) &&
     getIndividualAvailableGenericHerbs(herbs, healer) < 1 ||
     getIndividualCharacterLifecycleState(lifecycle, patient) !== "active" ||
@@ -505,9 +521,12 @@ function getInterruptionReason(
   if (!withinTouchRange(world, healer, patient)) return "rangeLost";
   const patientLifecycle = getIndividualCharacterLifecycleState(lifecycle, patient);
   const patientPresence = getIndividualPlayerPresenceState(presence, patient);
-  if (action.kind === "chirurgeonDying"
+  const patientIncompatible = action.kind === "chirurgeonDying"
     ? patientLifecycle !== "dying" || patientPresence !== "downedPresence"
-    : patientLifecycle !== "active" || patientPresence !== "activePresence") {
+    : action.kind === "physickTerminalComfort"
+      ? patientLifecycle !== "terminal" || patientPresence !== "terminalAwaitingComfort"
+      : patientLifecycle !== "active" || patientPresence !== "activePresence";
+  if (patientIncompatible) {
     return "patientLifecycleIncompatible";
   }
   const medicalProfile = getTrustedIndividualMedicalProfile(profiles, healer);
@@ -520,7 +539,7 @@ function getInterruptionReason(
   }
   if (morale.get(getUnitIdForEntity(identity, healer)) === "routing") return "healerRouting";
   if (getIndividualTraumaticWoundInspection(trauma, healer).state !== "none") return "healerTrauma";
-  if (!patientStillNeedsAction(action, hits, trauma, limbs, patient)) {
+  if (!patientStillNeedsAction(action, presence, hits, trauma, limbs, patient)) {
     return "patientNoLongerNeedsAction";
   }
   if (!isIndividualMedicalClaimOwnedBy(claims, healer, patient) ||
@@ -584,6 +603,7 @@ function completeAction(
   let lifecycleRestoration: IndividualDyingRestorationRecord | undefined;
   let traumaCleared = false;
   let clearedLimbDisability: IndividualLimbDisabilityKind | "none" = "none";
+  let comfortTransition: IndividualTerminalComfortTransitionRecord | undefined;
   if (action.kind === "chirurgeonDying") {
     resumeIndividualDeathCount(deathCounts, lifecycle, action.patientEntityId, pauseSource(action));
     hitRestoration = restoreIndividualGlobalHits(
@@ -597,7 +617,20 @@ function completeAction(
     lifecycleRestoration = transitionIndividualDyingToActive(
       lifecycle, presence, action.patientEntityId, tick,
     );
-    releaseIndividualTreatmentPositionReservation(assistance, action.patientEntityId);
+    if (isIndividualAtTreatmentPosition(assistance, action.patientEntityId)) {
+      releaseIndividualTreatmentPositionReservation(assistance, action.patientEntityId);
+    }
+    releaseIndividualMedicalClaim(claims, action.healerEntityId, action.patientEntityId);
+  } else if (action.kind === "physickTerminalComfort") {
+    comfortTransition = transitionIndividualTerminalAwaitingComfortToComforted(
+      lifecycle, presence, action.patientEntityId, tick,
+    );
+    recordIndividualTerminalComfortCompleted(
+      deathCounts, action.patientEntityId, tick,
+    );
+    if (isIndividualAtTreatmentPosition(assistance, action.patientEntityId)) {
+      releaseIndividualTreatmentPositionReservation(assistance, action.patientEntityId);
+    }
     releaseIndividualMedicalClaim(claims, action.healerEntityId, action.patientEntityId);
   } else if (action.kind === "physickRestoreGlobalHit") {
     hitRestoration = restoreIndividualGlobalHits(
@@ -643,6 +676,7 @@ function completeAction(
     traumaCleared,
     clearedLimbDisability,
     consumedGenericHerbs: action.reservedGenericHerbs,
+    ...(comfortTransition === undefined ? {} : { comfortTransition }),
   });
   store.actionBoundaryTickByHealer[action.healerEntityId] = tick;
   reassessmentOut.push({
@@ -690,6 +724,7 @@ function treatmentKindForClaim(
 ): IndividualTreatmentActionKind | undefined {
   const need = getIndividualMedicalClaimNeed(claims, patientEntityId);
   if (need === "dying") return "chirurgeonDying";
+  if (need === "terminalComfort") return "physickTerminalComfort";
   if (need === "livingMissingHits") return "physickRestoreGlobalHit";
   if (need === "traumaticWound") return "physickTraumaticWound";
   if (need === "limbDisability" &&
@@ -703,14 +738,16 @@ function treatmentKindForClaim(
 
 function claimNeedForKind(
   kind: IndividualTreatmentActionKind,
-): "dying" | "livingMissingHits" | "traumaticWound" | "limbDisability" {
+): "dying" | "livingMissingHits" | "traumaticWound" | "limbDisability" | "terminalComfort" {
   if (kind === "chirurgeonDying") return "dying";
+  if (kind === "physickTerminalComfort") return "terminalComfort";
   if (kind === "physickRestoreGlobalHit") return "livingMissingHits";
   return kind === "physickTraumaticWound" ? "traumaticWound" : "limbDisability";
 }
 
 function patientStillNeedsAction(
   action: ActiveTreatmentAction,
+  presence: IndividualPlayerPresenceStore,
   hits: IndividualGlobalHitStore,
   trauma: IndividualTraumaticWoundStore,
   limbs: IndividualLimbDisabilityStore,
@@ -719,6 +756,10 @@ function patientStillNeedsAction(
   const kind = action.kind;
   if (kind === "chirurgeonDying") {
     return getIndividualCurrentGlobalHits(hits, patientEntityId) === 0;
+  }
+  if (kind === "physickTerminalComfort") {
+    return getIndividualPlayerPresenceState(presence, patientEntityId) ===
+      "terminalAwaitingComfort";
   }
   if (kind === "physickTraumaticWound") {
     return getIndividualTraumaticWoundInspection(trauma, patientEntityId).state === "active";
@@ -744,7 +785,7 @@ function treatmentKindRequiresHerb(kind: IndividualTreatmentActionKind): boolean
 }
 
 function requiredProgressTicksForKind(kind: IndividualTreatmentActionKind): number {
-  return kind === "physickLimbWithoutHerb"
+  return kind === "physickLimbWithoutHerb" || kind === "physickTerminalComfort"
     ? PHYSICK_LIMB_NO_HERB_TREATMENT_PROGRESS_TICKS
     : CHIRURGEON_DYING_TREATMENT_PROGRESS_TICKS;
 }

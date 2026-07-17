@@ -366,6 +366,8 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly terminalCause?: import("./individualCasualtyLifecycle").TerminalCause;
   readonly terminalX?: number;
   readonly terminalY?: number;
+  readonly comfortStartedCount?: number;
+  readonly comfortCompletedTick?: number;
   readonly hasChirurgeon?: boolean;
   readonly hasPhysick?: boolean;
   readonly currentGenericHerbs?: number;

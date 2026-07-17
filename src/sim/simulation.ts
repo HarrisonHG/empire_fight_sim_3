@@ -1248,6 +1248,15 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.individualExecutionActionStore,
       entityId,
     );
+  const isTerminalAwaitingComfort = (entityId: number): boolean =>
+    getIndividualCharacterLifecycleState(
+      combatSandbox.individualCasualtyLifecycleStore,
+      entityId,
+    ) === "terminal" &&
+    getIndividualPlayerPresenceState(
+      combatSandbox.individualPlayerPresenceStore,
+      entityId,
+    ) === "terminalAwaitingComfort";
 
   const formationResult = runStage("formation", () => {
     projectIndividualMedicalUrgency(
@@ -1260,6 +1269,7 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.individualLimbDisabilityStore,
       combatSandbox.individualOrdinaryParticipationSnapshot,
       combatSandbox.individualMedicalUrgencyStore,
+      combatSandbox.individualPlayerPresenceStore,
     );
     projectIndividualExecutionOrdinaryParticipation(
       combatSandbox.individualExecutionActionStore,
@@ -1518,6 +1528,7 @@ export function advanceCombatSandboxOneTick(
             entityId,
           ),
           isUnavailable: isExecutionCommitted,
+          isTerminalAwaitingComfort,
         },
       );
     combatSandbox.individualTreatmentActionResult =
@@ -1566,6 +1577,7 @@ export function advanceCombatSandboxOneTick(
             entityId,
           ),
           isUnavailable: isExecutionCommitted,
+          isTerminalAwaitingComfort,
         },
       );
     }
@@ -1694,6 +1706,7 @@ export function advanceCombatSandboxOneTick(
     if (hasUnreservedDragEligiblePatient(
       combatSandbox.individualCasualtyLifecycleStore,
       combatSandbox.individualCasualtyAssistanceStore,
+      isTerminalAwaitingComfort,
     )) {
       prepareIndividualMedicalLocalQueries(
         world,
@@ -1745,6 +1758,7 @@ export function advanceCombatSandboxOneTick(
                 entityId,
               ),
             isUnavailable: isExecutionCommitted,
+            isTerminalAwaitingComfort,
           },
         );
     } else {
@@ -2289,6 +2303,8 @@ function collectInspectedIndividualSnapshots(
       terminalCause: casualtyHistory.terminalCause,
       terminalX: casualtyHistory.terminalX,
       terminalY: casualtyHistory.terminalY,
+      comfortStartedCount: casualtyHistory.comfortStartedCount,
+      comfortCompletedTick: casualtyHistory.comfortCompletedTick,
       hasChirurgeon: medicalProfile.hasChirurgeon,
       hasPhysick: medicalProfile.hasPhysick,
       currentGenericHerbs: herbs.current,
