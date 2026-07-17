@@ -29,10 +29,12 @@ import {
   getUnitAnchor,
   getUnitCohesion,
   setIndividualPressure,
+  setUnitOrder,
 } from "../../src/sim/formationBehaviour";
 import { getPersistentUnitMorale } from "../../src/sim/persistentMorale";
 import { getIndividualCurrentGlobalHits } from "../../src/sim/individualGlobalHits";
 import { getSelectedTargetEntityId } from "../../src/sim/individualMeleeTargetSelection";
+import { submitIndividualExecutionIntent } from "../../src/sim/individualExecutionAction";
 import {
   advanceSimulationOneTick,
   createSimulation,
@@ -45,6 +47,27 @@ import type {
 } from "../../src/sim/types";
 
 describe("production casualty lifecycle integration", () => {
+  it("runs explicit execution after combat for exactly 100 later ticks and classifies terminal presence", () => {
+    const simulation = createSimulation(productionTransitionScenario());
+    const combat = requireCombat(simulation);
+    for (let tick = 0; tick < 100 && getIndividualCharacterLifecycleState(combat.individualCasualtyLifecycleStore, 2) !== "dying"; tick += 1) {
+      advanceSimulationOneTick(simulation);
+    }
+    expect(combat.individualExecutionActionResult.activeActionCount).toBe(0);
+    setUnitOrder(combat.formationStore, 1, "hold");
+    simulation.world.positionsX[1] = simulation.world.positionsX[2]! - 4;
+    simulation.world.positionsY[1] = simulation.world.positionsY[2]!;
+    const startTick = simulation.tick;
+    submitIndividualExecutionIntent(combat.individualExecutionActionStore, { executorEntityId: 1, targetEntityId: 2, requestedTick: startTick });
+    advanceSimulationOneTick(simulation);
+    expect(combat.individualExecutionActionResult.startedRecords[0]).toMatchObject({ startedTick: startTick, progressTicks: 0 });
+    for (let progress = 1; progress < 100; progress += 1) advanceSimulationOneTick(simulation);
+    expect(getIndividualCharacterLifecycleState(combat.individualCasualtyLifecycleStore, 2)).toBe("dying");
+    advanceSimulationOneTick(simulation);
+    expect(combat.individualExecutionActionResult.completedRecords[0]).toMatchObject({ targetEntityId: 2, tick: startTick + 100, cause: "execution" });
+    expect(getIndividualCharacterLifecycleState(combat.individualCasualtyLifecycleStore, 2)).toBe("terminal");
+    expect(getIndividualPlayerPresenceState(combat.individualPlayerPresenceStore, 2)).toBe("respawnEgress");
+  });
   it("expands explicit unit procedure templates without faction inference", () => {
     const scenario = explicitProfileScenario();
     const simulation = createSimulation(scenario);
@@ -328,7 +351,7 @@ describe("production casualty lifecycle integration", () => {
     });
     expect(combat.debugSnapshot.inspectedIndividuals[0]).toMatchObject({
       characterLifecycleState: "terminal",
-      playerPresenceState: "downedPresence",
+      playerPresenceState: "respawnEgress",
       deathCountRemainingTicks: 0,
       terminalTick: transitionTick + 2,
       terminalCause: "deathCountExpired",

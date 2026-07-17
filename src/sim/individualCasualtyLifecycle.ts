@@ -235,6 +235,44 @@ export function getIndividualPlayerPresenceTransitionTick(
   return internal.lastTransitionTickByEntity[entityId]!;
 }
 
+export interface IndividualTerminalPresenceTransitionRecord {
+  readonly entityId: number;
+  readonly tick: number;
+  readonly procedureKind: CasualtyProcedureKind;
+  readonly previousPresenceState: "downedPresence";
+  readonly presenceState: "terminalAwaitingComfort" | "respawnEgress";
+}
+
+export function classifyIndividualTerminalPlayerPresences(
+  lifecycleStore: IndividualCasualtyLifecycleStore,
+  presenceStore: IndividualPlayerPresenceStore,
+  procedureStore: IndividualCasualtyProcedureProfileStore,
+  terminalTransitions: readonly { readonly entityId: number; readonly tick: number }[],
+  out: IndividualTerminalPresenceTransitionRecord[] = [],
+): readonly IndividualTerminalPresenceTransitionRecord[] {
+  const lifecycle = asInternal(lifecycleStore);
+  const presence = asInternalPresence(presenceStore);
+  validateMatchingCounts(lifecycle, presence, procedureStore, {
+    entityCount: lifecycle.entityCount,
+    positionsX: lifecycle.downXByEntity,
+    positionsY: lifecycle.downYByEntity,
+  });
+  out.length = 0;
+  const sorted = terminalTransitions.slice().sort((a, b) => a.entityId - b.entityId || a.tick - b.tick);
+  for (const transition of sorted) {
+    assertEntityId(transition.entityId, lifecycle.entityCount, "Terminal presence");
+    assertNonNegativeSafeInteger(transition.tick, "tick");
+    if (lifecycle.stateByEntity[transition.entityId] !== 2) throw new Error("Terminal presence classification requires terminal lifecycle.");
+    if (presence.stateByEntity[transition.entityId] !== 1) throw new Error("Terminal presence classification requires downed presence.");
+    const procedure = getIndividualCasualtyProcedureProfile(procedureStore, transition.entityId).procedureKind;
+    const presenceState = procedure === "citizen" ? "terminalAwaitingComfort" : "respawnEgress";
+    presence.stateByEntity[transition.entityId] = procedure === "citizen" ? 2 : 4;
+    presence.lastTransitionTickByEntity[transition.entityId] = transition.tick;
+    out.push({ entityId: transition.entityId, tick: transition.tick, procedureKind: procedure, previousPresenceState: "downedPresence", presenceState });
+  }
+  return out;
+}
+
 export interface CasualtyPositionSource {
   readonly entityCount: number;
   readonly positionsX: Int32Array;

@@ -1308,11 +1308,11 @@ No active CLEAVE/IMPALE source, VENOM, WEAKNESS, potions, mana healing, heroic h
 
 ---
 
-## 6H — Execution, terminal citizen comfort, and player-presence procedure hooks
+## 6H-1 — Execution commitment and post-terminal presence classification
 
 ### Purpose
 
-Implement deliberate fatal action, terminal citizen comfort, and separate post-terminal procedure state without prematurely moving citizens to the Sentinel Gate.
+Implement deliberate fatal action and classify post-terminal procedure state without moving terminal presences yet.
 
 ### Deliver
 
@@ -1323,12 +1323,7 @@ Implement deliberate fatal action, terminal citizen comfort, and separate post-t
 - terminal cause `execution`;
 - `IndividualPlayerPresenceStore`;
 - citizen `terminalAwaitingComfort` state after death-count expiry or execution;
-- two-minute no-herb Physick comfort action;
-- citizen `terminalComforted` state on completion;
-- barbarian-style respawn egress and waiting state where explicitly scenario-configured;
-- optional barbarian respawn destination anchors;
-- no-combat/no-morale/no-collision barbarian presence movement;
-- respawn-staging events.
+- barbarian `respawnEgress` entry classification after death-count expiry or execution.
 
 Citizen Sentinel Gate movement is not implemented here. Milestone 9 consumes `terminalComforted`.
 
@@ -1341,6 +1336,32 @@ Citizen Sentinel Gate movement is not implemented here. Milestone 9 consumes `te
 - completion produces terminal exactly once;
 - ordinary AI never starts execution without explicit intent;
 - a citizen made terminal by expiry or execution enters `terminalAwaitingComfort`;
+- a barbarian made terminal by expiry or execution enters `respawnEgress`;
+- configured procedure kind, not faction presentation, selects the presence state.
+
+### Boundary
+
+No terminal comfort, terminal presence movement, respawn arrival, waiting-group batching, re-entry, or Sentinel Gate movement.
+
+---
+
+## 6H-2 — Terminal citizen comfort and barbarian egress procedure hooks
+
+### Purpose
+
+Advance classified terminal presences through comfort or explicitly configured barbarian egress without reactivating the battlefield character.
+
+### Deliver
+
+- two-minute no-herb Physick comfort action;
+- citizen `terminalComforted` state on completion;
+- barbarian-style respawn egress and waiting state where explicitly scenario-configured;
+- optional barbarian respawn destination anchors;
+- no-combat/no-morale/no-collision barbarian presence movement;
+- respawn-staging events.
+
+### Tests
+
 - terminal citizen comfort takes exactly 2,400 uninterrupted progress ticks;
 - comfort consumes no herb even when herbs are available;
 - comfort is lower priority than every living/dying treatment;

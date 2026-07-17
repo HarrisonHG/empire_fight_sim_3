@@ -49,7 +49,14 @@ import {
   createIndividualPlayerPresenceStore,
   getIndividualCharacterLifecycleState,
   getIndividualPlayerPresenceState,
+  classifyIndividualTerminalPlayerPresences,
 } from "./individualCasualtyLifecycle";
+import {
+  advanceIndividualExecutionActionsOneTick,
+  createIndividualExecutionActionBuffers,
+  createIndividualExecutionActionStore,
+  getIndividualExecutionActionInspection,
+} from "./individualExecutionAction";
 import {
   createIndividualCasualtyProcedureProfileStore,
   getIndividualCasualtyProcedureProfile,
@@ -646,6 +653,7 @@ function createCombatSandbox(
   const casualtyDragMovementBuffers = createCasualtyDragMovementBuffers();
   const individualMedicalClaimBuffers = createIndividualMedicalClaimBuffers();
   const individualTreatmentActionBuffers = createIndividualTreatmentActionBuffers();
+  const individualExecutionActionBuffers = createIndividualExecutionActionBuffers();
   const individualCasualtyAssistanceStore =
     createIndividualCasualtyAssistanceStore(world.entityCount);
   const individualDragHandCommitmentStore =
@@ -725,6 +733,14 @@ function createCombatSandbox(
       activeActionCount: 0,
       progressedActionCount: 0,
     },
+    individualExecutionActionStore: createIndividualExecutionActionStore(world.entityCount),
+    individualExecutionActionBuffers,
+    individualExecutionActionResult: {
+      startedRecords: individualExecutionActionBuffers.startedRecords,
+      interruptedRecords: individualExecutionActionBuffers.interruptedRecords,
+      completedRecords: individualExecutionActionBuffers.completedRecords,
+      activeActionCount: 0,
+    },
     casualtyAssistanceDecisionBuffers,
     casualtyAssistanceDecisionResult: {
       rescueRequestedRecords:
@@ -735,6 +751,7 @@ function createCombatSandbox(
       localCandidateCount: 0,
     },
     individualLifecycleTransitions: [],
+    individualDeathCountTerminalTransitions: [],
     individualTerminalTransitions: [],
     individualTraumaticWoundOpportunities: [],
     individualTraumaticWoundRecords: [],
@@ -1525,11 +1542,46 @@ export function advanceCombatSandboxOneTick(
         },
       );
     }
+    combatSandbox.individualExecutionActionResult =
+      advanceIndividualExecutionActionsOneTick(
+        world,
+        combatSandbox.individualCasualtyLifecycleStore,
+        combatSandbox.individualDeathCountStore,
+        combatSandbox.individualExecutionActionStore,
+        tick,
+        individualCombatExchange.actions.attackAttempts,
+        individualCombatExchange.gate.decisions,
+        combatSandbox.individualExecutionActionBuffers,
+      );
     advanceIndividualDeathCountsOneTick(
       combatSandbox.individualDeathCountStore,
       combatSandbox.individualCasualtyLifecycleStore,
       world,
       tick,
+      combatSandbox.individualDeathCountTerminalTransitions,
+    );
+    combatSandbox.individualTerminalTransitions.length = 0;
+    for (const record of combatSandbox.individualExecutionActionResult.completedRecords) {
+      combatSandbox.individualTerminalTransitions.push({
+        entityId: record.targetEntityId,
+        tick: record.tick,
+        previousLifecycleState: "dying",
+        lifecycleState: "terminal",
+        cause: "execution",
+        terminalX: record.terminalX,
+        terminalY: record.terminalY,
+      });
+    }
+    combatSandbox.individualTerminalTransitions.push(
+      ...combatSandbox.individualDeathCountTerminalTransitions,
+    );
+    combatSandbox.individualTerminalTransitions.sort(
+      (left, right) => left.entityId - right.entityId || left.tick - right.tick,
+    );
+    classifyIndividualTerminalPlayerPresences(
+      combatSandbox.individualCasualtyLifecycleStore,
+      combatSandbox.individualPlayerPresenceStore,
+      combatSandbox.individualCasualtyProcedureProfileStore,
       combatSandbox.individualTerminalTransitions,
     );
     cancelCasualtyDragGroupsFromPostCombatEvidence(
@@ -1913,6 +1965,10 @@ function createEmptyCombatDebugSnapshot(): LiveCombatDebugSnapshot {
     medicalHandoffCount: 0,
     medicalSafeReleaseCount: 0,
     medicalStaleClaimCount: 0,
+    activeExecutionActionCount: 0,
+    executionStartedCount: 0,
+    executionInterruptedCount: 0,
+    executionCompletedCount: 0,
     tickStartEligibleMemberCount: 0,
     endOfTickEligibleMemberCount: 0,
     endOfTickZeroHitMemberCount: 0,
@@ -2018,6 +2074,10 @@ function createCombatDebugSnapshot(
     medicalHandoffCount: combatSandbox.individualMedicalClaimResult.handoffRecords.length,
     medicalSafeReleaseCount: combatSandbox.individualMedicalClaimResult.safeReleaseRecords.length,
     medicalStaleClaimCount: combatSandbox.individualMedicalClaimResult.staleClaimRecords.length,
+    activeExecutionActionCount: combatSandbox.individualExecutionActionResult.activeActionCount,
+    executionStartedCount: combatSandbox.individualExecutionActionResult.startedRecords.length,
+    executionInterruptedCount: combatSandbox.individualExecutionActionResult.interruptedRecords.length,
+    executionCompletedCount: combatSandbox.individualExecutionActionResult.completedRecords.length,
     tickStartEligibleMemberCount:
       combatSandbox.individualTickStartCombatEligibleMemberCount,
     endOfTickEligibleMemberCount:
@@ -2119,6 +2179,10 @@ function collectInspectedIndividualSnapshots(
       combatSandbox.individualMedicalClaimStore,
       entityId,
     );
+    const executionAction = getIndividualExecutionActionInspection(
+      combatSandbox.individualExecutionActionStore,
+      entityId,
+    );
 
     out.push({
       entityId,
@@ -2177,6 +2241,11 @@ function collectInspectedIndividualSnapshots(
         : { casualtyDragFreeHands }),
       claimedMedicalPatientEntityId: medicalClaim.patientEntityId,
       claimedMedicalPhysickEntityId: medicalClaim.physickEntityId,
+      ...(executionAction === undefined ? {} : {
+        executionActionId: executionAction.actionId,
+        executionTargetEntityId: executionAction.targetEntityId,
+        executionProgressTicks: executionAction.progressTicks,
+      }),
       tickStartCombatEligible: isIndividualCombatEligible(
         combatSandbox.individualCombatEligibilitySnapshot,
         entityId,
@@ -2842,6 +2911,10 @@ function createLegacyCombatFoundationDebugSnapshot(
     medicalHandoffCount: 0,
     medicalSafeReleaseCount: 0,
     medicalStaleClaimCount: 0,
+    activeExecutionActionCount: 0,
+    executionStartedCount: 0,
+    executionInterruptedCount: 0,
+    executionCompletedCount: 0,
     tickStartEligibleMemberCount: legacySandbox.identityStore.entityCount,
     endOfTickEligibleMemberCount: legacySandbox.identityStore.entityCount,
     endOfTickZeroHitMemberCount: 0,

@@ -53,11 +53,40 @@ import {
   decideIndividualMedicalClaimsAndHandoffs,
 } from "../../src/sim/individualMedicalClaims";
 import {
+  advanceIndividualExecutionActionsOneTick,
+  createIndividualExecutionActionBuffers,
+  createIndividualExecutionActionStore,
+  submitIndividualExecutionIntent,
+} from "../../src/sim/individualExecutionAction";
+import {
   advanceIndividualTreatmentActionsOneTick,
   getActiveIndividualTreatmentActionCount,
 } from "../../src/sim/individualTreatmentAction";
 
 describe("individual casualty lifecycle structural performance", () => {
+  it.each([100, 500, 1_000, 2_000])(
+    "advances sparse execution commitments structurally for %i entities",
+    (entityCount) => {
+      const actionCount = Math.floor(entityCount / 2);
+      const lifecycle = createIndividualCasualtyLifecycleStore(entityCount);
+      const presence = createIndividualPlayerPresenceStore(entityCount);
+      const procedures = createIndividualCasualtyProcedureProfileStore({ entityCount,
+        profiles: Array.from({ length: entityCount }, (_, entityId) => ({ entityId, procedureKind: "citizen" as const, deathCountPolicy: { kind: "fixedTicks" as const, durationTicks: 10_000 } })) });
+      const world = { entityCount, bounds: { width: entityCount * 4 + 8, height: 8 }, ids: Uint32Array.from({ length: entityCount }, (_, i) => i), positionsX: Int32Array.from({ length: entityCount }, (_, i) => Math.floor(i / 2) * 4 + i % 2), positionsY: new Int32Array(entityCount), velocitiesX: new Int32Array(entityCount), velocitiesY: new Int32Array(entityCount) };
+      applyIndividualZeroHitLifecycleTransitions(lifecycle, presence, procedures, world,
+        Array.from({ length: actionCount }, (_, index) => ({ entityId: index * 2 + 1, attackerEntityId: index * 2, previousHits: 1 })), 0);
+      const store = createIndividualExecutionActionStore(entityCount);
+      const deathCounts = createIndividualDeathCountStore(entityCount);
+      const buffers = createIndividualExecutionActionBuffers();
+      for (let index = 0; index < actionCount; index += 1) submitIndividualExecutionIntent(store, { executorEntityId: index * 2, targetEntityId: index * 2 + 1, requestedTick: 0 });
+      advanceIndividualExecutionActionsOneTick(world, lifecycle, deathCounts, store, 0, [], [], buffers);
+      const startedAt = performance.now();
+      for (let tick = 1; tick <= 100; tick += 1) advanceIndividualExecutionActionsOneTick(world, lifecycle, deathCounts, store, tick, [], [], buffers);
+      const elapsedMilliseconds = performance.now() - startedAt;
+      expect(buffers.completedRecords).toHaveLength(actionCount);
+      process.stdout.write(`\nExecution performance report\n${JSON.stringify({ entityCount, actionCount, elapsedMilliseconds, timingPolicy: "Structural assertions only; sparse canonical active-action iteration." }, null, 2)}\n`);
+    },
+  );
   it.each([100, 500, 1_000, 2_000])(
     "consumes one zero-hit transition per %i entities without quadratic work",
     (entityCount) => {

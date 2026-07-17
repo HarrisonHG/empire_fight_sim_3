@@ -75,6 +75,16 @@ export interface IndividualDeathCountTerminalTransitionRecord {
   readonly terminalY: number;
 }
 
+export interface IndividualExecutionTerminalTransitionRecord {
+  readonly entityId: number;
+  readonly tick: number;
+  readonly previousLifecycleState: "dying";
+  readonly lifecycleState: "terminal";
+  readonly cause: "execution";
+  readonly terminalX: number;
+  readonly terminalY: number;
+}
+
 const TERMINAL_CAUSES: readonly TerminalCause[] = [
   "none",
   "deathCountExpired",
@@ -351,6 +361,26 @@ export function getIndividualDeathCountInspection(
     paused: internal.pausedByEntity[entityId] !== 0,
     pauseSource: getPauseSource(internal, entityId),
   };
+}
+
+export function recordIndividualExecutionTerminal(
+  store: IndividualDeathCountStore,
+  entityId: number,
+  tick: number,
+  terminalX: number,
+  terminalY: number,
+): void {
+  const internal = asInternal(store);
+  assertEntityId(entityId, internal.entityCount);
+  assertNonNegativeSafeInteger(tick, "tick");
+  if (internal.terminalTickByEntity[entityId] !== -1) {
+    throw new Error("Terminal casualty history may be recorded only once.");
+  }
+  clearPauseSource(internal, entityId);
+  internal.terminalTickByEntity[entityId] = tick;
+  internal.terminalCauseByEntity[entityId] = 2;
+  internal.terminalXByEntity[entityId] = terminalX;
+  internal.terminalYByEntity[entityId] = terminalY;
 }
 
 export function getIndividualCasualtyHistoryInspection(
