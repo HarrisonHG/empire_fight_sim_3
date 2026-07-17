@@ -409,7 +409,8 @@ export function prepareIndividualMedicalLocalQueries(
         entityId,
       ) ? 1 : 0;
     internal.patientEligibleByEntity[entityId] =
-      lifecycle !== "terminal" &&
+      (lifecycle !== "terminal" ||
+        urgency.urgencyKindByEntity[entityId] === URGENCY_TERMINAL_COMFORT) &&
       options.isUnavailable?.(entityId) !== true &&
       urgency.urgencyKindByEntity[entityId] !== URGENCY_NONE
         ? 1

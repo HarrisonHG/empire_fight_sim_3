@@ -563,7 +563,7 @@ describe("individual casualty lifecycle structural performance", () => {
         combat.individualCasualtyLifecycleStore, combat.individualTraumaticWoundStore,
         combat.moraleMovementStates, combat.individualCasualtyAssistanceStore,
         combat.casualtyDragGroupStore, combat.individualDragHandCommitmentStore,
-        2, createCasualtyDragMovementBuffers(),
+        2, createCasualtyDragMovementBuffers(), combat.individualPlayerPresenceStore,
       );
       expect(movement.movedParticipantCount).toBeLessThanOrEqual(casualtyCount * 2);
       const claimsStartedAt = performance.now();

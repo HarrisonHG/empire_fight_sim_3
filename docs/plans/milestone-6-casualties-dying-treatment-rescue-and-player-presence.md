@@ -1406,6 +1406,33 @@ No Sentinel Gate movement or geometry, citizen battlefield exit, barbarian egres
 
 ---
 
+## 6H-2A-B — Terminal-comfort rescue integration corrections (implemented)
+
+### Purpose
+
+Preserve an in-progress dying rescue when a citizen terminalises into terminal-comfort procedure, and expose that authoritative need consistently through prepared medical discovery.
+
+### Deliver
+
+- in-place `dying` to `terminalComfort` drag-group promotion after terminal presence classification and before post-terminal validation;
+- preservation of group identity, phase, destination, participants, movement remainder, hand commitments and assistance reservations;
+- player-presence-aware terminal-comfort group validation, with incompatible barbarian procedure cancellation unchanged;
+- prepared local patient eligibility for `terminalAwaitingComfort` urgency only;
+- dedicated `PHYSICK_TERMINAL_COMFORT_PROGRESS_TICKS` treatment duration selection.
+
+### Tests
+
+- citizen terminalisation during gathering or dragging preserves the original group without cancellation or replacement;
+- barbarian terminalisation cancels the incompatible dying rescue;
+- one Physick or two ordinary helpers can rescue a terminal citizen, but only a full Physick accepts comfort handoff;
+- terminal-awaiting-comfort discovery reports priority 50 with bounded canonical output, while comforted and respawn-egress presences are excluded.
+
+### Boundary
+
+No changes to terminal-comfort treatment semantics, claims, urgency ordering or presence transitions beyond these integration corrections. Barbarian egress remains 6H-2B.
+
+---
+
 ## 6H-2B — Barbarian egress procedure hooks
 
 ### Purpose

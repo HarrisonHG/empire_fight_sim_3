@@ -785,7 +785,10 @@ function treatmentKindRequiresHerb(kind: IndividualTreatmentActionKind): boolean
 }
 
 function requiredProgressTicksForKind(kind: IndividualTreatmentActionKind): number {
-  return kind === "physickLimbWithoutHerb" || kind === "physickTerminalComfort"
+  if (kind === "physickTerminalComfort") {
+    return PHYSICK_TERMINAL_COMFORT_PROGRESS_TICKS;
+  }
+  return kind === "physickLimbWithoutHerb"
     ? PHYSICK_LIMB_NO_HERB_TREATMENT_PROGRESS_TICKS
     : CHIRURGEON_DYING_TREATMENT_PROGRESS_TICKS;
 }

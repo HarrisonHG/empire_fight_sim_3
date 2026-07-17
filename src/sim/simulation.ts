@@ -78,6 +78,7 @@ import {
   advanceCasualtyDragGroupsBeforeCombat,
   cancelCasualtyDragGroupsFromPostCombatEvidence,
   projectCasualtyDragOrdinaryParticipation,
+  promoteTerminalCitizenCasualtyDragGroups,
   refreshCasualtyDragMovementFinalPhaseCounts,
   decideIndividualCasualtyAssistance,
   getActiveCasualtyDragGroups,
@@ -1367,6 +1368,7 @@ export function advanceCombatSandboxOneTick(
         combatSandbox.individualDragHandCommitmentStore,
         tick,
         combatSandbox.casualtyDragMovementBuffers,
+        combatSandbox.individualPlayerPresenceStore,
       );
     advanceIndividualMedicalClaimApproachMovementOneTick(
       world,
@@ -1473,6 +1475,7 @@ export function advanceCombatSandboxOneTick(
       individualCombatExchange.gate.decisions,
       tick,
       combatSandbox.casualtyDragMovementBuffers.cancellationRecords,
+      combatSandbox.individualPlayerPresenceStore,
     );
     if (hasIndividualMedicalClaimDecisionWork(
       combatSandbox.individualMedicalUrgencyStore,
@@ -1671,6 +1674,11 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.individualCasualtyProcedureProfileStore,
       combatSandbox.individualTerminalTransitions,
     );
+    promoteTerminalCitizenCasualtyDragGroups(
+      combatSandbox.individualCasualtyLifecycleStore,
+      combatSandbox.individualPlayerPresenceStore,
+      combatSandbox.casualtyDragGroupStore,
+    );
     cancelCasualtyDragGroupsFromPostCombatEvidence(
       combatSandbox.identityStore,
       combatSandbox.individualCasualtyLifecycleStore,
@@ -1682,6 +1690,7 @@ export function advanceCombatSandboxOneTick(
       [],
       tick,
       combatSandbox.casualtyDragMovementBuffers.cancellationRecords,
+      combatSandbox.individualPlayerPresenceStore,
     );
     combatSandbox.casualtyDragMovementResult =
       refreshCasualtyDragMovementFinalPhaseCounts(

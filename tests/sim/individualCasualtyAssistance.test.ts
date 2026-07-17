@@ -6,6 +6,7 @@ import {
   createIndividualDragHandCommitmentStore,
   advanceCasualtyDragGroupsBeforeCombat,
   cancelCasualtyDragGroupsFromPostCombatEvidence,
+  promoteTerminalCitizenCasualtyDragGroups,
   refreshCasualtyDragMovementFinalPhaseCounts,
   decideIndividualCasualtyAssistance,
   getActiveCasualtyDragGroups,
@@ -15,6 +16,9 @@ import {
 } from "../../src/sim/individualCasualtyAssistance";
 import {
   applyIndividualZeroHitLifecycleTransitions,
+  classifyIndividualTerminalPlayerPresences,
+  getIndividualPlayerPresenceState,
+  transitionIndividualDyingToTerminal,
   transitionIndividualDyingToActive,
 } from "../../src/sim/individualCasualtyLifecycle";
 import {
@@ -53,6 +57,171 @@ import type {
 } from "../../src/sim/types";
 
 describe("individual casualty assistance and sparse drag groups", () => {
+  it.each([
+    { phase: "gathering" as const, helperX: 120 },
+    { phase: "dragging" as const, helperX: 104 },
+  ])("promotes a terminal citizen's existing $phase rescue in place", ({ phase, helperX }) => {
+    const simulation = createSimulation(scenario([
+      unit(1, 1, 100), { ...unit(2, 1, helperX), medicalProfile: physick() },
+      unit(3, 2, 230),
+    ]));
+    const combat = requireCombat(simulation);
+    down(simulation, 0, 2);
+    const started = decide(simulation, 2);
+    const buffers = createCasualtyDragMovementBuffers();
+    if (phase === "dragging") {
+      advanceCasualtyDragGroupsBeforeCombat(
+        simulation.world, combat.identityStore, combat.formationStore,
+        combat.individualCasualtyLifecycleStore, combat.individualTraumaticWoundStore,
+        combat.moraleMovementStates, combat.individualCasualtyAssistanceStore,
+        combat.casualtyDragGroupStore, combat.individualDragHandCommitmentStore,
+        3, buffers, combat.individualPlayerPresenceStore,
+      );
+    }
+    const before = getActiveCasualtyDragGroups(combat.casualtyDragGroupStore)[0]!;
+    expect(before.phase).toBe(phase);
+    const preserved = { ...before, helperEntityIds: [...before.helperEntityIds] };
+
+    transitionIndividualDyingToTerminal(
+      combat.individualCasualtyLifecycleStore, 0, 4, "deathCountExpired",
+    );
+    classifyIndividualTerminalPlayerPresences(
+      combat.individualCasualtyLifecycleStore,
+      combat.individualPlayerPresenceStore,
+      combat.individualCasualtyProcedureProfileStore,
+      [{ entityId: 0, tick: 4 }],
+    );
+    expect(promoteTerminalCitizenCasualtyDragGroups(
+      combat.individualCasualtyLifecycleStore,
+      combat.individualPlayerPresenceStore,
+      combat.casualtyDragGroupStore,
+    )).toBe(1);
+    const cancellations: typeof buffers.cancellationRecords = [];
+    cancelCasualtyDragGroupsFromPostCombatEvidence(
+      combat.identityStore, combat.individualCasualtyLifecycleStore,
+      combat.individualTraumaticWoundStore, combat.moraleMovementStates,
+      combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore,
+      combat.individualDragHandCommitmentStore, [], 4, cancellations,
+      combat.individualPlayerPresenceStore,
+    );
+
+    expect(getIndividualPlayerPresenceState(
+      combat.individualPlayerPresenceStore, 0,
+    )).toBe("terminalAwaitingComfort");
+    expect(cancellations).toHaveLength(0);
+    expect(started.groupStartedRecords).toHaveLength(1);
+    expect(getActiveCasualtyDragGroups(combat.casualtyDragGroupStore)).toEqual([
+      { ...preserved, patientKind: "terminalComfort" },
+    ]);
+  });
+
+  it("cancels rather than promotes a barbarian dying-rescue group", () => {
+    const barbarian = {
+      ...unit(1, 1, 100),
+      casualtyProcedure: {
+        procedureKind: "barbarian" as const,
+        deathCountPolicy: { kind: "fixedTicks" as const, durationTicks: 100 },
+      },
+    };
+    const simulation = createSimulation(scenario([
+      barbarian, { ...unit(2, 1, 104), medicalProfile: physick() }, unit(3, 2, 230),
+    ]));
+    const combat = requireCombat(simulation);
+    down(simulation, 0, 2);
+    decide(simulation, 2);
+    transitionIndividualDyingToTerminal(
+      combat.individualCasualtyLifecycleStore, 0, 3, "deathCountExpired",
+    );
+    classifyIndividualTerminalPlayerPresences(
+      combat.individualCasualtyLifecycleStore,
+      combat.individualPlayerPresenceStore,
+      combat.individualCasualtyProcedureProfileStore,
+      [{ entityId: 0, tick: 3 }],
+    );
+    expect(promoteTerminalCitizenCasualtyDragGroups(
+      combat.individualCasualtyLifecycleStore,
+      combat.individualPlayerPresenceStore,
+      combat.casualtyDragGroupStore,
+    )).toBe(0);
+    const cancellations = createCasualtyDragMovementBuffers().cancellationRecords;
+    cancelCasualtyDragGroupsFromPostCombatEvidence(
+      combat.identityStore, combat.individualCasualtyLifecycleStore,
+      combat.individualTraumaticWoundStore, combat.moraleMovementStates,
+      combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore,
+      combat.individualDragHandCommitmentStore, [], 3, cancellations,
+      combat.individualPlayerPresenceStore,
+    );
+    expect(getIndividualPlayerPresenceState(
+      combat.individualPlayerPresenceStore, 0,
+    )).toBe("respawnEgress");
+    expect(cancellations).toEqual([
+      { groupId: 0, patientEntityId: 0, reason: "patientInvalid", tick: 3 },
+    ]);
+  });
+
+  it("rescues a terminal citizen with one full Physick", () => {
+    const simulation = createSimulation(scenario([
+      unit(1, 1, 100), { ...unit(2, 1, 104), medicalProfile: physick() },
+      unit(3, 2, 230),
+    ]));
+    terminalizeCitizen(simulation, 0, 2);
+
+    expect(decide(simulation, 2).groupStartedRecords).toEqual([
+      expect.objectContaining({
+        groupId: 0,
+        patientEntityId: 0,
+        helperKind: "physick",
+        helperEntityIds: [1],
+      }),
+    ]);
+    expect(getActiveCasualtyDragGroups(
+      requireCombat(simulation).casualtyDragGroupStore,
+    )[0]!.patientKind).toBe("terminalComfort");
+  });
+
+  it.each([
+    { profile: physick(), accepted: true },
+    { profile: chirurgeonOnly(), accepted: false },
+  ])("hands terminal comfort from two ordinary helpers only to a full Physick ($accepted)", ({ profile, accepted }) => {
+    const simulation = createSimulation(scenario([
+      multiUnit(1, 1, 100, 3),
+      { ...unit(2, 1, 112), medicalProfile: profile },
+      unit(3, 2, 230),
+    ]));
+    simulation.world.positionsX[1] = 104;
+    simulation.world.positionsX[2] = 96;
+    terminalizeCitizen(simulation, 0, 2);
+    expect(decide(simulation, 2).groupStartedRecords[0]).toMatchObject({
+      helperKind: "twoOrdinaryFighters",
+      helperEntityIds: [1, 2],
+    });
+    expect(getActiveCasualtyDragGroups(
+      requireCombat(simulation).casualtyDragGroupStore,
+    )[0]!.patientKind).toBe("terminalComfort");
+    reachFirstGroup(simulation, 3);
+    simulation.world.positionsX[3] = simulation.world.positionsX[0]! +
+      PHYSICK_HANDOFF_RANGE;
+    simulation.world.positionsY[3] = simulation.world.positionsY[0]!;
+    prepare(simulation);
+    const claims = createIndividualMedicalClaimStore(simulation.world.entityCount);
+    const result = decideClaims(simulation, claims, 5);
+    if (accepted) {
+      expect(result.handoffRecords[0]).toMatchObject({
+        patientEntityId: 0,
+        physickEntityId: 3,
+        releasedHelperEntityIds: [1, 2],
+      });
+      expect(result.claimRecords[0]).toMatchObject({
+        patientEntityId: 0,
+        physickEntityId: 3,
+        need: "terminalComfort",
+      });
+    } else {
+      expect(result.handoffRecords).toHaveLength(0);
+      expect(result.claimRecords).toHaveLength(0);
+    }
+  });
+
   it("hands a reached casualty directly to its zero-herb solo Physick carrier and releases hands", () => {
     const simulation = createSimulation(scenario([
       unit(1, 1, 100), { ...unit(2, 1, 104), medicalProfile: physick(0) }, unit(3, 2, 220),
@@ -401,7 +570,7 @@ describe("individual casualty assistance and sparse drag groups", () => {
       combat.formationStore, combat.individualCasualtyLifecycleStore,
       combat.individualTraumaticWoundStore, combat.moraleMovementStates,
       combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore,
-      hands, 5, buffers);
+      hands, 5, buffers, combat.individualPlayerPresenceStore);
     expect([simulation.world.positionsX[0], simulation.world.positionsX[1]]).toEqual([startPatientX, startHelperX]);
     expect(hands.getFreeHands(1)).toBe(2);
 
@@ -412,7 +581,7 @@ describe("individual casualty assistance and sparse drag groups", () => {
         combat.formationStore, combat.individualCasualtyLifecycleStore,
         combat.individualTraumaticWoundStore, combat.moraleMovementStates,
         combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore,
-        hands, tick, buffers);
+        hands, tick, buffers, combat.individualPlayerPresenceStore);
       expect(simulation.world.positionsX[0]).toBe(patientBefore);
       if (result.draggingGroupCount === 1) expect(result.movedParticipantCount).toBeLessThanOrEqual(1);
       tick += 1;
@@ -422,14 +591,14 @@ describe("individual casualty assistance and sparse drag groups", () => {
       combat.formationStore, combat.individualCasualtyLifecycleStore,
       combat.individualTraumaticWoundStore, combat.moraleMovementStates,
       combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore,
-      hands, tick - 1, buffers);
+      hands, tick - 1, buffers, combat.individualPlayerPresenceStore);
     expect(simulation.world.positionsX[0]).toBe(transitionPatientX);
     expect(hands.getFreeHands(1)).toBe(0);
     const reached = advanceCasualtyDragGroupsBeforeCombat(simulation.world, combat.identityStore,
       combat.formationStore, combat.individualCasualtyLifecycleStore,
       combat.individualTraumaticWoundStore, combat.moraleMovementStates,
       combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore,
-      hands, tick, buffers);
+      hands, tick, buffers, combat.individualPlayerPresenceStore);
     expect(reached.reachedSafetyRecords).toEqual([{ groupId: 0, patientEntityId: 0, tick }]);
     expect(getActiveCasualtyDragGroups(combat.casualtyDragGroupStore)[0]!.phase).toBe("reachedSafety");
     expect(getIndividualCasualtyAssistanceInspection(combat.individualCasualtyAssistanceStore, 0).state)
@@ -447,11 +616,13 @@ describe("individual casualty assistance and sparse drag groups", () => {
     const buffers = createCasualtyDragMovementBuffers();
     advanceCasualtyDragGroupsBeforeCombat(simulation.world, combat.identityStore, combat.formationStore,
       combat.individualCasualtyLifecycleStore, combat.individualTraumaticWoundStore, combat.moraleMovementStates,
-      combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore, hands, 4, buffers);
+      combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore, hands, 4, buffers,
+      combat.individualPlayerPresenceStore);
     const before = [simulation.world.positionsX[0]!, simulation.world.positionsX[1]!];
     advanceCasualtyDragGroupsBeforeCombat(simulation.world, combat.identityStore, combat.formationStore,
       combat.individualCasualtyLifecycleStore, combat.individualTraumaticWoundStore, combat.moraleMovementStates,
-      combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore, hands, 5, buffers);
+      combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore, hands, 5, buffers,
+      combat.individualPlayerPresenceStore);
     expect(simulation.world.positionsX[0]! - before[0]!).toBe(simulation.world.positionsX[1]! - before[1]!);
 
     const cancellations: typeof buffers.cancellationRecords = [];
@@ -460,7 +631,8 @@ describe("individual casualty assistance and sparse drag groups", () => {
       combat.moraleMovementStates, combat.individualCasualtyAssistanceStore,
       combat.casualtyDragGroupStore, hands, [{ attackerEntityId: 2, targetEntityId: 1,
         currentTick: 5, outcome: "accepted", reason: "accepted", previousNextAllowedTick: null,
-        resultingNextAllowedTick: 25, cooldownTicksRemaining: 20 }], 5, cancellations);
+        resultingNextAllowedTick: 25, cooldownTicksRemaining: 20 }], 5, cancellations,
+      combat.individualPlayerPresenceStore);
     expect(cancellations).toEqual([{ groupId: 0, patientEntityId: 0, reason: "helperHit", tick: 5 }]);
     expect(getActiveCasualtyDragGroups(combat.casualtyDragGroupStore)).toHaveLength(0);
     expect(hands.getFreeHands(1)).toBeUndefined();
@@ -490,13 +662,15 @@ describe("individual casualty assistance and sparse drag groups", () => {
       const buffers = createCasualtyDragMovementBuffers();
       advanceCasualtyDragGroupsBeforeCombat(simulation.world, combat.identityStore, combat.formationStore,
         combat.individualCasualtyLifecycleStore, combat.individualTraumaticWoundStore, combat.moraleMovementStates,
-        combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore, hands, 3, buffers);
+        combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore, hands, 3, buffers,
+        combat.individualPlayerPresenceStore);
       expect([group.destinationX, group.destinationY]).toEqual(candidate.effective);
       expect(getIndividualCasualtyAssistanceInspection(combat.individualCasualtyAssistanceStore, 0))
         .toMatchObject({ destinationX: candidate.effective[0], destinationY: candidate.effective[1] });
       const reached = advanceCasualtyDragGroupsBeforeCombat(simulation.world, combat.identityStore, combat.formationStore,
         combat.individualCasualtyLifecycleStore, combat.individualTraumaticWoundStore, combat.moraleMovementStates,
-        combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore, hands, 4, buffers);
+        combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore, hands, 4, buffers,
+        combat.individualPlayerPresenceStore);
       expect(reached.reachedSafetyRecords).toHaveLength(1);
     }
   });
@@ -512,12 +686,14 @@ describe("individual casualty assistance and sparse drag groups", () => {
     const buffers = createCasualtyDragMovementBuffers();
     const movement = advanceCasualtyDragGroupsBeforeCombat(simulation.world, combat.identityStore, combat.formationStore,
       combat.individualCasualtyLifecycleStore, combat.individualTraumaticWoundStore, combat.moraleMovementStates,
-      combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore, hands, 4, buffers);
+      combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore, hands, 4, buffers,
+      combat.individualPlayerPresenceStore);
     expect([hands.getFreeHands(1), hands.getFreeHands(2)]).toEqual([1, 1]);
     const cancellations: typeof buffers.cancellationRecords = [];
     cancelCasualtyDragGroupsFromPostCombatEvidence(combat.identityStore, combat.individualCasualtyLifecycleStore,
       combat.individualTraumaticWoundStore, new Map([[1, "routing" as const], [2, "steady" as const]]),
-      combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore, hands, [], 4, cancellations);
+      combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore, hands, [], 4, cancellations,
+      combat.individualPlayerPresenceStore);
     const final = refreshCasualtyDragMovementFinalPhaseCounts(combat.casualtyDragGroupStore, movement);
     expect(final).toMatchObject({ gatheringGroupCount: 0, draggingGroupCount: 0, reachedSafetyGroupCount: 0, movedParticipantCount: movement.movedParticipantCount });
     expect([hands.getFreeHands(1), hands.getFreeHands(2)]).toEqual([undefined, undefined]);
@@ -923,7 +1099,8 @@ function reachFirstGroup(simulation: SimulationState, firstTick: number): void {
       combat.formationStore, combat.individualCasualtyLifecycleStore,
       combat.individualTraumaticWoundStore, combat.moraleMovementStates,
       combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore,
-      combat.individualDragHandCommitmentStore, tick, buffers);
+      combat.individualDragHandCommitmentStore, tick, buffers,
+      combat.individualPlayerPresenceStore);
     if (getActiveCasualtyDragGroups(combat.casualtyDragGroupStore)[0]?.phase === "reachedSafety") return;
   }
   throw new Error("Expected casualty group to reach safety.");
@@ -969,7 +1146,13 @@ function decidePrepared(
     combat.casualtyDragGroupStore,
     tick,
     createCasualtyAssistanceDecisionBuffers(),
-    options,
+    {
+      ...options,
+      isTerminalAwaitingComfort: (entityId) =>
+        getIndividualPlayerPresenceState(
+          combat.individualPlayerPresenceStore, entityId,
+        ) === "terminalAwaitingComfort",
+    },
   );
 }
 
@@ -985,6 +1168,7 @@ function prepare(simulation: SimulationState): void {
     combat.individualLimbDisabilityStore,
     combat.individualOrdinaryParticipationSnapshot,
     combat.individualMedicalUrgencyStore,
+    combat.individualPlayerPresenceStore,
   );
   prepareIndividualMedicalLocalQueries(
     simulation.world,
@@ -1017,6 +1201,27 @@ function down(simulation: SimulationState, entityId: number, tick: number): void
     combat.individualCasualtyProcedureProfileStore,
     combat.individualProfileStore,
     transitions.transitions,
+  );
+}
+
+function terminalizeCitizen(
+  simulation: SimulationState,
+  entityId: number,
+  tick: number,
+): void {
+  const combat = requireCombat(simulation);
+  down(simulation, entityId, tick);
+  transitionIndividualDyingToTerminal(
+    combat.individualCasualtyLifecycleStore,
+    entityId,
+    tick + 1,
+    "deathCountExpired",
+  );
+  classifyIndividualTerminalPlayerPresences(
+    combat.individualCasualtyLifecycleStore,
+    combat.individualPlayerPresenceStore,
+    combat.individualCasualtyProcedureProfileStore,
+    [{ entityId, tick: tick + 1 }],
   );
 }
 

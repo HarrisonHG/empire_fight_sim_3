@@ -81,7 +81,8 @@ export interface CasualtyDragGroupRecord {
   readonly phaseEnteredTick: number;
 }
 
-interface InternalCasualtyDragGroupRecord extends Omit<CasualtyDragGroupRecord, "phase" | "phaseEnteredTick" | "destinationX" | "destinationY"> {
+interface InternalCasualtyDragGroupRecord extends Omit<CasualtyDragGroupRecord, "phase" | "phaseEnteredTick" | "destinationX" | "destinationY" | "patientKind"> {
+  patientKind: "dying" | "terminalComfort";
   phase: CasualtyDragGroupPhase;
   phaseEnteredTick: number;
   destinationX: number;
@@ -636,9 +637,11 @@ export function advanceCasualtyDragGroupsBeforeCombat(
   handStore: IndividualDragHandCommitmentStore,
   tick: number,
   buffers: CasualtyDragMovementBuffers,
+  presenceStore: IndividualPlayerPresenceStore,
 ): CasualtyDragMovementResult {
   validateEntityCounts(world.entityCount, identityStore, formationStore, lifecycleStore,
     traumaStore, assistanceStore, groupStore, handStore);
+  validateEntityCounts(world.entityCount, presenceStore);
   assertNonNegativeSafeInteger(tick, "tick");
   buffers.cancellationRecords.length = 0;
   buffers.reachedSafetyRecords.length = 0;
@@ -652,7 +655,7 @@ export function advanceCasualtyDragGroupsBeforeCombat(
       hands.occupiedByEntity[helperId] = 1;
       hands.committedHandsByEntity[helperId] = group.phase === "gathering" ? 0 : group.helperKind === "physick" ? 2 : 1;
     }
-    const invalidReason = validateGroup(group, identityStore, lifecycleStore, traumaStore, moraleStates);
+    const invalidReason = validateGroup(group, identityStore, lifecycleStore, presenceStore, traumaStore, moraleStates);
     if (invalidReason !== undefined) {
       cancelGroup(group, invalidReason, tick, assistance, hands, groups, index, buffers.cancellationRecords);
       continue;
@@ -738,22 +741,42 @@ export function cancelCasualtyDragGroupsFromPostCombatEvidence(
   gateDecisions: readonly IndividualLandedHitGateDecisionRecord[],
   tick: number,
   cancellationRecords: CasualtyDragCancellationRecord[],
+  presenceStore: IndividualPlayerPresenceStore,
 ): void {
   const groups = asGroupStore(groupStore);
   const assistance = asAssistanceStore(assistanceStore);
   const hands = asHandStore(handStore);
   for (let index = 0; index < groups.activeGroups.length;) {
     const group = groups.activeGroups[index]!;
-    let reason = validateGroup(group, identityStore, lifecycleStore, traumaStore, moraleStates);
+    let reason = validateGroup(group, identityStore, lifecycleStore, presenceStore, traumaStore, moraleStates);
     if (reason === undefined && hasAcceptedHelperHit(group, gateDecisions)) reason = "helperHit";
     if (reason !== undefined) { cancelGroup(group, reason, tick, assistance, hands, groups, index, cancellationRecords); continue; }
     index += 1;
   }
 }
 
-function validateGroup(group: InternalCasualtyDragGroupRecord, identityStore: UnitIdentityStore, lifecycleStore: IndividualCasualtyLifecycleStore, traumaStore: IndividualTraumaticWoundStore, moraleStates: UnitMoraleMovementStateSource): CasualtyDragCancellationReason | undefined {
+export function promoteTerminalCitizenCasualtyDragGroups(
+  lifecycleStore: IndividualCasualtyLifecycleStore,
+  presenceStore: IndividualPlayerPresenceStore,
+  groupStore: CasualtyDragGroupStore,
+): number {
+  validateEntityCounts(lifecycleStore.entityCount, lifecycleStore, presenceStore, groupStore);
+  let promotedCount = 0;
+  for (const group of asGroupStore(groupStore).activeGroups) {
+    if (group.patientKind !== "dying") continue;
+    if (getIndividualCharacterLifecycleState(lifecycleStore, group.patientEntityId) !== "terminal" ||
+      getIndividualPlayerPresenceState(presenceStore, group.patientEntityId) !== "terminalAwaitingComfort") continue;
+    group.patientKind = "terminalComfort";
+    promotedCount += 1;
+  }
+  return promotedCount;
+}
+
+function validateGroup(group: InternalCasualtyDragGroupRecord, identityStore: UnitIdentityStore, lifecycleStore: IndividualCasualtyLifecycleStore, presenceStore: IndividualPlayerPresenceStore, traumaStore: IndividualTraumaticWoundStore, moraleStates: UnitMoraleMovementStateSource): CasualtyDragCancellationReason | undefined {
   const patientLifecycle = getIndividualCharacterLifecycleState(lifecycleStore, group.patientEntityId);
-  if (group.patientKind === "dying" ? patientLifecycle !== "dying" : patientLifecycle !== "terminal") return "patientInvalid";
+  if (group.patientKind === "dying" ? patientLifecycle !== "dying" :
+    patientLifecycle !== "terminal" ||
+      getIndividualPlayerPresenceState(presenceStore, group.patientEntityId) !== "terminalAwaitingComfort") return "patientInvalid";
   for (const helperId of group.helperEntityIds) {
     if (getIndividualCharacterLifecycleState(lifecycleStore, helperId) !== "active" ||
       getIndividualTraumaticWoundInspection(traumaStore, helperId).state !== "none" ||
