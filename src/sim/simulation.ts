@@ -771,6 +771,7 @@ function createCombatSandbox(
     casualtyDragMovementBuffers,
     casualtyDragMovementResult: {
       cancellationRecords: casualtyDragMovementBuffers.cancellationRecords,
+      draggingStartedRecords: casualtyDragMovementBuffers.draggingStartedRecords,
       reachedSafetyRecords: casualtyDragMovementBuffers.reachedSafetyRecords,
       gatheringGroupCount: 0,
       draggingGroupCount: 0,
@@ -1979,6 +1980,7 @@ export function advanceCombatSandboxOneTick(
       tick,
       {
         assistance: combatSandbox.casualtyAssistanceDecisionResult,
+        dragMovement: combatSandbox.casualtyDragMovementResult,
         claims: combatSandbox.individualMedicalClaimResult,
         treatment: combatSandbox.individualTreatmentActionResult,
         execution: combatSandbox.individualExecutionActionResult,

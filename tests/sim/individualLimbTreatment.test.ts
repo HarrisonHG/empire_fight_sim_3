@@ -152,6 +152,8 @@ describe("Milestone 6G-2b limb-disability treatment hooks", () => {
       treatmentCompletionCount: 1,
       limbWithHerbCompletionCount: 1,
       limbWithoutHerbCompletionCount: 0,
+      disabledArmCompletionCount: 0,
+      disabledLegCompletionCount: 1,
     });
     expect(getConsolidatedCasualtyHistory(
       combat.individualCasualtyHistoryStore,
@@ -172,11 +174,13 @@ describe("Milestone 6G-2b limb-disability treatment hooks", () => {
     });
   });
 
-  it("completes the zero-herb limb action after exactly 2,400 later ticks without reservation or consumption", () => {
+  it.each(["disabledArm", "disabledLeg"] as const)(
+    "completes a zero-herb %s action after exactly 2,400 later ticks without reservation or consumption",
+    (limb) => {
     const simulation = createLimbSimulation(0);
     const combat = requireCombat(simulation);
     applyTrustedIndividualLimbDisability(
-      combat.individualLimbDisabilityStore, 0, "disabledLeg",
+      combat.individualLimbDisabilityStore, 0, limb,
     );
     advanceUntilActionStarts(simulation, "physickLimbWithoutHerb");
 
@@ -195,15 +199,23 @@ describe("Milestone 6G-2b limb-disability treatment hooks", () => {
 
     expect(combat.individualTreatmentActionResult.completedRecords[0]).toMatchObject({
       kind: "physickLimbWithoutHerb",
-      clearedLimbDisability: "disabledLeg",
+      clearedLimbDisability: limb,
       consumedGenericHerbs: 0,
     });
-    expect(getIndividualLimbDisabilityInspection(
+    const disability = getIndividualLimbDisabilityInspection(
       combat.individualLimbDisabilityStore, 0,
-    ).disabledLeg).toBe(false);
+    );
+    expect(limb === "disabledArm" ? disability.disabledArm : disability.disabledLeg)
+      .toBe(false);
     expect(getIndividualGenericHerbInspection(
       combat.individualGenericHerbStore, 1,
     )).toEqual({ current: 0, maximum: 0, reserved: 0 });
+    expect(combat.individualCasualtyUnitSummaries[0]).toMatchObject({
+      limbWithHerbCompletionCount: 0,
+      limbWithoutHerbCompletionCount: 1,
+      disabledArmCompletionCount: limb === "disabledArm" ? 1 : 0,
+      disabledLegCompletionCount: limb === "disabledLeg" ? 1 : 0,
+    });
   });
 
   it("releases an interrupted herb reservation and restarts only after boundary reassessment", () => {
@@ -225,6 +237,10 @@ describe("Milestone 6G-2b limb-disability treatment hooks", () => {
       reason: "rangeLost",
       releasedGenericHerbs: 1,
       progressTicksLost: 1,
+    });
+    expect(combat.individualCasualtyUnitSummaries[0]).toMatchObject({
+      disabledArmCompletionCount: 0,
+      disabledLegCompletionCount: 0,
     });
     expect(combat.individualTreatmentActionResult.startedRecords).toHaveLength(0);
     expect(getIndividualLimbDisabilityInspection(
@@ -265,6 +281,12 @@ describe("Milestone 6G-2b limb-disability treatment hooks", () => {
     expect(combat.individualTreatmentActionResult.completedRecords[0]).toMatchObject({
       patientEntityId: 0,
       clearedLimbDisability: "disabledArm",
+    });
+    expect(combat.individualCasualtyUnitSummaries[0]).toMatchObject({
+      limbWithHerbCompletionCount: 1,
+      limbWithoutHerbCompletionCount: 0,
+      disabledArmCompletionCount: 1,
+      disabledLegCompletionCount: 0,
     });
     expect(getIndividualMedicalClaimInspection(
       combat.individualMedicalClaimStore, 1,

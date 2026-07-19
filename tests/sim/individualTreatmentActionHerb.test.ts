@@ -111,6 +111,8 @@ describe("Milestone 6G-2a herb-backed Physick treatment", () => {
       activeCharacterCount: 1,
       treatmentCompletionCount: 1,
       missingHitCompletionCount: 1,
+      disabledArmCompletionCount: 0,
+      disabledLegCompletionCount: 0,
     });
     expect(combat.individualCasualtyUnitSummaries[1]).toMatchObject({
       currentGenericHerbCount: 0,
@@ -127,7 +129,8 @@ describe("Milestone 6G-2a herb-backed Physick treatment", () => {
     expect(consolidatedHistory(combat, 1)).toMatchObject({
       treatmentPerformedStartedCount: 1,
       treatmentPerformedCompletedCount: 1,
-      genericHerbsConsumedCount: 1,
+      genericHerbsConsumedCount:
+        combat.individualTreatmentActionResult.completedRecords[0]!.consumedGenericHerbs,
     });
     advanceSimulationOneTick(simulation);
     expect(combat.individualCasualtyUnitSummaries[0]!.treatmentCompletionCount).toBe(0);

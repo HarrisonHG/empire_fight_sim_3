@@ -2,6 +2,7 @@ import {
   getActiveCasualtyDragGroups,
   type CasualtyAssistanceDecisionResult,
   type CasualtyDragGroupStore,
+  type CasualtyDragMovementResult,
 } from "./individualCasualtyAssistance";
 import {
   getIndividualCharacterLifecycleState,
@@ -123,6 +124,7 @@ export interface IndividualCasualtyHistoryInspection {
 
 export interface IndividualCasualtyHistoryTickRecords {
   readonly assistance: CasualtyAssistanceDecisionResult;
+  readonly dragMovement: CasualtyDragMovementResult;
   readonly claims: IndividualMedicalClaimResult;
   readonly treatment: IndividualTreatmentActionResult;
   readonly execution: IndividualExecutionActionResult;
@@ -170,6 +172,12 @@ export function recordIndividualCasualtyHistoryOneTick(
   }
   for (const record of records.assistance.groupStartedRecords) {
     assertCurrentRecord(record.patientEntityId, record.tick, tick, internal.entityCount);
+    for (const helperEntityId of record.helperEntityIds) {
+      assertEntityId(helperEntityId, internal.entityCount);
+    }
+  }
+  for (const record of records.dragMovement.draggingStartedRecords) {
+    assertCurrentRecord(record.patientEntityId, record.tick, tick, internal.entityCount);
     internal.wasDraggedByEntity[record.patientEntityId] = 1;
     if (internal.firstDragTickByEntity[record.patientEntityId] === -1) {
       internal.firstDragTickByEntity[record.patientEntityId] = tick;
@@ -208,7 +216,8 @@ export function recordIndividualCasualtyHistoryOneTick(
       increment(internal.limbTreatmentCountByEntity, record.patientEntityId, "limb treatment count");
     }
     if (record.consumedGenericHerbs > 0) {
-      increment(internal.herbsConsumedCountByEntity, record.healerEntityId, "generic herbs consumed count");
+      addBounded(internal.herbsConsumedCountByEntity, record.healerEntityId,
+        record.consumedGenericHerbs, "generic herbs consumed count");
     }
   }
   for (const record of records.execution.startedRecords) {
@@ -316,6 +325,8 @@ export interface IndividualCasualtyUnitSummary {
   readonly traumaticWoundCompletionCount: number;
   readonly limbWithHerbCompletionCount: number;
   readonly limbWithoutHerbCompletionCount: number;
+  readonly disabledArmCompletionCount: number;
+  readonly disabledLegCompletionCount: number;
   readonly terminalComfortCompletionCount: number;
   readonly terminalTransitionCount: number;
   readonly executionStartedCount: number;
@@ -470,6 +481,11 @@ export function collectIndividualCasualtyUnitSummaries(
     const summary = summaryForEntity(internal, record.patientEntityId);
     summary.treatmentCompletionCount += 1;
     incrementTreatmentKind(summary, record.kind);
+    if (record.clearedLimbDisability === "disabledArm") {
+      summary.disabledArmCompletionCount += 1;
+    } else if (record.clearedLimbDisability === "disabledLeg") {
+      summary.disabledLegCompletionCount += 1;
+    }
     summaryForEntity(internal, record.healerEntityId).genericHerbsConsumedThisTick +=
       record.consumedGenericHerbs;
   }
@@ -535,6 +551,7 @@ const SUMMARY_NUMBER_KEYS = [
   "treatmentCompletionCount", "chirurgeonDyingCompletionCount",
   "missingHitCompletionCount", "traumaticWoundCompletionCount",
   "limbWithHerbCompletionCount", "limbWithoutHerbCompletionCount",
+  "disabledArmCompletionCount", "disabledLegCompletionCount",
   "terminalComfortCompletionCount", "terminalTransitionCount",
   "executionStartedCount", "executionCompletedCount", "executionInterruptedCount",
   "terminalAwaitingComfortCount", "activeTerminalComfortActionCount",
@@ -601,6 +618,18 @@ function increment(array: Uint32Array, entityId: number, label: string): void {
   const value = array[entityId]!;
   if (value === 0xffff_ffff) throw new RangeError(`${label} overflowed.`);
   array[entityId] = value + 1;
+}
+
+function addBounded(
+  array: Uint32Array,
+  entityId: number,
+  amount: number,
+  label: string,
+): void {
+  assertNonNegativeSafeInteger(amount, `${label} addition`);
+  const value = array[entityId]!;
+  if (amount > 0xffff_ffff - value) throw new RangeError(`${label} overflowed.`);
+  array[entityId] = value + amount;
 }
 
 function asHistoryInternal(store: IndividualCasualtyHistoryStore): InternalIndividualCasualtyHistoryStore {

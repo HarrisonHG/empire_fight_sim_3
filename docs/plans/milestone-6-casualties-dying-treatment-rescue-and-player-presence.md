@@ -2,7 +2,7 @@
 
 Status: in progress.
 
-Milestone 5, including its defence-readiness and pressure/visual-regression spike, was accepted on 2026-07-15. Milestone 6 is implemented through 6I-1; Milestone 6H is complete. Milestone 6 remains unaccepted pending 6I-2, 6J, final technical acceptance, and human visual inspection.
+Milestone 5, including its defence-readiness and pressure/visual-regression spike, was accepted on 2026-07-15. Milestone 6 is implemented through 6I-1B; Milestone 6H is complete. Milestone 6 remains unaccepted pending 6I-2, 6J, final technical acceptance, and human visual inspection.
 
 ## Progress
 
@@ -25,6 +25,7 @@ Milestone 5, including its defence-readiness and pressure/visual-regression spik
 | 6H-2A-B | implemented | Rescue continuity and medical-query corrections for terminal comfort. |
 | 6H-2B | implemented | Explicit barbarian respawn destinations, sparse deterministic egress, and waiting-at-respawn arrival. |
 | 6I-1 | implemented | Production consolidation, end-of-tick summaries, bounded history, and egress active-set compaction. |
+| 6I-1B | implemented | Actual-drag history, limb-condition completion summaries, and exact herb-consumption history addition. |
 | 6I-2 | remaining | Representative performance, soak testing, and final technical acceptance. |
 | 6J | remaining | Retained casualty visual suite and human acceptance. |
 
@@ -1589,6 +1590,14 @@ bounded history and debug snapshot
 State counts use final authoritative end-of-tick stores. Event counts consume only the reusable records emitted on the current tick. History retains bounded entity-indexed counters and first/latest transition facts while continuing to source lifecycle, trauma, execution, comfort and egress facts from their existing authorities.
 
 The respawn-egress active set is canonicalized once per classification batch and compacted once after movement. Same-tick arrivals do not perform repeated array splices or suffix index repair.
+
+---
+
+## 6I-1B — Consolidation corrections (implemented)
+
+This correction does not change rescue or treatment mechanics. The casualty-drag movement authority emits one reusable, canonical record when a group enters the actual dragging phase. Bounded drag history consumes that transition rather than rescue-group creation, so gathering cancellation records no drag episode and later dragging ticks cannot repeat one.
+
+Patient-unit treatment summaries distinguish the authoritative cleared limb through `disabledArmCompletionCount` and `disabledLegCompletionCount` while retaining herb-backed and herb-free action-kind diagnostics. Healer herb-consumption history adds the completed record's exact consumed amount with checked bounded arithmetic.
 
 ---
 

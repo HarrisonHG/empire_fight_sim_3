@@ -149,9 +149,10 @@ interface InternalIndividualDragHandCommitmentStore extends IndividualDragHandCo
 
 export type CasualtyDragCancellationReason = "patientInvalid" | "helperInvalid" | "helperHit";
 export interface CasualtyDragCancellationRecord { readonly groupId: number; readonly patientEntityId: number; readonly reason: CasualtyDragCancellationReason; readonly tick: number; }
+export interface CasualtyDraggingStartedRecord { readonly groupId: number; readonly patientEntityId: number; readonly helperEntityIds: readonly number[]; readonly tick: number; }
 export interface CasualtyDragReachedSafetyRecord { readonly groupId: number; readonly patientEntityId: number; readonly tick: number; }
-export interface CasualtyDragMovementBuffers { readonly cancellationRecords: CasualtyDragCancellationRecord[]; readonly reachedSafetyRecords: CasualtyDragReachedSafetyRecord[]; }
-export interface CasualtyDragMovementResult { readonly cancellationRecords: readonly CasualtyDragCancellationRecord[]; readonly reachedSafetyRecords: readonly CasualtyDragReachedSafetyRecord[]; readonly gatheringGroupCount: number; readonly draggingGroupCount: number; readonly reachedSafetyGroupCount: number; readonly movedParticipantCount: number; }
+export interface CasualtyDragMovementBuffers { readonly cancellationRecords: CasualtyDragCancellationRecord[]; readonly draggingStartedRecords: CasualtyDraggingStartedRecord[]; readonly reachedSafetyRecords: CasualtyDragReachedSafetyRecord[]; }
+export interface CasualtyDragMovementResult { readonly cancellationRecords: readonly CasualtyDragCancellationRecord[]; readonly draggingStartedRecords: readonly CasualtyDraggingStartedRecord[]; readonly reachedSafetyRecords: readonly CasualtyDragReachedSafetyRecord[]; readonly gatheringGroupCount: number; readonly draggingGroupCount: number; readonly reachedSafetyGroupCount: number; readonly movedParticipantCount: number; }
 
 export interface CasualtyAssistanceDecisionOptions {
   /** Reserved integration hook until IndividualTreatmentActionStore exists. */
@@ -236,7 +237,7 @@ export function createIndividualDragHandCommitmentStore(entityCount: number): In
   return store;
 }
 
-export function createCasualtyDragMovementBuffers(): CasualtyDragMovementBuffers { return { cancellationRecords: [], reachedSafetyRecords: [] }; }
+export function createCasualtyDragMovementBuffers(): CasualtyDragMovementBuffers { return { cancellationRecords: [], draggingStartedRecords: [], reachedSafetyRecords: [] }; }
 
 export function createCasualtyDragGroupStore(
   entityCount: number,
@@ -490,6 +491,7 @@ export function decideIndividualCasualtyAssistance(
       });
       continue;
     }
+    helperEntityIds = helperEntityIds.slice().sort((left, right) => left - right);
     const destination = selectSafeDestination(
       world,
       identityStore,
@@ -644,6 +646,7 @@ export function advanceCasualtyDragGroupsBeforeCombat(
   validateEntityCounts(world.entityCount, presenceStore);
   assertNonNegativeSafeInteger(tick, "tick");
   buffers.cancellationRecords.length = 0;
+  buffers.draggingStartedRecords.length = 0;
   buffers.reachedSafetyRecords.length = 0;
   const groups = asGroupStore(groupStore);
   const assistance = asAssistanceStore(assistanceStore);
@@ -676,6 +679,12 @@ export function advanceCasualtyDragGroupsBeforeCombat(
         group.phase = "dragging";
         group.phaseEnteredTick = tick;
         setGroupHandCommitment(group, hands);
+        buffers.draggingStartedRecords.push({
+          groupId: group.groupId,
+          patientEntityId: group.patientEntityId,
+          helperEntityIds: group.helperEntityIds,
+          tick,
+        });
       }
       index += 1;
       continue;
@@ -713,7 +722,8 @@ export function advanceCasualtyDragGroupsBeforeCombat(
     else if (group.phase === "dragging") draggingGroupCount += 1;
     else if (group.phase === "reachedSafety") reachedSafetyGroupCount += 1;
   }
-  return { cancellationRecords: buffers.cancellationRecords, reachedSafetyRecords: buffers.reachedSafetyRecords,
+  return { cancellationRecords: buffers.cancellationRecords, draggingStartedRecords: buffers.draggingStartedRecords,
+    reachedSafetyRecords: buffers.reachedSafetyRecords,
     gatheringGroupCount, draggingGroupCount, reachedSafetyGroupCount, movedParticipantCount };
 }
 

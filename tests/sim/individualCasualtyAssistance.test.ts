@@ -9,6 +9,7 @@ import {
   cancelCasualtyDragGroupsFromPostCombatEvidence,
   promoteTerminalCitizenCasualtyDragGroups,
   refreshCasualtyDragMovementFinalPhaseCounts,
+  releaseIndividualTreatmentPositionReservation,
   decideIndividualCasualtyAssistance,
   getActiveCasualtyDragGroups,
   getIndividualCasualtyAssistanceInspection,
@@ -564,6 +565,7 @@ describe("individual casualty assistance and sparse drag groups", () => {
     decide(simulation, 5);
     const hands = createIndividualDragHandCommitmentStore(simulation.world.entityCount);
     const buffers = createCasualtyDragMovementBuffers();
+    const draggingStartedRecords = buffers.draggingStartedRecords;
     const startPatientX = simulation.world.positionsX[0]!;
     const startHelperX = simulation.world.positionsX[1]!;
 
@@ -584,7 +586,16 @@ describe("individual casualty assistance and sparse drag groups", () => {
         combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore,
         hands, tick, buffers, combat.individualPlayerPresenceStore);
       expect(simulation.world.positionsX[0]).toBe(patientBefore);
-      if (result.draggingGroupCount === 1) expect(result.movedParticipantCount).toBeLessThanOrEqual(1);
+      if (result.draggingGroupCount === 1) {
+        expect(result.movedParticipantCount).toBeLessThanOrEqual(1);
+        expect(result.draggingStartedRecords).toBe(draggingStartedRecords);
+        expect(result.draggingStartedRecords).toEqual([{
+          groupId: 0,
+          patientEntityId: 0,
+          helperEntityIds: [1],
+          tick,
+        }]);
+      }
       tick += 1;
     }
     const transitionPatientX = simulation.world.positionsX[0]!;
@@ -594,6 +605,8 @@ describe("individual casualty assistance and sparse drag groups", () => {
       combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore,
       hands, tick - 1, buffers, combat.individualPlayerPresenceStore);
     expect(simulation.world.positionsX[0]).toBe(transitionPatientX);
+    expect(buffers.draggingStartedRecords).toBe(draggingStartedRecords);
+    expect(buffers.draggingStartedRecords).toHaveLength(0);
     expect(hands.getFreeHands(1)).toBe(0);
     const reached = advanceCasualtyDragGroupsBeforeCombat(simulation.world, combat.identityStore,
       combat.formationStore, combat.individualCasualtyLifecycleStore,
@@ -744,7 +757,7 @@ describe("individual casualty assistance and sparse drag groups", () => {
     down(paired, 0, 4);
     expect(decide(paired, 4).groupStartedRecords[0]).toMatchObject({
       helperKind: "twoOrdinaryFighters",
-      helperEntityIds: [2, 1],
+      helperEntityIds: [1, 2],
     });
   });
 
@@ -927,7 +940,46 @@ describe("individual casualty assistance and sparse drag groups", () => {
       combat.individualExecutionActionStore,
       combat.individualPlayerPresenceStore,
       0,
-    )).toMatchObject({ wasDragged: true, firstDragTick: 0, dragPatientEpisodeCount: 1 });
+    )).toMatchObject({ wasDragged: false, firstDragTick: -1, dragPatientEpisodeCount: 0 });
+    expect(getConsolidatedCasualtyHistory(
+      combat.individualCasualtyHistoryStore,
+      combat.individualDeathCountStore,
+      combat.individualTraumaticWoundStore,
+      combat.individualExecutionActionStore,
+      combat.individualPlayerPresenceStore,
+      1,
+    ).dragHelperParticipationCount).toBe(0);
+    expect(combat.individualCasualtyUnitSummaries[1]!.activeDragHelperCount).toBe(1);
+  });
+
+  it("records actual drag history only when production enters the dragging phase", () => {
+    const simulation = createSimulation(scenario([
+      unit(1, 1, 100),
+      { ...unit(2, 1, 104), medicalProfile: physick() },
+      unit(3, 2, 230),
+    ]));
+    const combat = requireCombat(simulation);
+    down(simulation, 0, 0);
+    advanceSimulationOneTick(simulation);
+    const transitionRecords = combat.casualtyDragMovementBuffers.draggingStartedRecords;
+
+    advanceSimulationOneTick(simulation);
+
+    expect(combat.casualtyDragMovementResult.draggingStartedRecords).toBe(transitionRecords);
+    expect(combat.casualtyDragMovementResult.draggingStartedRecords).toEqual([{
+      groupId: 0,
+      patientEntityId: 0,
+      helperEntityIds: [1],
+      tick: 1,
+    }]);
+    expect(getConsolidatedCasualtyHistory(
+      combat.individualCasualtyHistoryStore,
+      combat.individualDeathCountStore,
+      combat.individualTraumaticWoundStore,
+      combat.individualExecutionActionStore,
+      combat.individualPlayerPresenceStore,
+      0,
+    )).toMatchObject({ wasDragged: true, firstDragTick: 1, dragPatientEpisodeCount: 1 });
     expect(getConsolidatedCasualtyHistory(
       combat.individualCasualtyHistoryStore,
       combat.individualDeathCountStore,
@@ -936,7 +988,185 @@ describe("individual casualty assistance and sparse drag groups", () => {
       combat.individualPlayerPresenceStore,
       1,
     ).dragHelperParticipationCount).toBe(1);
-    expect(combat.individualCasualtyUnitSummaries[1]!.activeDragHelperCount).toBe(1);
+
+    advanceSimulationOneTick(simulation);
+    expect(combat.casualtyDragMovementResult.draggingStartedRecords).toBe(transitionRecords);
+    expect(combat.casualtyDragMovementResult.draggingStartedRecords).toHaveLength(0);
+    expect(getConsolidatedCasualtyHistory(
+      combat.individualCasualtyHistoryStore,
+      combat.individualDeathCountStore,
+      combat.individualTraumaticWoundStore,
+      combat.individualExecutionActionStore,
+      combat.individualPlayerPresenceStore,
+      0,
+    ).dragPatientEpisodeCount).toBe(1);
+  });
+
+  it("does not record actual dragging when a gathering group is cancelled", () => {
+    const simulation = createSimulation(scenario([
+      unit(1, 1, 100),
+      { ...unit(2, 1, 120), medicalProfile: physick() },
+      unit(3, 2, 230),
+    ]));
+    const combat = requireCombat(simulation);
+    down(simulation, 0, 0);
+    advanceSimulationOneTick(simulation);
+    down(simulation, 1, 1);
+
+    advanceSimulationOneTick(simulation);
+
+    expect(combat.casualtyDragMovementResult.cancellationRecords).toHaveLength(1);
+    expect(combat.casualtyDragMovementResult.draggingStartedRecords).toHaveLength(0);
+    expect(getConsolidatedCasualtyHistory(
+      combat.individualCasualtyHistoryStore,
+      combat.individualDeathCountStore,
+      combat.individualTraumaticWoundStore,
+      combat.individualExecutionActionStore,
+      combat.individualPlayerPresenceStore,
+      0,
+    )).toMatchObject({ wasDragged: false, firstDragTick: -1, dragPatientEpisodeCount: 0 });
+    expect(getConsolidatedCasualtyHistory(
+      combat.individualCasualtyHistoryStore,
+      combat.individualDeathCountStore,
+      combat.individualTraumaticWoundStore,
+      combat.individualExecutionActionStore,
+      combat.individualPlayerPresenceStore,
+      1,
+    ).dragHelperParticipationCount).toBe(0);
+  });
+
+  it("emits identical canonical drag transitions and histories from reversed helper construction", () => {
+    const run = (helperXs: readonly [number, number]) => {
+      const simulation = createSimulation(scenario([
+        unit(1, 1, 100),
+        unit(2, 1, helperXs[0]),
+        unit(3, 1, helperXs[1]),
+        unit(4, 2, 230),
+      ]));
+      const combat = requireCombat(simulation);
+      down(simulation, 0, 0);
+      advanceSimulationOneTick(simulation);
+      advanceSimulationOneTick(simulation);
+      return {
+        records: combat.casualtyDragMovementResult.draggingStartedRecords.map(
+          (record) => ({ ...record, helperEntityIds: [...record.helperEntityIds] }),
+        ),
+        patient: getConsolidatedCasualtyHistory(
+          combat.individualCasualtyHistoryStore,
+          combat.individualDeathCountStore,
+          combat.individualTraumaticWoundStore,
+          combat.individualExecutionActionStore,
+          combat.individualPlayerPresenceStore,
+          0,
+        ),
+        helperCounts: [1, 2].map((entityId) => getConsolidatedCasualtyHistory(
+          combat.individualCasualtyHistoryStore,
+          combat.individualDeathCountStore,
+          combat.individualTraumaticWoundStore,
+          combat.individualExecutionActionStore,
+          combat.individualPlayerPresenceStore,
+          entityId,
+        ).dragHelperParticipationCount),
+      };
+    };
+
+    expect(run([104, 108])).toEqual(run([108, 104]));
+  });
+
+  it("emits multiple actual-drag transitions in canonical group and patient order", () => {
+    const simulation = createSimulation(scenario([
+      multiUnit(1, 1, 100, 3),
+      multiUnit(2, 1, 140, 3),
+      unit(3, 2, 230),
+    ]));
+    const combat = requireCombat(simulation);
+    down(simulation, 0, 0);
+    down(simulation, 3, 0);
+    advanceSimulationOneTick(simulation);
+    advanceSimulationOneTick(simulation);
+
+    expect(combat.casualtyDragMovementResult.draggingStartedRecords).toEqual([
+      { groupId: 0, patientEntityId: 3, helperEntityIds: [4, 5], tick: 1 },
+      { groupId: 1, patientEntityId: 0, helperEntityIds: [1, 2], tick: 1 },
+    ]);
+    for (const patientEntityId of [0, 3]) {
+      expect(getConsolidatedCasualtyHistory(
+        combat.individualCasualtyHistoryStore,
+        combat.individualDeathCountStore,
+        combat.individualTraumaticWoundStore,
+        combat.individualExecutionActionStore,
+        combat.individualPlayerPresenceStore,
+        patientEntityId,
+      ).dragPatientEpisodeCount).toBe(1);
+    }
+    for (const helperEntityId of [1, 2, 4, 5]) {
+      expect(getConsolidatedCasualtyHistory(
+        combat.individualCasualtyHistoryStore,
+        combat.individualDeathCountStore,
+        combat.individualTraumaticWoundStore,
+        combat.individualExecutionActionStore,
+        combat.individualPlayerPresenceStore,
+        helperEntityId,
+      ).dragHelperParticipationCount).toBe(1);
+    }
+  });
+
+  it("retains the first actual drag tick and increments every participant on a later rescue", () => {
+    const simulation = createSimulation(scenario([
+      multiUnit(1, 1, 100, 3),
+      unit(2, 2, 230),
+    ]));
+    const combat = requireCombat(simulation);
+    down(simulation, 0, 0);
+    advanceSimulationOneTick(simulation);
+    advanceSimulationOneTick(simulation);
+    expect(combat.casualtyDragMovementResult.draggingStartedRecords[0]).toMatchObject({
+      groupId: 0,
+      patientEntityId: 0,
+      helperEntityIds: [1, 2],
+      tick: 1,
+    });
+    const firstGroup = getActiveCasualtyDragGroups(combat.casualtyDragGroupStore)[0]!;
+    for (const entityId of [0, 1, 2]) {
+      simulation.world.positionsX[entityId] = Math.round(firstGroup.destinationX);
+      simulation.world.positionsY[entityId] = Math.round(firstGroup.destinationY);
+    }
+    advanceSimulationOneTick(simulation);
+    expect(getActiveCasualtyDragGroups(combat.casualtyDragGroupStore)).toHaveLength(0);
+    releaseIndividualTreatmentPositionReservation(
+      combat.individualCasualtyAssistanceStore, 0,
+    );
+    simulation.world.positionsX[0] = 100;
+    simulation.world.positionsX[1] = 104;
+    simulation.world.positionsX[2] = 108;
+
+    advanceSimulationOneTick(simulation);
+    advanceSimulationOneTick(simulation);
+
+    expect(combat.casualtyDragMovementResult.draggingStartedRecords[0]).toMatchObject({
+      groupId: 1,
+      patientEntityId: 0,
+      helperEntityIds: [1, 2],
+      tick: 4,
+    });
+    expect(getConsolidatedCasualtyHistory(
+      combat.individualCasualtyHistoryStore,
+      combat.individualDeathCountStore,
+      combat.individualTraumaticWoundStore,
+      combat.individualExecutionActionStore,
+      combat.individualPlayerPresenceStore,
+      0,
+    )).toMatchObject({ wasDragged: true, firstDragTick: 1, dragPatientEpisodeCount: 2 });
+    for (const helperEntityId of [1, 2]) {
+      expect(getConsolidatedCasualtyHistory(
+        combat.individualCasualtyHistoryStore,
+        combat.individualDeathCountStore,
+        combat.individualTraumaticWoundStore,
+        combat.individualExecutionActionStore,
+        combat.individualPlayerPresenceStore,
+        helperEntityId,
+      ).dragHelperParticipationCount).toBe(2);
+    }
   });
 
   it("skips the second prepared-grid rebuild on ordinary ticks without drag-eligible patients", () => {
