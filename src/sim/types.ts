@@ -367,6 +367,8 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly terminalCause?: import("./individualCasualtyLifecycle").TerminalCause;
   readonly terminalX?: number;
   readonly terminalY?: number;
+  readonly comfortStartedCount?: number;
+  readonly comfortCompletedTick?: number;
   readonly hasChirurgeon?: boolean;
   readonly hasPhysick?: boolean;
   readonly currentGenericHerbs?: number;
@@ -443,6 +445,9 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly pressureRecoveryContext: IndividualCombatPressureRecoveryContext;
   readonly pressureRecoveryCreditApplied: number;
   readonly recoveredPressureAmount: number;
+  readonly executionActionId?: number;
+  readonly executionTargetEntityId?: number;
+  readonly executionProgressTicks?: number;
 }
 
 export interface IndividualCombatVisualState {
@@ -501,6 +506,10 @@ export interface LiveCombatDebugSnapshot {
   readonly medicalHandoffCount: number;
   readonly medicalSafeReleaseCount: number;
   readonly medicalStaleClaimCount: number;
+  readonly activeExecutionActionCount: number;
+  readonly executionStartedCount: number;
+  readonly executionInterruptedCount: number;
+  readonly executionCompletedCount: number;
   readonly tickStartEligibleMemberCount: number;
   readonly endOfTickEligibleMemberCount: number;
   readonly endOfTickZeroHitMemberCount: number;

@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyIndividualZeroHitLifecycleTransitions,
+  classifyIndividualTerminalPlayerPresences,
   getIndividualCharacterLifecycleState,
   getIndividualPlayerPresenceState,
   transitionIndividualDyingToTerminal,
+  transitionIndividualTerminalAwaitingComfortToComforted,
 } from "../../src/sim/individualCasualtyLifecycle";
 import {
   getActiveCasualtyDragGroups,
@@ -16,6 +18,7 @@ import {
   getIndividualDeathCountInspection,
   initializeIndividualDeathCountsFromZeroHitTransitions,
   resumeIndividualDeathCount,
+  recordIndividualExecutionTerminal,
 } from "../../src/sim/individualDeathCount";
 import {
   isIndividualCombatTargetEligible,
@@ -53,6 +56,7 @@ import {
   type IndividualTreatmentInterruptionReason,
 } from "../../src/sim/individualTreatmentAction";
 import { advanceSimulationOneTick, createSimulation } from "../../src/sim/simulation";
+import { submitIndividualExecutionIntent } from "../../src/sim/individualExecutionAction";
 import type { IndividualMeleeAttackAttemptRecord } from "../../src/sim/individualCombatAction";
 import type { IndividualLandedHitGateDecisionRecord } from "../../src/sim/individualLandedHitGate";
 import {
@@ -66,6 +70,250 @@ import type {
 } from "../../src/sim/types";
 
 describe("Milestone 6G-1 Chirurgeon treatment", () => {
+  it("comforts a terminal citizen after exactly 2,400 later ticks without changing character authority", () => {
+    const simulation = createTreatmentSimulation({ physick: true, herbs: 12 });
+    const combat = requireCombat(simulation);
+    down(simulation, 0, 0);
+    transitionIndividualDyingToTerminal(
+      combat.individualCasualtyLifecycleStore, 0, 1, "execution",
+    );
+    recordIndividualExecutionTerminal(
+      combat.individualDeathCountStore, 0, 1,
+      simulation.world.positionsX[0]!, simulation.world.positionsY[0]!,
+    );
+    classifyIndividualTerminalPlayerPresences(
+      combat.individualCasualtyLifecycleStore,
+      combat.individualPlayerPresenceStore,
+      combat.individualCasualtyProcedureProfileStore,
+      [{ entityId: 0, tick: 1 }],
+    );
+    const deathBefore = getIndividualDeathCountInspection(
+      combat.individualDeathCountStore, 0,
+    );
+    const herbsBefore = getIndividualGenericHerbInspection(
+      combat.individualGenericHerbStore, 1,
+    );
+    const startedTick = advanceUntilTreatmentStarts(simulation);
+    expect(getIndividualTreatmentActionInspection(
+      combat.individualTreatmentActionStore, 1,
+    )).toMatchObject({
+      kind: "physickTerminalComfort",
+      patientEntityId: 0,
+      startedTick,
+      progressTicks: 0,
+      requiredProgressTicks: 2_400,
+      reservedGenericHerbs: 0,
+    });
+    expect(getIndividualCasualtyAssistanceInspection(
+      combat.individualCasualtyAssistanceStore, 0,
+    ).state).toBe("atTreatmentPosition");
+    expect(getIndividualMedicalClaimInspection(
+      combat.individualMedicalClaimStore, 0,
+    )).toMatchObject({ physickEntityId: 1, need: "terminalComfort" });
+    expect(getIndividualMedicalUrgencyInspection(
+      combat.individualMedicalUrgencyStore, 0,
+    )).toEqual(expect.objectContaining({
+      urgencyKind: "terminalComfort",
+      urgencyPriority: 50,
+    }));
+    const treatmentX = simulation.world.positionsX[0];
+    const treatmentY = simulation.world.positionsY[0];
+    for (let count = 1; count < 2_400; count += 1) {
+      keepInTouch(simulation, 1, 0);
+      advanceSimulationOneTick(simulation);
+    }
+    expect(getIndividualPlayerPresenceState(
+      combat.individualPlayerPresenceStore, 0,
+    )).toBe("terminalAwaitingComfort");
+    expect(getIndividualTreatmentActionInspection(
+      combat.individualTreatmentActionStore, 1,
+    )?.progressTicks).toBe(2_399);
+    keepInTouch(simulation, 1, 0);
+    advanceSimulationOneTick(simulation);
+    expect(combat.individualTreatmentActionResult.completedRecords).toEqual([
+      expect.objectContaining({
+        kind: "physickTerminalComfort",
+        progressTicks: 2_400,
+        consumedGenericHerbs: 0,
+        comfortTransition: expect.objectContaining({
+          presenceState: "terminalComforted",
+        }),
+      }),
+    ]);
+    expect(getIndividualPlayerPresenceState(
+      combat.individualPlayerPresenceStore, 0,
+    )).toBe("terminalComforted");
+    expect(() => transitionIndividualTerminalAwaitingComfortToComforted(
+      combat.individualCasualtyLifecycleStore,
+      combat.individualPlayerPresenceStore,
+      0,
+      simulation.tick,
+    )).toThrow(/terminalAwaitingComfort/i);
+    expect(getIndividualCharacterLifecycleState(
+      combat.individualCasualtyLifecycleStore, 0,
+    )).toBe("terminal");
+    expect(getIndividualCurrentGlobalHits(combat.individualGlobalHitStore, 0)).toBe(0);
+    expect(getIndividualDeathCountInspection(
+      combat.individualDeathCountStore, 0,
+    )).toEqual(deathBefore);
+    expect(getIndividualGenericHerbInspection(
+      combat.individualGenericHerbStore, 1,
+    )).toEqual(herbsBefore);
+    expect(getIndividualCasualtyHistoryInspection(
+      combat.individualDeathCountStore, 0,
+    )).toMatchObject({
+      terminalCause: "execution",
+      comfortStartedCount: 1,
+      comfortCompletedTick: startedTick + 2_400,
+    });
+    expect(getIndividualMedicalClaimInspection(
+      combat.individualMedicalClaimStore, 0,
+    ).physickEntityId).toBe(-1);
+    expect(simulation.world.positionsX[0]).toBe(treatmentX);
+    expect(simulation.world.positionsY[0]).toBe(treatmentY);
+    advanceSimulationOneTick(simulation);
+    expect(getIndividualMedicalUrgencyInspection(
+      combat.individualMedicalUrgencyStore, 0,
+    ).urgencyKind).toBe("none");
+    expect(combat.individualMedicalClaimResult.claimRecords).toHaveLength(0);
+    expect(combat.casualtyAssistanceDecisionResult.groupStartedRecords).toHaveLength(0);
+  });
+
+  it("interrupts terminal comfort on range loss and permits a fresh full restart", () => {
+    const simulation = createTreatmentSimulation({ physick: true, herbs: 0 });
+    const combat = requireCombat(simulation);
+    terminalizeCitizenForComfort(simulation, 0);
+    advanceUntilTreatmentStarts(simulation);
+    keepInTouch(simulation, 1, 0);
+    advanceSimulationOneTick(simulation);
+    simulation.world.positionsX[1] = simulation.world.positionsX[0]! + 20;
+    advanceSimulationOneTick(simulation);
+    expect(combat.individualTreatmentActionResult.interruptedRecords).toEqual([
+      expect.objectContaining({
+        kind: "physickTerminalComfort",
+        reason: "rangeLost",
+        progressTicksLost: 1,
+      }),
+    ]);
+    keepInTouch(simulation, 1, 0);
+    const restartedTick = advanceUntilTreatmentStarts(simulation);
+    expect(getIndividualTreatmentActionInspection(
+      combat.individualTreatmentActionStore, 1,
+    )).toMatchObject({
+      kind: "physickTerminalComfort",
+      startedTick: restartedTick,
+      progressTicks: 0,
+      requiredProgressTicks: 2_400,
+    });
+    expect(getIndividualCasualtyHistoryInspection(
+      combat.individualDeathCountStore, 0,
+    ).comfortStartedCount).toBe(2);
+  });
+
+  it("does not let a Chirurgeon-only character claim terminal comfort", () => {
+    const simulation = createTreatmentSimulation({ physick: false, herbs: 0 });
+    const combat = requireCombat(simulation);
+    terminalizeCitizenForComfort(simulation, 0);
+    for (let tick = 0; tick < 40; tick += 1) advanceSimulationOneTick(simulation);
+    expect(getIndividualTreatmentActionInspection(
+      combat.individualTreatmentActionStore, 1,
+    )).toBeUndefined();
+    expect(getIndividualMedicalClaimInspection(
+      combat.individualMedicalClaimStore, 1,
+    ).patientEntityId).toBe(-1);
+  });
+
+  it("triages every living need ahead of terminal comfort", () => {
+    const simulation = createComfortTriageSimulation();
+    const combat = requireCombat(simulation);
+    terminalizeCitizenForComfort(simulation, 0);
+    applyLosses(combat, 1, 1);
+    for (let tick = 0; tick < 5; tick += 1) advanceSimulationOneTick(simulation);
+    expect(getIndividualMedicalClaimInspection(
+      combat.individualMedicalClaimStore, 3,
+    ).patientEntityId).toBe(1);
+    expect(getIndividualMedicalClaimInspection(
+      combat.individualMedicalClaimStore, 1,
+    )).toMatchObject({ physickEntityId: 3, need: "livingMissingHits" });
+    expect(getIndividualMedicalClaimInspection(
+      combat.individualMedicalClaimStore, 0,
+    ).physickEntityId).toBe(-1);
+  });
+
+  it("replays terminal rescue and comfort deterministically", () => {
+    const run = () => {
+      const simulation = createTreatmentSimulation({ physick: true, herbs: 3 });
+      const combat = requireCombat(simulation);
+      terminalizeCitizenForComfort(simulation, 0);
+      advanceUntilTreatmentStarts(simulation);
+      for (let tick = 0; tick < 2_400; tick += 1) {
+        keepInTouch(simulation, 1, 0);
+        advanceSimulationOneTick(simulation);
+      }
+      return {
+        tick: simulation.tick,
+        position: [simulation.world.positionsX[0], simulation.world.positionsY[0]],
+        lifecycle: getIndividualCharacterLifecycleState(
+          combat.individualCasualtyLifecycleStore, 0,
+        ),
+        presence: getIndividualPlayerPresenceState(
+          combat.individualPlayerPresenceStore, 0,
+        ),
+        history: getIndividualCasualtyHistoryInspection(
+          combat.individualDeathCountStore, 0,
+        ),
+        herbs: getIndividualGenericHerbInspection(
+          combat.individualGenericHerbStore, 1,
+        ),
+      };
+    };
+    expect(run()).toEqual(run());
+  });
+
+  it("clears Chirurgeon treatment, claim, and pause when execution terminalises the patient", () => {
+    const simulation = createChirurgeonOnlyRescueSimulation();
+    const combat = requireCombat(simulation);
+    down(simulation, 0, 0);
+    advanceUntilTreatmentStarts(simulation, 3);
+    simulation.world.positionsX[1] = simulation.world.positionsX[0]! + 4;
+    simulation.world.positionsY[1] = simulation.world.positionsY[0]!;
+    const startTick = simulation.tick;
+    submitIndividualExecutionIntent(combat.individualExecutionActionStore, {
+      executorEntityId: 1,
+      targetEntityId: 0,
+      requestedTick: startTick,
+    });
+    advanceSimulationOneTick(simulation);
+    expect(combat.individualExecutionActionResult.startedRecords).toHaveLength(1);
+    for (let progress = 1; progress <= 100; progress += 1) {
+      advanceSimulationOneTick(simulation);
+    }
+    expect(getIndividualCharacterLifecycleState(
+      combat.individualCasualtyLifecycleStore,
+      0,
+    )).toBe("terminal");
+    expect(combat.individualTreatmentActionResult.interruptedRecords).toEqual([
+      expect.objectContaining({
+        healerEntityId: 3,
+        patientEntityId: 0,
+        reason: "patientTerminalExecution",
+        releasedGenericHerbs: 0,
+      }),
+    ]);
+    expect(getActiveIndividualTreatmentActionCount(
+      combat.individualTreatmentActionStore,
+    )).toBe(0);
+    expect(getIndividualMedicalClaimInspection(
+      combat.individualMedicalClaimStore,
+      0,
+    ).physickEntityId).toBe(-1);
+    expect(getIndividualDeathCountInspection(
+      combat.individualDeathCountStore,
+      0,
+    ).pauseSource).toBeUndefined();
+    expect(() => advanceSimulationOneTick(simulation)).not.toThrow();
+  });
+
   it("lets a Chirurgeon-only character claim and complete dying treatment without herbs or a Physick follow-up claim", () => {
     const simulation = createChirurgeonOnlyRescueSimulation();
     const combat = requireCombat(simulation);
@@ -875,6 +1123,33 @@ function down(simulation: SimulationState, entityId: number, tick: number): void
   );
 }
 
+function terminalizeCitizenForComfort(
+  simulation: SimulationState,
+  entityId: number,
+): void {
+  const combat = requireCombat(simulation);
+  down(simulation, entityId, simulation.tick);
+  transitionIndividualDyingToTerminal(
+    combat.individualCasualtyLifecycleStore,
+    entityId,
+    simulation.tick,
+    "execution",
+  );
+  recordIndividualExecutionTerminal(
+    combat.individualDeathCountStore,
+    entityId,
+    simulation.tick,
+    simulation.world.positionsX[entityId]!,
+    simulation.world.positionsY[entityId]!,
+  );
+  classifyIndividualTerminalPlayerPresences(
+    combat.individualCasualtyLifecycleStore,
+    combat.individualPlayerPresenceStore,
+    combat.individualCasualtyProcedureProfileStore,
+    [{ entityId, tick: simulation.tick }],
+  );
+}
+
 function applyLosses(combat: CombatSandboxSimulationState, target: number, count: number) {
   return applyIndividualLandedHits(
     combat.individualGlobalHitStore,
@@ -1044,6 +1319,32 @@ function createChirurgeonOnlyNeedsSimulation(): SimulationState {
           },
         },
         unit(5, 2, 280, 1),
+      ],
+    },
+  });
+}
+
+function createComfortTriageSimulation(): SimulationState {
+  return createSimulation({
+    seed: 0x6e_2a,
+    entityCount: 5,
+    bounds: { width: 300, height: 120 },
+    minSpeedUnitsPerTick: 1,
+    maxSpeedUnitsPerTick: 1,
+    combatSandbox: {
+      kind: "liveCombatSandbox",
+      appliedDamagePressureScale: 1,
+      units: [
+        unit(1, 1, 100, 3),
+        {
+          ...unit(2, 1, 112, 1),
+          medicalProfile: {
+            hasChirurgeon: true,
+            hasPhysick: true,
+            startingGenericHerbs: 12,
+          },
+        },
+        unit(3, 2, 280, 1),
       ],
     },
   });

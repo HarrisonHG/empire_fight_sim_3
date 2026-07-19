@@ -245,6 +245,46 @@ export function getIndividualPlayerPresenceTransitionTick(
   return internal.lastTransitionTickByEntity[entityId]!;
 }
 
+export interface IndividualTerminalComfortTransitionRecord {
+  readonly entityId: number;
+  readonly tick: number;
+  readonly previousPresenceState: "terminalAwaitingComfort";
+  readonly presenceState: "terminalComforted";
+}
+
+export function transitionIndividualTerminalAwaitingComfortToComforted(
+  lifecycleStore: IndividualCasualtyLifecycleStore,
+  presenceStore: IndividualPlayerPresenceStore,
+  entityId: number,
+  tick: number,
+): IndividualTerminalComfortTransitionRecord {
+  const lifecycle = asInternal(lifecycleStore);
+  const presence = asInternalPresence(presenceStore);
+  if (lifecycle.entityCount !== presence.entityCount) {
+    throw new RangeError(
+      "Comfort lifecycle and presence stores must share entityCount.",
+    );
+  }
+  assertEntityId(entityId, lifecycle.entityCount, "Terminal comfort");
+  assertNonNegativeSafeInteger(tick, "tick");
+  if (lifecycle.stateByEntity[entityId] !== 2) {
+    throw new Error("Terminal comfort requires terminal character lifecycle.");
+  }
+  if (presence.stateByEntity[entityId] !== 2) {
+    throw new Error(
+      "Terminal comfort requires terminalAwaitingComfort presence.",
+    );
+  }
+  presence.stateByEntity[entityId] = 3;
+  presence.lastTransitionTickByEntity[entityId] = tick;
+  return {
+    entityId,
+    tick,
+    previousPresenceState: "terminalAwaitingComfort",
+    presenceState: "terminalComforted",
+  };
+}
+
 export interface IndividualTerminalPresenceTransitionRecord {
   readonly entityId: number;
   readonly tick: number;
@@ -307,6 +347,42 @@ export function applyIndividualTerminalPresenceTransitions(
     });
   }
   return out;
+}
+
+/**
+ * Compatibility entry point for trusted terminal hooks that retain only
+ * entity/tick identity. Production should pass canonical transition records
+ * to applyIndividualTerminalPresenceTransitions directly.
+ */
+export function classifyIndividualTerminalPlayerPresences(
+  lifecycleStore: IndividualCasualtyLifecycleStore,
+  presenceStore: IndividualPlayerPresenceStore,
+  procedureStore: IndividualCasualtyProcedureProfileStore,
+  terminalTransitions: readonly {
+    readonly entityId: number;
+    readonly tick: number;
+  }[],
+  out: IndividualTerminalPresenceTransitionRecord[] = [],
+): readonly IndividualTerminalPresenceTransitionRecord[] {
+  const lifecycle = asInternal(lifecycleStore);
+  const canonical = terminalTransitions.map((transition) => ({
+    entityId: transition.entityId,
+    tick: transition.tick,
+    previousLifecycleState: "dying" as const,
+    lifecycleState: "terminal" as const,
+    cause: getIndividualTerminalCause(lifecycleStore, transition.entityId) as
+      Exclude<TerminalCause, "none">,
+    terminalX: lifecycle.downXByEntity[transition.entityId]!,
+    terminalY: lifecycle.downYByEntity[transition.entityId]!,
+  })).sort((left, right) =>
+    left.entityId - right.entityId || left.tick - right.tick);
+  return applyIndividualTerminalPresenceTransitions(
+    lifecycleStore,
+    presenceStore,
+    procedureStore,
+    canonical,
+    out,
+  );
 }
 
 export interface CasualtyPositionSource {

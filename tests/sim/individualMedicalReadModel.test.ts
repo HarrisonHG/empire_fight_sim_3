@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyIndividualZeroHitLifecycleTransitions,
+  classifyIndividualTerminalPlayerPresences,
   getIndividualCharacterLifecycleState,
+  transitionIndividualDyingToTerminal,
+  transitionIndividualTerminalAwaitingComfortToComforted,
 } from "../../src/sim/individualCasualtyLifecycle";
 import {
   applyIndividualLandedHits,
@@ -188,6 +191,105 @@ describe("individual medical urgency and prepared discovery", () => {
     expect(getIndividualMedicalLocalQueryPreparationCount(
       combat.individualMedicalLocalQueryStore,
     )).toBe(1);
+  });
+
+  it("discovers only terminal-awaiting-comfort citizens with canonical reusable output", () => {
+    const barbarian = {
+      ...unit(3, 1, 70, "none", "regular"),
+      casualtyProcedure: {
+        procedureKind: "barbarian" as const,
+        deathCountPolicy: { kind: "fixedTicks" as const, durationTicks: 100 },
+      },
+    };
+    const simulation = createSimulation(medicalScenario([
+      unit(1, 1, 40, "none", "regular"),
+      unit(2, 1, 60, "none", "regular"),
+      barbarian,
+      { ...unit(4, 1, 50, "none", "regular"), medicalProfile: physick() },
+      unit(5, 2, 200, "none", "regular"),
+    ]));
+    const combat = requireCombat(simulation);
+    for (const entityId of [0, 1, 2]) {
+      const zero = applyLosses(combat, entityId, 2).zeroHitEvents;
+      applyIndividualZeroHitLifecycleTransitions(
+        combat.individualCasualtyLifecycleStore,
+        combat.individualPlayerPresenceStore,
+        combat.individualCasualtyProcedureProfileStore,
+        simulation.world,
+        zero,
+        10,
+      );
+      transitionIndividualDyingToTerminal(
+        combat.individualCasualtyLifecycleStore,
+        entityId,
+        11,
+        "deathCountExpired",
+      );
+    }
+    classifyIndividualTerminalPlayerPresences(
+      combat.individualCasualtyLifecycleStore,
+      combat.individualPlayerPresenceStore,
+      combat.individualCasualtyProcedureProfileStore,
+      [0, 1, 2].map((entityId) => ({ entityId, tick: 11 })),
+    );
+    const preparePatients = () => {
+      projectIndividualMedicalUrgency(
+        combat.identityStore, combat.formationStore,
+        combat.individualGlobalHitStore, combat.individualCasualtyLifecycleStore,
+        combat.individualCasualtyProcedureProfileStore,
+        combat.individualTraumaticWoundStore,
+        combat.individualLimbDisabilityStore,
+        combat.individualOrdinaryParticipationSnapshot,
+        combat.individualMedicalUrgencyStore,
+        combat.individualPlayerPresenceStore,
+      );
+      prepareIndividualMedicalLocalQueries(
+        simulation.world, combat.identityStore,
+        combat.individualCasualtyLifecycleStore,
+        combat.trustedIndividualMedicalProfileStore,
+        combat.individualGenericHerbStore,
+        combat.individualTraumaticWoundStore,
+        combat.individualMedicalUrgencyStore,
+        combat.individualOrdinaryParticipationSnapshot,
+        combat.moraleMovementStates,
+        combat.individualMedicalLocalQueryStore,
+      );
+    };
+    preparePatients();
+    const out: import("../../src/sim/individualMedicalReadModel").IndividualMedicalPatientCandidate[] = [];
+    const first = queryIndividualAlliedPatientsWithinRadiusInto(
+      combat.individualMedicalLocalQueryStore,
+      combat.individualMedicalUrgencyStore,
+      simulation.world,
+      3,
+      192,
+      out,
+    );
+    expect(first.records).toBe(out);
+    expect(first.candidateCount).toBe(2);
+    expect(first.records).toEqual([
+      { entityId: 0, distanceSquared: 100, urgencyKind: "terminalComfort", urgencyPriority: 50 },
+      { entityId: 1, distanceSquared: 100, urgencyKind: "terminalComfort", urgencyPriority: 50 },
+    ]);
+
+    transitionIndividualTerminalAwaitingComfortToComforted(
+      combat.individualCasualtyLifecycleStore,
+      combat.individualPlayerPresenceStore,
+      0,
+      12,
+    );
+    preparePatients();
+    const second = queryIndividualAlliedPatientsWithinRadiusInto(
+      combat.individualMedicalLocalQueryStore,
+      combat.individualMedicalUrgencyStore,
+      simulation.world,
+      3,
+      192,
+      out,
+    );
+    expect(second.records).toBe(out);
+    expect(second.candidateCount).toBe(1);
+    expect(second.records.map((record) => record.entityId)).toEqual([1]);
   });
 });
 

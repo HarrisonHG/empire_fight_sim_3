@@ -21,9 +21,16 @@ import {
 } from "./individualCombatEligibility";
 import type { IndividualLandedHitGateDecisionRecord } from "./individualLandedHitGate";
 import { CASUALTY_DRAG_PICKUP_RANGE } from "./individualCasualtyAssistance";
+import type { IndividualDefenceHandAvailabilitySource } from "./individualMeleeDefence";
+import {
+  setIndividualOrdinaryParticipationEligible,
+  type IndividualOrdinaryParticipationSnapshot,
+} from "./individualOrdinaryParticipation";
 import type { WorldState } from "./types";
 
 export const INDIVIDUAL_EXECUTION_PROGRESS_TICKS = 100;
+export const INDIVIDUAL_EXECUTION_COMMITMENT_TICKS =
+  INDIVIDUAL_EXECUTION_PROGRESS_TICKS;
 export const INDIVIDUAL_EXECUTION_RANGE = CASUALTY_DRAG_PICKUP_RANGE;
 
 export type IndividualExecutionIntentTargetBasis = "dying" | "explicitConsent";
@@ -33,6 +40,10 @@ export interface IndividualExecutionIntent {
   readonly targetEntityId: number;
   readonly requestedTick: number;
   /** Reserved for a future explicit consent authority; 6H-1 accepts only dying. */
+  readonly targetBasis?: IndividualExecutionIntentTargetBasis;
+}
+
+interface StoredIndividualExecutionIntent extends IndividualExecutionIntent {
   readonly targetBasis: IndividualExecutionIntentTargetBasis;
 }
 
@@ -76,7 +87,7 @@ interface InternalExecutionActionStore extends IndividualExecutionActionStore {
   readonly activeActions: ActiveExecutionAction[];
   readonly actionIndexByExecutor: Int32Array;
   readonly actionIndexByTarget: Int32Array;
-  readonly pendingIntents: IndividualExecutionIntent[];
+  readonly pendingIntents: StoredIndividualExecutionIntent[];
   readonly pendingIntentIndexByExecutor: Int32Array;
   readonly attackAttemptTickByEntity: Float64Array;
   readonly acceptedHitTickByEntity: Float64Array;
@@ -114,6 +125,9 @@ export interface IndividualExecutionInterruptedRecord
 export interface IndividualExecutionCompletedRecord
   extends IndividualExecutionActionInspection {
   readonly tick: number;
+  readonly cause: "execution";
+  readonly terminalX: number;
+  readonly terminalY: number;
   readonly terminalTransition: IndividualTerminalTransitionRecord;
 }
 
@@ -155,6 +169,9 @@ export interface IndividualExecutionActionResult {
 export interface IndividualExecutionAdvanceOptions {
   readonly forcedSeparatedEntityIds?: readonly number[];
   readonly isExecutorOtherwiseCommitted?: (entityId: number) => boolean;
+  readonly isExecutorAvailable?: (entityId: number) => boolean;
+  readonly isExecutorRetainingCapability?: (entityId: number) => boolean;
+  readonly onTargetTerminalized?: (targetEntityId: number, tick: number) => void;
 }
 
 const NONE = -1;
@@ -211,7 +228,9 @@ export function submitIndividualExecutionIntent(
   assertEntityId(intent.executorEntityId, internal.entityCount);
   assertEntityId(intent.targetEntityId, internal.entityCount);
   assertNonNegativeSafeInteger(intent.requestedTick, "execution requestedTick");
-  if (intent.targetBasis !== "dying" && intent.targetBasis !== "explicitConsent") {
+  if (intent.targetBasis !== undefined &&
+    intent.targetBasis !== "dying" &&
+    intent.targetBasis !== "explicitConsent") {
     throw new RangeError("Unknown execution intent target basis.");
   }
   if (intent.requestedTick <= internal.lastAdvancedTick) {
@@ -221,7 +240,10 @@ export function submitIndividualExecutionIntent(
     throw new Error("An executor may own at most one pending execution intent.");
   }
   const index = internal.pendingIntents.length;
-  internal.pendingIntents.push(Object.freeze({ ...intent }));
+  internal.pendingIntents.push(Object.freeze({
+    ...intent,
+    targetBasis: intent.targetBasis ?? "dying",
+  }));
   internal.pendingIntentIndexByExecutor[intent.executorEntityId] = index;
 }
 
@@ -258,6 +280,43 @@ export function getActiveIndividualExecutionActionCount(
   return asInternal(store).activeActions.length;
 }
 
+export function hasActiveIndividualExecutionAction(
+  store: IndividualExecutionActionStore,
+  entityId: number,
+): boolean {
+  const internal = asInternal(store);
+  assertEntityId(entityId, internal.entityCount);
+  return internal.actionIndexByExecutor[entityId] !== NONE;
+}
+
+export function projectIndividualExecutionOrdinaryParticipation(
+  store: IndividualExecutionActionStore,
+  snapshot: IndividualOrdinaryParticipationSnapshot,
+): void {
+  const internal = asInternal(store);
+  validateCounts(internal.entityCount, snapshot);
+  for (let index = 0; index < internal.activeActions.length; index += 1) {
+    setIndividualOrdinaryParticipationEligible(
+      snapshot,
+      internal.activeActions[index]!.executorEntityId,
+      false,
+    );
+  }
+}
+
+export function getIndividualExecutionDefenceHandAvailability(
+  store: IndividualExecutionActionStore,
+): IndividualDefenceHandAvailabilitySource {
+  const internal = asInternal(store);
+  return {
+    entityCount: internal.entityCount,
+    getFreeHands(entityId: number): number | undefined {
+      assertEntityId(entityId, internal.entityCount);
+      return internal.actionIndexByExecutor[entityId] === NONE ? undefined : 2;
+    },
+  };
+}
+
 export function advanceIndividualExecutionActionsOneTick(
   world: WorldState,
   lifecycle: IndividualCasualtyLifecycleStore,
@@ -290,7 +349,7 @@ export function advanceIndividualExecutionActionsOneTick(
     const action = internal.activeActions[index]!;
     if (tick === action.lastProcessedTick) { index += 1; continue; }
     const interruption = getInterruptionReason(
-      world, lifecycle, presence, combatActions, combatEligibility,
+      world, lifecycle, presence, combatActions,
       internal, forced, action, tick, options,
     );
     if (interruption !== undefined) {
@@ -313,11 +372,16 @@ export function advanceIndividualExecutionActionsOneTick(
       continue;
     }
     const terminalTransition = completeAction(
-      world, lifecycle, deathCounts, internal, action, tick,
+      world, lifecycle, deathCounts, internal, action, tick, options,
     );
     buffers.terminalTransitions.push(terminalTransition);
     buffers.completedRecords.push({
-      ...inspect(action), tick, terminalTransition,
+      ...inspect(action),
+      tick,
+      cause: "execution",
+      terminalX: terminalTransition.terminalX,
+      terminalY: terminalTransition.terminalY,
+      terminalTransition,
     });
     incrementBounded(internal.completedCountByEntity, action.executorEntityId,
       "execution completed count");
@@ -399,7 +463,7 @@ function getIntentRejectionReason(
   eligibility: IndividualCombatEligibilitySnapshot,
   store: InternalExecutionActionStore,
   forced: Uint8Array,
-  intent: IndividualExecutionIntent,
+  intent: StoredIndividualExecutionIntent,
   tick: number,
   options: IndividualExecutionAdvanceOptions,
 ): IndividualExecutionIntentRejectionReason | undefined {
@@ -429,7 +493,6 @@ function getInterruptionReason(
   lifecycle: IndividualCasualtyLifecycleStore,
   presence: IndividualPlayerPresenceStore,
   combatActions: IndividualCombatActionStore,
-  eligibility: IndividualCombatEligibilitySnapshot,
   store: InternalExecutionActionStore,
   forced: Uint8Array,
   action: ActiveExecutionAction,
@@ -443,8 +506,9 @@ function getInterruptionReason(
   if (store.acceptedHitTickByEntity[target] === tick) return "targetAcceptedHit";
   if (forced[executor] !== 0 || forced[target] !== 0) return "forcedSeparation";
   if (!withinRange(world, executor, target)) return "rangeLost";
-  if (!executorValid(lifecycle, presence, combatActions, eligibility, executor,
-    options)) return "executorIncapacity";
+  if (!executorRetainsAction(
+    lifecycle, presence, combatActions, executor, options,
+  )) return "executorIncapacity";
   return targetValid(lifecycle, presence, target) ? undefined : "targetInvalid";
 }
 
@@ -460,7 +524,21 @@ function executorValid(
     getIndividualPlayerPresenceState(presence, entityId) === "activePresence" &&
     getIndividualCombatActionState(combatActions, entityId) === "ready" &&
     isIndividualCombatEligible(eligibility, entityId) &&
+    options.isExecutorAvailable?.(entityId) !== false &&
     options.isExecutorOtherwiseCommitted?.(entityId) !== true;
+}
+
+function executorRetainsAction(
+  lifecycle: IndividualCasualtyLifecycleStore,
+  presence: IndividualPlayerPresenceStore,
+  combatActions: IndividualCombatActionStore,
+  entityId: number,
+  options: IndividualExecutionAdvanceOptions,
+): boolean {
+  return getIndividualCharacterLifecycleState(lifecycle, entityId) === "active" &&
+    getIndividualPlayerPresenceState(presence, entityId) === "activePresence" &&
+    getIndividualCombatActionState(combatActions, entityId) === "ready" &&
+    options.isExecutorRetainingCapability?.(entityId) !== false;
 }
 
 function targetValid(
@@ -479,6 +557,7 @@ function completeAction(
   store: InternalExecutionActionStore,
   action: ActiveExecutionAction,
   tick: number,
+  options: IndividualExecutionAdvanceOptions,
 ): IndividualTerminalTransitionRecord {
   transitionIndividualDyingToTerminal(
     lifecycle, action.targetEntityId, tick, "execution",
@@ -492,6 +571,7 @@ function completeAction(
     terminalX: world.positionsX[action.targetEntityId]!,
     terminalY: world.positionsY[action.targetEntityId]!,
   };
+  options.onTargetTerminalized?.(action.targetEntityId, tick);
   recordIndividualTerminalTransitionInCasualtyHistory(
     deathCounts, lifecycle, transition,
   );

@@ -41,6 +41,8 @@ interface InternalIndividualDeathCountStore extends IndividualDeathCountStore {
   readonly terminalXByEntity: Int32Array;
   readonly terminalYByEntity: Int32Array;
   readonly initializationCandidateTickByEntity: Float64Array;
+  readonly comfortStartedCountByEntity: Uint32Array;
+  readonly comfortCompletedTickByEntity: Float64Array;
 }
 
 export interface IndividualDeathCountInspection {
@@ -64,11 +66,23 @@ export interface IndividualCasualtyHistoryInspection {
   readonly terminalCause: TerminalCause;
   readonly terminalX: number;
   readonly terminalY: number;
+  readonly comfortStartedCount: number;
+  readonly comfortCompletedTick: number;
 }
 
 export interface IndividualDeathCountTerminalTransitionRecord
   extends IndividualTerminalTransitionRecord {
   readonly cause: "deathCountExpired";
+}
+
+export interface IndividualExecutionTerminalTransitionRecord {
+  readonly entityId: number;
+  readonly tick: number;
+  readonly previousLifecycleState: "dying";
+  readonly lifecycleState: "terminal";
+  readonly cause: "execution";
+  readonly terminalX: number;
+  readonly terminalY: number;
 }
 
 const TERMINAL_CAUSES: readonly TerminalCause[] = [
@@ -95,6 +109,8 @@ export function createIndividualDeathCountStore(
   pauseHealerEntityIdByEntity.fill(-1);
   pauseTreatmentStartTickByEntity.fill(-1);
   initializationCandidateTickByEntity.fill(-1);
+  const comfortCompletedTickByEntity = new Float64Array(entityCount);
+  comfortCompletedTickByEntity.fill(-1);
   return {
     entityCount,
     durationByEntity: new Int32Array(entityCount),
@@ -113,6 +129,8 @@ export function createIndividualDeathCountStore(
     terminalXByEntity: new Int32Array(entityCount),
     terminalYByEntity: new Int32Array(entityCount),
     initializationCandidateTickByEntity,
+    comfortStartedCountByEntity: new Uint32Array(entityCount),
+    comfortCompletedTickByEntity,
   } as InternalIndividualDeathCountStore;
 }
 
@@ -377,6 +395,26 @@ export function getIndividualDeathCountInspection(
   };
 }
 
+export function recordIndividualExecutionTerminal(
+  store: IndividualDeathCountStore,
+  entityId: number,
+  tick: number,
+  terminalX: number,
+  terminalY: number,
+): void {
+  const internal = asInternal(store);
+  assertEntityId(entityId, internal.entityCount);
+  assertNonNegativeSafeInteger(tick, "tick");
+  if (internal.terminalTickByEntity[entityId] !== -1) {
+    throw new Error("Terminal casualty history may be recorded only once.");
+  }
+  clearPauseSource(internal, entityId);
+  internal.terminalTickByEntity[entityId] = tick;
+  internal.terminalCauseByEntity[entityId] = 2;
+  internal.terminalXByEntity[entityId] = terminalX;
+  internal.terminalYByEntity[entityId] = terminalY;
+}
+
 export function getIndividualCasualtyHistoryInspection(
   store: IndividualDeathCountStore,
   entityId: number,
@@ -391,7 +429,34 @@ export function getIndividualCasualtyHistoryInspection(
     terminalCause: TERMINAL_CAUSES[internal.terminalCauseByEntity[entityId]!]!,
     terminalX: internal.terminalXByEntity[entityId]!,
     terminalY: internal.terminalYByEntity[entityId]!,
+    comfortStartedCount: internal.comfortStartedCountByEntity[entityId]!,
+    comfortCompletedTick: internal.comfortCompletedTickByEntity[entityId]!,
   };
+}
+
+export function recordIndividualTerminalComfortStarted(
+  store: IndividualDeathCountStore,
+  entityId: number,
+): void {
+  const internal = asInternal(store);
+  assertEntityId(entityId, internal.entityCount);
+  const count = internal.comfortStartedCountByEntity[entityId]!;
+  if (count === 0xffff_ffff) throw new RangeError("Terminal comfort started count overflow.");
+  internal.comfortStartedCountByEntity[entityId] = count + 1;
+}
+
+export function recordIndividualTerminalComfortCompleted(
+  store: IndividualDeathCountStore,
+  entityId: number,
+  tick: number,
+): void {
+  const internal = asInternal(store);
+  assertEntityId(entityId, internal.entityCount);
+  assertNonNegativeSafeInteger(tick, "tick");
+  if (internal.comfortCompletedTickByEntity[entityId] !== -1) {
+    throw new Error("Terminal comfort completion may be recorded only once.");
+  }
+  internal.comfortCompletedTickByEntity[entityId] = tick;
 }
 
 function validateCounts(

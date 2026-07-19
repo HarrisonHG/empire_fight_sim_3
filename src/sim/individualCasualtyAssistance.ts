@@ -1,6 +1,8 @@
 import {
   getIndividualCharacterLifecycleState,
+  getIndividualPlayerPresenceState,
   type IndividualCasualtyLifecycleStore,
+  type IndividualPlayerPresenceStore,
 } from "./individualCasualtyLifecycle";
 import { getIndividualCombatActionState, type IndividualCombatActionStore } from "./individualCombatAction";
 import {
@@ -69,6 +71,7 @@ export type CasualtyDragGroupPhase = "gathering" | "dragging" | "reachedSafety" 
 export interface CasualtyDragGroupRecord {
   readonly groupId: number;
   readonly patientEntityId: number;
+  readonly patientKind: "dying" | "terminalComfort";
   readonly helperKind: CasualtyDragHelperKind;
   readonly helperEntityIds: readonly number[];
   readonly destinationX: number;
@@ -78,7 +81,8 @@ export interface CasualtyDragGroupRecord {
   readonly phaseEnteredTick: number;
 }
 
-interface InternalCasualtyDragGroupRecord extends Omit<CasualtyDragGroupRecord, "phase" | "phaseEnteredTick" | "destinationX" | "destinationY"> {
+interface InternalCasualtyDragGroupRecord extends Omit<CasualtyDragGroupRecord, "phase" | "phaseEnteredTick" | "destinationX" | "destinationY" | "patientKind"> {
+  patientKind: "dying" | "terminalComfort";
   phase: CasualtyDragGroupPhase;
   phaseEnteredTick: number;
   destinationX: number;
@@ -156,6 +160,9 @@ export interface CasualtyAssistanceDecisionOptions {
   readonly isTreatmentParticipant?: (entityId: number) => boolean;
   /** Current 6F ownership gate supplied by the medical-claim system. */
   readonly hasClaimedPatient?: (physickEntityId: number) => boolean;
+  /** Cross-system commitment such as an active execution action. */
+  readonly isUnavailable?: (entityId: number) => boolean;
+  readonly isTerminalAwaitingComfort?: (entityId: number) => boolean;
 }
 
 interface HelperCandidate {
@@ -276,8 +283,17 @@ export function getActiveCasualtyDragGroups(
 export function isIndividualDragEligiblePatient(
   lifecycleStore: IndividualCasualtyLifecycleStore,
   entityId: number,
+  presenceStore?: IndividualPlayerPresenceStore,
 ): boolean {
-  return getIndividualCharacterLifecycleState(lifecycleStore, entityId) === "dying";
+  const lifecycle = getIndividualCharacterLifecycleState(lifecycleStore, entityId);
+  if (lifecycle === "dying") return true;
+  if (presenceStore === undefined) return false;
+  if (presenceStore.entityCount !== lifecycleStore.entityCount) {
+    throw new RangeError("Drag eligibility presence store must match entityCount.");
+  }
+  return lifecycle === "terminal" &&
+    getIndividualPlayerPresenceState(presenceStore, entityId) ===
+      "terminalAwaitingComfort";
 }
 
 export function isIndividualAtTreatmentPosition(
@@ -292,6 +308,7 @@ export function isIndividualAtTreatmentPosition(
 export function hasUnreservedDragEligiblePatient(
   lifecycleStore: IndividualCasualtyLifecycleStore,
   assistanceStore: IndividualCasualtyAssistanceStore,
+  isTerminalAwaitingComfort?: (entityId: number) => boolean,
 ): boolean {
   validateEntityCounts(
     lifecycleStore.entityCount,
@@ -303,7 +320,8 @@ export function hasUnreservedDragEligiblePatient(
     if (
       assistance.dragGroupIdByEntity[entityId] === NO_ENTITY &&
       assistance.stateByEntity[entityId] !== STATE_AT_TREATMENT_POSITION &&
-      isIndividualDragEligiblePatient(lifecycleStore, entityId)
+      (isIndividualDragEligiblePatient(lifecycleStore, entityId) ||
+        isTerminalAwaitingComfort?.(entityId) === true)
     ) return true;
   }
   return false;
@@ -318,6 +336,7 @@ export function queryDragEligibleAlliedPatientsWithinRadiusInto(
   seekerEntityId: number,
   radius: number,
   out: number[] = [],
+  isTerminalAwaitingComfort?: (entityId: number) => boolean,
 ): readonly number[] {
   validateEntityCounts(world.entityCount, identityStore, lifecycleStore,
     assistanceStore, queryStore);
@@ -336,7 +355,8 @@ export function queryDragEligibleAlliedPatientsWithinRadiusInto(
     if (
       entityId !== seekerEntityId &&
       getPreparedMedicalFactionId(queryStore, entityId) === seekerFaction &&
-      isIndividualDragEligiblePatient(lifecycleStore, entityId) &&
+      (isIndividualDragEligiblePatient(lifecycleStore, entityId) ||
+        isTerminalAwaitingComfort?.(entityId) === true) &&
       assistance.dragGroupIdByEntity[entityId] === NO_ENTITY
       && assistance.stateByEntity[entityId] !== STATE_AT_TREATMENT_POSITION
     ) {
@@ -381,7 +401,8 @@ export function decideIndividualCasualtyAssistance(
   const pointScratch: number[] = [];
   for (let entityId = 0; entityId < world.entityCount; entityId += 1) {
     if (
-      isIndividualDragEligiblePatient(lifecycleStore, entityId) &&
+      (isIndividualDragEligiblePatient(lifecycleStore, entityId) ||
+        options.isTerminalAwaitingComfort?.(entityId) === true) &&
       assistance.dragGroupIdByEntity[entityId] === NO_ENTITY &&
       assistance.stateByEntity[entityId] !== STATE_AT_TREATMENT_POSITION &&
       assistance.blockedReformationTickByEntity[entityId] !== tick
@@ -490,6 +511,9 @@ export function decideIndividualCasualtyAssistance(
     const group: InternalCasualtyDragGroupRecord = {
       groupId,
       patientEntityId,
+      patientKind: getIndividualCharacterLifecycleState(lifecycleStore, patientEntityId) === "dying"
+        ? "dying"
+        : "terminalComfort",
       helperKind,
       helperEntityIds: Object.freeze(helperEntityIds.slice()),
       destinationX: destination.x,
@@ -613,9 +637,11 @@ export function advanceCasualtyDragGroupsBeforeCombat(
   handStore: IndividualDragHandCommitmentStore,
   tick: number,
   buffers: CasualtyDragMovementBuffers,
+  presenceStore: IndividualPlayerPresenceStore,
 ): CasualtyDragMovementResult {
   validateEntityCounts(world.entityCount, identityStore, formationStore, lifecycleStore,
     traumaStore, assistanceStore, groupStore, handStore);
+  validateEntityCounts(world.entityCount, presenceStore);
   assertNonNegativeSafeInteger(tick, "tick");
   buffers.cancellationRecords.length = 0;
   buffers.reachedSafetyRecords.length = 0;
@@ -629,7 +655,7 @@ export function advanceCasualtyDragGroupsBeforeCombat(
       hands.occupiedByEntity[helperId] = 1;
       hands.committedHandsByEntity[helperId] = group.phase === "gathering" ? 0 : group.helperKind === "physick" ? 2 : 1;
     }
-    const invalidReason = validateGroup(group, identityStore, lifecycleStore, traumaStore, moraleStates);
+    const invalidReason = validateGroup(group, identityStore, lifecycleStore, presenceStore, traumaStore, moraleStates);
     if (invalidReason !== undefined) {
       cancelGroup(group, invalidReason, tick, assistance, hands, groups, index, buffers.cancellationRecords);
       continue;
@@ -715,21 +741,42 @@ export function cancelCasualtyDragGroupsFromPostCombatEvidence(
   gateDecisions: readonly IndividualLandedHitGateDecisionRecord[],
   tick: number,
   cancellationRecords: CasualtyDragCancellationRecord[],
+  presenceStore: IndividualPlayerPresenceStore,
 ): void {
   const groups = asGroupStore(groupStore);
   const assistance = asAssistanceStore(assistanceStore);
   const hands = asHandStore(handStore);
   for (let index = 0; index < groups.activeGroups.length;) {
     const group = groups.activeGroups[index]!;
-    let reason = validateGroup(group, identityStore, lifecycleStore, traumaStore, moraleStates);
+    let reason = validateGroup(group, identityStore, lifecycleStore, presenceStore, traumaStore, moraleStates);
     if (reason === undefined && hasAcceptedHelperHit(group, gateDecisions)) reason = "helperHit";
     if (reason !== undefined) { cancelGroup(group, reason, tick, assistance, hands, groups, index, cancellationRecords); continue; }
     index += 1;
   }
 }
 
-function validateGroup(group: InternalCasualtyDragGroupRecord, identityStore: UnitIdentityStore, lifecycleStore: IndividualCasualtyLifecycleStore, traumaStore: IndividualTraumaticWoundStore, moraleStates: UnitMoraleMovementStateSource): CasualtyDragCancellationReason | undefined {
-  if (getIndividualCharacterLifecycleState(lifecycleStore, group.patientEntityId) !== "dying") return "patientInvalid";
+export function promoteTerminalCitizenCasualtyDragGroups(
+  lifecycleStore: IndividualCasualtyLifecycleStore,
+  presenceStore: IndividualPlayerPresenceStore,
+  groupStore: CasualtyDragGroupStore,
+): number {
+  validateEntityCounts(lifecycleStore.entityCount, lifecycleStore, presenceStore, groupStore);
+  let promotedCount = 0;
+  for (const group of asGroupStore(groupStore).activeGroups) {
+    if (group.patientKind !== "dying") continue;
+    if (getIndividualCharacterLifecycleState(lifecycleStore, group.patientEntityId) !== "terminal" ||
+      getIndividualPlayerPresenceState(presenceStore, group.patientEntityId) !== "terminalAwaitingComfort") continue;
+    group.patientKind = "terminalComfort";
+    promotedCount += 1;
+  }
+  return promotedCount;
+}
+
+function validateGroup(group: InternalCasualtyDragGroupRecord, identityStore: UnitIdentityStore, lifecycleStore: IndividualCasualtyLifecycleStore, presenceStore: IndividualPlayerPresenceStore, traumaStore: IndividualTraumaticWoundStore, moraleStates: UnitMoraleMovementStateSource): CasualtyDragCancellationReason | undefined {
+  const patientLifecycle = getIndividualCharacterLifecycleState(lifecycleStore, group.patientEntityId);
+  if (group.patientKind === "dying" ? patientLifecycle !== "dying" :
+    patientLifecycle !== "terminal" ||
+      getIndividualPlayerPresenceState(presenceStore, group.patientEntityId) !== "terminalAwaitingComfort") return "patientInvalid";
   for (const helperId of group.helperEntityIds) {
     if (getIndividualCharacterLifecycleState(lifecycleStore, helperId) !== "active" ||
       getIndividualTraumaticWoundInspection(traumaStore, helperId).state !== "none" ||
@@ -856,6 +903,7 @@ function collectEligibleHelpers(
       getIndividualCombatActionState(actionStore, entityId) !== "ready" ||
       options.isTreating?.(entityId) === true ||
       options.isTreatmentParticipant?.(entityId) === true ||
+      options.isUnavailable?.(entityId) === true ||
       assistance.dragGroupIdByEntity[entityId] !== NO_ENTITY
     ) continue;
     const isPhysick = getTrustedIndividualMedicalProfile(
@@ -1000,6 +1048,10 @@ function countAvailableAlliedPhysicksNearPoint(
   const candidates = queryPreparedMedicalLocalEntityIdsNearPointInto(
     queryStore, world, x, y, radius, scratch,
   );
+  const terminalComfort = getIndividualCharacterLifecycleState(
+    lifecycleStore,
+    sourceEntityId,
+  ) === "terminal";
   let count = 0;
   for (let index = 0; index < candidates.length; index += 1) {
     const entityId = candidates[index]!;
@@ -1007,13 +1059,16 @@ function countAvailableAlliedPhysicksNearPoint(
       entityId !== travellingPhysickEntityId &&
       getPreparedMedicalFactionId(queryStore, entityId) === sourceFaction &&
       getIndividualCharacterLifecycleState(lifecycleStore, entityId) === "active" &&
-      getTrustedIndividualMedicalProfile(medicalProfiles, entityId).hasChirurgeon &&
+      (terminalComfort
+        ? getTrustedIndividualMedicalProfile(medicalProfiles, entityId).hasPhysick
+        : getTrustedIndividualMedicalProfile(medicalProfiles, entityId).hasChirurgeon) &&
       moraleStates.get(getUnitIdForEntity(identityStore, entityId)) !== "routing" &&
       getIndividualTraumaticWoundInspection(traumaStore, entityId).state === "none" &&
       getIndividualCombatActionState(actionStore, entityId) === "ready" &&
       options.isTreating?.(entityId) !== true &&
       options.isTreatmentParticipant?.(entityId) !== true &&
       options.hasClaimedPatient?.(entityId) !== true &&
+      options.isUnavailable?.(entityId) !== true &&
       assistance.dragGroupIdByEntity[entityId] === NO_ENTITY
     ) count += 1;
   }

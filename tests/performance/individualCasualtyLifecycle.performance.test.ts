@@ -6,6 +6,8 @@ import {
   applyIndividualZeroHitLifecycleTransitions,
   createIndividualCasualtyLifecycleStore,
   createIndividualPlayerPresenceStore,
+  classifyIndividualTerminalPlayerPresences,
+  transitionIndividualDyingToTerminal,
   type IndividualZeroHitLifecycleTransitionRecord,
 } from "../../src/sim/individualCasualtyLifecycle";
 import { createIndividualCasualtyProcedureProfileStore } from "../../src/sim/individualCasualtyProcedureProfile";
@@ -14,6 +16,7 @@ import {
   advanceIndividualDeathCountsOneTick,
   createIndividualDeathCountStore,
   initializeIndividualDeathCountsFromZeroHitTransitions,
+  recordIndividualExecutionTerminal,
 } from "../../src/sim/individualDeathCount";
 import { createIndividualCombatProfileStore } from "../../src/sim/individualCombatProfile";
 import {
@@ -536,7 +539,7 @@ describe("individual casualty lifecycle structural performance", () => {
         combat.individualCasualtyLifecycleStore, combat.individualTraumaticWoundStore,
         combat.moraleMovementStates, combat.individualCasualtyAssistanceStore,
         combat.casualtyDragGroupStore, combat.individualDragHandCommitmentStore,
-        2, createCasualtyDragMovementBuffers(),
+        2, createCasualtyDragMovementBuffers(), combat.individualPlayerPresenceStore,
       );
       expect(movement.movedParticipantCount).toBeLessThanOrEqual(casualtyCount * 2);
       const claimsStartedAt = performance.now();
@@ -785,6 +788,98 @@ describe("individual casualty lifecycle structural performance", () => {
       );
     },
   );
+  it("advances sparse terminal-comfort actions structurally across 2,000 entities", () => {
+    const entityCount = 2_000;
+    const simulation = createSimulation({
+      seed: 0x6e_2a,
+      entityCount,
+      bounds: { width: entityCount * 4 + 64, height: 128 },
+      minSpeedUnitsPerTick: 1,
+      maxSpeedUnitsPerTick: 1,
+      combatSandbox: {
+        kind: "liveCombatSandbox",
+        appliedDamagePressureScale: 1,
+        units: [
+          performanceUnit(1, 1, entityCount - 1, 16, entityCount * 4 - 16, 1),
+          performanceUnit(2, 2, 1, entityCount * 4, entityCount * 4, -1),
+        ],
+      },
+    });
+    const combat = simulation.combatSandbox!;
+    const treatmentCount = 5;
+    const hitStore = combat.individualGlobalHitStore as unknown as {
+      readonly currentGlobalHitsByEntity: Int32Array;
+      readonly zeroReachedByEntity: Uint8Array;
+    };
+    for (let patient = 0; patient < treatmentCount; patient += 1) {
+      hitStore.currentGlobalHitsByEntity[patient] = 0;
+      hitStore.zeroReachedByEntity[patient] = 1;
+      simulation.world.positionsX[patient] = 32 + patient * 16;
+      simulation.world.positionsX[patient + treatmentCount] = 32 + patient * 16;
+    }
+    const transitions = applyIndividualZeroHitLifecycleTransitions(
+      combat.individualCasualtyLifecycleStore,
+      combat.individualPlayerPresenceStore,
+      combat.individualCasualtyProcedureProfileStore,
+      simulation.world,
+      Array.from({ length: treatmentCount }, (_, patient) => ({
+        entityId: patient,
+        attackerEntityId: patient + treatmentCount,
+        previousHits: 1,
+      })),
+      0,
+    ).transitions;
+    initializeIndividualDeathCountsFromZeroHitTransitions(
+      combat.individualDeathCountStore,
+      combat.individualCasualtyLifecycleStore,
+      combat.individualCasualtyProcedureProfileStore,
+      combat.individualProfileStore,
+      transitions,
+    );
+    for (let patient = 0; patient < treatmentCount; patient += 1) {
+      transitionIndividualDyingToTerminal(
+        combat.individualCasualtyLifecycleStore, patient, 0, "execution",
+      );
+      recordIndividualExecutionTerminal(
+        combat.individualDeathCountStore, patient, 0,
+        simulation.world.positionsX[patient]!, simulation.world.positionsY[patient]!,
+      );
+    }
+    classifyIndividualTerminalPlayerPresences(
+      combat.individualCasualtyLifecycleStore,
+      combat.individualPlayerPresenceStore,
+      combat.individualCasualtyProcedureProfileStore,
+      Array.from({ length: treatmentCount }, (_, entityId) => ({ entityId, tick: 0 })),
+    );
+    seedClaimsForPerformance(combat.individualMedicalClaimStore, treatmentCount, 5);
+    const startedAt = performance.now();
+    const started = advanceIndividualTreatmentActionsOneTick(
+      simulation.world, combat.identityStore, combat.individualCasualtyLifecycleStore,
+      combat.individualPlayerPresenceStore, combat.trustedIndividualMedicalProfileStore,
+      combat.individualGenericHerbStore, combat.individualTraumaticWoundStore,
+      combat.individualLimbDisabilityStore, combat.individualCombatActionStore,
+      combat.moraleMovementStates, combat.individualDeathCountStore,
+      combat.individualGlobalHitStore, combat.individualMedicalClaimStore,
+      combat.individualCasualtyAssistanceStore, [], [], 0,
+      combat.individualTreatmentActionStore, combat.individualTreatmentActionBuffers,
+    );
+    const startedCount = started.startedRecords.length;
+    const progressed = advanceIndividualTreatmentActionsOneTick(
+      simulation.world, combat.identityStore, combat.individualCasualtyLifecycleStore,
+      combat.individualPlayerPresenceStore, combat.trustedIndividualMedicalProfileStore,
+      combat.individualGenericHerbStore, combat.individualTraumaticWoundStore,
+      combat.individualLimbDisabilityStore, combat.individualCombatActionStore,
+      combat.moraleMovementStates, combat.individualDeathCountStore,
+      combat.individualGlobalHitStore, combat.individualMedicalClaimStore,
+      combat.individualCasualtyAssistanceStore, [], [], 1,
+      combat.individualTreatmentActionStore, combat.individualTreatmentActionBuffers,
+    );
+    const elapsedMilliseconds = performance.now() - startedAt;
+    expect(startedCount).toBe(treatmentCount);
+    expect(progressed.progressedActionCount).toBe(treatmentCount);
+    expect(progressed.activeActionCount).toBe(treatmentCount);
+    process.stdout.write(`\nTerminal comfort performance report\n${JSON.stringify({ entityCount, activeComfortActions: treatmentCount, elapsedMilliseconds, timingPolicy: "Structural assertions only; sparse active treatment records and entity-indexed ownership." }, null, 2)}\n`);
+  });
 });
 
 function seedDyingClaimsForPerformance(
@@ -803,6 +898,26 @@ function seedDyingClaimsForPerformance(
     claims.physickByPatient[patient] = healer;
     claims.claimedTickByPatient[patient] = 0;
     claims.needByPatient[patient] = 1;
+  }
+}
+
+function seedClaimsForPerformance(
+  store: import("../../src/sim/individualMedicalClaims").IndividualMedicalClaimStore,
+  count: number,
+  needIdentity: number,
+): void {
+  const claims = store as unknown as {
+    readonly patientByPhysick: Int32Array;
+    readonly physickByPatient: Int32Array;
+    readonly claimedTickByPatient: Float64Array;
+    readonly needByPatient: Uint8Array;
+  };
+  for (let patient = 0; patient < count; patient += 1) {
+    const healer = patient + count;
+    claims.patientByPhysick[healer] = patient;
+    claims.physickByPatient[patient] = healer;
+    claims.claimedTickByPatient[patient] = 0;
+    claims.needByPatient[patient] = needIdentity;
   }
 }
 

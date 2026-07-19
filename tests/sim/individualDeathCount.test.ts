@@ -142,6 +142,8 @@ describe("individual death counts", () => {
       terminalCause: "deathCountExpired",
       terminalX: 12,
       terminalY: 34,
+      comfortStartedCount: 0,
+      comfortCompletedTick: -1,
     });
     const staleTerminalTransition = {
       ...harness.firstTransition!,

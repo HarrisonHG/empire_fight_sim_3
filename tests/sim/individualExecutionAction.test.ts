@@ -16,7 +16,9 @@ import {
   createIndividualExecutionActionBuffers,
   getActiveIndividualExecutionActionCount,
   getIndividualExecutionActionInspection,
+  getIndividualExecutionDefenceHandAvailability,
   getIndividualExecutionHistoryInspection,
+  projectIndividualExecutionOrdinaryParticipation,
   submitIndividualExecutionIntent,
   type IndividualExecutionInterruptionReason,
 } from "../../src/sim/individualExecutionAction";
@@ -25,6 +27,10 @@ import { advanceSimulationOneTick, createSimulation } from "../../src/sim/simula
 import type { IndividualMeleeAttackAttemptRecord } from "../../src/sim/individualCombatAction";
 import type { IndividualLandedHitGateDecisionRecord } from "../../src/sim/individualLandedHitGate";
 import type { IndividualMeleeDefenceRecord } from "../../src/sim/individualMeleeDefence";
+import {
+  createIndividualOrdinaryParticipationSnapshot,
+  isIndividualOrdinaryParticipationEligible,
+} from "../../src/sim/individualOrdinaryParticipation";
 import type {
   CombatSandboxSimulationState,
   CombatSandboxUnitScenario,
@@ -142,6 +148,41 @@ describe("Milestone 6H-1 execution", () => {
     expect(getIndividualCasualtyHistoryInspection(
       combat.individualDeathCountStore, 0,
     ).terminalCause).toBe("execution");
+  });
+
+  it("removes a committed executor from ordinary participation while retaining defence hands", () => {
+    const simulation = createStartedExecution();
+    const combat = requireCombat(simulation);
+    const participation = createIndividualOrdinaryParticipationSnapshot(
+      simulation.world.entityCount,
+    );
+
+    projectIndividualExecutionOrdinaryParticipation(
+      combat.individualExecutionActionStore,
+      participation,
+    );
+
+    expect(isIndividualOrdinaryParticipationEligible(participation, 1)).toBe(false);
+    expect(isIndividualOrdinaryParticipationEligible(participation, 0)).toBe(true);
+    const defence = getIndividualExecutionDefenceHandAvailability(
+      combat.individualExecutionActionStore,
+    );
+    expect(defence.getFreeHands(1)).toBe(2);
+
+    advanceIndividualExecutionActionsOneTick(
+      simulation.world,
+      combat.individualCasualtyLifecycleStore,
+      combat.individualPlayerPresenceStore,
+      combat.individualDeathCountStore,
+      combat.individualCombatActionStore,
+      combat.individualCombatEligibilitySnapshot,
+      [],
+      [acceptedHit(2, 1, 1)],
+      1,
+      combat.individualExecutionActionStore,
+      createIndividualExecutionActionBuffers(),
+    );
+    expect(defence.getFreeHands(1)).toBeUndefined();
   });
 
   it.each([
