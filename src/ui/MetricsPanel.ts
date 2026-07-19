@@ -10,6 +10,7 @@ import type {
 } from "../worker/protocol";
 import {
   buildIndividualInspectionRows,
+  formatCasualtyProcedureInspection,
   formatIncomingCounts,
   formatRetainedInspectionEvent,
   shouldClearRetainedInspectionEvents,
@@ -229,6 +230,7 @@ export class MetricsPanel {
       "Face",
       "Kit",
       "Hits",
+      "Casualty procedure",
       "Latest",
       "In",
       "Loss",
@@ -252,6 +254,7 @@ export class MetricsPanel {
         `${individual.facing.x},${individual.facing.y}`,
         `${individual.activeWeapon}/${individual.shieldCategory}`,
         `${individual.currentGlobalHits}/${individual.maximumGlobalHits}`,
+        formatCasualtyProcedureInspection(individual),
         inspectionRow.latestEvent,
         formatIncomingCounts(individual),
         individual.thisTickAppliedHitLoss.toString(),

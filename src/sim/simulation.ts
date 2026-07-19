@@ -41,6 +41,7 @@ import {
   createIndividualCombatPipelineBuffers,
   createIndividualCombatPipelineStores,
   createIndividualCombatProfileStoreFromUnitLoadouts,
+  type IndividualCombatExchangeTickResult,
   type IndividualCombatPipelineTickResult,
 } from "./individualCombatPipeline";
 import {
@@ -72,6 +73,7 @@ import {
   getIndividualExecutionActionInspection,
   hasActiveIndividualExecutionAction,
   projectIndividualExecutionOrdinaryParticipation,
+  submitIndividualExecutionIntent,
 } from "./individualExecutionAction";
 import {
   createIndividualCasualtyProcedureProfileStore,
@@ -123,6 +125,7 @@ import {
   createIndividualTreatmentActionBuffers,
   createIndividualTreatmentActionStore,
   getActiveIndividualTreatmentActionCount,
+  getIndividualTreatmentActionInspection,
   isIndividualTreatmentParticipant,
   isIndividualTreating,
   interruptIndividualTreatmentForExecutedPatient,
@@ -150,7 +153,11 @@ import {
   getIndividualTraumaticWoundInspection,
   resolveIndividualTraumaticWoundOpportunities,
 } from "./individualTraumaticWound";
-import { createIndividualLimbDisabilityStore } from "./individualLimbDisability";
+import {
+  applyTrustedIndividualLimbDisability,
+  createIndividualLimbDisabilityStore,
+  getIndividualLimbDisabilityInspection,
+} from "./individualLimbDisability";
 import {
   getActiveMeleeWeaponCategory,
   getAttackCommitmentTicksRemaining,
@@ -191,6 +198,7 @@ import {
 } from "./individualMeleeTargetSelection";
 import { quantizeEightDirection } from "./eightDirection";
 import {
+  applyIndividualLandedHits,
   getIndividualCurrentGlobalHits,
   getIndividualMaximumGlobalHits,
 } from "./individualGlobalHits";
@@ -224,6 +232,7 @@ import type {
   InspectedCombatVisualEvent,
   InspectedCombatVisualEventKind,
   PositionSimulationSnapshot,
+  RetainedCasualtyVisualFixtureEvent,
   SimulationScenario,
   SimulationState,
   WorldState,
@@ -747,6 +756,18 @@ function createCombatSandbox(
     );
   const combatSandbox: CombatSandboxSimulationState = {
     battleSeed: seed >>> 0,
+    ...(scenario.retainedCasualtyVisualFixture === undefined
+      ? {}
+      : {
+          retainedCasualtyVisualFixture: Object.freeze({
+            kind: scenario.retainedCasualtyVisualFixture.kind,
+            events: Object.freeze(
+              scenario.retainedCasualtyVisualFixture.events.map((event) =>
+                Object.freeze({ ...event }),
+              ),
+            ),
+          }),
+        }),
     identityStore,
     loadoutStore,
     formationStore,
@@ -1346,6 +1367,187 @@ function createScenarioFactionIdBuffer(
     : createFactionIdBuffer(world, identityStore);
 }
 
+function applyRetainedCasualtyVisualFixturePreCombatInputs(
+  world: WorldState,
+  combatSandbox: CombatSandboxSimulationState,
+  tick: number,
+): void {
+  forEachRetainedCasualtyVisualFixtureEvent(
+    combatSandbox,
+    tick,
+    (event) => {
+      switch (event.kind) {
+        case "relocate":
+          assertRetainedVisualEntityId(event.entityId, world.entityCount);
+          if (
+            !Number.isSafeInteger(event.x) ||
+            !Number.isSafeInteger(event.y) ||
+            event.x < 0 ||
+            event.y < 0 ||
+            event.x >= world.bounds.width ||
+            event.y >= world.bounds.height
+          ) {
+            throw new RangeError("Retained visual relocation must fit world bounds.");
+          }
+          world.positionsX[event.entityId] = event.x;
+          world.positionsY[event.entityId] = event.y;
+          break;
+        case "limbDisability":
+          applyTrustedIndividualLimbDisability(
+            combatSandbox.individualLimbDisabilityStore,
+            event.entityId,
+            event.disability,
+          );
+          break;
+        case "executionIntent":
+          submitIndividualExecutionIntent(
+            combatSandbox.individualExecutionActionStore,
+            {
+              executorEntityId: event.executorEntityId,
+              targetEntityId: event.targetEntityId,
+              requestedTick: tick,
+              targetBasis: "dying",
+            },
+          );
+          break;
+        case "landedHitLoss":
+        case "traumaticWoundOpportunity":
+          break;
+      }
+    },
+  );
+}
+
+function applyRetainedCasualtyVisualFixtureHitInputs(
+  combatSandbox: CombatSandboxSimulationState,
+  tick: number,
+  exchange: IndividualCombatExchangeTickResult,
+): IndividualCombatExchangeTickResult {
+  const fixtureRecords: IndividualMeleeDefenceRecord[] = [];
+  forEachRetainedCasualtyVisualFixtureEvent(
+    combatSandbox,
+    tick,
+    (event) => {
+      if (event.kind !== "landedHitLoss") return;
+      const currentHits = getIndividualCurrentGlobalHits(
+        combatSandbox.individualGlobalHitStore,
+        event.targetEntityId,
+      );
+      const requestedHitLoss = event.hitLoss === "all"
+        ? currentHits
+        : event.hitLoss;
+      if (!Number.isSafeInteger(requestedHitLoss) || requestedHitLoss <= 0) {
+        throw new RangeError("Retained visual hit loss must be positive.");
+      }
+      if (requestedHitLoss > currentHits) {
+        throw new RangeError("Retained visual hit loss cannot exceed current hits.");
+      }
+      for (let hitIndex = 0; hitIndex < requestedHitLoss; hitIndex += 1) {
+        fixtureRecords.push(retainedVisualLandedRecord(
+          event.attackerEntityId,
+          event.targetEntityId,
+        ));
+      }
+    },
+  );
+  if (fixtureRecords.length === 0) return exchange;
+
+  const fixtureApplications: typeof combatSandbox.individualCombatPipelineBuffers.hitApplications = [];
+  const fixtureZeroHitEvents: typeof combatSandbox.individualCombatPipelineBuffers.zeroHitEvents = [];
+  const fixtureHits = applyIndividualLandedHits(
+    combatSandbox.individualGlobalHitStore,
+    fixtureRecords,
+    fixtureApplications,
+    fixtureZeroHitEvents,
+  );
+  combatSandbox.individualCombatPipelineBuffers.hitApplications.push(
+    ...fixtureApplications,
+  );
+  combatSandbox.individualCombatPipelineBuffers.zeroHitEvents.push(
+    ...fixtureZeroHitEvents,
+  );
+  return {
+    ...exchange,
+    hits: {
+      applications: combatSandbox.individualCombatPipelineBuffers.hitApplications,
+      zeroHitEvents: combatSandbox.individualCombatPipelineBuffers.zeroHitEvents,
+      landedRecordCount:
+        exchange.hits.landedRecordCount + fixtureHits.landedRecordCount,
+      totalAppliedHitLoss:
+        exchange.hits.totalAppliedHitLoss + fixtureHits.totalAppliedHitLoss,
+      alreadyZeroApplicationCount:
+        exchange.hits.alreadyZeroApplicationCount +
+        fixtureHits.alreadyZeroApplicationCount,
+    },
+  };
+}
+
+function appendRetainedCasualtyVisualFixtureTraumaInputs(
+  combatSandbox: CombatSandboxSimulationState,
+  tick: number,
+  out: import("./individualTraumaticWound").IndividualTraumaticWoundOpportunity[],
+): void {
+  forEachRetainedCasualtyVisualFixtureEvent(
+    combatSandbox,
+    tick,
+    (event) => {
+      if (event.kind !== "traumaticWoundOpportunity") return;
+      out.push({
+        targetEntityId: event.targetEntityId,
+        attackerEntityId: event.attackerEntityId,
+        tick,
+        triggerKind: event.triggerKind,
+      });
+    },
+  );
+}
+
+function forEachRetainedCasualtyVisualFixtureEvent(
+  combatSandbox: CombatSandboxSimulationState,
+  tick: number,
+  visit: (event: RetainedCasualtyVisualFixtureEvent) => void,
+): void {
+  const fixture = combatSandbox.retainedCasualtyVisualFixture;
+  if (fixture === undefined) return;
+  for (const event of fixture.events) {
+    if (event.tick === tick) visit(event);
+  }
+}
+
+function retainedVisualLandedRecord(
+  attackerEntityId: number,
+  defenderEntityId: number,
+): IndividualMeleeDefenceRecord {
+  return {
+    attackerEntityId,
+    defenderEntityId,
+    attackerWeaponCategory: "unarmed",
+    defenderActiveWeaponCategory: "unarmed",
+    defenderShieldCategory: "none",
+    defenderShieldCarriedState: "none",
+    defenderActionState: "ready",
+    guardStateBeforeResolution: "ready",
+    defenderFacingX: -1,
+    defenderFacingY: 0,
+    incomingDirectionName: "west",
+    incomingDirectionOctantIndex: 4,
+    availableDefenceType: "none",
+    outcome: "landed",
+    landedReason: "noActiveDefence",
+    defenceRecoveryTicksAssigned: 0,
+    awkwardDistance: false,
+  };
+}
+
+function assertRetainedVisualEntityId(
+  entityId: number,
+  entityCount: number,
+): void {
+  if (!Number.isSafeInteger(entityId) || entityId < 0 || entityId >= entityCount) {
+    throw new RangeError("Retained visual fixture entity ID is out of bounds.");
+  }
+}
+
 export function advanceCombatSandboxOneTick(
   world: WorldState,
   combatSandbox: CombatSandboxSimulationState,
@@ -1374,6 +1576,12 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.individualPlayerPresenceStore,
       entityId,
     ) === "terminalAwaitingComfort";
+
+  applyRetainedCasualtyVisualFixturePreCombatInputs(
+    world,
+    combatSandbox,
+    tick,
+  );
 
   const formationResult = runStage("formation", () => {
     projectIndividualMedicalUrgency(
@@ -1528,7 +1736,7 @@ export function advanceCombatSandboxOneTick(
     return result;
   });
   const individualCombatResult = runStage("individualPipeline", () => {
-    const individualCombatExchange = advanceIndividualCombatExchangeOneTick(
+    let individualCombatExchange = advanceIndividualCombatExchangeOneTick(
       world,
       combatSandbox.identityStore,
       combatSandbox.formationStore,
@@ -1542,6 +1750,11 @@ export function advanceCombatSandboxOneTick(
         defenceHandAvailability:
           combatSandbox.individualDefenceHandAvailabilitySource,
       },
+    );
+    individualCombatExchange = applyRetainedCasualtyVisualFixtureHitInputs(
+      combatSandbox,
+      tick,
+      individualCombatExchange,
     );
     runCasualtyStage("casualtyTransitions", () => applyIndividualZeroHitLifecycleTransitions(
       combatSandbox.individualCasualtyLifecycleStore,
@@ -1568,6 +1781,11 @@ export function advanceCombatSandboxOneTick(
         triggerKind: "zeroHit",
       });
     }
+    appendRetainedCasualtyVisualFixtureTraumaInputs(
+      combatSandbox,
+      tick,
+      traumaOpportunities,
+    );
     runCasualtyStage("traumaProcessing", () => resolveIndividualTraumaticWoundOpportunities(
       combatSandbox.battleSeed,
       combatSandbox.individualCasualtyProcedureProfileStore,
@@ -2485,6 +2703,19 @@ function collectInspectedIndividualSnapshots(
       combatSandbox.individualExecutionActionStore,
       entityId,
     );
+    const treatmentAction = getIndividualTreatmentActionInspection(
+      combatSandbox.individualTreatmentActionStore,
+      entityId,
+    );
+    const limbDisability = getIndividualLimbDisabilityInspection(
+      combatSandbox.individualLimbDisabilityStore,
+      entityId,
+    );
+    const dragGroup = casualtyAssistance.dragGroupId < 0
+      ? undefined
+      : getActiveCasualtyDragGroups(
+          combatSandbox.casualtyDragGroupStore,
+        ).find((group) => group.groupId === casualtyAssistance.dragGroupId);
     const respawnEgress = getIndividualRespawnEgressInspection(
       combatSandbox.individualPlayerPresenceStore,
       entityId,
@@ -2608,10 +2839,33 @@ function collectInspectedIndividualSnapshots(
       ...(casualtyDragFreeHands === undefined
         ? {}
         : { casualtyDragFreeHands }),
+      ...(dragGroup === undefined ? {} : {
+        casualtyDragGroupPhase: dragGroup.phase,
+        casualtyDragPatientEntityId: dragGroup.patientEntityId,
+        casualtyDragHelperEntityIds: dragGroup.helperEntityIds,
+      }),
       claimedMedicalPatientEntityId: medicalClaim.patientEntityId,
       claimedMedicalPhysickEntityId: medicalClaim.physickEntityId,
+      ...(treatmentAction === undefined ? {} : {
+        treatmentActionId: treatmentAction.actionId,
+        treatmentKind: treatmentAction.kind,
+        treatmentHealerEntityId: treatmentAction.healerEntityId,
+        treatmentPatientEntityId: treatmentAction.patientEntityId,
+        treatmentProgressTicks: treatmentAction.progressTicks,
+        treatmentRequiredProgressTicks: treatmentAction.requiredProgressTicks,
+        treatmentReservedGenericHerbs: treatmentAction.reservedGenericHerbs,
+        treatmentSelectedLimbDisability:
+          treatmentAction.selectedLimbDisability,
+      }),
+      disabledArm: limbDisability.disabledArm,
+      disabledLeg: limbDisability.disabledLeg,
+      disabledArmEpisodeCount: limbDisability.armEpisodeCount,
+      disabledLegEpisodeCount: limbDisability.legEpisodeCount,
+      disabledArmClearedCount: limbDisability.armClearedCount,
+      disabledLegClearedCount: limbDisability.legClearedCount,
       ...(executionAction === undefined ? {} : {
         executionActionId: executionAction.actionId,
+        executionExecutorEntityId: executionAction.executorEntityId,
         executionTargetEntityId: executionAction.targetEntityId,
         executionProgressTicks: executionAction.progressTicks,
       }),

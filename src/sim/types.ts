@@ -214,7 +214,52 @@ export interface CombatSandboxScenario {
   readonly appliedDamagePressureScale: number;
   /** Optional bounded debug list; normal scenarios omit per-entity inspection. */
   readonly inspectedEntityIds?: readonly number[];
+  /**
+   * Explicit deterministic inputs for the retained Milestone 6 visual fixture.
+   * Normal scenarios omit this; production authorities still own every result.
+   */
+  readonly retainedCasualtyVisualFixture?: RetainedCasualtyVisualFixture;
 }
+
+export interface RetainedCasualtyVisualFixture {
+  readonly kind: "casualtyLifecycle";
+  readonly events: readonly RetainedCasualtyVisualFixtureEvent[];
+}
+
+export type RetainedCasualtyVisualFixtureEvent =
+  | {
+      readonly tick: number;
+      readonly kind: "landedHitLoss";
+      readonly attackerEntityId: number;
+      readonly targetEntityId: number;
+      readonly hitLoss: number | "all";
+    }
+  | {
+      readonly tick: number;
+      readonly kind: "traumaticWoundOpportunity";
+      readonly attackerEntityId: number;
+      readonly targetEntityId: number;
+      readonly triggerKind: TraumaticWoundTriggerKind;
+    }
+  | {
+      readonly tick: number;
+      readonly kind: "limbDisability";
+      readonly entityId: number;
+      readonly disability: import("./individualLimbDisability").IndividualLimbDisabilityKind;
+    }
+  | {
+      readonly tick: number;
+      readonly kind: "executionIntent";
+      readonly executorEntityId: number;
+      readonly targetEntityId: number;
+    }
+  | {
+      readonly tick: number;
+      readonly kind: "relocate";
+      readonly entityId: number;
+      readonly x: number;
+      readonly y: number;
+    };
 
 /** Explicit non-combat setup used only by retained formation visual tests. */
 export interface FormationSandboxUnitScenario {
@@ -439,8 +484,25 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly casualtyAssistanceDestinationX?: number;
   readonly casualtyAssistanceDestinationY?: number;
   readonly casualtyDragFreeHands?: number;
+  readonly casualtyDragGroupPhase?: import("./individualCasualtyAssistance").CasualtyDragGroupPhase;
+  readonly casualtyDragPatientEntityId?: number;
+  readonly casualtyDragHelperEntityIds?: readonly number[];
   readonly claimedMedicalPatientEntityId?: number;
   readonly claimedMedicalPhysickEntityId?: number;
+  readonly treatmentActionId?: number;
+  readonly treatmentKind?: import("./individualTreatmentAction").IndividualTreatmentActionKind;
+  readonly treatmentHealerEntityId?: number;
+  readonly treatmentPatientEntityId?: number;
+  readonly treatmentProgressTicks?: number;
+  readonly treatmentRequiredProgressTicks?: number;
+  readonly treatmentReservedGenericHerbs?: 0 | 1;
+  readonly treatmentSelectedLimbDisability?: import("./individualLimbDisability").IndividualLimbDisabilityKind | "none";
+  readonly disabledArm?: boolean;
+  readonly disabledLeg?: boolean;
+  readonly disabledArmEpisodeCount?: number;
+  readonly disabledLegEpisodeCount?: number;
+  readonly disabledArmClearedCount?: number;
+  readonly disabledLegClearedCount?: number;
   readonly tickStartCombatEligible: boolean;
   readonly selectedTargetEntityId: number | null;
   readonly selectedTargetDistanceSquared: number | null;
@@ -493,6 +555,7 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly pressureRecoveryCreditApplied: number;
   readonly recoveredPressureAmount: number;
   readonly executionActionId?: number;
+  readonly executionExecutorEntityId?: number;
   readonly executionTargetEntityId?: number;
   readonly executionProgressTicks?: number;
 }
@@ -581,6 +644,7 @@ export interface LiveCombatDebugSnapshot {
  */
 export interface CombatSandboxSimulationState {
   readonly battleSeed: number;
+  readonly retainedCasualtyVisualFixture?: RetainedCasualtyVisualFixture;
   readonly identityStore: UnitIdentityStore;
   readonly loadoutStore: UnitLoadoutStore;
   readonly formationStore: FormationBehaviourStore;

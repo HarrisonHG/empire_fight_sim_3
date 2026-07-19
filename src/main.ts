@@ -58,12 +58,17 @@ async function startApplication(
 ): Promise<void> {
   const renderer = await PixiEntityRenderer.create(host);
   renderer.setWorldLabels(visualTestEntry?.worldLabels ?? []);
+  renderer.setCasualtyVisualsVisible(
+    visualTestEntry?.showCasualtyVisuals === true,
+  );
   const workerClient = new SimulationWorkerClient();
   const metricsPanel = new MetricsPanel();
   const visualTestScenarioPanel =
     visualTestEntry === undefined
       ? undefined
-      : createVisualTestScenarioPanel(visualTestEntry);
+      : createVisualTestScenarioPanel(visualTestEntry, (focus) => {
+          renderer.setWorldFocus(focus);
+        });
   let debugPanelVisibility = createInitialDebugPanelVisibilityState();
   const applyDebugPanelVisibility = (
     state: DebugPanelVisibilityState,

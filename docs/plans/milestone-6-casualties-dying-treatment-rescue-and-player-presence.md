@@ -2,7 +2,7 @@
 
 Status: in progress.
 
-Milestone 5, including its defence-readiness and pressure/visual-regression spike, was accepted on 2026-07-15. Milestone 6 is technically implemented through 6I-2; Milestone 6H is complete. Only the retained 6J visual suite and human visual inspection remain before milestone acceptance.
+Milestone 5, including its defence-readiness and pressure/visual-regression spike, was accepted on 2026-07-15. Milestone 6 is technically implemented through 6J. The retained visual suite is implemented and awaiting human visual acceptance; Milestone 6 is not yet accepted.
 
 ## Progress
 
@@ -27,7 +27,7 @@ Milestone 5, including its defence-readiness and pressure/visual-regression spik
 | 6I-1 | implemented | Production consolidation, end-of-tick summaries, bounded history, and egress active-set compaction. |
 | 6I-1B | implemented | Actual-drag history, limb-condition completion summaries, and exact herb-consumption history addition. |
 | 6I-2 | implemented | Representative performance, deterministic one-hour soak, output-reuse verification, and final technical acceptance. |
-| 6J | remaining | Retained casualty visual suite and human acceptance. |
+| 6J | implemented; awaiting human visual acceptance | Ten-chamber retained casualty lifecycle suite, authoritative debug grammar, inspection and chamber focus. |
 
 This progress table is the status authority for Milestone 6. Individual slice sections remain the behavioural specification.
 
@@ -1749,6 +1749,8 @@ Human acceptance questions:
 - is the herb-backed versus herb-free limb-treatment difference readable, with only one disability cleared per action;
 - are citizen and barbarian procedures clearly distinct;
 - is any AI over-eager to rescue, heal, or execute?
+
+Implementation status: the retained route, ten isolated chambers, authoritative world-space casualty grammar, bounded inspection, deterministic reset and chamber-focus controls are implemented. The fixture retains official 600-tick treatment, 100-tick execution and 2,400-tick comfort/herb-free-limb durations. Only the barbarian chamber uses its explicitly configured 60-tick fixed death count to keep expiry and egress observable. Automated checks do not constitute human visual acceptance; Milestone 6 remains unaccepted until the questions above are reviewed in the browser.
 
 Milestone 6 is accepted only after headless regression, performance, and human visual inspection.
 

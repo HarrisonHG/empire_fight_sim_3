@@ -14,6 +14,14 @@ import {
   DEFENCE_OVERWHELM_SCENARIO_ID,
 } from "./defenceOverwhelmVisualScenario";
 import { MOVEMENT_BEHAVIOUR_SCENARIO } from "./movementBehaviourScenario";
+import {
+  CASUALTY_LIFECYCLE_EXPECTED_TIMELINE,
+  CASUALTY_LIFECYCLE_RECOMMENDED_END_TICK,
+  CASUALTY_LIFECYCLE_VISUAL_CHAMBERS,
+  CASUALTY_LIFECYCLE_VISUAL_LEGEND_LINES,
+  CASUALTY_LIFECYCLE_VISUAL_SCENARIO,
+  CASUALTY_LIFECYCLE_VISUAL_SCENARIO_ID,
+} from "./casualtyLifecycleVisualScenario";
 import type { SimulationScenario } from "../sim/types";
 
 export interface VisualTestEntry {
@@ -24,6 +32,8 @@ export interface VisualTestEntry {
   readonly expectedObservations: readonly string[];
   readonly legendLines?: readonly string[];
   readonly worldLabels?: readonly VisualTestWorldLabel[];
+  readonly focusAreas?: readonly VisualTestFocusArea[];
+  readonly showCasualtyVisuals?: boolean;
   readonly recommendedTickRange: Readonly<{
     readonly start: number;
     readonly end: number;
@@ -38,7 +48,46 @@ export interface VisualTestWorldLabel {
   readonly y: number;
 }
 
+export interface VisualTestFocusArea extends VisualTestWorldLabel {
+  readonly id: number;
+  readonly width: number;
+  readonly height: number;
+}
+
 export const VISUAL_TEST_REGISTRY: readonly VisualTestEntry[] = Object.freeze([
+  Object.freeze({
+    id: CASUALTY_LIFECYCLE_VISUAL_SCENARIO_ID,
+    title: "Casualty lifecycle regression",
+    milestone: "Milestone 6 awaiting human visual acceptance",
+    purpose:
+      "Retains ten isolated production-authority chambers for casualty, rescue, treatment, execution, comfort and respawn procedures.",
+    expectedObservations: CASUALTY_LIFECYCLE_EXPECTED_TIMELINE,
+    legendLines: CASUALTY_LIFECYCLE_VISUAL_LEGEND_LINES,
+    worldLabels: Object.freeze(CASUALTY_LIFECYCLE_VISUAL_CHAMBERS.map((area) =>
+      Object.freeze({
+        text: `${area.id} ${area.label}`,
+        x: area.centreX,
+        y: area.centreY - 190,
+      }),
+    )),
+    focusAreas: Object.freeze(CASUALTY_LIFECYCLE_VISUAL_CHAMBERS.map((area) =>
+      Object.freeze({
+        id: area.id,
+        text: area.label,
+        x: area.centreX,
+        y: area.centreY,
+        width: area.focusWidth,
+        height: area.focusHeight,
+      }),
+    )),
+    showCasualtyVisuals: true,
+    recommendedTickRange: Object.freeze({
+      start: 0,
+      end: CASUALTY_LIFECYCLE_RECOMMENDED_END_TICK,
+    }),
+    scenario: CASUALTY_LIFECYCLE_VISUAL_SCENARIO,
+    scenarioFactory: () => CASUALTY_LIFECYCLE_VISUAL_SCENARIO,
+  }),
   Object.freeze({
     id: "movement-behaviour",
     title: "Movement behaviour regression",

@@ -50,11 +50,21 @@ body {
   max-width: min(520px, calc(100vw - 24px));
   padding: 10px 12px;
   pointer-events: auto;
+  max-height: min(62vh, 620px);
+  overflow-y: auto;
 }
 
 .visual-test-scenario-panel h1 {
   margin: 8px 0 4px;
   font-size: 1rem;
+}
+
+.visual-test-scenario-panel h2 {
+  margin: 8px 0 4px;
+  color: #cbd5e1;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .visual-test-scenario-panel p,
@@ -71,6 +81,29 @@ body {
 .visual-test-scenario-panel a,
 .visual-test-menu a {
   color: #93c5fd;
+}
+
+.visual-test-focus-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.visual-test-focus-controls button {
+  padding: 3px 6px;
+  color: #e8f1ff;
+  background: #1e293b;
+  border: 1px solid #64748b;
+  border-radius: 3px;
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.visual-test-scenario-panel details {
+  margin-top: 8px;
+  color: #cbd5e1;
+  font-size: 0.8rem;
 }
 
 #app.visual-test-menu-host {
@@ -197,4 +230,10 @@ body {
 .individual-inspection-table th {
   color: #cbd5e1;
   font-weight: 600;
+}
+
+.individual-inspection-table td:nth-child(9) {
+  min-width: 280px;
+  max-width: 420px;
+  white-space: normal;
 }

@@ -1,4 +1,5 @@
 import type { VisualTestEntry } from "../content/visualTestRegistry";
+import type { RenderWorldFocus } from "../render/PixiEntityRenderer";
 import { buildVisualTestMenuItems } from "./visualTestMenuItems";
 
 export function renderVisualTestMenu(
@@ -53,6 +54,7 @@ export function renderVisualTestMenu(
 
 export function createVisualTestScenarioPanel(
   entry: VisualTestEntry,
+  setFocus?: (focus?: RenderWorldFocus) => void,
 ): HTMLElement {
   const panel = document.createElement("aside");
   panel.className = "visual-test-scenario-panel";
@@ -76,6 +78,48 @@ export function createVisualTestScenarioPanel(
     legend.textContent = entry.legendLines.join("\n");
     panel.append(legend);
   }
-  panel.append(observations);
+  if (entry.focusAreas !== undefined && setFocus !== undefined) {
+    const focusHeading = document.createElement("h2");
+    focusHeading.textContent = "Chamber focus";
+    const focusControls = document.createElement("div");
+    focusControls.className = "visual-test-focus-controls";
+    const allButton = focusButton("All chambers", 0, () => setFocus());
+    focusControls.append(allButton);
+    for (const area of entry.focusAreas) {
+      focusControls.append(focusButton(
+        `${area.id} ${area.text}`,
+        area.id,
+        () => setFocus({
+          x: area.x,
+          y: area.y,
+          width: area.width,
+          height: area.height,
+        }),
+      ));
+    }
+    panel.append(focusHeading, focusControls);
+  }
+  if (entry.focusAreas === undefined) {
+    panel.append(observations);
+  } else {
+    const timeline = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = `Expected timeline (${entry.expectedObservations.length} chambers)`;
+    timeline.append(summary, observations);
+    panel.append(timeline);
+  }
   return panel;
+}
+
+function focusButton(
+  label: string,
+  id: number,
+  activate: () => void,
+): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = label;
+  button.dataset["testid"] = `chamber-focus-${id}`;
+  button.addEventListener("click", activate);
+  return button;
 }

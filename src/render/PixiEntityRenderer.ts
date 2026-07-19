@@ -10,6 +10,7 @@ import {
 import type {
   InspectedCombatVisualEvent,
   IndividualCombatVisualState,
+  LiveCombatDebugIndividualSnapshot,
   InitialSimulationSnapshot,
   PositionSimulationSnapshot,
   SimulationBounds,
@@ -27,6 +28,10 @@ import {
   retainedCombatVisualEventKey,
   type RetainedCombatVisualEvent,
 } from "./combatVisualEventGrammar";
+import {
+  createCasualtyVisualGlyphSpec,
+  type CasualtyVisualGlyphSpec,
+} from "./casualtyVisualGrammar";
 
 const DOT_RADIUS = 2;
 const DOT_COLOR = 0xe8_f1_ff;
@@ -51,24 +56,36 @@ export interface RenderWorldLabel {
   readonly y: number;
 }
 
+export interface RenderWorldFocus {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
 export class PixiEntityRenderer {
   private readonly worldLayer = new Container();
   private readonly reachOverlayLayer = new Container();
+  private readonly casualtyRelationshipLayer = new Container();
   private readonly entityLayer = new Container();
   private readonly combatGlyphLayer = new Container();
+  private readonly casualtyGlyphLayer = new Container();
   private readonly combatEventLayer = new Container();
   private readonly combatEventGraphics = new Graphics();
+  private readonly casualtyRelationshipGraphics = new Graphics();
   private readonly combatEventTextLayer = new Container();
   private readonly worldLabelLayer = new Container();
   private readonly spritesByEntityId = new Map<number, Sprite>();
   private readonly combatGlyphsByEntityId = new Map<number, Graphics>();
   private readonly reachGlyphsByEntityId = new Map<number, Graphics>();
+  private readonly casualtyGlyphsByEntityId = new Map<number, Graphics>();
   private readonly worldLabelsByText = new Map<string, Text>();
   private readonly retainedCombatVisualEvents: RetainedCombatVisualEvent[] = [];
   private readonly retainedCombatVisualEventKeys = new Set<string>();
   private readonly combatEventTexts: Text[] = [];
   private entityOrder: Uint32Array | undefined;
   private worldBounds: SimulationBounds | undefined;
+  private worldFocus: RenderWorldFocus | undefined;
 
   private constructor(
     private readonly application: Application,
@@ -76,11 +93,16 @@ export class PixiEntityRenderer {
   ) {
     this.worldLayer.addChild(
       this.reachOverlayLayer,
+      this.casualtyRelationshipLayer,
       this.entityLayer,
       this.combatGlyphLayer,
+      this.casualtyGlyphLayer,
       this.combatEventLayer,
       this.worldLabelLayer,
     );
+    this.casualtyRelationshipLayer.addChild(this.casualtyRelationshipGraphics);
+    this.casualtyRelationshipLayer.visible = false;
+    this.casualtyGlyphLayer.visible = false;
     this.combatEventLayer.addChild(
       this.combatEventGraphics,
       this.combatEventTextLayer,
@@ -157,6 +179,16 @@ export class PixiEntityRenderer {
     }
   }
 
+  public setCasualtyVisualsVisible(visible: boolean): void {
+    this.casualtyRelationshipLayer.visible = visible;
+    this.casualtyGlyphLayer.visible = visible;
+  }
+
+  public setWorldFocus(focus?: RenderWorldFocus): void {
+    this.worldFocus = focus;
+    this.layoutWorld();
+  }
+
   public applySnapshot(snapshot: SimulationSnapshot): void {
     switch (snapshot.kind) {
       case "initial":
@@ -180,6 +212,9 @@ export class PixiEntityRenderer {
     for (const glyph of this.reachGlyphsByEntityId.values()) {
       glyph.destroy();
     }
+    for (const glyph of this.casualtyGlyphsByEntityId.values()) {
+      glyph.destroy();
+    }
     for (const label of this.worldLabelsByText.values()) {
       label.destroy();
     }
@@ -188,6 +223,7 @@ export class PixiEntityRenderer {
     this.spritesByEntityId.clear();
     this.combatGlyphsByEntityId.clear();
     this.reachGlyphsByEntityId.clear();
+    this.casualtyGlyphsByEntityId.clear();
     this.worldLabelsByText.clear();
     this.dotTexture.destroy(true);
     this.application.destroy(true, { children: true });
@@ -243,6 +279,10 @@ export class PixiEntityRenderer {
       snapshot.positions,
       snapshot.combatDebug?.inspectedCombatVisualEvents ?? [],
     );
+    this.updateCasualtyGlyphs(
+      snapshot.positions,
+      snapshot.combatDebug?.inspectedIndividuals ?? [],
+    );
     this.layoutWorld();
   }
 
@@ -270,6 +310,10 @@ export class PixiEntityRenderer {
       snapshot.tick,
       snapshot.positions,
       snapshot.combatDebug?.inspectedCombatVisualEvents ?? [],
+    );
+    this.updateCasualtyGlyphs(
+      snapshot.positions,
+      snapshot.combatDebug?.inspectedIndividuals ?? [],
     );
   }
 
@@ -377,6 +421,42 @@ export class PixiEntityRenderer {
       this.reachOverlayLayer.addChild(glyph);
     }
     return glyph;
+  }
+
+  private updateCasualtyGlyphs(
+    positions: Int32Array,
+    individuals: readonly LiveCombatDebugIndividualSnapshot[],
+  ): void {
+    const activeEntityIds = new Set<number>();
+    const positionsByEntityId = new Map<number, { readonly x: number; readonly y: number }>();
+    for (const individual of individuals) {
+      activeEntityIds.add(individual.entityId);
+      const offset = this.getPositionOffsetForEntity(individual.entityId);
+      const position = Object.freeze({
+        x: positions[offset]!,
+        y: positions[offset + 1]!,
+      });
+      positionsByEntityId.set(individual.entityId, position);
+      let glyph = this.casualtyGlyphsByEntityId.get(individual.entityId);
+      if (glyph === undefined) {
+        glyph = new Graphics();
+        this.casualtyGlyphsByEntityId.set(individual.entityId, glyph);
+        this.casualtyGlyphLayer.addChild(glyph);
+      }
+      glyph.position.set(position.x, position.y);
+      drawCasualtyGlyph(glyph, createCasualtyVisualGlyphSpec(individual));
+    }
+    for (const [entityId, glyph] of this.casualtyGlyphsByEntityId) {
+      if (activeEntityIds.has(entityId)) continue;
+      this.casualtyGlyphLayer.removeChild(glyph);
+      glyph.destroy();
+      this.casualtyGlyphsByEntityId.delete(entityId);
+    }
+    drawCasualtyRelationships(
+      this.casualtyRelationshipGraphics,
+      individuals,
+      positionsByEntityId,
+    );
   }
 
   private updateCombatVisualEvents(
@@ -487,14 +567,19 @@ export class PixiEntityRenderer {
       return;
     }
 
+    const focus = this.worldFocus;
+    const viewWidth = focus?.width ?? bounds.width;
+    const viewHeight = focus?.height ?? bounds.height;
+    const centreX = focus?.x ?? bounds.width / 2;
+    const centreY = focus?.y ?? bounds.height / 2;
     const scale = Math.min(
-      this.application.screen.width / bounds.width,
-      this.application.screen.height / bounds.height,
+      this.application.screen.width / viewWidth,
+      this.application.screen.height / viewHeight,
     );
     this.worldLayer.scale.set(scale);
     this.worldLayer.position.set(
-      (this.application.screen.width - bounds.width * scale) / 2,
-      (this.application.screen.height - bounds.height * scale) / 2,
+      this.application.screen.width / 2 - centreX * scale,
+      this.application.screen.height / 2 - centreY * scale,
     );
   }
 
@@ -502,6 +587,296 @@ export class PixiEntityRenderer {
     this.application.resize();
     this.layoutWorld();
   };
+}
+
+function drawCasualtyGlyph(
+  graphics: Graphics,
+  spec: CasualtyVisualGlyphSpec,
+): void {
+  graphics.clear();
+  drawCasualtyLifecycleGlyph(graphics, spec);
+  if (spec.freshZeroHit) {
+    for (let ray = 0; ray < 8; ray += 1) {
+      const angle = ray * Math.PI / 4;
+      graphics
+        .moveTo(Math.cos(angle) * 13, Math.sin(angle) * 13)
+        .lineTo(Math.cos(angle) * 18, Math.sin(angle) * 18);
+    }
+    graphics.stroke({ color: 0xff_4d_5e, width: 2, alpha: 0.95 });
+  }
+  if (spec.deathCountProgress > 0 || spec.lifecycleGlyph === "dying") {
+    graphics
+      .arc(
+        0,
+        0,
+        12,
+        -Math.PI / 2,
+        -Math.PI / 2 + Math.PI * 2 * Math.max(0.02, spec.deathCountProgress),
+      )
+      .stroke({ color: 0xff_8a_7a, width: 2, alpha: 0.9 });
+  }
+  if (spec.deathCountPaused) {
+    graphics
+      .rect(-4, -7, 3, 14)
+      .rect(2, -7, 3, 14)
+      .fill({ color: 0xff_f1_8a, alpha: 0.95 });
+  }
+  if (spec.assistanceState === "rescueRequested") {
+    graphics.circle(0, 0, 15).stroke({ color: 0xff_a6_3d, width: 2, alpha: 0.9 });
+  }
+  if (spec.dragPhase === "gathering") {
+    graphics.circle(0, 0, 17).stroke({ color: 0xff_c0_5c, width: 1, alpha: 0.75 });
+  } else if (spec.dragPhase === "dragging") {
+    graphics
+      .moveTo(-16, 14)
+      .lineTo(16, 14)
+      .stroke({ color: 0xff_9f_43, width: 3, alpha: 0.95 });
+  }
+  if (spec.hasMedicalClaim) {
+    graphics.circle(0, 0, 19).stroke({ color: 0xff_d9_66, width: 1, alpha: 0.8 });
+  }
+  if (spec.isApproachingClaimedPatient) {
+    graphics
+      .moveTo(-5, 18)
+      .lineTo(0, 23)
+      .lineTo(5, 18)
+      .stroke({ color: 0xff_e5_8f, width: 2, alpha: 0.9 });
+  }
+  if (spec.treatmentKind !== undefined) {
+    graphics
+      .arc(
+        0,
+        0,
+        16,
+        -Math.PI / 2,
+        -Math.PI / 2 + Math.PI * 2 * Math.max(0.02, spec.treatmentProgress),
+      )
+      .stroke({
+        color: treatmentColor(spec.treatmentKind),
+        width: 3,
+        alpha: 0.95,
+      });
+  }
+  if (spec.currentHerbs > 0 || spec.reservedHerbs > 0 || spec.consumedHerbs > 0) {
+    const herbColor = spec.reservedHerbs > 0 ? 0xff_d9_66 : 0x7d_ff_a5;
+    graphics
+      .moveTo(-10, -20)
+      .lineTo(-10, -12)
+      .moveTo(-14, -16)
+      .lineTo(-6, -16)
+      .stroke({ color: herbColor, width: 2, alpha: 0.95 });
+  }
+  if (spec.traumaticWound) {
+    graphics
+      .moveTo(-8, 9)
+      .lineTo(-3, 4)
+      .lineTo(1, 10)
+      .lineTo(7, 4)
+      .stroke({ color: 0xff_5c_d7, width: 2, alpha: 0.95 });
+  }
+  if (spec.traumaWithdrawal) {
+    graphics
+      .moveTo(10, -3)
+      .lineTo(16, 0)
+      .lineTo(10, 3)
+      .stroke({ color: 0xff_88_e6, width: 2, alpha: 0.9 });
+  }
+  if (spec.disabledArm) {
+    graphics
+      .moveTo(-14, 8)
+      .lineTo(-6, 8)
+      .moveTo(-10, 4)
+      .lineTo(-10, 12)
+      .stroke({ color: 0xff_b3_62, width: 2, alpha: 0.95 });
+  }
+  if (spec.disabledLeg) {
+    graphics
+      .moveTo(10, 5)
+      .lineTo(10, 14)
+      .moveTo(6, 10)
+      .lineTo(14, 10)
+      .stroke({ color: 0xff_75_75, width: 2, alpha: 0.95 });
+  }
+  if (spec.executionProgress > 0) {
+    graphics.circle(0, 0, 21).stroke({ color: 0xff_3b_4d, width: 2, alpha: 0.9 });
+    graphics
+      .moveTo(-21, 0)
+      .lineTo(-15, 0)
+      .moveTo(15, 0)
+      .lineTo(21, 0)
+      .stroke({ color: 0xff_3b_4d, width: 2, alpha: 0.9 });
+  }
+  if (spec.treatmentInterrupted) {
+    graphics
+      .moveTo(-18, -18)
+      .lineTo(-10, -10)
+      .moveTo(-10, -18)
+      .lineTo(-18, -10)
+      .stroke({ color: 0xff_d1_5c, width: 2, alpha: 0.95 });
+  }
+  if (spec.restoredHit) {
+    graphics
+      .moveTo(10, -15)
+      .lineTo(18, -15)
+      .moveTo(14, -19)
+      .lineTo(14, -11)
+      .stroke({ color: 0x66_ff_a3, width: 2, alpha: 0.95 });
+  }
+  if (spec.comfortCompleted) {
+    graphics
+      .circle(13, -14, 3)
+      .circle(18, -14, 3)
+      .moveTo(10, -13)
+      .lineTo(15.5, -7)
+      .lineTo(21, -13)
+      .fill({ color: 0x73_e8_ff, alpha: 0.9 });
+  }
+}
+
+function drawCasualtyLifecycleGlyph(
+  graphics: Graphics,
+  spec: CasualtyVisualGlyphSpec,
+): void {
+  switch (spec.lifecycleGlyph) {
+    case "active":
+      graphics.circle(0, 0, 8).stroke({ color: 0x62_e6_8b, width: 2, alpha: 0.85 });
+      break;
+    case "dying":
+      graphics
+        .moveTo(-7, -7)
+        .lineTo(7, 7)
+        .moveTo(7, -7)
+        .lineTo(-7, 7)
+        .stroke({ color: 0xff_4d_5e, width: 3, alpha: 0.95 });
+      break;
+    case "terminalAwaitingComfort":
+      graphics.rect(-8, -8, 16, 16).stroke({ color: 0xc2_83_ff, width: 3, alpha: 0.95 });
+      break;
+    case "terminalComforted":
+      graphics
+        .moveTo(0, -10)
+        .lineTo(10, 0)
+        .lineTo(0, 10)
+        .lineTo(-10, 0)
+        .closePath()
+        .stroke({ color: 0x73_e8_ff, width: 3, alpha: 0.95 });
+      break;
+    case "respawnEgress":
+      graphics
+        .moveTo(-8, -7)
+        .lineTo(0, 0)
+        .lineTo(-8, 7)
+        .moveTo(1, -7)
+        .lineTo(9, 0)
+        .lineTo(1, 7)
+        .stroke({ color: 0xff_b1_4a, width: 3, alpha: 0.95 });
+      break;
+    case "waitingAtRespawn":
+      graphics
+        .rect(-9, -9, 18, 18)
+        .rect(-5, -5, 10, 10)
+        .stroke({ color: 0x61_b5_ff, width: 2, alpha: 0.95 });
+      break;
+    case "terminal":
+      graphics.circle(0, 0, 9).fill({ color: 0x75_68_87, alpha: 0.8 });
+      break;
+  }
+}
+
+function treatmentColor(kind: NonNullable<CasualtyVisualGlyphSpec["treatmentKind"]>): number {
+  switch (kind) {
+    case "chirurgeonDying":
+      return 0x65_ea_ff;
+    case "physickRestoreGlobalHit":
+      return 0x76_ff_a5;
+    case "physickTraumaticWound":
+      return 0xff_69_da;
+    case "physickLimbWithHerb":
+      return 0xff_b6_52;
+    case "physickLimbWithoutHerb":
+      return 0xff_7c_62;
+    case "physickTerminalComfort":
+      return 0xa9_8b_ff;
+  }
+}
+
+function drawCasualtyRelationships(
+  graphics: Graphics,
+  individuals: readonly LiveCombatDebugIndividualSnapshot[],
+  positions: ReadonlyMap<number, { readonly x: number; readonly y: number }>,
+): void {
+  graphics.clear();
+  for (const individual of individuals) {
+    const source = positions.get(individual.entityId);
+    if (source === undefined) continue;
+    if (
+      individual.casualtyDragPatientEntityId === individual.entityId &&
+      individual.casualtyDragHelperEntityIds !== undefined
+    ) {
+      for (const helperId of individual.casualtyDragHelperEntityIds) {
+        drawEntityLink(graphics, positions, helperId, individual.entityId, 0xff_9f_43, 2);
+      }
+      const destinationX = individual.casualtyAssistanceDestinationX ?? -1;
+      const destinationY = individual.casualtyAssistanceDestinationY ?? -1;
+      if (destinationX >= 0 && destinationY >= 0) {
+        graphics
+          .moveTo(source.x, source.y)
+          .lineTo(destinationX, destinationY)
+          .stroke({ color: 0xff_9f_43, width: 1, alpha: 0.65 });
+        graphics
+          .circle(destinationX, destinationY, 7)
+          .stroke({ color: 0xff_c0_5c, width: 2, alpha: 0.9 });
+      }
+    }
+    const claimedPatient = individual.claimedMedicalPatientEntityId ?? -1;
+    if (claimedPatient >= 0) {
+      drawEntityLink(graphics, positions, individual.entityId, claimedPatient, 0xff_d9_66, 2);
+    }
+    const withdrawalPhysick = individual.withdrawalTargetPhysickEntityId ?? -1;
+    if (individual.traumaWithdrawalActive === true && withdrawalPhysick >= 0) {
+      drawEntityLink(graphics, positions, individual.entityId, withdrawalPhysick, 0xff_5c_d7, 1);
+    }
+    if (
+      individual.executionExecutorEntityId === individual.entityId &&
+      (individual.executionTargetEntityId ?? -1) >= 0
+    ) {
+      drawEntityLink(
+        graphics,
+        positions,
+        individual.entityId,
+        individual.executionTargetEntityId!,
+        0xff_3b_4d,
+        2,
+      );
+    }
+    if (
+      individual.playerPresenceState === "respawnEgress" &&
+      (individual.respawnDestinationX ?? -1) >= 0 &&
+      (individual.respawnDestinationY ?? -1) >= 0
+    ) {
+      graphics
+        .moveTo(source.x, source.y)
+        .lineTo(individual.respawnDestinationX!, individual.respawnDestinationY!)
+        .stroke({ color: 0xff_b1_4a, width: 2, alpha: 0.75 });
+    }
+  }
+}
+
+function drawEntityLink(
+  graphics: Graphics,
+  positions: ReadonlyMap<number, { readonly x: number; readonly y: number }>,
+  sourceEntityId: number,
+  targetEntityId: number,
+  color: number,
+  width: number,
+): void {
+  const source = positions.get(sourceEntityId);
+  const target = positions.get(targetEntityId);
+  if (source === undefined || target === undefined) return;
+  graphics
+    .moveTo(source.x, source.y)
+    .lineTo(target.x, target.y)
+    .stroke({ color, width, alpha: 0.7 });
 }
 
 function drawCombatVisualEvent(

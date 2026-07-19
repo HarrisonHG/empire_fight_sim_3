@@ -8,6 +8,107 @@ export interface IndividualInspectionRow {
   readonly latestEvent: string;
 }
 
+export function formatCasualtyProcedureInspection(
+  individual: LiveCombatDebugIndividualSnapshot,
+): string {
+  if (individual.characterLifecycleState === undefined) return "--";
+  const parts = [
+    `Lifecycle ${individual.characterLifecycleState}`,
+    `presence ${individual.playerPresenceState ?? "unknown"}`,
+    `hits ${individual.currentGlobalHits}/${individual.maximumGlobalHits}`,
+  ];
+  if ((individual.deathCountDurationTicks ?? 0) > 0) {
+    parts.push(
+      `death count ${individual.deathCountRemainingTicks}/${individual.deathCountDurationTicks}` +
+      (individual.deathCountPaused
+        ? ` paused by ${formatPauseOwner(individual)}`
+        : " running"),
+    );
+  }
+  if (individual.casualtyAssistanceState !== undefined && individual.casualtyAssistanceState !== "none") {
+    parts.push(
+      `assistance ${individual.casualtyAssistanceState}` +
+      (individual.casualtyDragGroupPhase === undefined
+        ? ""
+        : `, drag ${individual.casualtyDragGroupPhase}`) +
+      (individual.casualtyDragHelperEntityIds === undefined
+        ? ""
+        : `, helpers ${individual.casualtyDragHelperEntityIds.join(",")}`) +
+      ((individual.casualtyAssistanceDestinationX ?? -1) < 0
+        ? ""
+        : `, destination ${individual.casualtyAssistanceDestinationX},${individual.casualtyAssistanceDestinationY}`) +
+      (individual.casualtyDragFreeHands === undefined
+        ? ""
+        : `, free hands ${individual.casualtyDragFreeHands}`),
+    );
+  }
+  if ((individual.claimedMedicalPatientEntityId ?? -1) >= 0) {
+    parts.push(`medical claim owns patient ${individual.claimedMedicalPatientEntityId}`);
+  } else if ((individual.claimedMedicalPhysickEntityId ?? -1) >= 0) {
+    parts.push(`medical claim owned by Physick ${individual.claimedMedicalPhysickEntityId}`);
+  }
+  if (individual.treatmentKind !== undefined) {
+    parts.push(
+      `treatment ${individual.treatmentKind} ` +
+      `${individual.treatmentProgressTicks}/${individual.treatmentRequiredProgressTicks}, ` +
+      `healer ${individual.treatmentHealerEntityId}, patient ${individual.treatmentPatientEntityId}, ` +
+      `reserved herbs ${individual.treatmentReservedGenericHerbs}` +
+      (individual.treatmentSelectedLimbDisability === "none" ||
+      individual.treatmentSelectedLimbDisability === undefined
+        ? ""
+        : `, selected ${individual.treatmentSelectedLimbDisability}`),
+    );
+  }
+  if ((individual.hasPhysick || individual.hasChirurgeon) && individual.currentGenericHerbs !== undefined) {
+    parts.push(
+      `herbs current ${individual.currentGenericHerbs}, reserved ${individual.reservedGenericHerbs}, ` +
+      `consumed ${individual.genericHerbsConsumedHistoryCount}`,
+    );
+  }
+  if (individual.traumaticWoundState === "active" || individual.traumaWithdrawalActive) {
+    parts.push(
+      `trauma ${individual.traumaticWoundState}` +
+      (individual.traumaWithdrawalActive
+        ? `, withdrawing toward ${individual.withdrawalTargetPhysickEntityId}`
+        : ""),
+    );
+  }
+  if (individual.disabledArm || individual.disabledLeg) {
+    parts.push(
+      `limb disability arm ${individual.disabledArm ? "disabled" : "clear"}, ` +
+      `leg ${individual.disabledLeg ? "disabled" : "clear"}`,
+    );
+  }
+  if (individual.executionActionId !== undefined) {
+    parts.push(
+      `execution ${individual.executionProgressTicks}/100, ` +
+      `executor ${individual.executionExecutorEntityId}, target ${individual.executionTargetEntityId}`,
+    );
+  }
+  if (individual.terminalCause !== undefined && individual.terminalCause !== "none") {
+    parts.push(`terminal cause ${individual.terminalCause}`);
+  }
+  if ((individual.comfortStartedCount ?? 0) > 0 || (individual.comfortCompletedTick ?? -1) >= 0) {
+    parts.push(
+      `terminal comfort starts ${individual.comfortStartedCount}, ` +
+      `completed tick ${individual.comfortCompletedTick}`,
+    );
+  }
+  if (individual.respawnDestinationState === "configured") {
+    parts.push(
+      `respawn destination ${individual.respawnDestinationX},${individual.respawnDestinationY}, ` +
+      `egress ${individual.respawnEgressState}, arrival tick ${individual.waitingAtRespawnArrivalTick}`,
+    );
+  }
+  parts.push(
+    `history dying episodes ${individual.dyingTransitionCount ?? 0}, ` +
+    `drag episodes ${individual.dragPatientEpisodeCount ?? 0}, ` +
+    `treatments ${individual.treatmentCompletedHistoryCount ?? 0} completed/` +
+    `${individual.treatmentInterruptedHistoryCount ?? 0} interrupted`,
+  );
+  return parts.join(" · ");
+}
+
 export function combatRecordTickForSnapshot(snapshotTick: number): number {
   return Math.max(0, snapshotTick - 1);
 }
@@ -150,4 +251,11 @@ function formatNonZeroIncomingCounts(
     individual.thisTickIncomingShieldBlockCount +
     individual.thisTickIncomingLandedCount;
   return incomingTotal === 0 ? "" : formatIncomingCounts(individual);
+}
+
+function formatPauseOwner(individual: LiveCombatDebugIndividualSnapshot): string {
+  const source = individual.deathCountPauseSource;
+  return source === undefined
+    ? "unknown source"
+    : `${source.kind}, healer ${source.healerEntityId}, started tick ${source.treatmentStartTick}`;
 }
