@@ -170,21 +170,27 @@ A physick therefore has:
 - the behavioural knowledge to drag a casualty alone
 - priority over ordinary fighters as the final owner of a casualty
 
-Skills, herbs, potions, mana, and other treatment sources will be defined later. The behaviour model should query available treatment actions rather than assume infinite free cures.
+Canonical skill/catalogue expansion remains later work, but Milestone 6 now provides trusted runtime Chirurgeon/Physick qualifications and finite individual generic-herb storage. Later content must adopt or migrate those authorities rather than assume infinite cures or create competing pools.
 
 ---
 
 # 6. Treatment action model
 
-Initial battlefield abstraction:
+Implemented Milestone 6 battlefield durations are: 
 
 ```txt
-one treatment action = 30 uninterrupted seconds
+Chirurgeon save from zero hits:        30 uninterrupted seconds, no herb
+Physick restore one missing hit:       30 uninterrupted seconds, one herb
+Physick treat traumatic wound:         30 uninterrupted seconds, one herb
+Physick restore one disabled limb:     30 uninterrupted seconds with one herb
+Physick restore one disabled limb:      2 uninterrupted minutes without a herb
+Physick comfort terminal citizen:       2 uninterrupted minutes, no herb
+Execution:                               5 uninterrupted seconds
 ```
 
-This is deliberately simpler than modelling every official treatment duration separately.
+A healer treats one issue at a time. Treatment actions are non-pre-emptible while valid, lose all progress on interruption, and reassess the current patient and nearby queue only at action boundaries.
 
-A physick treats one issue at a time.
+Herb-backed actions reserve exactly one individual herb on start, release it on interruption, and consume it only on completion.
 
 At the start of each treatment action:
 
@@ -192,7 +198,7 @@ At the start of each treatment action:
 2. identify every condition the physick can currently treat
 3. rank them by medical priority
 4. select one treatment
-5. commit for 30 seconds
+5. commit for the selected action's authoritative duration
 6. on completion, apply exactly that treatment
 7. reassess the patient and nearby casualty queue
 
@@ -226,7 +232,19 @@ Highest first:
 
 Patient continuity matters. A physick should not constantly abandon a nearly completed patient for minor arrivals.
 
-After each completed 30-second action, the physick may switch to a newly arrived higher-priority casualty, especially a zero-hit patient.
+The implemented Milestone 6 triage order before VENOM/WEAKNESS exist is:
+
+```txt
+1. dying at zero hits
+2. disabled leg
+3. disabled arm
+4. traumatic wound
+5. dangerously low living hits
+6. ordinary missing hits
+7. terminal citizen comfort
+```
+
+After each completed action, the physick may switch to a newly arrived higher-priority casualty, especially a zero-hit patient. Future VENOM and WEAKNESS work must integrate into this existing action-boundary triage rather than replace it.
 
 ---
 

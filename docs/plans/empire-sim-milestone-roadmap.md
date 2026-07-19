@@ -1,6 +1,6 @@
 # Empire Fight Sim Milestone Roadmap
 
-Status: working roadmap. Updated through the official Combat, Calls, Weapons & Armour, Skills, Character XP, citizen-nation, barbarian battle-flavour, and pre-battle tonic/magic-item/ritual-enhancement reviews plus project battlefield-behaviour rulings on 2026-07-11.
+Status: working roadmap. Updated 2026-07-17 through accepted Milestone 5 and Milestone 6 implementation through 6H-2A-B.
 
 This file records the current milestone series for the deterministic Empire LARP battle simulation. It includes completed foundation work, the active morale sequence, the individual-combat correction, and the likely future roadmap.
 
@@ -461,9 +461,9 @@ The order below reflects major dependency boundaries rather than a promise that 
 
 Key placement decisions:
 
-- Complete the current morale milestone against the accepted unit-level combat prototype rather than destabilising Milestone 4 mid-sequence.
-- Individual combat state and official Empire hit rules come next because casualties, treatment, energy-in-combat, ranged attacks, and calls all require individual fighter state.
-- Casualty and Chirurgeon rules immediately follow individual hits so zero-hit entities never remain active through an unrelated milestone.
+- Milestone 4 was completed against the accepted unit-level combat prototype rather than destabilised mid-sequence.
+- Milestone 5 then migrated production to individual combat state because casualties, treatment, energy-in-combat, ranged attacks, and calls require individual fighter authority.
+- Milestone 6 follows individual hits directly so zero-hit entities do not remain active through an unrelated milestone.
 - Energy follows the correct individual combat/casualty foundation and feeds movement, engagement willingness, recovery, carrying, egress, and morale over time.
 - Core casualty and dying states precede scenarios, while Sentinel Gate geometry, respawn locations, reinforcement waves, and the one-hour battle clock belong to scenario integration.
 - Calls and hard effects precede complete projectile combat because every landed arrow or bolt automatically applies IMPALE.
@@ -520,15 +520,13 @@ Acceptance evidence:
 
 ## Milestone 5: Individual Combat State, Defence, and Empire Hit Rules
 
-Status: future.
+Status: accepted / implemented on 2026-07-15.
 
 Purpose:
 
-Replace the accepted unit-level combat prototype with individual fighter combat state that follows the important Empire hit, equipment, defence, and attack-cadence rules while using the project's documented equipment simplifications.
+Replace the accepted unit-level combat prototype with authoritative individual fighter combat state following the important Empire hit, equipment, defence, readiness, pressure, and attack-cadence rules while preserving unit ownership of formation, orders, cohesion, morale, routing, and recovery.
 
-This milestone is deliberately placed immediately after morale. Milestone 4 may continue to consume the existing unit-level combat records while it is completed; Milestone 5 then migrates the production sandbox without reopening every accepted morale slice at once.
-
-Expected direction:
+Accepted outcome:
 
 - individual entities become authoritative for weapons, shields, armour, helmet use, combat skills, attack recovery, guard state, and global hits
 - unit loadout data remains available as doctrine, scenario shorthand, or a derived summary, but no longer acts as the final source of truth for every member
@@ -536,7 +534,7 @@ Expected direction:
 - ordinary landed blows remove exactly one global hit
 - weapon reach changes threat geometry, preferred distance, opportunity, pressure, and defence rather than ordinary damage value
 - a ready fighter facing an obvious simple attack usually blocks, parries, or otherwise prevents the first blow
-- repeated pressure, recovery, crowding, flanking, local numbers, poor facing, and degraded guard create openings
+- repeated attacks, readiness depletion, offensive recovery, crowding, flanking, local numbers, and poor facing create openings
 - shields are active facing/coverage defences, not passive damage reduction
 - weapons cannot parry arrows or bolts
 - the one-second rule is enforced per attacker entity and target entity
@@ -550,6 +548,15 @@ body
 arm
 leg
 ```
+
+Acceptance evidence:
+
+- production combat authority is individual and deterministic;
+- defence uses equipment-tier minimums, one persistent readiness meter, offensive commitment suppression, and a 95% full-readiness ceiling;
+- successful defence, failed defence, landed attacks, gate results, hit loss, pressure and zero-hit transitions are retained as inspectable records;
+- pressure uses a static local social-threat floor plus attack/hit impulses and outcome-sensitive defence pressure;
+- `/test?scenario=individual-combat` and `/test?scenario=defence-overwhelm` are retained visual regression assets;
+- representative 2,000-entity production performance remained viable.
 
 ## Equipment scope
 
@@ -666,188 +673,73 @@ Boundary:
 - no exact hit-location or left/right limb model
 - no complete heroic or magic calls
 - no ballistic projectile flight or recoverable projectile objects
-- no random block percentage
+- no order-dependent or context-free random defence; defence uses replay-stable keyed rolls derived from facing, equipment tier, readiness, action state, and canonical attack identity
 - no replacement of unit-level orders, cohesion, morale, or formation ownership
 
 ---
 
 ## Milestone 6: Casualties, Dying, Battlefield Treatment, Rescue, and Player-Presence State
 
-Status: future.
+Status: in progress; implemented through 6H-2A-B. Remaining: 6H-2B, 6I, and 6J.
 
 Purpose:
 
-Consume individual zero-hit and disabling-injury transitions, implement battlefield casualty procedure, model rescue and treatment behaviour, and distinguish fictional character state from the real player's continued physical presence.
+Turn individual zero-hit and disabling-condition state into a deterministic Empire battlefield casualty procedure while keeping character lifecycle, assistance, treatment, and physical player presence as separate authorities.
 
-Expected direction:
+Implemented direction:
 
-- reaching zero global hits immediately changes the entity from active to dying and unresisting
-- dying characters may perceive, talk, or scream but cannot attack, defend, move tactically, use ordinary skills, use ordinary items, provide combat support, block movement as an active fighter, spread positive morale, or contest objectives
-- normal Empire dying time is 180 seconds before terminal state
-- Fortitude increases the death count according to the official progression
-- faction- or scenario-specific procedures may override the normal count, including the shorter barbarian battlefield return procedure
-- regaining at least one global hit ends dying state unless the character is terminal
-- every Physick in default project content also has Chirurgeon
-- Chirurgeon treatment requires thirty uninterrupted seconds, pauses the death count while active, restores one hit on completion, and fails if healer or patient attacks or is hit
-- initial battlefield treatment uses a common thirty-second action abstraction for each separately treated issue
-- a physick treats every condition on the current patient for which they possess a valid treatment source, one completed action at a time
-- treatment priority strongly favours zero hits, immobility, and disabled attacks before persistent non-critical conditions
-- after each completed action the physick reassesses the current patient and nearby casualty queue
-- execution requires a dying or consenting target and a five-second committed action before the fatal result
-- terminal character state and player-presence state remain separate
-- terminal Empire player entities may perform non-interactive battlefield egress without making the character combat-active
-- barbarian player entities may move toward respawn staging under scenario rules
-- casualty, treatment, execution, dragging, handoff, and after-action records remain inspectable after removal
+- explicit trusted `citizen` versus `barbarian` casualty procedure, independent of faction or nation presentation;
+- `active → dying → terminal` character lifecycle separated from player-presence procedure;
+- normal Fortitude-derived and explicit fixed death counts with owned pause sources;
+- fresh zero-hit trauma opportunities for citizens only, keyed deterministically at 10%;
+- local medical urgency, trauma withdrawal, prepared patient/support queries, and finite individual herb inventory;
+- one-Physick or two-fighter rescue groups with gathering, bounded dragging, hand commitment, cancellation, handoff and safe release;
+- exclusive patient claims, healer approach, sequential non-pre-emptible treatment, action-boundary reassessment, and exact interruption evidence;
+- thirty-second Chirurgeon revival, thirty-second herb-backed missing-hit/trauma/limb treatment, two-minute herb-free limb treatment, and two-minute terminal citizen comfort;
+- explicit five-second execution actions with committed executors and safe invalidation of conflicting treatment;
+- in-place promotion of a dying citizen rescue into terminal-comfort rescue;
+- bounded casualty, treatment, execution, comfort, assistance, resource and presence inspection/history.
 
-## Casualty urgency
-
-Immediate critical events:
-
-```txt
-zero hits
-arm disabled by CLEAVE or IMPALE
-leg immobilised by CLEAVE or IMPALE
-PARALYSE while exposed to immediate hostile threat
-```
-
-Persistent-condition behaviour:
-
-- veterans with `VENOM` or `WEAKNESS` normally wait for a peaceful moment before seeking treatment
-- veterans become urgent when they have roughly one or two hits remaining
-- recruits tend to seek treatment promptly even when otherwise healthy
-- experience/confidence should interpolate between those extremes
-
-Transient effects:
-
-```txt
-REPEL
-STRIKEDOWN
-ENTANGLE
-PARALYSE
-```
-
-Ordinary AI does not seek a healer merely to remove these short effects. It normally lets them expire, although exposed paralysed allies may be rescued.
-
-## Dragging and rescue
-
-Eligible patients:
-
-```txt
-PARALYSED
-zero hits
-leg-disabled
-```
-
-Required helpers:
-
-```txt
-one physick
-or
-two ordinary fighters
-```
-
-Expected mechanics:
-
-- one physick commits both hands and may drag alone
-- two fighters form a cooperative drag group
-- carriers suspend ordinary attacks and formation-slot participation
-- dragging uses reduced deterministic movement speed
-- later energy systems charge additional exertion
-- the destination is a local low-threat treatment position, not necessarily the globally nearest healer
-- safe-position selection considers hostile threat, allied-line direction, recent combat density, reachable terrain, and known physicks
-- fighters hand the patient to a nearby available physick and return to combat
-- handoff is explicit state and an inspectable event
-
-Suggested treatment priority:
-
-```txt
-1. zero hits / active death count
-2. leg immobility
-3. arm combat disability
-4. VENOM at low hits
-5. dangerously low global hits
-6. WEAKNESS affecting a critical active role
-7. VENOM at comfortable hits
-8. WEAKNESS without immediate role pressure
-9. other treatable non-critical effects
-```
-
-Suggested lifecycle vocabulary:
+Current lifecycle and presence vocabulary:
 
 ```txt
 Character:
-active
-→ combat-disabled
-→ dying
-→ terminal
-→ dead
+active → dying → terminal
 
-Casualty assistance:
-none
-→ rescue-requested
-→ being-dragged
-→ at-treatment-position
-→ handed-to-physick
-→ under-treatment
-→ released
+Player presence:
+activePresence
+→ downedPresence
+→ terminalAwaitingComfort → terminalComforted
 
-Empire player presence:
-active-presence
-→ downed-presence
-→ terminal-egress
-→ removed-from-battlefield
+or
 
-Barbarian player presence:
-active-presence
-→ downed-presence
-→ respawn-egress
-→ waiting-at-respawn
-→ eligible-for-reformation
+activePresence
+→ downedPresence
+→ respawnEgress → waitingAtRespawn
 ```
 
-Suggested slices:
+`terminal` means the current battlefield life cannot be saved by ordinary treatment. A future Milestone 9 barbarian respawn boundary may begin a new active battlefield life; that is scenario-owned re-entry, not healing.
+
+Remaining Milestone 6 work:
 
 ```txt
-6A zero-hit transition, disabling-injury hooks, and interaction filtering
-6B death counts, Fortitude, terminal state, and deterministic timers
-6C medical urgency and recruit/veteran healer-seeking policy
-6D casualty drag groups, safe extraction, and cooperative movement
-6E physick handoff, patient ownership, and treatment queue
-6F thirty-second Chirurgeon and general battlefield treatment actions
-6G execution and fatal-result records
-6H generic Empire egress and barbarian respawn-staging hooks
-6I integration, morale consequences, replay, and performance coverage
+6H-2B  barbarian respawn-egress movement and waiting-at-respawn arrival
+6I     production consolidation, summaries, history, one-hour soak and performance
+6J     retained casualty-lifecycle visual suite and human acceptance
 ```
 
-Important rules:
+Dependency and adoption boundaries:
 
-- a terminal character cannot be saved even if the associated player-presence entity is still moving
-- dying, dragged, and carried entities do not become absurd permanent collision walls
-- a mobile arm-disabled patient can self-evacuate; a leg-disabled or paralysed patient normally cannot
-- treatment progress is lost on interruption
-- patient continuity has weight, but a newly arrived zero-hit casualty may take priority after the current action completes
-- treatment source availability is queried; do not grant infinite herbs, mana, liao, or oils before resource content exists
-- default Physick content begins with 12 generic herbs and spends one on each successfully completed Physick treatment action
-- interrupted herb treatment releases the reserved herb rather than consuming it
+- Milestone 7 adds energy/exertion costs to fighting while injured, dragging, treatment movement and egress without replacing casualty ownership.
+- Milestone 9 consumes `terminalComforted`, `respawnEgress`, and `waitingAtRespawn` for concrete Gate geometry, respawn destinations, batching, re-entry and the one-hour battle lifecycle.
+- Milestone 10 replaces temporary perfect-local casualty/Physick awareness with perceived and remembered support knowledge.
+- Milestone 11 adopts or migrates the existing trusted medical profiles, qualifications and herb/resource stores; it must not create competing authorities.
+- Milestone 12 enriches existing safe-down, extraction and treatment-position boundaries with terrain and obstacle knowledge.
+- Milestone 13 calls existing limb-disability, trauma-opportunity, death-count, restoration, treatment and execution adapters when official calls/effects occur.
 
-Dependency boundary:
+Boundary:
 
-This milestone owns casualty state, timers, interaction filtering, medical urgency, rescue groups, generic local safety selection, patient handoff, treatment actions, execution, generic egress behaviour, and respawn-staging hooks.
-
-Milestone 9 owns concrete Sentinel Gate geometry, barbarian respawn locations, reinforcement batching, scenario clocks, re-entry, and battle-end withdrawal.
-
-Milestone 11 owns detailed skill/source inventories and support-role content.
-
-Milestone 12 later enriches safe treatment positions and extraction routes with battlefield terrain.
-
-Deferred:
-
-- traumatic wounds
-- detailed herb, potion, spell, and item catalogue
-- resurrection
-- exact physical dragging animation
-- detailed corpse geometry
-- named-character persistence between battles
+Milestone 6 does not implement Sentinel Gate movement, respawn batching/re-entry, perception memory, terrain-aware pathfinding, active CLEAVE/IMPALE generation, VENOM/WEAKNESS, energy, worker/renderer/UI presentation, or the final scenario clock.
 
 ---
 
@@ -948,7 +840,9 @@ Battle shape:
 
 By default, citizens leave the Sentinel Gate, compete with barbarian forces over objectives, and face repeated barbarian reinforcement waves. At the end of the hour, the citizens return through the Sentinel Gate regardless of whether withdrawal is orderly or forced.
 
-Boundary:
+Adoption boundary:
+
+Milestone 9 consumes the existing `terminalComforted`, `respawnEgress`, and `waitingAtRespawn` states. It supplies concrete Sentinel Gate and respawn geometry, movement destinations, batching, re-entry and battle-clock policy. It must not create another casualty lifecycle, comfort action, death count or respawn-presence store.
 
 Scenario logic coordinates existing systems. It should not duplicate morale, energy, casualty, command, combat, treatment, or effect ownership.
 
@@ -996,7 +890,7 @@ runtime effect/resource state
 future character-build legality
 ```
 
-Milestone 11 owns the first two. Milestone 18 owns the third.
+Milestone 11 owns the first two. Milestone 18 owns the third. It must adopt or migrate the existing trusted combat/medical qualifications, generic-herb inventory and other runtime stores rather than create parallel sources of truth.
 
 Until Milestone 18, scenario/loadout content may directly assign a valid skill profile and is trusted to have sufficient XP.
 
@@ -1434,6 +1328,8 @@ Expected direction:
 
 Dependency note:
 
+Milestone 12 enriches the existing safe-down-position, rescue-destination, drag movement and treatment-position boundaries. It should supply terrain/obstacle inputs rather than replace casualty assistance or treatment ownership.
+
 Recoverable projectile retrieval uses terrain and local threat information when deciding whether an arrow is safely reachable. Hard-effect movement also needs obstacle and safety handling.
 
 Boundary:
@@ -1677,10 +1573,9 @@ Barbarian behaviour:
 
 ### EXECUTE
 
-- require valid target state
-- require a five-second committed fatal action
-- complete as immediate character death while preserving player-presence procedure
-- define interruption conditions explicitly
+- adapt the official `EXECUTE` call/source into the existing Milestone 6 execution-intent API
+- preserve the existing five-second commitment, start eligibility, interruption, executor commitment, terminal cause, treatment cleanup and player-presence classification
+- do not implement a second execution action or duplicate terminal lifecycle ownership
 
 ### CURSE and Exorcism
 
@@ -1799,14 +1694,17 @@ transientActionLock
 repairNeeded
 ```
 
-Milestone 6 consumes these records for:
+Milestone 13 feeds these records into existing Milestone 6 authorities for:
 
-- medical urgency
-- self-evacuation
-- casualty drag requests
-- physick handoff
-- sequential thirty-second treatment
-- recruit/veteran healer-seeking
+- limb-disability state and medical urgency;
+- the shared traumatic-wound opportunity resolver for limb-cleave consequences;
+- rescue eligibility and self-evacuation;
+- existing patient claims, Physick handoff and sequential treatment actions;
+- death-count shortening/clamping where applicable;
+- restoration adapters for heroic support;
+- the existing execution-intent system.
+
+Do not duplicate casualty lifecycle, treatment, assistance, herb, limb, trauma or execution stores.
 
 ## Suggested slices
 
@@ -1822,7 +1720,7 @@ Milestone 6 consumes these records for:
 13I Relentless and Unstoppable self-recovery actions
 13J Stay With Me and Get It Together ally-support actions
 13K simplified CURSE, Exorcist-seeking, liao, and cure/death lifecycle
-13L EXECUTE timed casualty action
+13L EXECUTE call/source adapter into the existing Milestone 6 execution action
 13M MASS cone delivery and dense-target performance
 13N tactical use behaviour, integration, replay, performance, and consolidation
 ```

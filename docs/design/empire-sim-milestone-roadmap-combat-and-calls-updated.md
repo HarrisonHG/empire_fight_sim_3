@@ -1,8 +1,14 @@
 # Empire Fight Sim Milestone Roadmap
 
-Status: working roadmap. Updated through the official Combat and Calls rules reviews on 2026-07-11.
+> **Status: superseded historical review snapshot.**
+>
+> The canonical current roadmap is `docs/plans/empire-sim-milestone-roadmap.md`.
+> Do not use this document for current milestone status, slice ownership, or implementation instructions. It is retained only to preserve the earlier combat/calls review history.
 
-This file records the current milestone series for the deterministic Empire LARP battle simulation. It includes completed foundation work, the active morale sequence, the individual-combat correction, and the likely future roadmap.
+
+Historical status: working roadmap at the time of capture; updated through the official Combat and Calls rules reviews on 2026-07-11.
+
+This file records the then-current milestone series for the deterministic Empire LARP battle simulation. It includes completed foundation work, the active morale sequence, the individual-combat correction, and the likely future roadmap.
 
 The guiding rule is still: build deterministic, headless, testable systems first. Renderer, worker, UI, visual replay, screenshots, and richer content should come only when the underlying sim state is worth looking at.
 

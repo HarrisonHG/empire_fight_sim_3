@@ -87,6 +87,22 @@ summarise what changed
 summarise what remains
 ```
 
+## Implementation Prompt Economy
+
+When a reviewed plan already exists, the plan is the source of truth. An implementation prompt should normally contain only:
+
+```txt
+plan path and exact slice
+clarifications or corrections not already in the plan
+explicit scope boundary
+required checks
+requested completion report
+```
+
+Do not paste the plan back into the prompt. Duplicating types, invariants, test matrices and boundaries wastes context and creates a second specification that can drift.
+
+Detailed prompts remain appropriate for unplanned spikes, narrow correction slices, or work where the prompt itself is the accepted specification.
+
 ## Initial Project Plan
 
 The project's first plan is archived at:

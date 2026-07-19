@@ -1,10 +1,33 @@
 # Milestone 6: Casualties, Dying, Battlefield Treatment, Rescue, and Player-Presence State
 
-Status: accepted for implementation.
+Status: in progress.
 
-Milestone 5, including its defence-readiness and pressure/visual-regression spike, was accepted on 2026-07-15. Milestone 6 may now begin.
+Milestone 5, including its defence-readiness and pressure/visual-regression spike, was accepted on 2026-07-15. Milestone 6 is implemented through 6H-2A-B and remains unaccepted pending 6H-2B, 6I, 6J, full regression, performance consolidation, and human visual inspection.
 
-Before the first implementation slice, update the stale root `AGENTS.md` Current Project Phase section so it names Milestone 6 and no longer describes the project as a Milestone 3 visual spike. Do not weaken any architecture, determinism, testing, or scope rules.
+## Progress
+
+| Slice | Status | Outcome |
+| --- | --- | --- |
+| 6A-1 | implemented | Trusted casualty-procedure profiles and standalone lifecycle transitions. |
+| 6A-2 | implemented | Production lifecycle integration and ordinary-participation filtering. |
+| 6B | implemented | Fortitude/fixed death counts, owned pauses, and terminal transitions. |
+| 6C-1 | implemented | Trusted medical profiles, finite herb storage, and deterministic trauma state. |
+| 6C-2 | implemented | Medical urgency, prepared local discovery, and trauma withdrawal. |
+| 6D | implemented | Rescue decisions, helper reservation, and bounded safe destinations. |
+| 6E | implemented | Gathering, dragging, hand commitment, defence limits, and cancellation. |
+| 6F | implemented | Claims, handoff, triage, safe release, and helper rejoin. |
+| 6G-1 | implemented | Chirurgeon treatment, healer approach/commitment, death-count pause, restoration, and revival. |
+| 6G-2a | implemented | Herb-backed missing-hit and traumatic-wound treatment. |
+| 6G-2b | implemented | Herb-backed and herb-free limb-treatment hooks. |
+| 6H-1A | implemented | Explicit timed execution and terminal presence classification. |
+| 6H-1B | implemented | Execution commitment, defence, eligibility, and treatment cleanup. |
+| 6H-2A | implemented | Terminal citizen comfort and terminalComforted transition. |
+| 6H-2A-B | implemented | Rescue continuity and medical-query corrections for terminal comfort. |
+| 6H-2B | remaining | Barbarian respawn-egress movement and waiting-at-respawn arrival. |
+| 6I | remaining | Consolidation, history, integration, soak and performance coverage. |
+| 6J | remaining | Retained casualty visual suite and human acceptance. |
+
+This progress table is the status authority for Milestone 6. Individual slice sections remain the behavioural specification.
 
 ## Product goal
 
@@ -21,8 +44,8 @@ After Milestone 6:
 - Physicks claim patients, triage local needs, and complete one treatment action at a time;
 - execution is a committed five-second action rather than an instant state change;
 - terminal character state is kept separate from the physical player-presence entity that may later get up and leave;
-- citizen egress and barbarian respawn-staging hooks exist without prematurely implementing the Sentinel Gate, reinforcement waves, or scenario clock;
-- casualty history remains inspectable even after the player-presence entity leaves the battlefield.
+- terminal-citizen comfort and barbarian respawn-staging hooks exist without prematurely implementing Sentinel Gate movement, reinforcement waves, or the scenario clock;
+- casualty history remains inspectable across lifecycle, treatment, execution, comfort, egress, and waiting-state transitions.
 
 The milestone must model both realities at once:
 
@@ -833,7 +856,7 @@ Recommended production order:
 1. command/scenario input already accepted by the sandbox
 2. formation and morale movement for active formation participants
 3. active drag-group movement
-4. terminal-egress and respawn-egress movement
+4. barbarian respawn-egress movement; terminalComforted citizens remain still until Milestone 9
 5. individual combat eligibility snapshot
 6. individual target selection
 7. attack lifecycle
@@ -1308,11 +1331,11 @@ No active CLEAVE/IMPALE source, VENOM, WEAKNESS, potions, mana healing, heroic h
 
 ---
 
-## 6H — Execution, terminal citizen comfort, and player-presence procedure hooks
+## 6H-1A — Execution actions and post-terminal presence classification (implemented)
 
 ### Purpose
 
-Implement deliberate fatal action, terminal citizen comfort, and separate post-terminal procedure state without prematurely moving citizens to the Sentinel Gate.
+Implement deliberate fatal action and classify post-terminal procedure state without moving terminal presences yet.
 
 ### Deliver
 
@@ -1323,12 +1346,7 @@ Implement deliberate fatal action, terminal citizen comfort, and separate post-t
 - terminal cause `execution`;
 - `IndividualPlayerPresenceStore`;
 - citizen `terminalAwaitingComfort` state after death-count expiry or execution;
-- two-minute no-herb Physick comfort action;
-- citizen `terminalComforted` state on completion;
-- barbarian-style respawn egress and waiting state where explicitly scenario-configured;
-- optional barbarian respawn destination anchors;
-- no-combat/no-morale/no-collision barbarian presence movement;
-- respawn-staging events.
+- barbarian `respawnEgress` entry classification after death-count expiry or execution.
 
 Citizen Sentinel Gate movement is not implemented here. Milestone 9 consumes `terminalComforted`.
 
@@ -1341,19 +1359,124 @@ Citizen Sentinel Gate movement is not implemented here. Milestone 9 consumes `te
 - completion produces terminal exactly once;
 - ordinary AI never starts execution without explicit intent;
 - a citizen made terminal by expiry or execution enters `terminalAwaitingComfort`;
+- a barbarian made terminal by expiry or execution enters `respawnEgress`;
+- configured procedure kind, not faction presentation, selects the presence state.
+
+### Boundary
+
+No terminal comfort, terminal presence movement, respawn arrival, waiting-group batching, re-entry, or Sentinel Gate movement.
+
+---
+
+## 6H-1B — Execution commitment integration (implemented)
+
+### Purpose
+
+Integrate an active 6H-1A execution action with ordinary battlefield participation without changing execution timing or terminal procedure classification.
+
+### Deliver
+
+- strict production start eligibility across combat, routing, trauma, treatment, claims, rescue and ordinary participation;
+- next-tick ordinary-participation exclusion for active executors;
+- target, attack, formation, medical, rescue and morale/support suppression;
+- continued targetability, personal pressure and normal active defence through a two-free-hand prioritised defence source;
+- safe Chirurgeon treatment, claim and death-count-pause invalidation when execution terminalises its patient.
+
+### Tests
+
+- unavailable or same-tick attacking/hit executors cannot start;
+- committed executors remain stationary and do not attack, support, claim, treat or rescue;
+- weapon, shield and unarmed defence remain authoritative, while an accepted hit interrupts;
+- execution terminalisation clears active Chirurgeon treatment ownership and the following tick remains valid;
+- completion and interruption restore ordinary participation on the following projection snapshot;
+- exact 100-progress-tick timing, deterministic replay and presence classification remain unchanged.
+
+### Boundary
+
+No terminal comfort, terminal presence movement, respawn arrival, waiting-group batching, re-entry, Sentinel Gate movement, autonomous execution policy, worker, renderer or UI integration.
+
+---
+
+## 6H-2A — Terminal citizen comfort (implemented)
+
+### Purpose
+
+Advance classified terminal citizen presences through rescue, handoff and comfort without reactivating the battlefield character.
+
+### Deliver
+
+- two-minute no-herb Physick comfort action;
+- citizen `terminalComforted` state on completion;
+- lowest-priority terminal-comfort urgency and medical claim;
+- terminal citizen drag eligibility through the existing casualty-rescue pipeline;
+- bounded comfort history and inspection.
+
+### Tests
+
 - terminal citizen comfort takes exactly 2,400 uninterrupted progress ticks;
 - comfort consumes no herb even when herbs are available;
 - comfort is lower priority than every living/dying treatment;
 - completion changes only player presence to `terminalComforted`;
 - the character remains terminal and cannot be restored;
 - terminalComforted citizens remain still during Milestone 6;
+- terminal citizens may be rescued by one Physick or two ordinary helpers;
+- comfort interruption and restart preserve the existing action-boundary rules;
+- comfort never changes lifecycle, hits, death count, terminal cause or physical position.
+
+### Boundary
+
+No Sentinel Gate movement or geometry, citizen battlefield exit, barbarian egress, respawn arrival, reinforcement batching, one-hour clock, capture, searching, or corpse objects.
+
+---
+
+## 6H-2A-B — Terminal-comfort rescue integration corrections (implemented)
+
+### Purpose
+
+Preserve an in-progress dying rescue when a citizen terminalises into terminal-comfort procedure, and expose that authoritative need consistently through prepared medical discovery.
+
+### Deliver
+
+- in-place `dying` to `terminalComfort` drag-group promotion after terminal presence classification and before post-terminal validation;
+- preservation of group identity, phase, destination, participants, movement remainder, hand commitments and assistance reservations;
+- player-presence-aware terminal-comfort group validation, with incompatible barbarian procedure cancellation unchanged;
+- prepared local patient eligibility for `terminalAwaitingComfort` urgency only;
+- dedicated `PHYSICK_TERMINAL_COMFORT_PROGRESS_TICKS` treatment duration selection.
+
+### Tests
+
+- citizen terminalisation during gathering or dragging preserves the original group without cancellation or replacement;
+- barbarian terminalisation cancels the incompatible dying rescue;
+- one Physick or two ordinary helpers can rescue a terminal citizen, but only a full Physick accepts comfort handoff;
+- terminal-awaiting-comfort discovery reports priority 50 with bounded canonical output, while comforted and respawn-egress presences are excluded.
+
+### Boundary
+
+No changes to terminal-comfort treatment semantics, claims, urgency ordering or presence transitions beyond these integration corrections. Barbarian egress remains 6H-2B.
+
+---
+
+## 6H-2B — Barbarian egress procedure hooks
+
+### Purpose
+
+Advance explicitly configured barbarian terminal presences toward respawn staging without reactivating the terminal battlefield character.
+
+### Deliver
+
+- optional barbarian respawn destination anchors;
+- no-combat/no-morale/no-collision `respawnEgress` movement;
+- `waitingAtRespawn` arrival and respawn-staging records.
+
+### Tests
+
 - barbarian presence may reach waiting-at-respawn and does not re-enter during Milestone 6;
 - waiting-at-respawn does not heal or reactivate the terminal battlefield life;
 - missing barbarian destination leaves a clear waiting-for-scenario state rather than guessing a respawn point.
 
 ### Boundary
 
-No Sentinel Gate movement or geometry, citizen battlefield exit, reinforcement batching, one-hour clock, capture, searching, or corpse objects.
+No Sentinel Gate movement, citizen battlefield exit, waiting-group batching, respawn re-entry, worker, renderer or UI integration.
 
 ---
 
@@ -1372,7 +1495,13 @@ Consolidate casualty systems into the authority-live simulation without adding n
 - bounded debug inspection fields;
 - representative and stress performance coverage;
 - one-hour deterministic timer/treatment soak test;
-- documentation of deferred terrain/perception/content integrations.
+- documentation of deferred terrain/perception/content integrations;
+- consolidated execution-start/completion/interruption counters;
+- claimed/approaching/treating medical-support summaries;
+- treatment-participant exclusivity assertions;
+- repeated dying → treatment → revival → later dying coverage;
+- terminal-comfort drag-group promotion coverage;
+- current/reserved/consumed herb summaries.
 
 ### Unit summary additions
 
@@ -1478,7 +1607,8 @@ Use spatially isolated labelled chambers:
 6. lone Physick drag and treatment;
 7. citizen traumatic wound, withdrawal, herb treatment, and return eligibility;
 8. explicit execution and terminal citizen comfort;
-9. barbarian trauma immunity and respawn staging.
+9. barbarian trauma immunity and respawn staging;
+10. limb treatment comparison: disabled leg with a herb-backed 30-second action versus disabled arm with a two-minute no-herb action, clearing one condition per action.
 
 Headless tests use official durations.
 
@@ -1501,6 +1631,8 @@ traumatic-wound state/trigger/episode count
 trauma-withdrawal target
 terminal-comfort progress/state
 respawn destination/state
+disabled arm/leg state
+selected limb-treatment action and duration
 ```
 
 Keep overlays hideable using the existing visual-test control.
@@ -1518,6 +1650,7 @@ Human acceptance questions:
 - does trauma treatment require a herb and clear the withdrawal state;
 - do barbarians remain trauma-immune;
 - does terminal comfort remain visibly separate from revival;
+- is the herb-backed versus herb-free limb-treatment difference readable, with only one disability cleared per action;
 - are citizen and barbarian procedures clearly distinct;
 - is any AI over-eager to rescue, heal, or execute?
 

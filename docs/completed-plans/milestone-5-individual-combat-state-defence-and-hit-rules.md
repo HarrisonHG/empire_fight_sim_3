@@ -1,6 +1,6 @@
 # Milestone 5: Individual Combat State, Defence, and Empire Hit Rules
 
-Status: in progress; 5A, 5B, 5C-1, 5C-2, 5D, 5E, 5F-1, 5F-2, 5F-3A, 5F-3B1, 5F-3B2, 5G-1, 5G-2, and 5G-3 implemented and awaiting review. Milestone 5 remains unaccepted pending human inspection of `/test?scenario=individual-combat`.
+Status: accepted / implemented on 2026-07-15, including the defence-readiness, pressure, visual-readability, and retained regression spike.
 
 ## Product goal
 
@@ -70,24 +70,22 @@ Milestone 5 must not replace:
 
 Individual combat results feed those systems through deterministic summaries and consequence records.
 
-### Deterministic defence, not random defence
+### Deterministic keyed defence chance
 
-Do not use a random block percentage.
+Defence must never use `Math.random` or an order-dependent shared random stream. It may use replay-stable keyed chance derived from authoritative state and canonical attack identity.
 
-A ready fighter who is facing an obvious, simple attack should normally prevent the first blow.
+A ready fighter facing an obvious simple attack normally approaches the 95% full-readiness defence ceiling, while equipment supplies different minimum chances when readiness is depleted. Rear desperate defence uses its own fixed low chance when a usable defence source exists.
 
-Openings emerge from state:
+Openings emerge from concrete state:
 
-- guard already consumed;
-- attack or defence recovery;
-- poor facing;
-- crowding;
-- flanking;
-- multiple attackers;
-- pressure;
-- low confidence;
-- disrupted formation;
+- readiness spent by repeated incoming attacks;
+- offensive commitment or recovery suppressing effective readiness;
+- poor facing or rear attack geometry;
+- multiple attackers resolving in canonical order;
+- equipment coverage and hand availability;
 - unsuitable weapon distance.
+
+Pressure does not directly reduce block probability. Pressure affects personal behaviour, morale, routing and later decisions; immediate defence probability is owned by equipment, readiness, facing, action state and deterministic roll identity.
 
 ### Empire hit model
 
@@ -1580,7 +1578,7 @@ Milestone 5 does not implement:
 - ballistic projectile flight;
 - ammunition;
 - recoverable projectiles;
-- random block percentages;
+- order-dependent or context-free random block resolution;
 - captain behaviour;
 - energy or fatigue;
 - XP spending or character creation.
@@ -1618,6 +1616,10 @@ Use structural assertions and machine-dependent reporting rather than strict tim
 The pathological 2,000 one-person-unit case may remain a stress test but must not be treated as the expected battlefield shape.
 
 ---
+
+# Acceptance record
+
+Milestone 5 passed headless regression, representative structural performance, and human inspection of the retained individual-combat and defence-overwhelm visual scenarios on 2026-07-15. The implementation is now a dependency for Milestone 6 casualty lifecycle and later calls/projectile work.
 
 # Milestone 5 definition of done
 

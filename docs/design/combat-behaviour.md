@@ -18,7 +18,7 @@ Captains set intent.
 
 The battlefield applies pressure.
 
-Do not model fighters as hit point sponges with random block chances.
+Do not model fighters as hit point sponges with context-free random block chances. Deterministic keyed chance is acceptable when authoritative facing, equipment, readiness, action state and attack identity determine it.
 
 ## Recognisable Individuals
 
@@ -81,14 +81,14 @@ Cohesion determines how strongly group behaviour suppresses individual chaos.
 
 ## Blocking and Parrying
 
-Avoid modelling defence as simple random block chance.
+Avoid modelling defence as a simple context-free random block chance. Resolve defence from authoritative state, then use a replay-stable keyed roll so rare lucky hits and desperate blocks can occur without losing determinism.
 
 Most fighters can block or parry the first obvious incoming attack if:
 
 - they are facing the attacker
-- they are not recovering
+- they are not offensively committed
 - they are not flanked
-- they have guard available
+- they have readiness available
 - the attack is inside their defended arc
 
 The interesting behaviour happens after the first defence.
@@ -125,7 +125,7 @@ Pressure should affect:
 - hesitation
 - movement choice
 - attack timing
-- defence reliability after repeated exchanges
+- defence readiness and probability after repeated exchanges
 - morale loss
 - chance of backing up or routing
 

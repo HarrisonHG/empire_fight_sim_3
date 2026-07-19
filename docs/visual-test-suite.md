@@ -27,7 +27,8 @@ Run `npm run dev`, then open:
 | `/test?scenario=movement-behaviour` | Milestone 2 accepted | 0-120 | Formed march, ordered halt, formed detour, loose flow, halt-and-wait, disruptive push-through, and veteran stability versus recruit instability under equal pressure. |
 | `/test?scenario=combat-foundation` | Milestone 3 accepted | 0-420 | Both fronts advance and engage at reach without interpenetrating; combat counters, pressure, and morale update; membership remains unchanged. |
 | `/test?scenario=morale-inspection` | Milestone 4 accepted 2026-07-12 | 0-800 | Recruit breaks first, regular degrades faster than veteran, pass-through disrupts the reserve, routers flee before recovery, recovering units halt and reform, and the veteran pursuit subject returns to steady before the regular. |
-| `/test?scenario=individual-combat` | Milestone 5 pending human inspection | 0-80 | Seven isolated landscape-grid chambers show frontal parry, held shield block, two-on-one guard overwhelm, polearm reach, armour/global-hit totals, one-second same-pair gate rejection, and independent attackers zeroing a target without removal. |
+| `/test?scenario=individual-combat` | Milestone 5 accepted 2026-07-15 | 0-80 | Seven isolated landscape-grid chambers show frontal parry, held shield block, two-on-one guard overwhelm, polearm reach, armour/global-hit totals, one-second same-pair gate rejection, and independent attackers zeroing a target without removal. |
+| `/test?scenario=defence-overwhelm` | Milestone 5 accepted 2026-07-15 | 0-220 | Six isolated chambers show offensive openings, regular/recruit/veteran readiness recovery under different attack cadences, cumulative overwhelm, and rare rear desperate defence. |
 
 Unknown scenario IDs show a clear error followed by the full menu. Scenario
 pages include a **Back to visual test menu** link and start paused at tick 0;
@@ -134,7 +135,7 @@ Visual grammar:
 - armour: diagnostic body rings distinguish none, light, medium, heavy, and
   mageArmour. These rings do not imply passive damage mitigation or health.
 
-Milestone 5 human inspection should judge each chamber using the facing,
+Milestone 5 was accepted using the facing,
 weapon, reach, shield, and armour glyphs together with the metrics/individual
 inspection table. Exact equipment artwork, richer sprites, handedness
 presentation, animation, and bow/crossbow appearance remain later
@@ -215,5 +216,4 @@ traces 100%, 95%, 90%, 85%, 80%, 75%, 70%, 65%, 60%, 55%.
 The debug panel constrains its height to the viewport, scrolls vertically when
 the debug content is long, and wraps the individual table in horizontal
 scrolling so the page itself does not overflow. Richer sprites, icons, and
-specialised presentation remain deferred under DC-017. Zero-hit entities
-intentionally remain standing until the later casualty milestone.
+specialised presentation remain deferred under DC-017. The retained Milestone 5 renderer does not yet depict a downed posture. Authoritative casualty lifecycle now exists in Milestone 6; its retained visual presentation arrives with `/test?scenario=casualty-lifecycle` in Milestone 6J.

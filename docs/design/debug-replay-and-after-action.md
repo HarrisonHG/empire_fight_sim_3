@@ -35,6 +35,13 @@ Useful debug overlays include:
 - stuck states
 - target enemy/ally
 - spatial grid cells
+- character lifecycle and player presence
+- death-count duration, remaining ticks and pause owner
+- assistance/drag-group phase, helpers and destination
+- current medical claim, treatment action and progress
+- herb current/reserved values
+- traumatic-wound and limb-disability state
+- execution commitment and terminal cause
 
 ## Event Logs
 
@@ -52,6 +59,16 @@ Examples:
 - captain changed order
 - objective became contested
 - morale dropped due to nearby rout
+- individual reached zero hits or became terminal
+- death count paused, resumed, expired, or restarted for a later dying episode
+- rescue group requested, formed, promoted, cancelled, handed off, or reached safety
+- medical claim created, updated, cleared, or reassigned
+- treatment started, interrupted, completed, or reassessed
+- herb reserved, released, or consumed
+- traumatic wound triggered or treated
+- limb disability applied or cleared
+- execution started, interrupted, or completed
+- player presence entered terminal comfort, respawn egress, or waiting state
 
 ## After-Action Reports
 

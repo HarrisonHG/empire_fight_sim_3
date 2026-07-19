@@ -28,24 +28,51 @@ Low morale may cause:
 
 ## Pressure
 
-Pressure is immediate combat stress.
+Pressure is immediate personal combat stress. It is stored per individual and summarised for the unit; it is not a continuously accumulating “enemy nearby” timer.
+
+The accepted model is:
+
+```txt
+nearby active enemies and allies
+→ a static local social-threat floor
+
+incoming valid attack
+→ a pressure impulse and a short recovery pause
+
+gate-accepted damaging hit
+→ an additional pressure impulse
+
+successful weapon defence
+→ lower defender impulse than an undefended attack
+
+successful buckler/shield block
+→ progressively lower defender impulse
+
+attack successfully defended
+→ a tiny frustration impulse to the attacker, without pausing recovery
+
+no fresh attack
+→ deterministic recovery toward the current floor
+```
+
+Nearby enemies raise the floor; nearby allies reduce it. The floor changes with local numbers but does not ramp merely because time passes.
 
 Pressure is affected by:
-- incoming attacks
-- being flanked
-- being crowded
-- being pushed back
-- being unable to answer
-- being unable to maintain role distance
-- nearby enemy aggression
+- incoming attacks and accepted hits;
+- local numbers and ally support;
+- being flanked, crowded, pushed back, or unable to answer;
+- being unable to maintain role distance;
+- nearby enemy aggression and routing disruption.
+
+Experience changes recovery rate. Veterans recover faster during a staredown; everyone recovers faster when stationary and safely away from enemies.
+
+Pressure does not directly reduce block probability. Defence chance is owned by equipment, readiness, facing, action state and deterministic roll identity. Pressure instead affects behaviour, morale and whether the fighter eventually breaks.
 
 High pressure may cause:
-- slower reactions
-- worse follow-up decisions
-- defensive behaviour
-- backing up
-- mistakes
-- morale loss over time
+- slower or worse follow-up decisions;
+- defensive behaviour and backing up;
+- hesitation or mistakes;
+- morale loss and routing over time.
 
 ## Confidence
 

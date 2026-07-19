@@ -149,6 +149,12 @@ Acceptable approaches include:
 
 Pathfinding should be added only after the spatial grid foundation is stable.
 
+## Pre-Existing Failure Verification
+
+A claimed pre-existing performance failure may be excluded from the current slice only when it is reproduced on unchanged `HEAD`. Prefer recording the exact same structural values, not merely the same test name.
+
+The implementation must still report the failure clearly. A baseline reproduction proves non-regression; it does not silently make the underlying concern disappear.
+
 ## Performance Done Criteria
 
 A feature affecting simulation or rendering is not done unless:

@@ -165,6 +165,16 @@ Reject dependencies that are added merely for convenience when a small local imp
 
 No new production dependency should be added without explicit permission.
 
+## Archive and Repository-State Review
+
+Use the smallest archive that still makes the requested review trustworthy.
+
+- A changed-file archive is sufficient for a narrow isolated correction when all surrounding authorities are already known.
+- Use a full current-repository archive for milestone integration acceptance, production-order review, or any change that crosses several existing systems.
+- When a submission appears identical to the previous one, compare archive hashes before spending time re-reviewing it.
+- An archive may contain uncommitted files from an earlier slice. Identify which files are actually new rather than assuming every included file belongs to the latest request.
+- Do not infer current repository state from a Codex summary alone; inspect the supplied files.
+
 ## Manual Review Ritual
 
 After each Codex implementation step, run:

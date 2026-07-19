@@ -143,7 +143,7 @@ Current representative performance remains inside the 20 Hz tick budget. Optimis
 
 **Likely milestone**
 
-Milestone 4H or 15.
+Milestone 15.
 
 ---
 
@@ -245,7 +245,7 @@ When the live scenario is expanded beyond two opposing head-on formations.
 
 **Likely milestone**
 
-Milestone 8, 11, or 14.
+Milestone 9, 12, or 15.
 
 ---
 
@@ -268,11 +268,11 @@ Representative performance and normal scenarios have not shown overflow. The fix
 
 - A scenario reaches the interaction cap.
 - Routing-collapse scenarios are added.
-- 4H consolidation reviews inspectability.
+- Milestone 15 expands routing/debug inspectability.
 
 **Likely milestone**
 
-Milestone 4H or 15.
+Milestone 15.
 
 ---
 
@@ -300,7 +300,7 @@ No existing realistic movement speed reproduces the issue.
 
 **Likely milestone**
 
-Milestone 5, 13, or 15.
+Milestone 7, 13, or 15.
 
 ---
 
@@ -360,7 +360,7 @@ The simulation path remains within budget and debugging visibility is currently 
 
 **Likely milestone**
 
-Milestone 14 or 15.
+Milestone 15.
 
 ---
 
@@ -400,27 +400,28 @@ Milestone 15.
 
 The detailed Milestone 4 plan previously referred to captain-assisted rallying as Milestone 5 work.
 
-The updated roadmap places:
+The canonical roadmap currently places:
 
 ```text
-Milestone 5: Energy
-Milestone 7: Captains and command
+Milestone 5: Individual Combat State, Defence, and Empire Hit Rules
+Milestone 7: Energy, Exertion, and Rest
+Milestone 8: Captains, Orders, and Command Behaviour
 ```
 
 Cross-document references should be checked during consolidation.
 
 **Resolution (Milestone 4H-1, 2026-07-11)**
 
-The active Milestone 4 plan now consistently defers captain-assisted rallying
-and command bonuses to Milestone 7.
+The completed Milestone 4 plan consistently defers captain-assisted rallying
+and command bonuses to Milestone 8.
 
 **Revisit trigger**
 
-Milestone 4H documentation consolidation.
+Resolved during Milestone 4H-1 documentation consolidation.
 
 **Likely milestone**
 
-Milestone 4H.
+Resolved in Milestone 4H-1.
 
 ---
 
@@ -445,11 +446,11 @@ maximum, and recovery restoration is capped at that value.
 
 **Revisit trigger**
 
-Milestone 4H consolidation.
+Resolved during Milestone 4H-1 consolidation.
 
 **Likely milestone**
 
-Milestone 4H.
+Resolved in Milestone 4H-1.
 
 ---
 
@@ -471,11 +472,11 @@ immediately after requesting recovery restoration.
 
 **Revisit trigger**
 
-Persistent morale state is exposed in the Milestone 4H debug snapshot.
+Resolved when Milestone 4H-1 refreshed the persistent sample after cohesion restoration.
 
 **Likely milestone**
 
-Milestone 4H.
+Resolved in Milestone 4H-1.
 
 ---
 
@@ -549,11 +550,13 @@ the renderer/debug milestone rather than morale ownership or movement.
 
 **Revisit trigger**
 
-When Milestone 14 defines the renderer and debug inspection presentation.
+When Milestone 15 defines the renderer and debug inspection presentation.
 
 **Likely milestone**
 
-Milestone 14.
+Milestone 15.
+
+---
 
 ## DC-018 — Visual-suite area isolation uses anchor distance
 
@@ -588,12 +591,11 @@ create broad churn in tests and diagnostics without changing behaviour.
 
 **Revisit trigger**
 
-When Milestone 5G reviews debug/event naming after the individual pipeline is
-fully consolidated.
+Resolved during Milestone 5G-2 naming consolidation.
 
 **Likely milestone**
 
-Milestone 5G.
+Resolved in Milestone 5G-2.
 
 **Resolution (Milestone 5G-2, 2026-07-14)**
 
