@@ -50,7 +50,20 @@ import {
   createIndividualPlayerPresenceStore,
   getIndividualCharacterLifecycleState,
   getIndividualPlayerPresenceState,
+  getIndividualRespawnEgressInspection,
 } from "./individualCasualtyLifecycle";
+import {
+  advanceIndividualRespawnEgressOneTick,
+  createIndividualRespawnEgressBuffers,
+} from "./individualRespawnEgress";
+import {
+  collectIndividualCasualtyUnitSummaries,
+  createIndividualCasualtyHistoryStore,
+  createIndividualCasualtyUnitSummaryStore,
+  getIndividualCasualtyHistoryInspection as getConsolidatedCasualtyHistory,
+  getIndividualCasualtyUnitSummaries,
+  recordIndividualCasualtyHistoryOneTick,
+} from "./individualCasualtyConsolidation";
 import {
   advanceIndividualExecutionActionsOneTick,
   createIndividualExecutionActionBuffers,
@@ -218,6 +231,22 @@ import type {
 import { createWorld } from "./world";
 
 export const FIXED_TICKS_PER_SECOND = 20;
+
+/** Final Milestone 6 post-formation production authority order. */
+export const MILESTONE_6_PRODUCTION_TICK_ORDER = Object.freeze([
+  "combat",
+  "zeroHitTransition",
+  "traumaOpportunity",
+  "treatment",
+  "execution",
+  "deathCountExpiry",
+  "terminalPresenceClassification",
+  "dragPromotionAndCancellation",
+  "respawnEgress",
+  "finalEligibilityAndAggregation",
+  "pressureAndMorale",
+  "historyAndDebugSnapshot",
+] as const);
 
 export type CombatSandboxTickStage =
   | "formation"
@@ -507,6 +536,11 @@ function createCombatSandbox(
     readonly memberMaxStep: number;
   }> = [];
   const casualtyProcedureProfiles: IndividualCasualtyProcedureProfileConfig[] = [];
+  const playerPresenceProcedures: Array<{
+    readonly entityId: number;
+    readonly procedureKind: "citizen" | "barbarian";
+    readonly respawnDestination?: { readonly x: number; readonly y: number };
+  }> = [];
   const medicalProfiles: TrustedIndividualMedicalProfileConfig[] = [];
 
   let nextEntityId = 0;
@@ -543,6 +577,13 @@ function createCombatSandbox(
         entityId,
         procedureKind: unit.casualtyProcedure.procedureKind,
         deathCountPolicy: unit.casualtyProcedure.deathCountPolicy,
+      });
+      playerPresenceProcedures.push({
+        entityId,
+        procedureKind: unit.casualtyProcedure.procedureKind,
+        ...(unit.casualtyProcedure.respawnDestination === undefined ? {} : {
+          respawnDestination: unit.casualtyProcedure.respawnDestination,
+        }),
       });
       medicalProfiles.push({
         entityId,
@@ -619,7 +660,12 @@ function createCombatSandbox(
   const individualCasualtyLifecycleStore =
     createIndividualCasualtyLifecycleStore(world.entityCount);
   const individualPlayerPresenceStore =
-    createIndividualPlayerPresenceStore(world.entityCount);
+    createIndividualPlayerPresenceStore({
+      entityCount: world.entityCount,
+      worldWidth: world.bounds.width,
+      worldHeight: world.bounds.height,
+      procedures: playerPresenceProcedures,
+    });
   const trustedIndividualMedicalProfileStore =
     createTrustedIndividualMedicalProfileStore({
       entityCount: world.entityCount,
@@ -660,6 +706,11 @@ function createCombatSandbox(
   const individualMedicalClaimBuffers = createIndividualMedicalClaimBuffers();
   const individualTreatmentActionBuffers = createIndividualTreatmentActionBuffers();
   const individualExecutionActionBuffers = createIndividualExecutionActionBuffers();
+  const individualRespawnEgressBuffers = createIndividualRespawnEgressBuffers();
+  const individualCasualtyHistoryStore =
+    createIndividualCasualtyHistoryStore(world.entityCount);
+  const individualCasualtyUnitSummaryStore =
+    createIndividualCasualtyUnitSummaryStore(identityStore);
   const individualCasualtyAssistanceStore =
     createIndividualCasualtyAssistanceStore(world.entityCount);
   const individualDragHandCommitmentStore =
@@ -771,6 +822,18 @@ function createCombatSandbox(
     individualDeathCountTerminalTransitions: [],
     individualTerminalTransitions: [],
     individualTerminalPresenceTransitions: [],
+    individualRespawnEgressBuffers,
+    individualRespawnEgressResult: {
+      movementRecords: individualRespawnEgressBuffers.movementRecords,
+      arrivalRecords: individualRespawnEgressBuffers.arrivalRecords,
+      activeEgressCount: 0,
+      missingDestinationCount: 0,
+    },
+    individualCasualtyHistoryStore,
+    individualCasualtyUnitSummaryStore,
+    individualCasualtyUnitSummaries: getIndividualCasualtyUnitSummaries(
+      individualCasualtyUnitSummaryStore,
+    ),
     individualTraumaticWoundOpportunities: [],
     individualTraumaticWoundRecords: [],
     individualCombatUnitAggregationStore:
@@ -846,7 +909,11 @@ function createCombatSandbox(
     totalIndividualTerminalTransitionCount: 0,
     debugSnapshot: createEmptyCombatDebugSnapshot(),
   };
-  combatSandbox.debugSnapshot = createCombatDebugSnapshot(combatSandbox, 0);
+  collectIndividualCasualtyUnitSummaries(
+    combatSandbox.individualCasualtyUnitSummaryStore,
+    casualtySummaryDependencies(world, combatSandbox),
+  );
+  combatSandbox.debugSnapshot = createCombatDebugSnapshot(world, combatSandbox, 0);
 
   return { state: combatSandbox, rngState: deploymentRng.state };
 }
@@ -1060,6 +1127,16 @@ function validateCombatSandboxScenario(
         "Live combat units require an explicit casualty procedure profile.",
       );
     }
+    const respawnDestination = unit.casualtyProcedure.respawnDestination;
+    if (unit.casualtyProcedure.procedureKind === "citizen" &&
+      respawnDestination !== undefined) {
+      throw new RangeError(
+        "Citizen casualty procedures cannot configure a respawn destination.",
+      );
+    }
+    if (respawnDestination !== undefined) {
+      validateRespawnDestination(world, respawnDestination.x, respawnDestination.y);
+    }
     if (unit.initialCohesion !== undefined) {
       assertNonNegativeSafeInteger(unit.initialCohesion, "initialCohesion");
     }
@@ -1101,6 +1178,19 @@ function validateCombatSandboxScenario(
       }
       inspectedEntityIds.add(entityId);
     }
+  }
+}
+
+function validateRespawnDestination(
+  world: WorldState,
+  x: number,
+  y: number,
+): void {
+  if (!Number.isSafeInteger(x) || x < 0 || x >= world.bounds.width ||
+    !Number.isSafeInteger(y) || y < 0 || y >= world.bounds.height) {
+    throw new RangeError(
+      "Respawn destination coordinates must be integers inside world bounds.",
+    );
   }
 }
 
@@ -1714,6 +1804,14 @@ export function advanceCombatSandboxOneTick(
         combatSandbox.casualtyDragGroupStore,
         combatSandbox.casualtyDragMovementResult,
       );
+    combatSandbox.individualRespawnEgressResult =
+      advanceIndividualRespawnEgressOneTick(
+        world,
+        combatSandbox.individualCasualtyLifecycleStore,
+        combatSandbox.individualPlayerPresenceStore,
+        tick,
+        combatSandbox.individualRespawnEgressBuffers,
+      );
     prepareIndividualCasualtyLocalQuery(
       world,
       combatSandbox.individualCasualtyLifecycleStore,
@@ -1876,8 +1974,45 @@ export function advanceCombatSandboxOneTick(
   });
   runStage("countersAndSnapshots", () => {
     updateIndividualCombatCounters(combatSandbox, individualCombatResult);
-    combatSandbox.debugSnapshot = createCombatDebugSnapshot(combatSandbox, tick);
+    recordIndividualCasualtyHistoryOneTick(
+      combatSandbox.individualCasualtyHistoryStore,
+      tick,
+      {
+        assistance: combatSandbox.casualtyAssistanceDecisionResult,
+        claims: combatSandbox.individualMedicalClaimResult,
+        treatment: combatSandbox.individualTreatmentActionResult,
+        execution: combatSandbox.individualExecutionActionResult,
+        egress: combatSandbox.individualRespawnEgressResult,
+      },
+    );
+    collectIndividualCasualtyUnitSummaries(
+      combatSandbox.individualCasualtyUnitSummaryStore,
+      casualtySummaryDependencies(world, combatSandbox),
+    );
+    combatSandbox.debugSnapshot = createCombatDebugSnapshot(world, combatSandbox, tick);
   });
+}
+
+function casualtySummaryDependencies(
+  world: WorldState,
+  combatSandbox: CombatSandboxSimulationState,
+): Parameters<typeof collectIndividualCasualtyUnitSummaries>[1] {
+  return {
+    world,
+    identity: combatSandbox.identityStore,
+    lifecycle: combatSandbox.individualCasualtyLifecycleStore,
+    presence: combatSandbox.individualPlayerPresenceStore,
+    assistanceGroups: combatSandbox.casualtyDragGroupStore,
+    claims: combatSandbox.individualMedicalClaimStore,
+    treatments: combatSandbox.individualTreatmentActionStore,
+    trauma: combatSandbox.individualTraumaticWoundStore,
+    urgency: combatSandbox.individualMedicalUrgencyStore,
+    herbs: combatSandbox.individualGenericHerbStore,
+    history: combatSandbox.individualCasualtyHistoryStore,
+    treatmentResult: combatSandbox.individualTreatmentActionResult,
+    executionResult: combatSandbox.individualExecutionActionResult,
+    terminalTransitions: combatSandbox.individualTerminalTransitions,
+  };
 }
 
 function advanceLegacyCombatFoundationOneTick(
@@ -2105,6 +2240,7 @@ function createEmptyCombatDebugSnapshot(): LiveCombatDebugSnapshot {
 }
 
 function createCombatDebugSnapshot(
+  world: WorldState,
   combatSandbox: CombatSandboxSimulationState,
   tick: number,
 ): LiveCombatDebugSnapshot {
@@ -2125,11 +2261,14 @@ function createCombatDebugSnapshot(
     const unitSummary = combatSandbox.individualCombatUnitSummaries[unitIndex];
     const consequenceSummary =
       combatSandbox.individualCombatConsequenceSummaries[unitIndex];
+    const casualtySummary = combatSandbox.individualCasualtyUnitSummaries[unitIndex];
     if (
       unitSummary === undefined ||
       unitSummary.unitId !== unitId ||
       consequenceSummary === undefined ||
-      consequenceSummary.unitId !== unitId
+      consequenceSummary.unitId !== unitId ||
+      casualtySummary === undefined ||
+      casualtySummary.unitId !== unitId
     ) {
       throw new Error("Live combat individual summaries are out of sync.");
     }
@@ -2155,6 +2294,7 @@ function createCombatDebugSnapshot(
       gateAcceptedHits: consequenceSummary.incomingGateAcceptedHits,
       appliedHitLoss: consequenceSummary.incomingAppliedHitLoss,
       newlyZeroMembers: consequenceSummary.newlyZeroMembers,
+      casualty: casualtySummary,
     });
   }
 
@@ -2216,7 +2356,7 @@ function createCombatDebugSnapshot(
     totalTerminalTransitionCount:
       combatSandbox.totalIndividualTerminalTransitionCount,
     units,
-    inspectedIndividuals: collectInspectedIndividualSnapshots(combatSandbox),
+    inspectedIndividuals: collectInspectedIndividualSnapshots(world, combatSandbox),
     individualCombatVisuals: collectIndividualCombatVisualStates(combatSandbox),
     inspectedCombatVisualEvents: collectInspectedCombatVisualEvents(
       combatSandbox,
@@ -2226,6 +2366,7 @@ function createCombatDebugSnapshot(
 }
 
 function collectInspectedIndividualSnapshots(
+  world: WorldState,
   combatSandbox: CombatSandboxSimulationState,
 ): readonly LiveCombatDebugIndividualSnapshot[] {
   const out = combatSandbox.inspectedIndividuals;
@@ -2270,6 +2411,14 @@ function collectInspectedIndividualSnapshots(
       combatSandbox.individualDeathCountStore,
       entityId,
     );
+    const consolidatedHistory = getConsolidatedCasualtyHistory(
+      combatSandbox.individualCasualtyHistoryStore,
+      combatSandbox.individualDeathCountStore,
+      combatSandbox.individualTraumaticWoundStore,
+      combatSandbox.individualExecutionActionStore,
+      combatSandbox.individualPlayerPresenceStore,
+      entityId,
+    );
     const medicalProfile = getTrustedIndividualMedicalProfile(
       combatSandbox.trustedIndividualMedicalProfileStore,
       entityId,
@@ -2300,6 +2449,23 @@ function collectInspectedIndividualSnapshots(
       combatSandbox.individualExecutionActionStore,
       entityId,
     );
+    const respawnEgress = getIndividualRespawnEgressInspection(
+      combatSandbox.individualPlayerPresenceStore,
+      entityId,
+    );
+    const respawnRemainingDistanceSquared =
+      respawnEgress.destinationState === "configured"
+        ? (respawnEgress.destinationX - world.positionsX[entityId]!) ** 2 +
+          (respawnEgress.destinationY - world.positionsY[entityId]!) ** 2
+        : -1;
+    const respawnMovedThisTick =
+      combatSandbox.individualRespawnEgressResult.movementRecords.some(
+        (record) => record.entityId === entityId,
+      );
+    const respawnArrivedThisTick =
+      combatSandbox.individualRespawnEgressResult.arrivalRecords.some(
+        (record) => record.entityId === entityId,
+      );
 
     out.push({
       entityId,
@@ -2331,6 +2497,54 @@ function collectInspectedIndividualSnapshots(
       terminalY: casualtyHistory.terminalY,
       comfortStartedCount: casualtyHistory.comfortStartedCount,
       comfortCompletedTick: casualtyHistory.comfortCompletedTick,
+      respawnDestinationState: respawnEgress.destinationState,
+      respawnDestinationX: respawnEgress.destinationX,
+      respawnDestinationY: respawnEgress.destinationY,
+      respawnEgressState: respawnEgress.egressState,
+      respawnEgressStartedTick: respawnEgress.egressStartedTick,
+      respawnEgressRemainingDistanceSquared: respawnRemainingDistanceSquared,
+      waitingAtRespawnArrivalTick: respawnEgress.waitingArrivalTick,
+      waitingAtRespawnArrivalX: respawnEgress.waitingArrivalX,
+      waitingAtRespawnArrivalY: respawnEgress.waitingArrivalY,
+      respawnEgressMovementRecordCount: respawnEgress.movementRecordCount,
+      respawnEgressMovedThisTick: respawnMovedThisTick,
+      respawnEgressArrivedThisTick: respawnArrivedThisTick,
+      wasDragged: consolidatedHistory.wasDragged,
+      firstDragTick: consolidatedHistory.firstDragTick,
+      dragPatientEpisodeCount: consolidatedHistory.dragPatientEpisodeCount,
+      dragHelperParticipationCount:
+        consolidatedHistory.dragHelperParticipationCount,
+      medicalHandoffHistoryCount: consolidatedHistory.handoffCount,
+      treatmentStartedHistoryCount:
+        consolidatedHistory.treatmentStartedCount,
+      treatmentCompletedHistoryCount:
+        consolidatedHistory.treatmentCompletedCount,
+      treatmentInterruptedHistoryCount:
+        consolidatedHistory.treatmentInterruptedCount,
+      treatmentPerformedStartedHistoryCount:
+        consolidatedHistory.treatmentPerformedStartedCount,
+      treatmentPerformedCompletedHistoryCount:
+        consolidatedHistory.treatmentPerformedCompletedCount,
+      treatmentPerformedInterruptedHistoryCount:
+        consolidatedHistory.treatmentPerformedInterruptedCount,
+      hitRestorationHistoryCount: consolidatedHistory.hitRestorationCount,
+      traumaticWoundTreatmentHistoryCount:
+        consolidatedHistory.traumaticWoundTreatmentCount,
+      limbTreatmentHistoryCount: consolidatedHistory.limbTreatmentCount,
+      executionStartedHistoryCount:
+        consolidatedHistory.executionStartedCount,
+      executionCompletedHistoryCount:
+        consolidatedHistory.executionCompletedCount,
+      executionInterruptedHistoryCount:
+        consolidatedHistory.executionInterruptedCount,
+      executionTargetedHistoryCount:
+        consolidatedHistory.executionTargetedCount,
+      executionTargetInterruptionHistoryCount:
+        consolidatedHistory.executionTargetInterruptionCount,
+      terminalizedByExecutionHistoryCount:
+        consolidatedHistory.terminalizedByExecutionCount,
+      genericHerbsConsumedHistoryCount:
+        consolidatedHistory.genericHerbsConsumedCount,
       hasChirurgeon: medicalProfile.hasChirurgeon,
       hasPhysick: medicalProfile.hasPhysick,
       currentGenericHerbs: herbs.current,

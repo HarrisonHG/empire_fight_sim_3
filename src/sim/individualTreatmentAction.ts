@@ -302,6 +302,7 @@ export function interruptIndividualTreatmentForExecutedPatient(
     "patientTerminalExecution",
     buffers.interruptedRecords,
     buffers.reassessmentRequests,
+    false,
   );
   sortRecords(buffers);
   return true;
@@ -557,6 +558,7 @@ function interruptAction(
   reason: IndividualTreatmentInterruptionReason,
   out: IndividualTreatmentInterruptedRecord[],
   reassessmentOut: IndividualTreatmentReassessmentRequest[],
+  requestReassessment = true,
 ): void {
   if (action.kind === "chirurgeonDying") {
     if (getIndividualCharacterLifecycleState(lifecycle, action.patientEntityId) === "dying") {
@@ -578,13 +580,15 @@ function interruptAction(
   out.push({ ...inspect(action), tick, reason, progressTicksLost: action.progressTicks,
     releasedGenericHerbs: action.reservedGenericHerbs });
   store.actionBoundaryTickByHealer[action.healerEntityId] = tick;
-  reassessmentOut.push({
-    actionId: action.actionId,
-    healerEntityId: action.healerEntityId,
-    previousPatientEntityId: action.patientEntityId,
-    tick,
-    boundary: "interrupted",
-  });
+  if (requestReassessment) {
+    reassessmentOut.push({
+      actionId: action.actionId,
+      healerEntityId: action.healerEntityId,
+      previousPatientEntityId: action.patientEntityId,
+      tick,
+      boundary: "interrupted",
+    });
+  }
   removeAction(store, index);
 }
 

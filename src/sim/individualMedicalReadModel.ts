@@ -618,6 +618,15 @@ export function getIndividualMedicalUrgencyInspection(
   };
 }
 
+export function isIndividualTraumaWithdrawalActive(
+  store: IndividualMedicalUrgencyStore,
+  entityId: number,
+): boolean {
+  const internal = requireUrgencyStore(store, store.entityCount);
+  assertEntityId(entityId, internal.entityCount);
+  return internal.withdrawingByEntity[entityId] !== 0;
+}
+
 export function calculateTraumaWithdrawalCandidateGoals(
   patientX: number,
   patientY: number,
@@ -693,15 +702,6 @@ export function advanceIndividualTraumaWithdrawalMovementOneTick(
     )) movedCount += 1;
   }
   return movedCount;
-}
-
-export function isIndividualTraumaWithdrawalActive(
-  store: IndividualMedicalUrgencyStore,
-  entityId: number,
-): boolean {
-  const internal = requireUrgencyStore(store, store.entityCount);
-  assertEntityId(entityId, internal.entityCount);
-  return internal.withdrawingByEntity[entityId] !== 0;
 }
 
 export function getIndividualTraumaWithdrawalGoal(

@@ -2,7 +2,7 @@
 
 Status: in progress.
 
-Milestone 5, including its defence-readiness and pressure/visual-regression spike, was accepted on 2026-07-15. Milestone 6 is implemented through 6H-2A-B and remains unaccepted pending 6H-2B, 6I, 6J, full regression, performance consolidation, and human visual inspection.
+Milestone 5, including its defence-readiness and pressure/visual-regression spike, was accepted on 2026-07-15. Milestone 6 is implemented through 6I-1; Milestone 6H is complete. Milestone 6 remains unaccepted pending 6I-2, 6J, final technical acceptance, and human visual inspection.
 
 ## Progress
 
@@ -23,8 +23,9 @@ Milestone 5, including its defence-readiness and pressure/visual-regression spik
 | 6H-1B | implemented | Execution commitment, defence, eligibility, and treatment cleanup. |
 | 6H-2A | implemented | Terminal citizen comfort and terminalComforted transition. |
 | 6H-2A-B | implemented | Rescue continuity and medical-query corrections for terminal comfort. |
-| 6H-2B | remaining | Barbarian respawn-egress movement and waiting-at-respawn arrival. |
-| 6I | remaining | Consolidation, history, integration, soak and performance coverage. |
+| 6H-2B | implemented | Explicit barbarian respawn destinations, sparse deterministic egress, and waiting-at-respawn arrival. |
+| 6I-1 | implemented | Production consolidation, end-of-tick summaries, bounded history, and egress active-set compaction. |
+| 6I-2 | remaining | Representative performance, soak testing, and final technical acceptance. |
 | 6J | remaining | Retained casualty visual suite and human acceptance. |
 
 This progress table is the status authority for Milestone 6. Individual slice sections remain the behavioural specification.
@@ -1456,7 +1457,7 @@ No changes to terminal-comfort treatment semantics, claims, urgency ordering or 
 
 ---
 
-## 6H-2B — Barbarian egress procedure hooks
+## 6H-2B — Barbarian egress procedure hooks (implemented)
 
 ### Purpose
 
@@ -1478,13 +1479,17 @@ Advance explicitly configured barbarian terminal presences toward respawn stagin
 
 No Sentinel Gate movement, citizen battlefield exit, waiting-group batching, respawn re-entry, worker, renderer or UI integration.
 
+### Implementation note
+
+Scenario casualty procedures may configure an in-bounds respawn destination only for barbarians. The destination, egress start, bounded movement history and exactly-once waiting arrival remain owned by the entity-indexed player-presence authority. Egress begins after the classification tick through a dedicated fixed-tick movement rule; a missing destination remains stationary and inspectable. The terminal lifecycle, cause and zero-hit state are not changed. All batching, lifecycle reset, restored hits, battlefield re-entry, reinforcement policy, late-battle cessation and Sentinel Gate movement remain deferred to Milestone 9.
+
 ---
 
-## 6I — Production integration, unit consequences, history, and performance
+## 6I-1 — Production consolidation, summaries and history (implemented)
 
 ### Purpose
 
-Consolidate casualty systems into the authority-live simulation without adding new medical mechanics.
+Consolidate casualty systems into the authority-live simulation without adding new medical mechanics. This slice owns final production summaries, bounded history, and exact tick-order evidence only.
 
 ### Deliver
 
@@ -1493,8 +1498,6 @@ Consolidate casualty systems into the authority-live simulation without adding n
 - no duplicate zero-hit morale shock;
 - casualty-history snapshots;
 - bounded debug inspection fields;
-- representative and stress performance coverage;
-- one-hour deterministic timer/treatment soak test;
 - documentation of deferred terrain/perception/content integrations;
 - consolidated execution-start/completion/interruption counters;
 - claimed/approaching/treating medical-support summaries;
@@ -1514,19 +1517,46 @@ terminal members
 downed player presences
 active drag helpers
 patients being dragged
+claimed medical support
+approaching medical support
 patients under treatment
 active traumatic wounds
 trauma-withdrawal characters
 treatment completions this tick
-trauma treatments this tick
-limb treatments this tick
+Chirurgeon dying treatments this tick
+living missing-hit treatments this tick
+traumatic-wound treatments this tick
+disabled-arm treatments this tick
+disabled-leg treatments this tick
 terminal transitions this tick
+execution starts this tick
+execution completions this tick
+execution interruptions this tick
 terminal citizens awaiting comfort
 terminal comfort actions
 terminal comforted citizens
 respawn-egress presences
 waiting-at-respawn presences
+current generic herbs
+reserved generic herbs
+generic herbs consumed this tick
+bounded generic-herbs-consumed history
 ```
+
+### Bounded casualty history
+
+The final per-entity inspection consolidates authority-owned facts for:
+
+- first and latest zero-hit tick and dying-episode count;
+- terminal tick, position and cause;
+- drag participation, first drag tick and handoff count;
+- treatment starts, completions and interruptions as patient and healer;
+- global-hit restorations, traumatic-wound episodes and treatments, and limb treatments;
+- execution involvement;
+- terminal-comfort start and completion;
+- respawn-egress start and waiting-at-respawn arrival tick and position.
+
+The consolidation store contains bounded counters and first-transition facts only. Live lifecycle, trauma, execution, comfort and egress state remains owned by its existing authority and stays inspectable after terminalisation or waiting-at-respawn arrival.
 
 ### Morale/consequence policy
 
@@ -1536,6 +1566,45 @@ waiting-at-respawn presences
 - successful treatment changes combat-capable counts naturally;
 - no magical morale bonus is granted merely because treatment completed;
 - helper formation departure affects formation through real participation/movement, not an extra arbitrary cohesion penalty.
+
+### Final production order
+
+The post-formation production authority order is:
+
+```text
+combat
+zero-hit transition
+trauma opportunity
+treatment
+execution
+death-count expiry
+terminal-presence classification
+drag promotion/cancellation
+respawn egress
+final eligibility and aggregation
+pressure and morale
+bounded history and debug snapshot
+```
+
+State counts use final authoritative end-of-tick stores. Event counts consume only the reusable records emitted on the current tick. History retains bounded entity-indexed counters and first/latest transition facts while continuing to source lifecycle, trauma, execution, comfort and egress facts from their existing authorities.
+
+The respawn-egress active set is canonicalized once per classification batch and compacted once after movement. Same-tick arrivals do not perform repeated array splices or suffix index repair.
+
+---
+
+## 6I-2 — Representative performance, soak testing and final technical acceptance
+
+### Purpose
+
+Complete Milestone 6 technical acceptance using representative production performance, deterministic soak coverage, and final deferred-integration documentation. Do not add new casualty mechanics.
+
+### Deliver
+
+- representative and stress performance coverage;
+- one-hour deterministic timer/treatment soak test;
+- final allocation and output-reuse observations;
+- documentation of deferred terrain, perception and richer content integration;
+- final technical acceptance report before the retained 6J visual suite.
 
 ### Performance cases
 

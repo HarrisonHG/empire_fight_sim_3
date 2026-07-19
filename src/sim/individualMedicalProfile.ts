@@ -203,6 +203,24 @@ function assertGenericHerbCount(value: number, name: string): void {
   }
 }
 
+export function getIndividualCurrentGenericHerbs(
+  store: IndividualGenericHerbStore,
+  entityId: number,
+): number {
+  const internal = store as InternalIndividualGenericHerbStore;
+  assertEntityId(entityId, internal.entityCount);
+  return internal.currentByEntity[entityId]!;
+}
+
+export function getIndividualReservedGenericHerbs(
+  store: IndividualGenericHerbStore,
+  entityId: number,
+): number {
+  const internal = store as InternalIndividualGenericHerbStore;
+  assertEntityId(entityId, internal.entityCount);
+  return internal.reservedByEntity[entityId]!;
+}
+
 function requireMatchingTreatmentReservation(
   store: IndividualGenericHerbStore,
   entityId: number,

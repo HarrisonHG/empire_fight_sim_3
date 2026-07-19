@@ -104,6 +104,15 @@ export function getIndividualTraumaticWoundInspection(
   };
 }
 
+export function hasActiveIndividualTraumaticWound(
+  store: IndividualTraumaticWoundStore,
+  entityId: number,
+): boolean {
+  const internal = asInternal(store);
+  assertEntityId(entityId, internal.entityCount, "Traumatic wound");
+  return internal.stateByEntity[entityId] !== 0;
+}
+
 /** Future successful treatment may clear the condition through this boundary. */
 export function clearIndividualTraumaticWound(
   store: IndividualTraumaticWoundStore,

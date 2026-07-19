@@ -56,6 +56,7 @@ import {
   type IndividualTreatmentInterruptionReason,
 } from "../../src/sim/individualTreatmentAction";
 import { advanceSimulationOneTick, createSimulation } from "../../src/sim/simulation";
+import { getIndividualCasualtyHistoryInspection as getConsolidatedCasualtyHistory } from "../../src/sim/individualCasualtyConsolidation";
 import { submitIndividualExecutionIntent } from "../../src/sim/individualExecutionAction";
 import type { IndividualMeleeAttackAttemptRecord } from "../../src/sim/individualCombatAction";
 import type { IndividualLandedHitGateDecisionRecord } from "../../src/sim/individualLandedHitGate";
@@ -104,6 +105,8 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
       requiredProgressTicks: 2_400,
       reservedGenericHerbs: 0,
     });
+    expect(combat.individualCasualtyUnitSummaries[0]!.terminalAwaitingComfortCount).toBe(1);
+    expect(combat.individualCasualtyUnitSummaries[1]!.activeTerminalComfortActionCount).toBe(1);
     expect(getIndividualCasualtyAssistanceInspection(
       combat.individualCasualtyAssistanceStore, 0,
     ).state).toBe("atTreatmentPosition");
@@ -143,6 +146,14 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
     expect(getIndividualPlayerPresenceState(
       combat.individualPlayerPresenceStore, 0,
     )).toBe("terminalComforted");
+    expect(combat.individualCasualtyUnitSummaries[0]).toMatchObject({
+      terminalCharacterCount: 1,
+      terminalAwaitingComfortCount: 0,
+      terminalComfortedCount: 1,
+      treatmentCompletionCount: 1,
+      terminalComfortCompletionCount: 1,
+    });
+    expect(combat.individualCasualtyUnitSummaries[1]!.activeTerminalComfortActionCount).toBe(0);
     expect(() => transitionIndividualTerminalAwaitingComfortToComforted(
       combat.individualCasualtyLifecycleStore,
       combat.individualPlayerPresenceStore,
@@ -300,6 +311,7 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
         releasedGenericHerbs: 0,
       }),
     ]);
+    expect(combat.individualTreatmentActionResult.reassessmentRequests).toEqual([]);
     expect(getActiveIndividualTreatmentActionCount(
       combat.individualTreatmentActionStore,
     )).toBe(0);
@@ -312,6 +324,8 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
       0,
     ).pauseSource).toBeUndefined();
     expect(() => advanceSimulationOneTick(simulation)).not.toThrow();
+    expect(combat.individualTreatmentActionResult.interruptedRecords).toEqual([]);
+    expect(combat.individualTreatmentActionResult.reassessmentRequests).toEqual([]);
   });
 
   it("lets a Chirurgeon-only character claim and complete dying treatment without herbs or a Physick follow-up claim", () => {
@@ -514,6 +528,26 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
     expect(getIndividualCharacterLifecycleState(combat.individualCasualtyLifecycleStore, 0)).toBe("active");
     expect(getIndividualPlayerPresenceState(combat.individualPlayerPresenceStore, 0)).toBe("activePresence");
     expect(getIndividualDeathCountInspection(combat.individualDeathCountStore, 0).paused).toBe(false);
+    expect(combat.individualCasualtyUnitSummaries[0]).toMatchObject({
+      activeCharacterCount: 1,
+      dyingCharacterCount: 0,
+      treatmentCompletionCount: 1,
+      chirurgeonDyingCompletionCount: 1,
+      terminalTransitionCount: 0,
+    });
+    expect(getConsolidatedCasualtyHistory(
+      combat.individualCasualtyHistoryStore,
+      combat.individualDeathCountStore,
+      combat.individualTraumaticWoundStore,
+      combat.individualExecutionActionStore,
+      combat.individualPlayerPresenceStore,
+      0,
+    )).toMatchObject({
+      dyingTransitionCount: 1,
+      treatmentStartedCount: 1,
+      treatmentCompletedCount: 1,
+      hitRestorationCount: 1,
+    });
     expect(getIndividualTreatmentActionInspection(combat.individualTreatmentActionStore, 1)).toBeUndefined();
     expect(getIndividualMedicalClaimInspection(combat.individualMedicalClaimStore, 1).patientEntityId).toBe(-1);
     expect(getIndividualMedicalClaimInspection(combat.individualMedicalClaimStore, 0).physickEntityId).toBe(-1);
@@ -542,6 +576,24 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
     expect(getIndividualCasualtyHistoryInspection(combat.individualDeathCountStore, 0))
       .toMatchObject({ dyingTransitionCount: 2, latestZeroHitTick: laterTick });
     advanceSimulationOneTick(simulation);
+    expect(combat.individualCasualtyUnitSummaries[0]).toMatchObject({
+      activeCharacterCount: 0,
+      dyingCharacterCount: 1,
+      downedPresenceCount: 1,
+      treatmentCompletionCount: 0,
+    });
+    expect(getConsolidatedCasualtyHistory(
+      combat.individualCasualtyHistoryStore,
+      combat.individualDeathCountStore,
+      combat.individualTraumaticWoundStore,
+      combat.individualExecutionActionStore,
+      combat.individualPlayerPresenceStore,
+      0,
+    )).toMatchObject({
+      dyingTransitionCount: 2,
+      treatmentCompletedCount: 1,
+      hitRestorationCount: 1,
+    });
     expect(
       combat.casualtyAssistanceDecisionResult.groupStartedRecords.some(
         (record) => record.patientEntityId === 0,
@@ -584,6 +636,10 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
     expect(getIndividualMedicalClaimInspection(
       combat.individualMedicalClaimStore, 3,
     ).patientEntityId).toBe(0);
+    expect(combat.individualCasualtyUnitSummaries[1]).toMatchObject({
+      claimedMedicalSupportCount: 1,
+      approachingMedicalSupportCount: 1,
+    });
 
     advanceSimulationOneTick(simulation);
     expect(simulation.world.positionsX[3]).toBeLessThan(healerXAtClaim);
@@ -606,6 +662,11 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
       expect(simulation.world.positionsY[0]).toBe(patientY);
     }
     expect(treatmentStarted).toBe(true);
+    expect(combat.individualCasualtyUnitSummaries[0]!.patientsUnderTreatmentCount).toBe(1);
+    expect(combat.individualCasualtyUnitSummaries[1]).toMatchObject({
+      claimedMedicalSupportCount: 1,
+      approachingMedicalSupportCount: 0,
+    });
 
     for (let count = 0; count <= CHIRURGEON_DYING_TREATMENT_PROGRESS_TICKS; count += 1) {
       if (getIndividualCharacterLifecycleState(
@@ -981,6 +1042,10 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
     expect(isIndividualOrdinaryParticipationEligible(
       combat.individualOrdinaryParticipationSnapshot, 0,
     )).toBe(false);
+    expect(combat.individualCasualtyUnitSummaries[0]).toMatchObject({
+      activeTraumaticWoundCount: 1,
+      traumaWithdrawalCount: 1,
+    });
   });
 
   it("clamps canonical restoration and rejects terminal restoration", () => {

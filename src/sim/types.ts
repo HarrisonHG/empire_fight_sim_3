@@ -95,6 +95,15 @@ import type {
   IndividualExecutionActionStore,
 } from "./individualExecutionAction";
 import type {
+  IndividualRespawnEgressBuffers,
+  IndividualRespawnEgressResult,
+} from "./individualRespawnEgress";
+import type {
+  IndividualCasualtyHistoryStore,
+  IndividualCasualtyUnitSummary,
+  IndividualCasualtyUnitSummaryStore,
+} from "./individualCasualtyConsolidation";
+import type {
   DefenceCoverageTier,
   IndividualDefenceHandAvailabilitySource,
   IndividualMeleeDefenceResolution,
@@ -177,6 +186,10 @@ export interface CombatSandboxUnitScenario {
   readonly casualtyProcedure: {
     readonly procedureKind: CasualtyProcedureKind;
     readonly deathCountPolicy: DeathCountPolicy;
+    readonly respawnDestination?: {
+      readonly x: number;
+      readonly y: number;
+    };
   };
   readonly medicalProfile?: {
     readonly hasChirurgeon: boolean;
@@ -326,6 +339,7 @@ export interface LiveCombatDebugUnitSnapshot {
   readonly gateAcceptedHits: number;
   readonly appliedHitLoss: number;
   readonly newlyZeroMembers: number;
+  readonly casualty?: IndividualCasualtyUnitSummary;
 }
 
 export type LiveCombatDebugAttackOutcome =
@@ -369,6 +383,39 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly terminalY?: number;
   readonly comfortStartedCount?: number;
   readonly comfortCompletedTick?: number;
+  readonly respawnDestinationState?: import("./individualCasualtyLifecycle").IndividualRespawnDestinationState;
+  readonly respawnDestinationX?: number;
+  readonly respawnDestinationY?: number;
+  readonly respawnEgressState?: import("./individualCasualtyLifecycle").IndividualRespawnEgressState;
+  readonly respawnEgressStartedTick?: number;
+  readonly respawnEgressRemainingDistanceSquared?: number;
+  readonly waitingAtRespawnArrivalTick?: number;
+  readonly waitingAtRespawnArrivalX?: number;
+  readonly waitingAtRespawnArrivalY?: number;
+  readonly respawnEgressMovementRecordCount?: number;
+  readonly respawnEgressMovedThisTick?: boolean;
+  readonly respawnEgressArrivedThisTick?: boolean;
+  readonly wasDragged?: boolean;
+  readonly firstDragTick?: number;
+  readonly dragPatientEpisodeCount?: number;
+  readonly dragHelperParticipationCount?: number;
+  readonly medicalHandoffHistoryCount?: number;
+  readonly treatmentStartedHistoryCount?: number;
+  readonly treatmentCompletedHistoryCount?: number;
+  readonly treatmentInterruptedHistoryCount?: number;
+  readonly treatmentPerformedStartedHistoryCount?: number;
+  readonly treatmentPerformedCompletedHistoryCount?: number;
+  readonly treatmentPerformedInterruptedHistoryCount?: number;
+  readonly hitRestorationHistoryCount?: number;
+  readonly traumaticWoundTreatmentHistoryCount?: number;
+  readonly limbTreatmentHistoryCount?: number;
+  readonly executionStartedHistoryCount?: number;
+  readonly executionCompletedHistoryCount?: number;
+  readonly executionInterruptedHistoryCount?: number;
+  readonly executionTargetedHistoryCount?: number;
+  readonly executionTargetInterruptionHistoryCount?: number;
+  readonly terminalizedByExecutionHistoryCount?: number;
+  readonly genericHerbsConsumedHistoryCount?: number;
   readonly hasChirurgeon?: boolean;
   readonly hasPhysick?: boolean;
   readonly currentGenericHerbs?: number;
@@ -577,6 +624,11 @@ export interface CombatSandboxSimulationState {
   readonly individualDeathCountTerminalTransitions: IndividualDeathCountTerminalTransitionRecord[];
   readonly individualTerminalTransitions: IndividualTerminalTransitionRecord[];
   readonly individualTerminalPresenceTransitions: IndividualTerminalPresenceTransitionRecord[];
+  readonly individualRespawnEgressBuffers: IndividualRespawnEgressBuffers;
+  individualRespawnEgressResult: IndividualRespawnEgressResult;
+  readonly individualCasualtyHistoryStore: IndividualCasualtyHistoryStore;
+  readonly individualCasualtyUnitSummaryStore: IndividualCasualtyUnitSummaryStore;
+  readonly individualCasualtyUnitSummaries: readonly IndividualCasualtyUnitSummary[];
   readonly individualTraumaticWoundOpportunities: IndividualTraumaticWoundOpportunity[];
   readonly individualTraumaticWoundRecords: IndividualTraumaticWoundAppliedRecord[];
   readonly individualCombatUnitAggregationStore: IndividualCombatUnitAggregationStore;

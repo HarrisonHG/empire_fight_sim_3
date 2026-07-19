@@ -12,6 +12,9 @@ import {
   initializeIndividualDeathCountsFromZeroHitTransitions,
 } from "../../src/sim/individualDeathCount";
 import {
+  getIndividualCasualtyHistoryInspection as getConsolidatedCasualtyHistory,
+} from "../../src/sim/individualCasualtyConsolidation";
+import {
   advanceIndividualExecutionActionsOneTick,
   createIndividualExecutionActionBuffers,
   getActiveIndividualExecutionActionCount,
@@ -230,6 +233,35 @@ describe("Milestone 6H-1 execution", () => {
       expectedReason satisfies IndividualExecutionInterruptionReason,
     );
     expect(result.activeActionCount).toBe(0);
+  });
+
+  it("publishes a production execution interruption in the final tick summary", () => {
+    const simulation = createStartedExecution();
+    const combat = requireCombat(simulation);
+    simulation.world.positionsX[1] = 200;
+
+    advanceSimulationOneTick(simulation);
+
+    expect(combat.individualExecutionActionResult.interruptedRecords[0]).toMatchObject({
+      executorEntityId: 1,
+      targetEntityId: 0,
+      reason: "rangeLost",
+      tick: 1,
+    });
+    expect(combat.individualCasualtyUnitSummaries[1]!.executionInterruptedCount).toBe(1);
+    expect(combat.individualCasualtyUnitSummaries[0]!.dyingCharacterCount).toBe(1);
+    expect(getConsolidatedCasualtyHistory(
+      combat.individualCasualtyHistoryStore,
+      combat.individualDeathCountStore,
+      combat.individualTraumaticWoundStore,
+      combat.individualExecutionActionStore,
+      combat.individualPlayerPresenceStore,
+      0,
+    )).toMatchObject({
+      executionTargetedCount: 1,
+      executionTargetInterruptionCount: 1,
+      terminalizedByExecutionCount: 0,
+    });
   });
 
   it.each(["parried", "blocked"])("does not interrupt for a %s attack", () => {

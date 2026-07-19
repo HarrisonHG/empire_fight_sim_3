@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { getIndividualCasualtyHistoryInspection as getConsolidatedCasualtyHistory } from "../../src/sim/individualCasualtyConsolidation";
 
 import {
   createCasualtyAssistanceDecisionBuffers,
@@ -919,6 +920,23 @@ describe("individual casualty assistance and sparse drag groups", () => {
       casualtyAssistanceState: "reservedPatient",
       casualtyDragGroupId: 0,
     });
+    expect(getConsolidatedCasualtyHistory(
+      combat.individualCasualtyHistoryStore,
+      combat.individualDeathCountStore,
+      combat.individualTraumaticWoundStore,
+      combat.individualExecutionActionStore,
+      combat.individualPlayerPresenceStore,
+      0,
+    )).toMatchObject({ wasDragged: true, firstDragTick: 0, dragPatientEpisodeCount: 1 });
+    expect(getConsolidatedCasualtyHistory(
+      combat.individualCasualtyHistoryStore,
+      combat.individualDeathCountStore,
+      combat.individualTraumaticWoundStore,
+      combat.individualExecutionActionStore,
+      combat.individualPlayerPresenceStore,
+      1,
+    ).dragHelperParticipationCount).toBe(1);
+    expect(combat.individualCasualtyUnitSummaries[1]!.activeDragHelperCount).toBe(1);
   });
 
   it("skips the second prepared-grid rebuild on ordinary ticks without drag-eligible patients", () => {

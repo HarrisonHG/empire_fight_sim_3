@@ -35,10 +35,14 @@ import { getPersistentUnitMorale } from "../../src/sim/persistentMorale";
 import { getIndividualCurrentGlobalHits } from "../../src/sim/individualGlobalHits";
 import { getSelectedTargetEntityId } from "../../src/sim/individualMeleeTargetSelection";
 import { submitIndividualExecutionIntent } from "../../src/sim/individualExecutionAction";
+import { isIndividualCombatTargetEligible } from "../../src/sim/individualCombatEligibility";
+import { getIndividualMedicalClaimInspection } from "../../src/sim/individualMedicalClaims";
+import { getIndividualCasualtyAssistanceInspection } from "../../src/sim/individualCasualtyAssistance";
 import { isIndividualOrdinaryParticipationEligible } from "../../src/sim/individualOrdinaryParticipation";
 import {
   advanceSimulationOneTick,
   createSimulation,
+  MILESTONE_6_PRODUCTION_TICK_ORDER,
 } from "../../src/sim/simulation";
 import type {
   CombatSandboxSimulationState,
@@ -48,6 +52,22 @@ import type {
 } from "../../src/sim/types";
 
 describe("production casualty lifecycle integration", () => {
+  it("publishes the final Milestone 6 production authority order", () => {
+    expect(MILESTONE_6_PRODUCTION_TICK_ORDER).toEqual([
+      "combat",
+      "zeroHitTransition",
+      "traumaOpportunity",
+      "treatment",
+      "execution",
+      "deathCountExpiry",
+      "terminalPresenceClassification",
+      "dragPromotionAndCancellation",
+      "respawnEgress",
+      "finalEligibilityAndAggregation",
+      "pressureAndMorale",
+      "historyAndDebugSnapshot",
+    ]);
+  });
   it("runs explicit execution after combat for exactly 100 later ticks and classifies terminal presence", () => {
     const simulation = createSimulation(productionTransitionScenario());
     const combat = requireCombat(simulation);
@@ -62,9 +82,11 @@ describe("production casualty lifecycle integration", () => {
     simulation.world.positionsX[1] = simulation.world.positionsX[2]! - 4;
     simulation.world.positionsY[1] = simulation.world.positionsY[2]!;
     const startTick = simulation.tick;
+    setIndividualPressure(combat.formationStore, 1, 100);
     submitIndividualExecutionIntent(combat.individualExecutionActionStore, { executorEntityId: 1, targetEntityId: 2, requestedTick: startTick });
     advanceSimulationOneTick(simulation);
     expect(combat.individualExecutionActionResult.startedRecords[0]).toMatchObject({ startedTick: startTick, progressTicks: 0 });
+    expect(combat.individualCasualtyUnitSummaries[0]!.executionStartedCount).toBe(1);
     const committedX = simulation.world.positionsX[1];
     const committedY = simulation.world.positionsY[1];
     advanceSimulationOneTick(simulation);
@@ -77,6 +99,19 @@ describe("production casualty lifecycle integration", () => {
     expect(combat.individualCombatPipelineBuffers.attackAttempts.some(
       (record) => record.attackerEntityId === 1,
     )).toBe(false);
+    expect(isIndividualCombatTargetEligible(
+      combat.individualCombatEligibilitySnapshot, 1,
+    )).toBe(true);
+    expect(combat.individualDefenceHandAvailabilitySource.getFreeHands(1)).toBe(2);
+    expect(getIndividualCombatPressureInspection(
+      combat.formationStore, combat.pressureStore, 1,
+    ).currentPressure).toBeGreaterThan(0);
+    expect(getIndividualMedicalClaimInspection(
+      combat.individualMedicalClaimStore, 1,
+    ).patientEntityId).toBe(-1);
+    expect(getIndividualCasualtyAssistanceInspection(
+      combat.individualCasualtyAssistanceStore, 1,
+    )).toMatchObject({ state: "none", dragGroupId: -1 });
     expect(simulation.world.positionsX[1]).toBe(committedX);
     expect(simulation.world.positionsY[1]).toBe(committedY);
     for (let progress = 2; progress < 100; progress += 1) advanceSimulationOneTick(simulation);
@@ -85,6 +120,17 @@ describe("production casualty lifecycle integration", () => {
     expect(combat.individualExecutionActionResult.completedRecords[0]).toMatchObject({ targetEntityId: 2, tick: startTick + 100, cause: "execution" });
     expect(getIndividualCharacterLifecycleState(combat.individualCasualtyLifecycleStore, 2)).toBe("terminal");
     expect(getIndividualPlayerPresenceState(combat.individualPlayerPresenceStore, 2)).toBe("respawnEgress");
+    expect(combat.individualCasualtyUnitSummaries[0]!.executionCompletedCount).toBe(1);
+    expect(combat.individualCasualtyUnitSummaries[1]).toMatchObject({
+      terminalCharacterCount: 1,
+      terminalTransitionCount: 1,
+      respawnEgressCount: 1,
+    });
+    expect(combat.individualCombatUnitSummaries[1]).toMatchObject({
+      newlyZeroHitMemberCount: 0,
+      zeroHitTransitionCount: 0,
+    });
+    expect(combat.individualCombatConsequenceSummaries[1]!.newlyZeroMembers).toBe(0);
     advanceSimulationOneTick(simulation);
     expect(isIndividualOrdinaryParticipationEligible(
       combat.individualOrdinaryParticipationSnapshot,

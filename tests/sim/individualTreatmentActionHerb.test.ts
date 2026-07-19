@@ -34,6 +34,7 @@ import {
 import type { IndividualMeleeAttackAttemptRecord } from "../../src/sim/individualCombatAction";
 import type { IndividualLandedHitGateDecisionRecord } from "../../src/sim/individualLandedHitGate";
 import { advanceSimulationOneTick, createSimulation } from "../../src/sim/simulation";
+import { getIndividualCasualtyHistoryInspection as getConsolidatedCasualtyHistory } from "../../src/sim/individualCasualtyConsolidation";
 import type { IndividualMeleeDefenceRecord } from "../../src/sim/individualMeleeDefence";
 import type { CombatSandboxSimulationState, CombatSandboxUnitScenario, SimulationState } from "../../src/sim/types";
 
@@ -63,6 +64,12 @@ describe("Milestone 6G-2a herb-backed Physick treatment", () => {
     expect(getIndividualGenericHerbInspection(
       combat.individualGenericHerbStore, 1,
     )).toEqual({ current: 1, maximum: 1, reserved: 1 });
+    expect(combat.individualCasualtyUnitSummaries[1]).toMatchObject({
+      currentGenericHerbCount: 1,
+      reservedGenericHerbCount: 1,
+      genericHerbsConsumedThisTick: 0,
+      genericHerbsConsumedHistory: 0,
+    });
     expect(getIndividualGenericHerbReservationInspection(
       combat.individualGenericHerbStore, 1,
     )).toEqual({ reserved: 1, treatmentActionId: action.actionId });
@@ -100,6 +107,34 @@ describe("Milestone 6G-2a herb-backed Physick treatment", () => {
     expect(getIndividualTreatmentHistoryInspection(
       combat.individualTreatmentActionStore, 1,
     )).toMatchObject({ startedCount: 1, completedCount: 1, restoredHitCount: 1 });
+    expect(combat.individualCasualtyUnitSummaries[0]).toMatchObject({
+      activeCharacterCount: 1,
+      treatmentCompletionCount: 1,
+      missingHitCompletionCount: 1,
+    });
+    expect(combat.individualCasualtyUnitSummaries[1]).toMatchObject({
+      currentGenericHerbCount: 0,
+      reservedGenericHerbCount: 0,
+      genericHerbsConsumedThisTick: 1,
+      genericHerbsConsumedHistory: 1,
+    });
+    expect(consolidatedHistory(combat, 0)).toMatchObject({
+      treatmentStartedCount: 1,
+      treatmentCompletedCount: 1,
+      treatmentInterruptedCount: 0,
+      hitRestorationCount: 1,
+    });
+    expect(consolidatedHistory(combat, 1)).toMatchObject({
+      treatmentPerformedStartedCount: 1,
+      treatmentPerformedCompletedCount: 1,
+      genericHerbsConsumedCount: 1,
+    });
+    advanceSimulationOneTick(simulation);
+    expect(combat.individualCasualtyUnitSummaries[0]!.treatmentCompletionCount).toBe(0);
+    expect(combat.individualCasualtyUnitSummaries[1]).toMatchObject({
+      genericHerbsConsumedThisTick: 0,
+      genericHerbsConsumedHistory: 1,
+    });
   });
 
   it("clears only active trauma, consumes one herb, and restores ordinary behaviour next snapshot", () => {
@@ -129,6 +164,16 @@ describe("Milestone 6G-2a herb-backed Physick treatment", () => {
     expect(getIndividualGenericHerbInspection(
       combat.individualGenericHerbStore, 1,
     ).current).toBe(0);
+    expect(combat.individualCasualtyUnitSummaries[0]).toMatchObject({
+      activeTraumaticWoundCount: 0,
+      traumaWithdrawalCount: 0,
+      treatmentCompletionCount: 1,
+      traumaticWoundCompletionCount: 1,
+    });
+    expect(consolidatedHistory(combat, 0)).toMatchObject({
+      traumaticWoundEpisodeCount: 1,
+      traumaticWoundTreatmentCount: 1,
+    });
     expect(isIndividualOrdinaryParticipationEligible(
       combat.individualOrdinaryParticipationSnapshot, 0,
     )).toBe(false);
@@ -171,6 +216,22 @@ describe("Milestone 6G-2a herb-backed Physick treatment", () => {
     expect(getIndividualMedicalClaimInspection(
       combat.individualMedicalClaimStore, 1,
     ).patientEntityId).toBe(0);
+    expect(consolidatedHistory(combat, 0)).toMatchObject({
+      treatmentStartedCount: 1,
+      treatmentInterruptedCount: 1,
+      treatmentCompletedCount: 0,
+    });
+    expect(consolidatedHistory(combat, 1)).toMatchObject({
+      treatmentPerformedStartedCount: 1,
+      treatmentPerformedInterruptedCount: 1,
+      genericHerbsConsumedCount: 0,
+    });
+    expect(combat.individualCasualtyUnitSummaries[1]).toMatchObject({
+      currentGenericHerbCount: 1,
+      reservedGenericHerbCount: 0,
+      genericHerbsConsumedThisTick: 0,
+      genericHerbsConsumedHistory: 0,
+    });
 
     simulation.world.positionsX[1] = simulation.world.positionsX[0]!;
     simulation.world.positionsY[1] = simulation.world.positionsY[0]!;
@@ -752,4 +813,18 @@ function unit(
 function requireCombat(simulation: SimulationState): CombatSandboxSimulationState {
   if (simulation.combatSandbox === undefined) throw new Error("Expected combat sandbox.");
   return simulation.combatSandbox;
+}
+
+function consolidatedHistory(
+  combat: CombatSandboxSimulationState,
+  entityId: number,
+) {
+  return getConsolidatedCasualtyHistory(
+    combat.individualCasualtyHistoryStore,
+    combat.individualDeathCountStore,
+    combat.individualTraumaticWoundStore,
+    combat.individualExecutionActionStore,
+    combat.individualPlayerPresenceStore,
+    entityId,
+  );
 }

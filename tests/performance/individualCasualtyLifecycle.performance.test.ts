@@ -8,6 +8,7 @@ import {
   createIndividualPlayerPresenceStore,
   classifyIndividualTerminalPlayerPresences,
   transitionIndividualDyingToTerminal,
+  applyIndividualTerminalPresenceTransitions,
   type IndividualZeroHitLifecycleTransitionRecord,
 } from "../../src/sim/individualCasualtyLifecycle";
 import { createIndividualCasualtyProcedureProfileStore } from "../../src/sim/individualCasualtyProcedureProfile";
@@ -43,7 +44,7 @@ import {
   projectIndividualMedicalUrgency,
   updateIndividualMedicalDiscoveryAndWithdrawalIntents,
 } from "../../src/sim/individualMedicalReadModel";
-import { createSimulation } from "../../src/sim/simulation";
+import { advanceSimulationOneTick, createSimulation } from "../../src/sim/simulation";
 import {
   createCasualtyAssistanceDecisionBuffers,
   createCasualtyDragMovementBuffers,
@@ -64,8 +65,52 @@ import {
   getActiveIndividualExecutionActionCount,
   submitIndividualExecutionIntent,
 } from "../../src/sim/individualExecutionAction";
+import {
+  advanceIndividualRespawnEgressOneTick,
+  createIndividualRespawnEgressBuffers,
+} from "../../src/sim/individualRespawnEgress";
 
 describe("individual casualty lifecycle structural performance", () => {
+  it("aggregates bounded final casualty summaries for 2,000 entities in one production pass", () => {
+    const entityCount = 2_000;
+    const half = entityCount / 2;
+    const simulation = createSimulation({
+      seed: 0x6a1,
+      entityCount,
+      bounds: { width: entityCount * 8 + 64, height: 128 },
+      minSpeedUnitsPerTick: 1,
+      maxSpeedUnitsPerTick: 1,
+      combatSandbox: {
+        kind: "liveCombatSandbox",
+        appliedDamagePressureScale: 1,
+        units: [
+          performanceUnit(1, 1, half, 16, half * 8, 1),
+          performanceUnit(2, 2, half, half * 8 + 32, entityCount * 8, -1),
+        ],
+      },
+    });
+    const combat = simulation.combatSandbox!;
+    const summaries = combat.individualCasualtyUnitSummaries;
+    const startedAt = performance.now();
+
+    advanceSimulationOneTick(simulation);
+
+    const elapsedMilliseconds = performance.now() - startedAt;
+    expect(combat.individualCasualtyUnitSummaries).toBe(summaries);
+    expect(summaries).toHaveLength(2);
+    expect(summaries[0]!.memberCount + summaries[1]!.memberCount).toBe(entityCount);
+    expect(summaries[0]!.activeCharacterCount + summaries[1]!.activeCharacterCount)
+      .toBe(entityCount);
+    process.stdout.write(
+      `\nCasualty consolidation performance report\n${JSON.stringify({
+        entityCount,
+        unitCount: summaries.length,
+        elapsedMilliseconds,
+        timingPolicy: "Structural assertions only; one entity pass, stable unit summaries, and bounded authority-owned history.",
+      }, null, 2)}\n`,
+    );
+  });
+
   it.each([100, 500, 1_000, 2_000])(
     "consumes one zero-hit transition per %i entities without quadratic work",
     (entityCount) => {
@@ -879,6 +924,74 @@ describe("individual casualty lifecycle structural performance", () => {
     expect(progressed.progressedActionCount).toBe(treatmentCount);
     expect(progressed.activeActionCount).toBe(treatmentCount);
     process.stdout.write(`\nTerminal comfort performance report\n${JSON.stringify({ entityCount, activeComfortActions: treatmentCount, elapsedMilliseconds, timingPolicy: "Structural assertions only; sparse active treatment records and entity-indexed ownership." }, null, 2)}\n`);
+  });
+
+  it.each([
+    { entityCount: 2_000, egressCount: 20, startX: 100, arrivalCount: 0, label: "sparse" },
+    { entityCount: 2_000, egressCount: 2_000, startX: 4, arrivalCount: 2_000, label: "casualty-heavy same-tick arrival" },
+  ])("advances $label respawn egress with one bounded record per active presence", ({
+    entityCount, egressCount, startX, arrivalCount,
+  }) => {
+    const lifecycle = createIndividualCasualtyLifecycleStore(entityCount);
+    const presence = createIndividualPlayerPresenceStore({
+      entityCount, worldWidth: 256, worldHeight: 128,
+      procedures: Array.from({ length: entityCount }, (_, entityId) => ({
+        entityId, procedureKind: "barbarian" as const,
+        respawnDestination: { x: 0, y: entityId % 128 },
+      })),
+    });
+    const procedures = createIndividualCasualtyProcedureProfileStore({
+      entityCount,
+      profiles: Array.from({ length: entityCount }, (_, entityId) => ({
+        entityId, procedureKind: "barbarian" as const,
+        deathCountPolicy: { kind: "fixedTicks" as const, durationTicks: 600 },
+      })),
+    });
+    const world = {
+      entityCount, bounds: { width: 256, height: 128 },
+      ids: Uint32Array.from({ length: entityCount }, (_, entityId) => entityId),
+      positionsX: new Int32Array(entityCount).fill(startX),
+      positionsY: Int32Array.from({ length: entityCount }, (_, entityId) => entityId % 128),
+      velocitiesX: new Int32Array(entityCount), velocitiesY: new Int32Array(entityCount),
+    };
+    const zeroTransitions = applyIndividualZeroHitLifecycleTransitions(
+      lifecycle, presence, procedures, world,
+      Array.from({ length: egressCount }, (_, entityId) => ({
+        entityId, attackerEntityId: entityId, previousHits: 1,
+      })), 10,
+    ).transitions;
+    const terminalTransitions = zeroTransitions.map((transition) => {
+      transitionIndividualDyingToTerminal(
+        lifecycle, transition.entityId, 10, "deathCountExpired",
+      );
+      return {
+        entityId: transition.entityId, tick: 10,
+        previousLifecycleState: "dying" as const, lifecycleState: "terminal" as const,
+        cause: "deathCountExpired" as const,
+        terminalX: transition.downX, terminalY: transition.downY,
+      };
+    });
+    applyIndividualTerminalPresenceTransitions(
+      lifecycle, presence, procedures, terminalTransitions,
+    );
+    const buffers = createIndividualRespawnEgressBuffers();
+    const startedAt = performance.now();
+    const result = advanceIndividualRespawnEgressOneTick(
+      world, lifecycle, presence, 11, buffers,
+    );
+    const elapsedMilliseconds = performance.now() - startedAt;
+    expect(result.movementRecords).toHaveLength(egressCount);
+    expect(result.arrivalRecords).toHaveLength(arrivalCount);
+    expect(result.activeEgressCount).toBe(egressCount - arrivalCount);
+    expect(new Set(result.movementRecords.map((record) => record.entityId)).size)
+      .toBe(egressCount);
+    expect(result.movementRecords.map((record) => record.entityId)).toEqual(
+      Array.from({ length: egressCount }, (_, entityId) => entityId),
+    );
+    expect(result.arrivalRecords.map((record) => record.entityId)).toEqual(
+      Array.from({ length: arrivalCount }, (_, entityId) => entityId),
+    );
+    expect(elapsedMilliseconds).toBeGreaterThanOrEqual(0);
   });
 });
 

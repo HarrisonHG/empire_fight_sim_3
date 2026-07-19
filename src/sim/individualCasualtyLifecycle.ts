@@ -198,10 +198,39 @@ export interface IndividualPlayerPresenceStore {
   readonly entityCount: number;
 }
 
+export interface IndividualRespawnDestination {
+  readonly x: number;
+  readonly y: number;
+}
+
+export interface IndividualPlayerPresenceProcedureConfig {
+  readonly entityId: number;
+  readonly procedureKind: CasualtyProcedureKind;
+  readonly respawnDestination?: IndividualRespawnDestination;
+}
+
+export interface IndividualPlayerPresenceStoreConfig {
+  readonly entityCount: number;
+  readonly worldWidth: number;
+  readonly worldHeight: number;
+  readonly procedures: readonly IndividualPlayerPresenceProcedureConfig[];
+}
+
 interface InternalIndividualPlayerPresenceStore
   extends IndividualPlayerPresenceStore {
   readonly stateByEntity: Uint8Array;
   readonly lastTransitionTickByEntity: Float64Array;
+  readonly barbarianProcedureByEntity: Uint8Array;
+  readonly respawnDestinationPresentByEntity: Uint8Array;
+  readonly respawnDestinationXByEntity: Int32Array;
+  readonly respawnDestinationYByEntity: Int32Array;
+  readonly respawnEgressStartedTickByEntity: Float64Array;
+  readonly waitingAtRespawnArrivalTickByEntity: Float64Array;
+  readonly waitingAtRespawnArrivalXByEntity: Int32Array;
+  readonly waitingAtRespawnArrivalYByEntity: Int32Array;
+  readonly respawnEgressMovementCountByEntity: Uint32Array;
+  readonly activeRespawnEgressEntityIds: number[];
+  readonly activeRespawnEgressIndexByEntity: Int32Array;
 }
 
 const PRESENCE_STATES = [
@@ -215,16 +244,76 @@ const PRESENCE_STATES = [
 ] as const;
 
 export function createIndividualPlayerPresenceStore(
-  entityCount: number,
+  configOrEntityCount: number | IndividualPlayerPresenceStoreConfig,
 ): IndividualPlayerPresenceStore {
+  const entityCount = typeof configOrEntityCount === "number"
+    ? configOrEntityCount
+    : configOrEntityCount.entityCount;
   assertPositiveSafeInteger(entityCount, "entityCount");
   const lastTransitionTickByEntity = new Float64Array(entityCount);
+  const respawnEgressStartedTickByEntity = new Float64Array(entityCount);
+  const waitingAtRespawnArrivalTickByEntity = new Float64Array(entityCount);
+  const activeRespawnEgressIndexByEntity = new Int32Array(entityCount);
   lastTransitionTickByEntity.fill(-1);
-  return {
+  respawnEgressStartedTickByEntity.fill(-1);
+  waitingAtRespawnArrivalTickByEntity.fill(-1);
+  activeRespawnEgressIndexByEntity.fill(-1);
+  const store = {
     entityCount,
     stateByEntity: new Uint8Array(entityCount),
     lastTransitionTickByEntity,
+    barbarianProcedureByEntity: new Uint8Array(entityCount),
+    respawnDestinationPresentByEntity: new Uint8Array(entityCount),
+    respawnDestinationXByEntity: new Int32Array(entityCount),
+    respawnDestinationYByEntity: new Int32Array(entityCount),
+    respawnEgressStartedTickByEntity,
+    waitingAtRespawnArrivalTickByEntity,
+    waitingAtRespawnArrivalXByEntity: new Int32Array(entityCount),
+    waitingAtRespawnArrivalYByEntity: new Int32Array(entityCount),
+    respawnEgressMovementCountByEntity: new Uint32Array(entityCount),
+    activeRespawnEgressEntityIds: [],
+    activeRespawnEgressIndexByEntity,
   } as InternalIndividualPlayerPresenceStore;
+  if (typeof configOrEntityCount !== "number") {
+    configureIndividualPlayerPresenceProcedures(store, configOrEntityCount);
+  }
+  return store;
+}
+
+function configureIndividualPlayerPresenceProcedures(
+  store: InternalIndividualPlayerPresenceStore,
+  config: IndividualPlayerPresenceStoreConfig,
+): void {
+  assertPositiveSafeInteger(config.worldWidth, "worldWidth");
+  assertPositiveSafeInteger(config.worldHeight, "worldHeight");
+  if (config.procedures.length !== store.entityCount) {
+    throw new RangeError("Player-presence procedures must configure every entity exactly once.");
+  }
+  const configured = new Uint8Array(store.entityCount);
+  for (const procedure of config.procedures) {
+    assertEntityId(procedure.entityId, store.entityCount, "Player-presence procedure");
+    if (configured[procedure.entityId] !== 0) {
+      throw new RangeError("Player-presence procedure entity IDs must be unique.");
+    }
+    configured[procedure.entityId] = 1;
+    if (procedure.procedureKind === "citizen") {
+      if (procedure.respawnDestination !== undefined) {
+        throw new RangeError("Citizen casualty procedures cannot configure a respawn destination.");
+      }
+      continue;
+    }
+    if (procedure.procedureKind !== "barbarian") {
+      throw new RangeError("Unknown player-presence procedure kind.");
+    }
+    store.barbarianProcedureByEntity[procedure.entityId] = 1;
+    const destination = procedure.respawnDestination;
+    if (destination === undefined) continue;
+    assertWorldCoordinate(destination.x, config.worldWidth, "respawn destination x");
+    assertWorldCoordinate(destination.y, config.worldHeight, "respawn destination y");
+    store.respawnDestinationPresentByEntity[procedure.entityId] = 1;
+    store.respawnDestinationXByEntity[procedure.entityId] = destination.x;
+    store.respawnDestinationYByEntity[procedure.entityId] = destination.y;
+  }
 }
 
 export function getIndividualPlayerPresenceState(
@@ -243,6 +332,169 @@ export function getIndividualPlayerPresenceTransitionTick(
   const internal = asInternalPresence(store);
   assertEntityId(entityId, internal.entityCount, "Player presence");
   return internal.lastTransitionTickByEntity[entityId]!;
+}
+
+export type IndividualRespawnDestinationState =
+  | "notApplicable"
+  | "missing"
+  | "configured";
+
+export type IndividualRespawnEgressState =
+  | "notStarted"
+  | "missingDestination"
+  | "moving"
+  | "waitingAtRespawn";
+
+export interface IndividualRespawnEgressInspection {
+  readonly destinationState: IndividualRespawnDestinationState;
+  readonly destinationX: number;
+  readonly destinationY: number;
+  readonly egressState: IndividualRespawnEgressState;
+  readonly egressStartedTick: number;
+  readonly waitingArrivalTick: number;
+  readonly waitingArrivalX: number;
+  readonly waitingArrivalY: number;
+  readonly movementRecordCount: number;
+}
+
+export function getIndividualRespawnEgressInspection(
+  store: IndividualPlayerPresenceStore,
+  entityId: number,
+): IndividualRespawnEgressInspection {
+  const internal = asInternalPresence(store);
+  assertEntityId(entityId, internal.entityCount, "Respawn egress inspection");
+  const isBarbarian = internal.barbarianProcedureByEntity[entityId] !== 0;
+  const hasDestination = internal.respawnDestinationPresentByEntity[entityId] !== 0;
+  const presenceState = PRESENCE_STATES[internal.stateByEntity[entityId]!]!;
+  return {
+    destinationState: !isBarbarian
+      ? "notApplicable"
+      : hasDestination ? "configured" : "missing",
+    destinationX: hasDestination ? internal.respawnDestinationXByEntity[entityId]! : -1,
+    destinationY: hasDestination ? internal.respawnDestinationYByEntity[entityId]! : -1,
+    egressState: presenceState === "waitingAtRespawn"
+      ? "waitingAtRespawn"
+      : presenceState === "respawnEgress"
+        ? hasDestination ? "moving" : "missingDestination"
+        : "notStarted",
+    egressStartedTick: internal.respawnEgressStartedTickByEntity[entityId]!,
+    waitingArrivalTick: internal.waitingAtRespawnArrivalTickByEntity[entityId]!,
+    waitingArrivalX: internal.waitingAtRespawnArrivalTickByEntity[entityId] === -1
+      ? -1 : internal.waitingAtRespawnArrivalXByEntity[entityId]!,
+    waitingArrivalY: internal.waitingAtRespawnArrivalTickByEntity[entityId] === -1
+      ? -1 : internal.waitingAtRespawnArrivalYByEntity[entityId]!,
+    movementRecordCount: internal.respawnEgressMovementCountByEntity[entityId]!,
+  };
+}
+
+export function getActiveIndividualRespawnEgressEntityIds(
+  store: IndividualPlayerPresenceStore,
+): readonly number[] {
+  return asInternalPresence(store).activeRespawnEgressEntityIds;
+}
+
+export function hasIndividualRespawnDestination(
+  store: IndividualPlayerPresenceStore,
+  entityId: number,
+): boolean {
+  const internal = asInternalPresence(store);
+  assertEntityId(entityId, internal.entityCount, "Respawn destination");
+  return internal.respawnDestinationPresentByEntity[entityId] !== 0;
+}
+
+export function getIndividualRespawnDestinationX(
+  store: IndividualPlayerPresenceStore,
+  entityId: number,
+): number {
+  const internal = asInternalPresence(store);
+  assertEntityId(entityId, internal.entityCount, "Respawn destination");
+  if (internal.respawnDestinationPresentByEntity[entityId] === 0) {
+    throw new Error("Respawn destination is not configured.");
+  }
+  return internal.respawnDestinationXByEntity[entityId]!;
+}
+
+export function getIndividualRespawnDestinationY(
+  store: IndividualPlayerPresenceStore,
+  entityId: number,
+): number {
+  const internal = asInternalPresence(store);
+  assertEntityId(entityId, internal.entityCount, "Respawn destination");
+  if (internal.respawnDestinationPresentByEntity[entityId] === 0) {
+    throw new Error("Respawn destination is not configured.");
+  }
+  return internal.respawnDestinationYByEntity[entityId]!;
+}
+
+export function getIndividualRespawnEgressStartedTick(
+  store: IndividualPlayerPresenceStore,
+  entityId: number,
+): number {
+  const internal = asInternalPresence(store);
+  assertEntityId(entityId, internal.entityCount, "Respawn egress");
+  return internal.respawnEgressStartedTickByEntity[entityId]!;
+}
+
+export function recordIndividualRespawnEgressMovement(
+  store: IndividualPlayerPresenceStore,
+  entityId: number,
+): void {
+  const internal = asInternalPresence(store);
+  assertEntityId(entityId, internal.entityCount, "Respawn egress movement");
+  if (internal.stateByEntity[entityId] !== 4) {
+    throw new Error("Respawn egress movement requires respawnEgress presence.");
+  }
+  if (internal.respawnEgressMovementCountByEntity[entityId] === 0xffffffff) {
+    throw new RangeError("Respawn egress movement history overflowed.");
+  }
+  internal.respawnEgressMovementCountByEntity[entityId] =
+    internal.respawnEgressMovementCountByEntity[entityId]! + 1;
+}
+
+export function transitionIndividualRespawnEgressToWaiting(
+  lifecycleStore: IndividualCasualtyLifecycleStore,
+  presenceStore: IndividualPlayerPresenceStore,
+  entityId: number,
+  tick: number,
+  x: number,
+  y: number,
+): void {
+  const lifecycle = asInternal(lifecycleStore);
+  const presence = asInternalPresence(presenceStore);
+  if (lifecycle.entityCount !== presence.entityCount) {
+    throw new RangeError("Respawn arrival stores must match entity count.");
+  }
+  assertEntityId(entityId, presence.entityCount, "Respawn arrival");
+  assertNonNegativeSafeInteger(tick, "respawn arrival tick");
+  if (lifecycle.stateByEntity[entityId] !== 2 || presence.stateByEntity[entityId] !== 4) {
+    throw new Error("Respawn arrival requires terminal respawnEgress presence.");
+  }
+  presence.stateByEntity[entityId] = 5;
+  presence.lastTransitionTickByEntity[entityId] = tick;
+  presence.waitingAtRespawnArrivalTickByEntity[entityId] = tick;
+  presence.waitingAtRespawnArrivalXByEntity[entityId] = x;
+  presence.waitingAtRespawnArrivalYByEntity[entityId] = y;
+}
+
+/** Compacts completed egress entries once after a movement pass. */
+export function compactCompletedIndividualRespawnEgressEntities(
+  store: IndividualPlayerPresenceStore,
+): void {
+  const internal = asInternalPresence(store);
+  let writeIndex = 0;
+  for (let readIndex = 0;
+    readIndex < internal.activeRespawnEgressEntityIds.length;
+    readIndex += 1) {
+    const entityId = internal.activeRespawnEgressEntityIds[readIndex]!;
+    if (internal.stateByEntity[entityId] !== 4) {
+      internal.activeRespawnEgressIndexByEntity[entityId] = -1;
+      continue;
+    }
+    internal.activeRespawnEgressEntityIds[writeIndex] = entityId;
+    internal.activeRespawnEgressIndexByEntity[entityId] = writeIndex;
+    writeIndex += 1;
+  }
+  internal.activeRespawnEgressEntityIds.length = writeIndex;
 }
 
 export interface IndividualTerminalComfortTransitionRecord {
@@ -308,6 +560,7 @@ export function applyIndividualTerminalPresenceTransitions(
     throw new RangeError("Terminal presence dependencies must match entity count.");
   }
   out.length = 0;
+  let addedRespawnEgress = false;
   let previousEntityId = -1;
   for (let index = 0; index < transitions.length; index += 1) {
     const transition = transitions[index]!;
@@ -337,6 +590,12 @@ export function applyIndividualTerminalPresenceTransitions(
     presence.stateByEntity[transition.entityId] =
       presenceState === "terminalAwaitingComfort" ? 2 : 4;
     presence.lastTransitionTickByEntity[transition.entityId] = transition.tick;
+    if (presenceState === "respawnEgress") {
+      presence.barbarianProcedureByEntity[transition.entityId] = 1;
+      presence.respawnEgressStartedTickByEntity[transition.entityId] = transition.tick;
+      addActiveRespawnEgressEntity(presence, transition.entityId);
+      addedRespawnEgress = true;
+    }
     out.push({
       entityId: transition.entityId,
       tick: transition.tick,
@@ -346,6 +605,7 @@ export function applyIndividualTerminalPresenceTransitions(
       presenceState,
     });
   }
+  if (addedRespawnEgress) canonicalizeActiveRespawnEgressEntities(presence);
   return out;
 }
 
@@ -542,6 +802,37 @@ function asInternalPresence(
   store: IndividualPlayerPresenceStore,
 ): InternalIndividualPlayerPresenceStore {
   return store as InternalIndividualPlayerPresenceStore;
+}
+
+function addActiveRespawnEgressEntity(
+  store: InternalIndividualPlayerPresenceStore,
+  entityId: number,
+): void {
+  if (store.activeRespawnEgressIndexByEntity[entityId] !== -1) {
+    throw new Error("Respawn egress presence may be activated only once.");
+  }
+  store.activeRespawnEgressIndexByEntity[entityId] =
+    store.activeRespawnEgressEntityIds.length;
+  store.activeRespawnEgressEntityIds.push(entityId);
+}
+
+function canonicalizeActiveRespawnEgressEntities(
+  store: InternalIndividualPlayerPresenceStore,
+): void {
+  store.activeRespawnEgressEntityIds.sort((left, right) => left - right);
+  for (let index = 0;
+    index < store.activeRespawnEgressEntityIds.length;
+    index += 1) {
+    store.activeRespawnEgressIndexByEntity[
+      store.activeRespawnEgressEntityIds[index]!
+    ] = index;
+  }
+}
+
+function assertWorldCoordinate(value: number, exclusiveMaximum: number, name: string): void {
+  if (!Number.isSafeInteger(value) || value < 0 || value >= exclusiveMaximum) {
+    throw new RangeError(`${name} must be an integer inside world bounds.`);
+  }
 }
 
 function assertEntityId(

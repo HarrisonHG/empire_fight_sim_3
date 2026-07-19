@@ -26,6 +26,7 @@ import {
   type IndividualTreatmentActionKind,
 } from "../../src/sim/individualTreatmentAction";
 import { advanceSimulationOneTick, createSimulation } from "../../src/sim/simulation";
+import { getIndividualCasualtyHistoryInspection as getConsolidatedCasualtyHistory } from "../../src/sim/individualCasualtyConsolidation";
 import type { IndividualMeleeDefenceRecord } from "../../src/sim/individualMeleeDefence";
 import type {
   CombatSandboxSimulationState,
@@ -147,6 +148,19 @@ describe("Milestone 6G-2b limb-disability treatment hooks", () => {
     expect(getIndividualTreatmentHistoryInspection(
       combat.individualTreatmentActionStore, 1,
     ).clearedLimbCount).toBe(1);
+    expect(combat.individualCasualtyUnitSummaries[0]).toMatchObject({
+      treatmentCompletionCount: 1,
+      limbWithHerbCompletionCount: 1,
+      limbWithoutHerbCompletionCount: 0,
+    });
+    expect(getConsolidatedCasualtyHistory(
+      combat.individualCasualtyHistoryStore,
+      combat.individualDeathCountStore,
+      combat.individualTraumaticWoundStore,
+      combat.individualExecutionActionStore,
+      combat.individualPlayerPresenceStore,
+      0,
+    ).limbTreatmentCount).toBe(1);
 
     advanceSimulationOneTick(simulation);
     expect(combat.individualTreatmentActionResult.startedRecords[0]).toMatchObject({
