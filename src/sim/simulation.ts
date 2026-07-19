@@ -44,6 +44,7 @@ import {
   type IndividualCombatPipelineTickResult,
 } from "./individualCombatPipeline";
 import {
+  applyIndividualTerminalPresenceTransitions,
   applyIndividualZeroHitLifecycleTransitions,
   createIndividualCasualtyLifecycleStore,
   createIndividualPlayerPresenceStore,
@@ -102,6 +103,11 @@ import {
   isIndividualTreating,
   projectIndividualTreatmentOrdinaryParticipation,
 } from "./individualTreatmentAction";
+import {
+  advanceIndividualExecutionActionsOneTick,
+  createIndividualExecutionActionBuffers,
+  createIndividualExecutionActionStore,
+} from "./individualExecutionAction";
 import {
   createIndividualGenericHerbStore,
   createTrustedIndividualMedicalProfileStore,
@@ -646,6 +652,7 @@ function createCombatSandbox(
   const casualtyDragMovementBuffers = createCasualtyDragMovementBuffers();
   const individualMedicalClaimBuffers = createIndividualMedicalClaimBuffers();
   const individualTreatmentActionBuffers = createIndividualTreatmentActionBuffers();
+  const individualExecutionActionBuffers = createIndividualExecutionActionBuffers();
   const individualCasualtyAssistanceStore =
     createIndividualCasualtyAssistanceStore(world.entityCount);
   const individualDragHandCommitmentStore =
@@ -725,6 +732,18 @@ function createCombatSandbox(
       activeActionCount: 0,
       progressedActionCount: 0,
     },
+    individualExecutionActionStore: createIndividualExecutionActionStore(world.entityCount),
+    individualExecutionActionBuffers,
+    individualExecutionActionResult: {
+      startedRecords: individualExecutionActionBuffers.startedRecords,
+      interruptedRecords: individualExecutionActionBuffers.interruptedRecords,
+      completedRecords: individualExecutionActionBuffers.completedRecords,
+      rejectedIntentRecords: individualExecutionActionBuffers.rejectedIntentRecords,
+      terminalTransitions: individualExecutionActionBuffers.terminalTransitions,
+      activeActionCount: 0,
+      pendingIntentCount: 0,
+      progressedActionCount: 0,
+    },
     casualtyAssistanceDecisionBuffers,
     casualtyAssistanceDecisionResult: {
       rescueRequestedRecords:
@@ -735,7 +754,9 @@ function createCombatSandbox(
       localCandidateCount: 0,
     },
     individualLifecycleTransitions: [],
+    individualDeathCountTerminalTransitions: [],
     individualTerminalTransitions: [],
+    individualTerminalPresenceTransitions: [],
     individualTraumaticWoundOpportunities: [],
     individualTraumaticWoundRecords: [],
     individualCombatUnitAggregationStore:
@@ -1525,12 +1546,58 @@ export function advanceCombatSandboxOneTick(
         },
       );
     }
+    combatSandbox.individualExecutionActionResult =
+      advanceIndividualExecutionActionsOneTick(
+        world,
+        combatSandbox.individualCasualtyLifecycleStore,
+        combatSandbox.individualPlayerPresenceStore,
+        combatSandbox.individualDeathCountStore,
+        combatSandbox.individualCombatActionStore,
+        combatSandbox.individualCombatEligibilitySnapshot,
+        individualCombatExchange.actions.attackAttempts,
+        individualCombatExchange.gate.decisions,
+        tick,
+        combatSandbox.individualExecutionActionStore,
+        combatSandbox.individualExecutionActionBuffers,
+        {
+          isExecutorOtherwiseCommitted: (entityId) =>
+            isIndividualTreatmentParticipant(
+              combatSandbox.individualTreatmentActionStore,
+              entityId,
+            ),
+        },
+      );
     advanceIndividualDeathCountsOneTick(
       combatSandbox.individualDeathCountStore,
       combatSandbox.individualCasualtyLifecycleStore,
       world,
       tick,
+      combatSandbox.individualDeathCountTerminalTransitions,
+    );
+    combatSandbox.individualTerminalTransitions.length = 0;
+    for (let index = 0;
+      index < combatSandbox.individualDeathCountTerminalTransitions.length;
+      index += 1) {
+      combatSandbox.individualTerminalTransitions.push(
+        combatSandbox.individualDeathCountTerminalTransitions[index]!,
+      );
+    }
+    for (let index = 0;
+      index < combatSandbox.individualExecutionActionResult.terminalTransitions.length;
+      index += 1) {
+      combatSandbox.individualTerminalTransitions.push(
+        combatSandbox.individualExecutionActionResult.terminalTransitions[index]!,
+      );
+    }
+    combatSandbox.individualTerminalTransitions.sort(
+      (left, right) => left.entityId - right.entityId,
+    );
+    applyIndividualTerminalPresenceTransitions(
+      combatSandbox.individualCasualtyLifecycleStore,
+      combatSandbox.individualPlayerPresenceStore,
+      combatSandbox.individualCasualtyProcedureProfileStore,
       combatSandbox.individualTerminalTransitions,
+      combatSandbox.individualTerminalPresenceTransitions,
     );
     cancelCasualtyDragGroupsFromPostCombatEvidence(
       combatSandbox.identityStore,

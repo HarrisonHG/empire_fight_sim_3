@@ -3,6 +3,7 @@ import {
   getIndividualEnteredDyingTick,
   transitionIndividualDyingToTerminal,
   type IndividualCasualtyLifecycleStore,
+  type IndividualTerminalTransitionRecord,
   type IndividualZeroHitLifecycleTransitionRecord,
   type TerminalCause,
 } from "./individualCasualtyLifecycle";
@@ -65,14 +66,9 @@ export interface IndividualCasualtyHistoryInspection {
   readonly terminalY: number;
 }
 
-export interface IndividualDeathCountTerminalTransitionRecord {
-  readonly entityId: number;
-  readonly tick: number;
-  readonly previousLifecycleState: "dying";
-  readonly lifecycleState: "terminal";
+export interface IndividualDeathCountTerminalTransitionRecord
+  extends IndividualTerminalTransitionRecord {
   readonly cause: "deathCountExpired";
-  readonly terminalX: number;
-  readonly terminalY: number;
 }
 
 const TERMINAL_CAUSES: readonly TerminalCause[] = [
@@ -321,12 +317,7 @@ export function advanceIndividualDeathCountsOneTick(
       tick,
       "deathCountExpired",
     );
-    clearPauseSource(internal, entityId);
-    internal.terminalTickByEntity[entityId] = tick;
-    internal.terminalCauseByEntity[entityId] = 1;
-    internal.terminalXByEntity[entityId] = terminalX;
-    internal.terminalYByEntity[entityId] = terminalY;
-    out.push({
+    const transition: IndividualDeathCountTerminalTransitionRecord = {
       entityId,
       tick,
       previousLifecycleState: "dying",
@@ -334,9 +325,42 @@ export function advanceIndividualDeathCountsOneTick(
       cause: "deathCountExpired",
       terminalX,
       terminalY,
-    });
+    };
+    recordIndividualTerminalTransitionInCasualtyHistory(
+      store, lifecycleStore, transition,
+    );
+    out.push(transition);
   }
   return out;
+}
+
+export function recordIndividualTerminalTransitionInCasualtyHistory(
+  store: IndividualDeathCountStore,
+  lifecycleStore: IndividualCasualtyLifecycleStore,
+  transition: IndividualTerminalTransitionRecord,
+): void {
+  const internal = asInternal(store);
+  validateLifecycleCount(internal, lifecycleStore);
+  assertEntityId(transition.entityId, internal.entityCount);
+  assertNonNegativeSafeInteger(transition.tick, "terminal transition tick");
+  if (getIndividualCharacterLifecycleState(
+    lifecycleStore, transition.entityId,
+  ) !== "terminal") {
+    throw new Error("Casualty history may record only a terminal character.");
+  }
+  if (internal.terminalTickByEntity[transition.entityId] !== -1) {
+    throw new Error("Casualty history terminal transition may be recorded only once.");
+  }
+  if (transition.cause !== "deathCountExpired" &&
+    transition.cause !== "execution") {
+    throw new RangeError("Unknown casualty-history terminal cause.");
+  }
+  clearPauseSource(internal, transition.entityId);
+  internal.terminalTickByEntity[transition.entityId] = transition.tick;
+  internal.terminalCauseByEntity[transition.entityId] =
+    transition.cause === "deathCountExpired" ? 1 : 2;
+  internal.terminalXByEntity[transition.entityId] = transition.terminalX;
+  internal.terminalYByEntity[transition.entityId] = transition.terminalY;
 }
 
 export function getIndividualDeathCountInspection(

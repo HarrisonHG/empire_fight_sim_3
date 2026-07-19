@@ -328,7 +328,7 @@ describe("production casualty lifecycle integration", () => {
     });
     expect(combat.debugSnapshot.inspectedIndividuals[0]).toMatchObject({
       characterLifecycleState: "terminal",
-      playerPresenceState: "downedPresence",
+      playerPresenceState: "respawnEgress",
       deathCountRemainingTicks: 0,
       terminalTick: transitionTick + 2,
       terminalCause: "deathCountExpired",

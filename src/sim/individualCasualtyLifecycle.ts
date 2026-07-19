@@ -8,6 +8,16 @@ import type { IndividualZeroHitEvent } from "./individualGlobalHits";
 export type CharacterLifecycleState = "active" | "dying" | "terminal";
 export type TerminalCause = "none" | "deathCountExpired" | "execution";
 
+export interface IndividualTerminalTransitionRecord {
+  readonly entityId: number;
+  readonly tick: number;
+  readonly previousLifecycleState: "dying";
+  readonly lifecycleState: "terminal";
+  readonly cause: Exclude<TerminalCause, "none">;
+  readonly terminalX: number;
+  readonly terminalY: number;
+}
+
 export interface IndividualCasualtyLifecycleStore {
   readonly entityCount: number;
 }
@@ -233,6 +243,70 @@ export function getIndividualPlayerPresenceTransitionTick(
   const internal = asInternalPresence(store);
   assertEntityId(entityId, internal.entityCount, "Player presence");
   return internal.lastTransitionTickByEntity[entityId]!;
+}
+
+export interface IndividualTerminalPresenceTransitionRecord {
+  readonly entityId: number;
+  readonly tick: number;
+  readonly terminalCause: Exclude<TerminalCause, "none">;
+  readonly procedureKind: CasualtyProcedureKind;
+  readonly previousPresenceState: "downedPresence";
+  readonly presenceState: "terminalAwaitingComfort" | "respawnEgress";
+}
+
+export function applyIndividualTerminalPresenceTransitions(
+  lifecycleStore: IndividualCasualtyLifecycleStore,
+  presenceStore: IndividualPlayerPresenceStore,
+  procedureStore: IndividualCasualtyProcedureProfileStore,
+  transitions: readonly IndividualTerminalTransitionRecord[],
+  out: IndividualTerminalPresenceTransitionRecord[] = [],
+): readonly IndividualTerminalPresenceTransitionRecord[] {
+  const lifecycle = asInternal(lifecycleStore);
+  const presence = asInternalPresence(presenceStore);
+  if (lifecycle.entityCount !== presence.entityCount ||
+    lifecycle.entityCount !== procedureStore.entityCount) {
+    throw new RangeError("Terminal presence dependencies must match entity count.");
+  }
+  out.length = 0;
+  let previousEntityId = -1;
+  for (let index = 0; index < transitions.length; index += 1) {
+    const transition = transitions[index]!;
+    assertEntityId(transition.entityId, lifecycle.entityCount, "Terminal presence");
+    assertNonNegativeSafeInteger(transition.tick, "terminal transition tick");
+    if (transition.entityId <= previousEntityId) {
+      throw new RangeError(
+        "Terminal transitions must be unique and ordered by entity ID.",
+      );
+    }
+    previousEntityId = transition.entityId;
+    if (lifecycle.stateByEntity[transition.entityId] !== 2 ||
+      lifecycle.terminalTickByEntity[transition.entityId] !== transition.tick ||
+      getIndividualTerminalCause(lifecycleStore, transition.entityId) !==
+        transition.cause) {
+      throw new Error("Terminal presence classification requires its canonical lifecycle transition.");
+    }
+    if (presence.stateByEntity[transition.entityId] !== 1) {
+      throw new Error("Terminal presence classification requires downed player presence.");
+    }
+    const profile = getIndividualCasualtyProcedureProfile(
+      procedureStore, transition.entityId,
+    );
+    const presenceState = profile.procedureKind === "citizen"
+      ? "terminalAwaitingComfort"
+      : "respawnEgress";
+    presence.stateByEntity[transition.entityId] =
+      presenceState === "terminalAwaitingComfort" ? 2 : 4;
+    presence.lastTransitionTickByEntity[transition.entityId] = transition.tick;
+    out.push({
+      entityId: transition.entityId,
+      tick: transition.tick,
+      terminalCause: transition.cause,
+      procedureKind: profile.procedureKind,
+      previousPresenceState: "downedPresence",
+      presenceState,
+    });
+  }
+  return out;
 }
 
 export interface CasualtyPositionSource {

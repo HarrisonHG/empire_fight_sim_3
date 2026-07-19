@@ -56,6 +56,11 @@ import {
   advanceIndividualTreatmentActionsOneTick,
   getActiveIndividualTreatmentActionCount,
 } from "../../src/sim/individualTreatmentAction";
+import {
+  advanceIndividualExecutionActionsOneTick,
+  getActiveIndividualExecutionActionCount,
+  submitIndividualExecutionIntent,
+} from "../../src/sim/individualExecutionAction";
 
 describe("individual casualty lifecycle structural performance", () => {
   it.each([100, 500, 1_000, 2_000])(
@@ -669,6 +674,111 @@ describe("individual casualty lifecycle structural performance", () => {
           entityCount,
           activeTreatmentActions: treatmentCount,
           progressedTreatmentActions: progressed.progressedActionCount,
+          elapsedMilliseconds,
+          timingPolicy: "Structural assertions only; sparse active records with entity-indexed ownership lookup and reused transition buffers.",
+        }, null, 2)}\n`,
+      );
+    },
+  );
+
+  it.each([100, 500, 1_000, 2_000])(
+    "keeps five active execution actions sparse and entity-indexed across %i entities",
+    (entityCount) => {
+      const simulation = createSimulation({
+        seed: 0x6f_01,
+        entityCount,
+        bounds: { width: entityCount * 4 + 64, height: 128 },
+        minSpeedUnitsPerTick: 1,
+        maxSpeedUnitsPerTick: 1,
+        combatSandbox: {
+          kind: "liveCombatSandbox",
+          appliedDamagePressureScale: 1,
+          units: [
+            performanceUnit(1, 1, entityCount - 1, 16, entityCount * 4 - 16, 1),
+            performanceUnit(2, 2, 1, entityCount * 4, entityCount * 4, -1),
+          ],
+        },
+      });
+      const combat = simulation.combatSandbox!;
+      const actionCount = 5;
+      const hitStore = combat.individualGlobalHitStore as unknown as {
+        readonly currentGlobalHitsByEntity: Int32Array;
+        readonly zeroReachedByEntity: Uint8Array;
+      };
+      for (let target = 0; target < actionCount; target += 1) {
+        hitStore.currentGlobalHitsByEntity[target] = 0;
+        hitStore.zeroReachedByEntity[target] = 1;
+        simulation.world.positionsX[target] = 32 + target * 16;
+        simulation.world.positionsX[target + actionCount] = 32 + target * 16;
+      }
+      const transitions = applyIndividualZeroHitLifecycleTransitions(
+        combat.individualCasualtyLifecycleStore,
+        combat.individualPlayerPresenceStore,
+        combat.individualCasualtyProcedureProfileStore,
+        simulation.world,
+        Array.from({ length: actionCount }, (_, target) => ({
+          entityId: target,
+          attackerEntityId: target + actionCount,
+          previousHits: 1,
+        })),
+        0,
+      ).transitions;
+      initializeIndividualDeathCountsFromZeroHitTransitions(
+        combat.individualDeathCountStore,
+        combat.individualCasualtyLifecycleStore,
+        combat.individualCasualtyProcedureProfileStore,
+        combat.individualProfileStore,
+        transitions,
+      );
+      for (let target = actionCount - 1; target >= 0; target -= 1) {
+        submitIndividualExecutionIntent(combat.individualExecutionActionStore, {
+          executorEntityId: target + actionCount,
+          targetEntityId: target,
+          requestedTick: 0,
+          targetBasis: "dying",
+        });
+      }
+
+      const startedAt = performance.now();
+      const started = advanceIndividualExecutionActionsOneTick(
+        simulation.world,
+        combat.individualCasualtyLifecycleStore,
+        combat.individualPlayerPresenceStore,
+        combat.individualDeathCountStore,
+        combat.individualCombatActionStore,
+        combat.individualCombatEligibilitySnapshot,
+        [], [], 0,
+        combat.individualExecutionActionStore,
+        combat.individualExecutionActionBuffers,
+      );
+      const startedCount = started.startedRecords.length;
+      const progressed = advanceIndividualExecutionActionsOneTick(
+        simulation.world,
+        combat.individualCasualtyLifecycleStore,
+        combat.individualPlayerPresenceStore,
+        combat.individualDeathCountStore,
+        combat.individualCombatActionStore,
+        combat.individualCombatEligibilitySnapshot,
+        [], [], 1,
+        combat.individualExecutionActionStore,
+        combat.individualExecutionActionBuffers,
+      );
+      const elapsedMilliseconds = performance.now() - startedAt;
+
+      expect(startedCount).toBe(actionCount);
+      expect(progressed.progressedActionCount).toBe(actionCount);
+      expect(progressed.activeActionCount).toBe(actionCount);
+      expect(getActiveIndividualExecutionActionCount(
+        combat.individualExecutionActionStore,
+      )).toBe(actionCount);
+      expect(progressed.startedRecords).toBe(
+        combat.individualExecutionActionBuffers.startedRecords,
+      );
+      process.stdout.write(
+        `\nExecution-action performance report\n${JSON.stringify({
+          entityCount,
+          activeExecutionActions: actionCount,
+          progressedExecutionActions: progressed.progressedActionCount,
           elapsedMilliseconds,
           timingPolicy: "Structural assertions only; sparse active records with entity-indexed ownership lookup and reused transition buffers.",
         }, null, 2)}\n`,

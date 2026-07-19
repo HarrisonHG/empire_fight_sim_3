@@ -38,6 +38,8 @@ import type {
   CharacterLifecycleState,
   IndividualCasualtyLifecycleStore,
   IndividualPlayerPresenceStore,
+  IndividualTerminalPresenceTransitionRecord,
+  IndividualTerminalTransitionRecord,
   IndividualZeroHitLifecycleTransitionRecord,
   PlayerPresenceState,
 } from "./individualCasualtyLifecycle";
@@ -87,6 +89,11 @@ import type {
   IndividualTreatmentActionResult,
   IndividualTreatmentActionStore,
 } from "./individualTreatmentAction";
+import type {
+  IndividualExecutionActionBuffers,
+  IndividualExecutionActionResult,
+  IndividualExecutionActionStore,
+} from "./individualExecutionAction";
 import type {
   DefenceCoverageTier,
   IndividualDefenceHandAvailabilitySource,
@@ -552,10 +559,15 @@ export interface CombatSandboxSimulationState {
   readonly individualTreatmentActionStore: IndividualTreatmentActionStore;
   readonly individualTreatmentActionBuffers: IndividualTreatmentActionBuffers;
   individualTreatmentActionResult: IndividualTreatmentActionResult;
+  readonly individualExecutionActionStore: IndividualExecutionActionStore;
+  readonly individualExecutionActionBuffers: IndividualExecutionActionBuffers;
+  individualExecutionActionResult: IndividualExecutionActionResult;
   readonly casualtyAssistanceDecisionBuffers: CasualtyAssistanceDecisionBuffers;
   casualtyAssistanceDecisionResult: CasualtyAssistanceDecisionResult;
   readonly individualLifecycleTransitions: IndividualZeroHitLifecycleTransitionRecord[];
-  readonly individualTerminalTransitions: IndividualDeathCountTerminalTransitionRecord[];
+  readonly individualDeathCountTerminalTransitions: IndividualDeathCountTerminalTransitionRecord[];
+  readonly individualTerminalTransitions: IndividualTerminalTransitionRecord[];
+  readonly individualTerminalPresenceTransitions: IndividualTerminalPresenceTransitionRecord[];
   readonly individualTraumaticWoundOpportunities: IndividualTraumaticWoundOpportunity[];
   readonly individualTraumaticWoundRecords: IndividualTraumaticWoundAppliedRecord[];
   readonly individualCombatUnitAggregationStore: IndividualCombatUnitAggregationStore;
