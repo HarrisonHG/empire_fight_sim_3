@@ -618,7 +618,9 @@ function withInspectedEntityIds(
 }
 
 function laneSpacingFor(geometry: AuthorityGeometry): number {
-  return geometry === "denseOverlappingFormations" ? 24 : 240;
+  // Representative lanes are deliberately isolated from the 192-unit local
+  // influence radius even after accepted formation/routing displacement.
+  return geometry === "denseOverlappingFormations" ? 24 : 384;
 }
 
 function unitConfig(

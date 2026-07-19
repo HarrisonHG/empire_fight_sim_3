@@ -2,7 +2,7 @@
 
 Status: in progress.
 
-Milestone 5, including its defence-readiness and pressure/visual-regression spike, was accepted on 2026-07-15. Milestone 6 is implemented through 6I-1B; Milestone 6H is complete. Milestone 6 remains unaccepted pending 6I-2, 6J, final technical acceptance, and human visual inspection.
+Milestone 5, including its defence-readiness and pressure/visual-regression spike, was accepted on 2026-07-15. Milestone 6 is technically implemented through 6I-2; Milestone 6H is complete. Only the retained 6J visual suite and human visual inspection remain before milestone acceptance.
 
 ## Progress
 
@@ -26,7 +26,7 @@ Milestone 5, including its defence-readiness and pressure/visual-regression spik
 | 6H-2B | implemented | Explicit barbarian respawn destinations, sparse deterministic egress, and waiting-at-respawn arrival. |
 | 6I-1 | implemented | Production consolidation, end-of-tick summaries, bounded history, and egress active-set compaction. |
 | 6I-1B | implemented | Actual-drag history, limb-condition completion summaries, and exact herb-consumption history addition. |
-| 6I-2 | remaining | Representative performance, soak testing, and final technical acceptance. |
+| 6I-2 | implemented | Representative performance, deterministic one-hour soak, output-reuse verification, and final technical acceptance. |
 | 6J | remaining | Retained casualty visual suite and human acceptance. |
 
 This progress table is the status authority for Milestone 6. Individual slice sections remain the behavioural specification.
@@ -1658,6 +1658,24 @@ Report:
 - output reuse and allocation observations where already measurable.
 
 Use structural assertions only. Do not optimise from the dense stress case unless representative performance is unacceptable.
+
+### Technical acceptance evidence
+
+The production acceptance matrix covers the ordinary 2,000-entity 100-by-20 case with approximately 5% dying, the 2,000-entity casualty-heavy case with approximately 20% dying or terminal, and an explicitly pathological dense-collapse case. Optional timing callbacks wrap the existing production authorities without changing default tick behaviour. Reports include exact full-tick and casualty-phase mean, maximum and p95 observations plus structural work counts; assertions remain structural and machine-independent.
+
+The exact production pipeline also runs a targeted 72,000-tick scenario twice from the same initial state and deterministic scheduled inputs. The two runs compare final lifecycle and presence authorities, hits, bounded casualty and execution history, unit summaries, sparse active-store counts and compact event totals. Reusable lifecycle, drag, claim, treatment, execution, egress, summary and inspection outputs retain stable identities. No per-tick snapshot collection or append-only soak log is retained.
+
+The former five lane-separation failures were benchmark-fixture geometry drift. Accepted formation and routing displacement could reduce the old 240-unit fixture spacing below the 192-unit local influence radius. Representative independent lanes now begin 384 units apart, while the explicitly dense stress fixture retains overlapping geometry. No production movement, combat or casualty rule was changed for this correction.
+
+### Final adoption boundaries
+
+- Milestone 9 consumes `terminalComforted` and `waitingAtRespawn` procedure states for Sentinel Gate movement, batching, reset and re-entry; it does not replace the terminal or presence authorities.
+- Milestone 10 replaces temporary perfect-local medical awareness by enriching the existing prepared medical-query boundary with perceived and remembered inputs.
+- Milestone 11 adopts or migrates the existing trusted medical profiles and generic-herb resources instead of creating competing capability or inventory authorities.
+- Milestone 12 enriches the existing safe-position and extraction boundaries with terrain-aware selection and routes.
+- Milestone 13 supplies limb, call and effect sources through the existing trusted condition, trauma, execution-intent and treatment APIs.
+
+Milestone 6 is technically complete through 6I-2. Only 6J retained visual inspection remains.
 
 ---
 

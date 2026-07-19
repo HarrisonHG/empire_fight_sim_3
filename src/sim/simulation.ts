@@ -257,8 +257,22 @@ export type CombatSandboxTickStage =
   | "moraleAssessmentAndPersistence"
   | "countersAndSnapshots";
 
+export type Milestone6CasualtyTickStage =
+  | "casualtyTransitions"
+  | "deathCountAdvancement"
+  | "traumaProcessing"
+  | "medicalQueries"
+  | "rescueSelection"
+  | "dragMovement"
+  | "claimsAndTriage"
+  | "treatmentAndComfort"
+  | "execution"
+  | "respawnEgress"
+  | "consolidationAndHistory";
+
 export interface CombatSandboxTickInstrumentation {
   runStage<T>(stage: CombatSandboxTickStage, run: () => T): T;
+  runCasualtyStage?<T>(stage: Milestone6CasualtyTickStage, run: () => T): T;
   readonly formationDiagnostics?: FormationTickDiagnostics;
 }
 
@@ -1340,6 +1354,12 @@ export function advanceCombatSandboxOneTick(
 ): void {
   const runStage = <T>(stage: CombatSandboxTickStage, run: () => T): T =>
     instrumentation === undefined ? run() : instrumentation.runStage(stage, run);
+  const runCasualtyStage = <T>(
+    stage: Milestone6CasualtyTickStage,
+    run: () => T,
+  ): T => instrumentation?.runCasualtyStage === undefined
+    ? run()
+    : instrumentation.runCasualtyStage(stage, run);
   const isExecutionCommitted = (entityId: number): boolean =>
     hasActiveIndividualExecutionAction(
       combatSandbox.individualExecutionActionStore,
@@ -1372,7 +1392,7 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.individualExecutionActionStore,
       combatSandbox.individualOrdinaryParticipationSnapshot,
     );
-    prepareIndividualMedicalLocalQueries(
+    runCasualtyStage("medicalQueries", () => prepareIndividualMedicalLocalQueries(
       world,
       combatSandbox.identityStore,
       combatSandbox.individualCasualtyLifecycleStore,
@@ -1390,7 +1410,7 @@ export function advanceCombatSandboxOneTick(
         ),
         isUnavailable: isExecutionCommitted,
       },
-    );
+    ));
     updateIndividualMedicalDiscoveryAndWithdrawalIntents(
       world,
       combatSandbox.identityStore,
@@ -1451,8 +1471,9 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.individualCasualtyLifecycleStore,
       combatSandbox.individualOrdinaryParticipationSnapshot,
     );
-    combatSandbox.casualtyDragMovementResult =
-      advanceCasualtyDragGroupsBeforeCombat(
+    combatSandbox.casualtyDragMovementResult = runCasualtyStage(
+      "dragMovement",
+      () => advanceCasualtyDragGroupsBeforeCombat(
         world,
         combatSandbox.identityStore,
         combatSandbox.formationStore,
@@ -1465,7 +1486,8 @@ export function advanceCombatSandboxOneTick(
         tick,
         combatSandbox.casualtyDragMovementBuffers,
         combatSandbox.individualPlayerPresenceStore,
-      );
+      ),
+    );
     advanceIndividualMedicalClaimApproachMovementOneTick(
       world,
       combatSandbox.formationStore,
@@ -1521,7 +1543,7 @@ export function advanceCombatSandboxOneTick(
           combatSandbox.individualDefenceHandAvailabilitySource,
       },
     );
-    applyIndividualZeroHitLifecycleTransitions(
+    runCasualtyStage("casualtyTransitions", () => applyIndividualZeroHitLifecycleTransitions(
       combatSandbox.individualCasualtyLifecycleStore,
       combatSandbox.individualPlayerPresenceStore,
       combatSandbox.individualCasualtyProcedureProfileStore,
@@ -1529,7 +1551,7 @@ export function advanceCombatSandboxOneTick(
       individualCombatExchange.hits.zeroHitEvents,
       tick,
       combatSandbox.individualLifecycleTransitions,
-    );
+    ));
     const traumaOpportunities =
       combatSandbox.individualTraumaticWoundOpportunities;
     traumaOpportunities.length = 0;
@@ -1546,13 +1568,13 @@ export function advanceCombatSandboxOneTick(
         triggerKind: "zeroHit",
       });
     }
-    resolveIndividualTraumaticWoundOpportunities(
+    runCasualtyStage("traumaProcessing", () => resolveIndividualTraumaticWoundOpportunities(
       combatSandbox.battleSeed,
       combatSandbox.individualCasualtyProcedureProfileStore,
       combatSandbox.individualTraumaticWoundStore,
       traumaOpportunities,
       combatSandbox.individualTraumaticWoundRecords,
-    );
+    ));
     initializeIndividualDeathCountsFromZeroHitTransitions(
       combatSandbox.individualDeathCountStore,
       combatSandbox.individualCasualtyLifecycleStore,
@@ -1578,7 +1600,7 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.individualMedicalClaimStore,
       combatSandbox.casualtyDragGroupStore,
     )) {
-      prepareIndividualMedicalLocalQueries(
+      runCasualtyStage("medicalQueries", () => prepareIndividualMedicalLocalQueries(
         world,
         combatSandbox.identityStore,
         combatSandbox.individualCasualtyLifecycleStore,
@@ -1596,10 +1618,11 @@ export function advanceCombatSandboxOneTick(
           ),
           isUnavailable: isExecutionCommitted,
         },
-      );
+      ));
     }
-    combatSandbox.individualMedicalClaimResult =
-      decideIndividualMedicalClaimsAndHandoffs(
+    combatSandbox.individualMedicalClaimResult = runCasualtyStage(
+      "claimsAndTriage",
+      () => decideIndividualMedicalClaimsAndHandoffs(
         world,
         combatSandbox.identityStore,
         combatSandbox.individualCasualtyLifecycleStore,
@@ -1629,9 +1652,11 @@ export function advanceCombatSandboxOneTick(
           isUnavailable: isExecutionCommitted,
           isTerminalAwaitingComfort,
         },
-      );
-    combatSandbox.individualTreatmentActionResult =
-      advanceIndividualTreatmentActionsOneTick(
+      ),
+    );
+    combatSandbox.individualTreatmentActionResult = runCasualtyStage(
+      "treatmentAndComfort",
+      () => advanceIndividualTreatmentActionsOneTick(
         world,
         combatSandbox.identityStore,
         combatSandbox.individualCasualtyLifecycleStore,
@@ -1651,7 +1676,8 @@ export function advanceCombatSandboxOneTick(
         tick,
         combatSandbox.individualTreatmentActionStore,
         combatSandbox.individualTreatmentActionBuffers,
-      );
+      ),
+    );
     if (combatSandbox.individualTreatmentActionResult.reassessmentRequests.length > 0) {
       reassessIndividualMedicalClaimsAtActionBoundaries(
         world,
@@ -1680,8 +1706,9 @@ export function advanceCombatSandboxOneTick(
         },
       );
     }
-    combatSandbox.individualExecutionActionResult =
-      advanceIndividualExecutionActionsOneTick(
+    combatSandbox.individualExecutionActionResult = runCasualtyStage(
+      "execution",
+      () => advanceIndividualExecutionActionsOneTick(
         world,
         combatSandbox.individualCasualtyLifecycleStore,
         combatSandbox.individualPlayerPresenceStore,
@@ -1743,20 +1770,21 @@ export function advanceCombatSandboxOneTick(
             );
           },
         },
-      );
+      ),
+    );
     combatSandbox.individualTreatmentActionResult = {
       ...combatSandbox.individualTreatmentActionResult,
       activeActionCount: getActiveIndividualTreatmentActionCount(
         combatSandbox.individualTreatmentActionStore,
       ),
     };
-    advanceIndividualDeathCountsOneTick(
+    runCasualtyStage("deathCountAdvancement", () => advanceIndividualDeathCountsOneTick(
       combatSandbox.individualDeathCountStore,
       combatSandbox.individualCasualtyLifecycleStore,
       world,
       tick,
       combatSandbox.individualDeathCountTerminalTransitions,
-    );
+    ));
     combatSandbox.individualTerminalTransitions.length = 0;
     for (let index = 0;
       index < combatSandbox.individualDeathCountTerminalTransitions.length;
@@ -1805,14 +1833,16 @@ export function advanceCombatSandboxOneTick(
         combatSandbox.casualtyDragGroupStore,
         combatSandbox.casualtyDragMovementResult,
       );
-    combatSandbox.individualRespawnEgressResult =
-      advanceIndividualRespawnEgressOneTick(
+    combatSandbox.individualRespawnEgressResult = runCasualtyStage(
+      "respawnEgress",
+      () => advanceIndividualRespawnEgressOneTick(
         world,
         combatSandbox.individualCasualtyLifecycleStore,
         combatSandbox.individualPlayerPresenceStore,
         tick,
         combatSandbox.individualRespawnEgressBuffers,
-      );
+      ),
+    );
     prepareIndividualCasualtyLocalQuery(
       world,
       combatSandbox.individualCasualtyLifecycleStore,
@@ -1833,7 +1863,7 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.individualCasualtyAssistanceStore,
       isTerminalAwaitingComfort,
     )) {
-      prepareIndividualMedicalLocalQueries(
+      runCasualtyStage("medicalQueries", () => prepareIndividualMedicalLocalQueries(
         world,
         combatSandbox.identityStore,
         combatSandbox.individualCasualtyLifecycleStore,
@@ -1851,9 +1881,10 @@ export function advanceCombatSandboxOneTick(
           ),
           isUnavailable: isExecutionCommitted,
         },
-      );
-      combatSandbox.casualtyAssistanceDecisionResult =
-        decideIndividualCasualtyAssistance(
+      ));
+      combatSandbox.casualtyAssistanceDecisionResult = runCasualtyStage(
+        "rescueSelection",
+        () => decideIndividualCasualtyAssistance(
           world,
           combatSandbox.identityStore,
           combatSandbox.formationStore,
@@ -1885,7 +1916,8 @@ export function advanceCombatSandboxOneTick(
             isUnavailable: isExecutionCommitted,
             isTerminalAwaitingComfort,
           },
-        );
+        ),
+      );
     } else {
       const buffers = combatSandbox.casualtyAssistanceDecisionBuffers;
       buffers.rescueRequestedRecords.length = 0;
@@ -1975,22 +2007,24 @@ export function advanceCombatSandboxOneTick(
   });
   runStage("countersAndSnapshots", () => {
     updateIndividualCombatCounters(combatSandbox, individualCombatResult);
-    recordIndividualCasualtyHistoryOneTick(
-      combatSandbox.individualCasualtyHistoryStore,
-      tick,
-      {
-        assistance: combatSandbox.casualtyAssistanceDecisionResult,
-        dragMovement: combatSandbox.casualtyDragMovementResult,
-        claims: combatSandbox.individualMedicalClaimResult,
-        treatment: combatSandbox.individualTreatmentActionResult,
-        execution: combatSandbox.individualExecutionActionResult,
-        egress: combatSandbox.individualRespawnEgressResult,
-      },
-    );
-    collectIndividualCasualtyUnitSummaries(
-      combatSandbox.individualCasualtyUnitSummaryStore,
-      casualtySummaryDependencies(world, combatSandbox),
-    );
+    runCasualtyStage("consolidationAndHistory", () => {
+      recordIndividualCasualtyHistoryOneTick(
+        combatSandbox.individualCasualtyHistoryStore,
+        tick,
+        {
+          assistance: combatSandbox.casualtyAssistanceDecisionResult,
+          dragMovement: combatSandbox.casualtyDragMovementResult,
+          claims: combatSandbox.individualMedicalClaimResult,
+          treatment: combatSandbox.individualTreatmentActionResult,
+          execution: combatSandbox.individualExecutionActionResult,
+          egress: combatSandbox.individualRespawnEgressResult,
+        },
+      );
+      collectIndividualCasualtyUnitSummaries(
+        combatSandbox.individualCasualtyUnitSummaryStore,
+        casualtySummaryDependencies(world, combatSandbox),
+      );
+    });
     combatSandbox.debugSnapshot = createCombatDebugSnapshot(world, combatSandbox, tick);
   });
 }
