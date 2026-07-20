@@ -216,9 +216,11 @@ import {
 } from "./individualEnergy";
 import {
   beginIndividualEnergyActivityObservation,
+  applyIndividualEnergyActivityOneTick,
   classifyIndividualEnergyActivityOneTick,
   createIndividualEnergyActivityStore,
   getIndividualEnergyActivityInspection,
+  initializeIndividualEnergyActivityApplicationState,
   observeIndividualEnergyCasualtyMovement,
   observeIndividualEnergyMovementAuthority,
 } from "./individualEnergyActivity";
@@ -1041,6 +1043,10 @@ function createCombatSandbox(
     ),
     tick: 0,
   });
+  initializeIndividualEnergyActivityApplicationState(
+    individualEnergyActivityStore,
+    individualEnergyStore,
+  );
   combatSandbox.debugSnapshot = createCombatDebugSnapshot(world, combatSandbox, 0);
 
   return { state: combatSandbox, rngState: deploymentRng.state };
@@ -2493,6 +2499,12 @@ export function advanceCombatSandboxOneTick(
       tick,
     },
   );
+  applyIndividualEnergyActivityOneTick(
+    combatSandbox.individualEnergyActivityStore,
+    combatSandbox.trustedIndividualEnergyProfileStore,
+    combatSandbox.individualEnergyStore,
+    tick,
+  );
   runStage("routingContagion", () =>
     advanceRoutingContagionOneTick(
       world,
@@ -3164,6 +3176,23 @@ function collectInspectedIndividualSnapshots(
         energyActivity.validDefenceAttemptCount,
       energyMovementOccurredThisTick: energyActivity.movementOccurred,
       energyExternallyMovedThisTick: energyActivity.externallyMoved,
+      energyMovementExpenditureRequestedThisTick:
+        energyActivity.movementExpenditureRequested,
+      energyAttackExpenditureRequestedThisTick:
+        energyActivity.attackExpenditureRequested,
+      energyDefenceExpenditureRequestedThisTick:
+        energyActivity.defenceExpenditureRequested,
+      energyTotalExpenditureRequestedThisTick:
+        energyActivity.totalExpenditureRequested,
+      energyExpenditureAppliedThisTick: energyActivity.expenditureApplied,
+      energyRecoveryRequestedThisTick: energyActivity.recoveryRequested,
+      energyRecoveryAppliedThisTick: energyActivity.recoveryApplied,
+      energyBeforeThisTick: energyActivity.energyBefore,
+      energyAfterThisTick: energyActivity.energyAfter,
+      energyLastStrenuousTick: energyActivity.lastStrenuousTick,
+      energyExpenditureClampedThisTick:
+        energyActivity.expenditureClamped,
+      energyRecoveryClampedThisTick: energyActivity.recoveryClamped,
       hasChirurgeon: medicalProfile.hasChirurgeon,
       hasPhysick: medicalProfile.hasPhysick,
       currentGenericHerbs: herbs.current,

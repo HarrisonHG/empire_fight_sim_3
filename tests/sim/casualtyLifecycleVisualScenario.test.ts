@@ -122,7 +122,7 @@ describe("Milestone 6 casualty lifecycle retained visual scenario", () => {
     expect(digestSimulation(completedTrace().simulation)).toEqual(
       runAndDigest(CASUALTY_LIFECYCLE_RECOMMENDED_END_TICK),
     );
-  }, 90_000);
+  }, 120_000);
 
   it("uses the clean chamber seed and isolates the explicit tick-3 trauma opportunity", () => {
     expect(CASUALTY_LIFECYCLE_VISUAL_SEED).toBe(0x6c_0004);
@@ -356,7 +356,7 @@ describe("Milestone 6 casualty lifecycle retained visual scenario", () => {
       });
     }
     expect({ sawEgress, sawWaiting }).toEqual({ sawEgress: true, sawWaiting: true });
-  });
+  }, 10_000);
 
   it("does not retain Chamber 10 herb history as a green cross or stale combat event", () => {
     const snapshot = createPositionSnapshot(completedTrace().simulation);

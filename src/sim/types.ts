@@ -523,6 +523,18 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly energyDefenceImpulsesThisTick?: number;
   readonly energyMovementOccurredThisTick?: boolean;
   readonly energyExternallyMovedThisTick?: boolean;
+  readonly energyMovementExpenditureRequestedThisTick?: number;
+  readonly energyAttackExpenditureRequestedThisTick?: number;
+  readonly energyDefenceExpenditureRequestedThisTick?: number;
+  readonly energyTotalExpenditureRequestedThisTick?: number;
+  readonly energyExpenditureAppliedThisTick?: number;
+  readonly energyRecoveryRequestedThisTick?: number;
+  readonly energyRecoveryAppliedThisTick?: number;
+  readonly energyBeforeThisTick?: number;
+  readonly energyAfterThisTick?: number;
+  readonly energyLastStrenuousTick?: number | null;
+  readonly energyExpenditureClampedThisTick?: boolean;
+  readonly energyRecoveryClampedThisTick?: boolean;
   readonly hasChirurgeon?: boolean;
   readonly hasPhysick?: boolean;
   readonly currentGenericHerbs?: number;

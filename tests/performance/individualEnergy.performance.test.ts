@@ -8,11 +8,15 @@ import {
   setIndividualCurrentEnergyForTrustedSetup,
 } from "../../src/sim/individualEnergy";
 import {
+  applyIndividualEnergyActivityOneTick,
   beginIndividualEnergyActivityObservation,
   classifyIndividualEnergyActivityOneTick,
   createIndividualEnergyActivityStore,
   getIndividualEnergyActivityInspection,
+  observeIndividualEnergyMovementAuthority,
 } from "../../src/sim/individualEnergyActivity";
+import type { IndividualMeleeAttackAttemptRecord } from "../../src/sim/individualCombatAction";
+import type { IndividualMeleeDefenceRecord } from "../../src/sim/individualMeleeDefence";
 import {
   createIndividualCasualtyLifecycleStore,
   createIndividualPlayerPresenceStore,
@@ -115,7 +119,7 @@ describe("individual energy structural performance", () => {
 
 describe("individual energy activity structural performance", () => {
   for (const entityCount of [100, 500, 1_000, 2_000]) {
-    it(`classifies and inspects an idle ${entityCount}-entity tick`, () => {
+    it(`applies idle, mixed movement and dense impulses for ${entityCount} entities`, () => {
       const world: WorldState = {
         entityCount,
         bounds: { width: 10_000, height: 10_000 },
@@ -127,6 +131,16 @@ describe("individual energy activity structural performance", () => {
       };
       const creationStart = performance.now();
       const activity = createIndividualEnergyActivityStore(entityCount);
+      const profiles = createTrustedIndividualEnergyProfileStore({
+        entityCount,
+        profiles: Array.from({ length: entityCount }, (_, entityId) => ({
+          entityId,
+          maximumEnergy: 10_000,
+          startingEnergy: 9_000,
+          safeRestRecoveryPerTick: 5,
+        })),
+      });
+      const energy = createIndividualEnergyStore(profiles);
       const lifecycle = createIndividualCasualtyLifecycleStore(entityCount);
       const presence = createIndividualPlayerPresenceStore(entityCount);
       const treatments = createIndividualTreatmentActionStore(entityCount);
@@ -135,9 +149,19 @@ describe("individual energy activity structural performance", () => {
       const executionBuffers = createIndividualExecutionActionBuffers();
       const creationMilliseconds = performance.now() - creationStart;
 
-      const classificationStart = performance.now();
-      beginIndividualEnergyActivityObservation(activity, world, 0);
-      const returned = classifyIndividualEnergyActivityOneTick(activity, {
+      const attackAttempts = Array.from({ length: entityCount },
+        (_, attackerEntityId) => ({
+          attackerEntityId,
+          targetEntityId: (attackerEntityId + 1) % entityCount,
+          outcome: "attempted",
+        } as unknown as IndividualMeleeAttackAttemptRecord));
+      const defenceAttempts = Array.from({ length: entityCount * 2 },
+        (_, index) => ({
+          attackerEntityId: (index + 1) % entityCount,
+          defenderEntityId: Math.floor(index / 2),
+          outcome: index % 2 === 0 ? "parried" : "landed",
+        } as unknown as IndividualMeleeDefenceRecord));
+      const baseDependencies = {
         world,
         lifecycle,
         presence,
@@ -161,27 +185,72 @@ describe("individual energy activity structural performance", () => {
           pendingIntentCount: 0,
           progressedActionCount: 0,
         },
+        isAlert: () => false,
+      };
+
+      const classificationStart = performance.now();
+      beginIndividualEnergyActivityObservation(activity, world, 0);
+      const returned = classifyIndividualEnergyActivityOneTick(activity, {
+        ...baseDependencies,
         attackAttempts: [],
         defenceAttempts: [],
-        isAlert: () => false,
         tick: 0,
       });
+      applyIndividualEnergyActivityOneTick(activity, profiles, energy, 0);
+      let idleRecoveryApplied = 0;
+      for (let entityId = 0; entityId < entityCount; entityId += 1) {
+        idleRecoveryApplied += getIndividualEnergyActivityInspection(
+          activity,
+          entityId,
+        ).recoveryApplied;
+      }
+
+      beginIndividualEnergyActivityObservation(activity, world, 1);
+      for (let entityId = 0; entityId < entityCount; entityId += 1) {
+        world.positionsX[entityId] = entityId % 4;
+      }
+      observeIndividualEnergyMovementAuthority(activity, world, "ordinaryMovement");
+      classifyIndividualEnergyActivityOneTick(activity, {
+        ...baseDependencies,
+        attackAttempts: [],
+        defenceAttempts: [],
+        tick: 1,
+      });
+      applyIndividualEnergyActivityOneTick(activity, profiles, energy, 1);
+      let mixedMovementRequested = 0;
+      for (let entityId = 0; entityId < entityCount; entityId += 1) {
+        mixedMovementRequested += getIndividualEnergyActivityInspection(
+          activity,
+          entityId,
+        ).movementExpenditureRequested;
+      }
+
+      beginIndividualEnergyActivityObservation(activity, world, 2);
+      classifyIndividualEnergyActivityOneTick(activity, {
+        ...baseDependencies,
+        attackAttempts,
+        defenceAttempts,
+        tick: 2,
+      });
+      applyIndividualEnergyActivityOneTick(activity, profiles, energy, 2);
       const classificationMilliseconds = performance.now() - classificationStart;
 
       const inspectionStart = performance.now();
       let fieldCount = 0;
-      let stationaryCount = 0;
+      let denseImpulseRequested = 0;
       for (let entityId = 0; entityId < entityCount; entityId += 1) {
         const inspection = getIndividualEnergyActivityInspection(activity, entityId);
         fieldCount = Object.keys(inspection).length;
-        if (inspection.dominantContext === "safeStationaryRest" &&
-            !inspection.movementOccurred) stationaryCount += 1;
+        denseImpulseRequested += inspection.attackExpenditureRequested +
+          inspection.defenceExpenditureRequested;
       }
       const inspectionMilliseconds = performance.now() - inspectionStart;
 
       expect(returned).toBe(activity);
-      expect(stationaryCount).toBe(entityCount);
-      expect(fieldCount).toBeLessThanOrEqual(12);
+      expect(idleRecoveryApplied).toBe(entityCount * 5);
+      expect(mixedMovementRequested).toBeGreaterThan(0);
+      expect(denseImpulseRequested).toBe(entityCount * 180);
+      expect(fieldCount).toBeLessThanOrEqual(28);
       expect(Object.keys(activity)).toEqual(["entityCount"]);
 
       console.info("Individual energy activity structural report", JSON.stringify({
@@ -191,7 +260,9 @@ describe("individual energy activity structural performance", () => {
         inspectionMilliseconds,
         fieldCount,
         storageShape: "reused entity-indexed typed arrays",
-        idleTick: true,
+        idleRecoveryApplied,
+        mixedMovementRequested,
+        denseImpulseRequested,
         timingPolicy: "Structural assertions only; no machine timing threshold.",
       }, null, 2));
     });

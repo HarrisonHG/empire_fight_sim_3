@@ -1,18 +1,37 @@
 import { describe, expect, it } from "vitest";
 
-import { createIndividualCasualtyLifecycleStore } from "../../src/sim/individualCasualtyLifecycle";
-import { createIndividualPlayerPresenceStore } from "../../src/sim/individualCasualtyLifecycle";
+import {
+  applyIndividualZeroHitLifecycleTransitions,
+  createIndividualCasualtyLifecycleStore,
+  createIndividualPlayerPresenceStore,
+} from "../../src/sim/individualCasualtyLifecycle";
+import { createIndividualCasualtyProcedureProfileStore } from "../../src/sim/individualCasualtyProcedureProfile";
 import type { IndividualMeleeAttackAttemptRecord } from "../../src/sim/individualCombatAction";
 import {
+  INDIVIDUAL_ENERGY_ALERT_STATIONARY_RECOVERY,
+  INDIVIDUAL_ENERGY_DOWNED_REST_RECOVERY,
+  INDIVIDUAL_ENERGY_JOGGING_COST_PER_TICK,
+  INDIVIDUAL_ENERGY_SPRINTING_COST_PER_TICK,
+  INDIVIDUAL_ENERGY_VALID_ATTACK_IMPULSE,
+  INDIVIDUAL_ENERGY_VALID_DEFENCE_IMPULSE,
+  INDIVIDUAL_ENERGY_WALKING_COST_PER_TICK,
+  applyIndividualEnergyActivityOneTick,
   beginIndividualEnergyActivityObservation,
   classifyIndividualEnergyActivityOneTick,
   createIndividualEnergyActivityStore,
   deriveIndividualEnergyMovementIntensity,
+  deriveIndividualEnergyApplicationRequest,
   getIndividualEnergyActivityInspection,
   observeIndividualEnergyMovementAuthority,
   selectIndividualEnergyActivityContext,
   type IndividualEnergyActivityContextEvidence,
 } from "../../src/sim/individualEnergyActivity";
+import {
+  createIndividualEnergyStore,
+  createTrustedIndividualEnergyProfileStore,
+  getIndividualCurrentEnergy,
+  getIndividualEnergyHistoryInspection,
+} from "../../src/sim/individualEnergy";
 import {
   createIndividualExecutionActionBuffers,
   createIndividualExecutionActionStore,
@@ -224,11 +243,417 @@ describe("individual energy activity classification", () => {
     classifyIndividualEnergyActivityOneTick(second.activity, {
       ...dependencies(second, 11), defenceAttempts: records.slice().reverse(),
     });
+    const profiles = [first, second].map(() =>
+      createTrustedIndividualEnergyProfileStore({
+        entityCount: 3,
+        profiles: Array.from({ length: 3 }, (_, entityId) => ({
+          entityId,
+          maximumEnergy: 1_000,
+          startingEnergy: 500,
+          safeRestRecoveryPerTick: 7,
+        })),
+      }));
+    const energy = profiles.map((profile) => createIndividualEnergyStore(profile));
+    applyIndividualEnergyActivityOneTick(first.activity, profiles[0]!, energy[0]!, 11);
+    applyIndividualEnergyActivityOneTick(second.activity, profiles[1]!, energy[1]!, 11);
     const inspect = (fixture: Fixture) => Array.from(
       { length: 3 }, (_, entityId) =>
         getIndividualEnergyActivityInspection(fixture.activity, entityId),
     );
     expect(inspect(first)).toEqual(inspect(second));
+    expect(Array.from({ length: 3 }, (_, entityId) =>
+      getIndividualEnergyHistoryInspection(energy[0]!, entityId)))
+      .toEqual(Array.from({ length: 3 }, (_, entityId) =>
+        getIndividualEnergyHistoryInspection(energy[1]!, entityId)));
+  });
+});
+
+describe("individual energy base expenditure and recovery", () => {
+  it.each([
+    ["walking", INDIVIDUAL_ENERGY_WALKING_COST_PER_TICK],
+    ["jogging", INDIVIDUAL_ENERGY_JOGGING_COST_PER_TICK],
+    ["sprinting", INDIVIDUAL_ENERGY_SPRINTING_COST_PER_TICK],
+  ] as const)("charges %s movement exactly once", (movementIntensity, expected) => {
+    expect(deriveIndividualEnergyApplicationRequest({
+      dominantContext: movementIntensity,
+      movementOccurred: true,
+      movementIntensity,
+      personalMovementObserved: true,
+      beingDragged: false,
+      validAttackAttemptCount: 0,
+      validDefenceAttemptCount: 0,
+      safeRestRecoveryPerTick: 9,
+    })).toEqual({
+      movementExpenditureRequested: expected,
+      attackExpenditureRequested: 0,
+      defenceExpenditureRequested: 0,
+      totalExpenditureRequested: expected,
+      recoveryRequested: 0,
+    });
+  });
+
+  it.each([
+    ["safeStationaryRest", 9],
+    ["alertStationary", INDIVIDUAL_ENERGY_ALERT_STATIONARY_RECOVERY],
+    ["downedRest", INDIVIDUAL_ENERGY_DOWNED_REST_RECOVERY],
+    ["underTreatment", 0],
+    ["waitingAtRespawn", 0],
+    ["inactiveTerminal", 0],
+  ] as const)("derives only accepted %s recovery", (dominantContext, expected) => {
+    expect(deriveIndividualEnergyApplicationRequest({
+      dominantContext,
+      movementOccurred: false,
+      movementIntensity: "stationary",
+      personalMovementObserved: false,
+      beingDragged: false,
+      validAttackAttemptCount: 0,
+      validDefenceAttemptCount: 0,
+      safeRestRecoveryPerTick: 9,
+    }).recoveryRequested).toBe(expected);
+  });
+
+  it("stacks exact attack and defence impulses and suppresses stationary recovery", () => {
+    expect(deriveIndividualEnergyApplicationRequest({
+      dominantContext: "safeStationaryRest",
+      movementOccurred: false,
+      movementIntensity: "stationary",
+      personalMovementObserved: false,
+      beingDragged: false,
+      validAttackAttemptCount: 1,
+      validDefenceAttemptCount: 3,
+      safeRestRecoveryPerTick: 12,
+    })).toEqual({
+      movementExpenditureRequested: 0,
+      attackExpenditureRequested: INDIVIDUAL_ENERGY_VALID_ATTACK_IMPULSE,
+      defenceExpenditureRequested: 3 * INDIVIDUAL_ENERGY_VALID_DEFENCE_IMPULSE,
+      totalExpenditureRequested: 230,
+      recoveryRequested: 0,
+    });
+  });
+
+  it("charges no attack impulse when invalid pre-commitment input emitted no record", () => {
+    const harness = createEnergyHarness({
+      maximumEnergy: 200,
+      startingEnergy: 100,
+      safeRestRecoveryPerTick: 6,
+    });
+    beginIndividualEnergyActivityObservation(harness.fixture.activity, harness.fixture.world, 0);
+    classifyIndividualEnergyActivityOneTick(
+      harness.fixture.activity,
+      dependencies(harness.fixture, 0),
+    );
+    applyIndividualEnergyActivityOneTick(
+      harness.fixture.activity,
+      harness.profiles,
+      harness.energy,
+      0,
+    );
+    expect(getIndividualEnergyActivityInspection(harness.fixture.activity, 0))
+      .toMatchObject({
+        validAttackAttemptCount: 0,
+        attackExpenditureRequested: 0,
+        totalExpenditureRequested: 0,
+        recoveryApplied: 6,
+      });
+  });
+
+  it("rejects overflowing impulse arithmetic before application", () => {
+    expect(() => deriveIndividualEnergyApplicationRequest({
+      dominantContext: "safeStationaryRest",
+      movementOccurred: false,
+      movementIntensity: "stationary",
+      personalMovementObserved: false,
+      beingDragged: false,
+      validAttackAttemptCount: Number.MAX_SAFE_INTEGER,
+      validDefenceAttemptCount: 0,
+      safeRestRecoveryPerTick: 5,
+    })).toThrow(/attack expenditure exceeds safe integer storage/);
+  });
+
+  it("rejects mismatched profile ownership before mutating energy", () => {
+    const harness = createEnergyHarness({ maximumEnergy: 100, startingEnergy: 50 });
+    const unrelatedProfiles = createTrustedIndividualEnergyProfileStore({
+      entityCount: 1,
+      profiles: [{ entityId: 0, maximumEnergy: 200, startingEnergy: 100 }],
+    });
+    beginIndividualEnergyActivityObservation(harness.fixture.activity, harness.fixture.world, 0);
+    classifyIndividualEnergyActivityOneTick(
+      harness.fixture.activity, dependencies(harness.fixture, 0),
+    );
+    expect(() => applyIndividualEnergyActivityOneTick(
+      harness.fixture.activity,
+      unrelatedProfiles,
+      harness.energy,
+      0,
+    )).toThrow(/profile store that owns current energy/);
+    expect(getIndividualCurrentEnergy(harness.energy, 0)).toBe(50);
+  });
+
+  it.each([
+    "casualtyGathering",
+    "activeDragHelper",
+    "medicalApproach",
+    "traumaWithdrawal",
+    "respawnEgress",
+  ] as const)("charges ordinary gait for personal %s movement", (authority) => {
+    const harness = createEnergyHarness({ startingEnergy: 100 });
+    beginIndividualEnergyActivityObservation(harness.fixture.activity, harness.fixture.world, 1);
+    harness.fixture.world.positionsX[0] = 1;
+    observeIndividualEnergyMovementAuthority(
+      harness.fixture.activity,
+      harness.fixture.world,
+      authority,
+    );
+    classifyIndividualEnergyActivityOneTick(
+      harness.fixture.activity,
+      dependencies(harness.fixture, 1),
+    );
+    applyIndividualEnergyActivityOneTick(
+      harness.fixture.activity,
+      harness.profiles,
+      harness.energy,
+      1,
+    );
+    expect(getIndividualEnergyActivityInspection(harness.fixture.activity, 0))
+      .toMatchObject({
+        movementExpenditureRequested: 1,
+        expenditureApplied: 1,
+        energyBefore: 100,
+        energyAfter: 99,
+      });
+  });
+
+  it("charges neither a dragged patient nor solely external displacement", () => {
+    for (const authority of ["draggedPatient", "externalDisplacement"] as const) {
+      const harness = createEnergyHarness({ startingEnergy: 50 });
+      beginIndividualEnergyActivityObservation(harness.fixture.activity, harness.fixture.world, 2);
+      harness.fixture.world.positionsX[0] = 3;
+      observeIndividualEnergyMovementAuthority(
+        harness.fixture.activity,
+        harness.fixture.world,
+        authority,
+      );
+      classifyIndividualEnergyActivityOneTick(
+        harness.fixture.activity,
+        dependencies(harness.fixture, 2),
+      );
+      applyIndividualEnergyActivityOneTick(
+        harness.fixture.activity,
+        harness.profiles,
+        harness.energy,
+        2,
+      );
+      expect(getIndividualEnergyActivityInspection(harness.fixture.activity, 0))
+        .toMatchObject({
+          movementExpenditureRequested: 0,
+          expenditureApplied: 0,
+          recoveryApplied: 0,
+          energyAfter: 50,
+        });
+    }
+  });
+
+  it("does not waive personal movement when external displacement is also observed", () => {
+    const harness = createEnergyHarness({ startingEnergy: 50 });
+    beginIndividualEnergyActivityObservation(harness.fixture.activity, harness.fixture.world, 3);
+    harness.fixture.world.positionsX[0] = 1;
+    observeIndividualEnergyMovementAuthority(
+      harness.fixture.activity, harness.fixture.world, "ordinaryMovement",
+    );
+    harness.fixture.world.positionsX[0] = 2;
+    observeIndividualEnergyMovementAuthority(
+      harness.fixture.activity, harness.fixture.world, "externalDisplacement",
+    );
+    classifyIndividualEnergyActivityOneTick(
+      harness.fixture.activity, dependencies(harness.fixture, 3),
+    );
+    applyIndividualEnergyActivityOneTick(
+      harness.fixture.activity, harness.profiles, harness.energy, 3,
+    );
+    expect(getIndividualEnergyActivityInspection(harness.fixture.activity, 0))
+      .toMatchObject({
+        movementIntensity: "jogging",
+        externallyMoved: true,
+        movementExpenditureRequested: 8,
+        expenditureApplied: 8,
+      });
+  });
+
+  it("uses net displacement once even when two personal authorities observe it", () => {
+    const harness = createEnergyHarness({ startingEnergy: 50 });
+    beginIndividualEnergyActivityObservation(harness.fixture.activity, harness.fixture.world, 4);
+    harness.fixture.world.positionsX[0] = 1;
+    observeIndividualEnergyMovementAuthority(
+      harness.fixture.activity, harness.fixture.world, "ordinaryMovement",
+    );
+    harness.fixture.world.positionsX[0] = 2;
+    observeIndividualEnergyMovementAuthority(
+      harness.fixture.activity, harness.fixture.world, "medicalApproach",
+    );
+    classifyIndividualEnergyActivityOneTick(
+      harness.fixture.activity, dependencies(harness.fixture, 4),
+    );
+    applyIndividualEnergyActivityOneTick(
+      harness.fixture.activity, harness.profiles, harness.energy, 4,
+    );
+    expect(getIndividualEnergyActivityInspection(harness.fixture.activity, 0))
+      .toMatchObject({
+        actualMovementDistanceSquared: 4,
+        movementExpenditureRequested: 8,
+        totalExpenditureRequested: 8,
+      });
+  });
+
+  it("uses trusted safe recovery and reports maximum clamping", () => {
+    const harness = createEnergyHarness({
+      maximumEnergy: 100,
+      startingEnergy: 97,
+      safeRestRecoveryPerTick: 7,
+    });
+    beginIndividualEnergyActivityObservation(harness.fixture.activity, harness.fixture.world, 5);
+    classifyIndividualEnergyActivityOneTick(
+      harness.fixture.activity, dependencies(harness.fixture, 5),
+    );
+    const returned = applyIndividualEnergyActivityOneTick(
+      harness.fixture.activity, harness.profiles, harness.energy, 5,
+    );
+    expect(returned).toBe(harness.fixture.activity);
+    expect(getIndividualEnergyActivityInspection(harness.fixture.activity, 0))
+      .toMatchObject({
+        recoveryRequested: 7,
+        recoveryApplied: 3,
+        energyBefore: 97,
+        energyAfter: 100,
+        recoveryClamped: true,
+        expenditureClamped: false,
+      });
+  });
+
+  it("applies exactly four recovery to an authoritative downed-rest patient", () => {
+    const harness = createEnergyHarness({ maximumEnergy: 100, startingEnergy: 50 });
+    const procedures = createIndividualCasualtyProcedureProfileStore({
+      entityCount: 1,
+      profiles: [{
+        entityId: 0,
+        procedureKind: "citizen",
+        deathCountPolicy: { kind: "normalFortitude" },
+      }],
+    });
+    applyIndividualZeroHitLifecycleTransitions(
+      harness.fixture.lifecycle,
+      harness.fixture.presence,
+      procedures,
+      harness.fixture.world,
+      [{ entityId: 0, attackerEntityId: 0, previousHits: 1 }],
+      5,
+    );
+    beginIndividualEnergyActivityObservation(harness.fixture.activity, harness.fixture.world, 6);
+    classifyIndividualEnergyActivityOneTick(
+      harness.fixture.activity, dependencies(harness.fixture, 6),
+    );
+    applyIndividualEnergyActivityOneTick(
+      harness.fixture.activity, harness.profiles, harness.energy, 6,
+    );
+    expect(getIndividualEnergyActivityInspection(harness.fixture.activity, 0))
+      .toMatchObject({
+        dominantContext: "downedRest",
+        recoveryRequested: 4,
+        recoveryApplied: 4,
+        energyBefore: 50,
+        energyAfter: 54,
+      });
+  });
+
+  it("applies alert recovery exactly and resets current-tick fields on reuse", () => {
+    const harness = createEnergyHarness({ startingEnergy: 500 });
+    beginIndividualEnergyActivityObservation(harness.fixture.activity, harness.fixture.world, 6);
+    classifyIndividualEnergyActivityOneTick(harness.fixture.activity, {
+      ...dependencies(harness.fixture, 6),
+      attackAttempts: [attack(0, "invalidated")],
+    });
+    applyIndividualEnergyActivityOneTick(
+      harness.fixture.activity, harness.profiles, harness.energy, 6,
+    );
+    expect(getIndividualCurrentEnergy(harness.energy, 0)).toBe(420);
+
+    beginIndividualEnergyActivityObservation(harness.fixture.activity, harness.fixture.world, 7);
+    classifyIndividualEnergyActivityOneTick(harness.fixture.activity, {
+      ...dependencies(harness.fixture, 7),
+      isAlert: () => true,
+    });
+    applyIndividualEnergyActivityOneTick(
+      harness.fixture.activity, harness.profiles, harness.energy, 7,
+    );
+    expect(getIndividualEnergyActivityInspection(harness.fixture.activity, 0))
+      .toMatchObject({
+        dominantContext: "alertStationary",
+        attackExpenditureRequested: 0,
+        totalExpenditureRequested: 0,
+        recoveryRequested: 2,
+        recoveryApplied: 2,
+        energyBefore: 420,
+        energyAfter: 422,
+        lastStrenuousTick: 6,
+        applicationTick: 7,
+      });
+  });
+
+  it("clamps expenditure at zero and updates last strenuous tick even at zero", () => {
+    const harness = createEnergyHarness({ maximumEnergy: 100, startingEnergy: 0 });
+    beginIndividualEnergyActivityObservation(harness.fixture.activity, harness.fixture.world, 8);
+    classifyIndividualEnergyActivityOneTick(harness.fixture.activity, {
+      ...dependencies(harness.fixture, 8),
+      defenceAttempts: [defence(0, "landed"), defence(0, "parried")],
+    });
+    applyIndividualEnergyActivityOneTick(
+      harness.fixture.activity, harness.profiles, harness.energy, 8,
+    );
+    expect(getIndividualEnergyActivityInspection(harness.fixture.activity, 0))
+      .toMatchObject({
+        defenceExpenditureRequested: 100,
+        expenditureApplied: 0,
+        energyBefore: 0,
+        energyAfter: 0,
+        lastStrenuousTick: 8,
+        expenditureClamped: true,
+      });
+  });
+
+  it("updates minimum, threshold and cumulative bounded history through canonical APIs", () => {
+    const harness = createEnergyHarness({
+      maximumEnergy: 100,
+      startingEnergy: 70,
+      safeRestRecoveryPerTick: 10,
+    });
+    for (const tick of [9, 10]) {
+      beginIndividualEnergyActivityObservation(harness.fixture.activity, harness.fixture.world, tick);
+      harness.fixture.world.positionsX[0] =
+        harness.fixture.world.positionsX[0]! + 3;
+      observeIndividualEnergyMovementAuthority(
+        harness.fixture.activity, harness.fixture.world, "ordinaryMovement",
+      );
+      classifyIndividualEnergyActivityOneTick(
+        harness.fixture.activity, dependencies(harness.fixture, tick),
+      );
+      applyIndividualEnergyActivityOneTick(
+        harness.fixture.activity, harness.profiles, harness.energy, tick,
+      );
+    }
+    beginIndividualEnergyActivityObservation(harness.fixture.activity, harness.fixture.world, 11);
+    classifyIndividualEnergyActivityOneTick(
+      harness.fixture.activity, dependencies(harness.fixture, 11),
+    );
+    applyIndividualEnergyActivityOneTick(
+      harness.fixture.activity, harness.profiles, harness.energy, 11,
+    );
+    expect(getIndividualEnergyHistoryInspection(harness.energy, 0)).toEqual({
+      startingEnergy: 70,
+      minimumEnergyReached: 0,
+      firstWindedTick: 10,
+      firstSpentTick: 10,
+      totalEnergySpent: 70,
+      totalEnergyRecovered: 10,
+    });
   });
 });
 
@@ -276,6 +701,23 @@ function createFixture(entityCount: number): Fixture {
     presence: createIndividualPlayerPresenceStore(entityCount),
     treatments: createIndividualTreatmentActionStore(entityCount),
     executions: createIndividualExecutionActionStore(entityCount),
+  };
+}
+
+function createEnergyHarness(values: {
+  readonly maximumEnergy?: number;
+  readonly startingEnergy: number;
+  readonly safeRestRecoveryPerTick?: number;
+}) {
+  const fixture = createFixture(1);
+  const profiles = createTrustedIndividualEnergyProfileStore({
+    entityCount: 1,
+    profiles: [{ entityId: 0, ...values }],
+  });
+  return {
+    fixture,
+    profiles,
+    energy: createIndividualEnergyStore(profiles),
   };
 }
 

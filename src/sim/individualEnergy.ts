@@ -404,6 +404,19 @@ export function getIndividualEnergyInspection(
   };
 }
 
+/** Verifies that a mutable energy store belongs to the supplied trusted profiles. */
+export function assertIndividualEnergyProfileOwnership(
+  profiles: TrustedIndividualEnergyProfileStore,
+  store: IndividualEnergyStore,
+): void {
+  const internal = requireEnergyStoreInternal(store);
+  if (profiles !== internal.profiles) {
+    throw new RangeError(
+      "Energy application must use the profile store that owns current energy.",
+    );
+  }
+}
+
 function updateMinimumAndThresholdHistory(
   internal: EnergyStoreInternal,
   entityId: number,

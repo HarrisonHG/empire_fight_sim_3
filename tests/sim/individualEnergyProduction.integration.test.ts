@@ -12,6 +12,11 @@ import {
 } from "../../src/sim/individualEnergy";
 import { getIndividualEnergyActivityInspection } from "../../src/sim/individualEnergyActivity";
 import {
+  getIndividualCharacterLifecycleState,
+  getIndividualPlayerPresenceState,
+} from "../../src/sim/individualCasualtyLifecycle";
+import { getIndividualCurrentGlobalHits } from "../../src/sim/individualGlobalHits";
+import {
   advanceSimulationOneTick,
   createInitialSnapshot,
   createPositionSnapshot,
@@ -157,18 +162,35 @@ describe("Milestone 7A production energy integration", () => {
 
     expect(createPositionSnapshot(first)).toEqual(createPositionSnapshot(replay));
     expect(createPositionSnapshot(varied)).toEqual(createPositionSnapshot(first));
-    expect(getIndividualEnergyHistoryInspection(varied.individualEnergyStore, 0))
-      .toMatchObject({
-        startingEnergy: 19_000,
-        minimumEnergyReached: 19_000,
-        totalEnergySpent: 0,
-        totalEnergyRecovered: 0,
-      });
+    for (let entityId = 0; entityId < first.world.entityCount; entityId += 1) {
+      expect(getIndividualEnergyHistoryInspection(
+        first.individualEnergyStore,
+        entityId,
+      )).toEqual(getIndividualEnergyHistoryInspection(
+        replay.individualEnergyStore,
+        entityId,
+      ));
+      expect(getIndividualEnergyActivityInspection(
+        first.combatSandbox!.individualEnergyActivityStore,
+        entityId,
+      )).toEqual(getIndividualEnergyActivityInspection(
+        replay.combatSandbox!.individualEnergyActivityStore,
+        entityId,
+      ));
+    }
+    expect(gameplayDigest(varied)).toEqual(gameplayDigest(first));
+    const history = getIndividualEnergyHistoryInspection(
+      varied.individualEnergyStore,
+      0,
+    );
+    expect(history.startingEnergy).toBe(19_000);
+    expect(history.minimumEnergyReached).toBeLessThan(19_000);
+    expect(history.totalEnergySpent).toBeGreaterThan(0);
   });
 });
 
 describe("Milestone 7B-1 production activity observation", () => {
-  it("exposes final current-tick activity without spending or recovering energy", () => {
+  it("applies final current-tick activity without feeding energy back into behaviour", () => {
     const simulation = createSimulation(CASUALTY_LIFECYCLE_VISUAL_SCENARIO);
     const observed = new Set<string>();
     for (let tick = 0; tick < 130; tick += 1) {
@@ -192,17 +214,18 @@ describe("Milestone 7B-1 production activity observation", () => {
       "waitingAtRespawn",
       "inactiveTerminal",
     ]) expect(observed.has(context)).toBe(true);
+    let totalSpent = 0;
     for (let entityId = 0; entityId < simulation.world.entityCount; entityId += 1) {
-      expect(getIndividualEnergyInspection(
+      const energy = getIndividualEnergyInspection(
         simulation.trustedIndividualEnergyProfileStore,
         simulation.individualEnergyStore,
         entityId,
-      )).toMatchObject({
-        currentEnergy: 10_000,
-        totalEnergySpent: 0,
-        totalEnergyRecovered: 0,
-      });
+      );
+      expect(energy.currentEnergy).toBeGreaterThanOrEqual(0);
+      expect(energy.currentEnergy).toBeLessThanOrEqual(energy.maximumEnergy);
+      totalSpent += energy.totalEnergySpent;
     }
+    expect(totalSpent).toBeGreaterThan(0);
   }, 15_000);
 
   it("carries bounded activity fields through existing inspected snapshots", () => {
@@ -220,9 +243,75 @@ describe("Milestone 7B-1 production activity observation", () => {
       energyDefenceImpulsesThisTick: expect.any(Number),
       energyMovementOccurredThisTick: expect.any(Boolean),
       energyExternallyMovedThisTick: expect.any(Boolean),
+      energyMovementExpenditureRequestedThisTick: expect.any(Number),
+      energyAttackExpenditureRequestedThisTick: expect.any(Number),
+      energyDefenceExpenditureRequestedThisTick: expect.any(Number),
+      energyTotalExpenditureRequestedThisTick: expect.any(Number),
+      energyExpenditureAppliedThisTick: expect.any(Number),
+      energyRecoveryRequestedThisTick: expect.any(Number),
+      energyRecoveryAppliedThisTick: expect.any(Number),
+      energyBeforeThisTick: expect.any(Number),
+      energyAfterThisTick: expect.any(Number),
+      energyExpenditureClampedThisTick: expect.any(Boolean),
+      energyRecoveryClampedThisTick: expect.any(Boolean),
     });
   });
+
+  it("cannot alter global hits or lifecycle while applying movement expenditure", () => {
+    const simulation = createSimulation(createSmallBattleScenario({}));
+    const combat = simulation.combatSandbox!;
+    const hitsBefore = Array.from({ length: simulation.world.entityCount },
+      (_, entityId) => getIndividualCurrentGlobalHits(
+        combat.individualGlobalHitStore,
+        entityId,
+      ));
+    const lifecycleBefore = Array.from({ length: simulation.world.entityCount },
+      (_, entityId) => getIndividualCharacterLifecycleState(
+        combat.individualCasualtyLifecycleStore,
+        entityId,
+      ));
+    advanceSimulationOneTick(simulation);
+    expect(Array.from({ length: simulation.world.entityCount },
+      (_, entityId) => getIndividualCurrentGlobalHits(
+        combat.individualGlobalHitStore,
+        entityId,
+      ))).toEqual(hitsBefore);
+    expect(Array.from({ length: simulation.world.entityCount },
+      (_, entityId) => getIndividualCharacterLifecycleState(
+        combat.individualCasualtyLifecycleStore,
+        entityId,
+      ))).toEqual(lifecycleBefore);
+  });
 });
+
+function gameplayDigest(simulation: ReturnType<typeof createSimulation>) {
+  const combat = simulation.combatSandbox!;
+  return {
+    positions: Array.from(createPositionSnapshot(simulation).positions),
+    hits: Array.from({ length: simulation.world.entityCount }, (_, entityId) =>
+      getIndividualCurrentGlobalHits(combat.individualGlobalHitStore, entityId)),
+    lifecycle: Array.from({ length: simulation.world.entityCount }, (_, entityId) =>
+      getIndividualCharacterLifecycleState(
+        combat.individualCasualtyLifecycleStore,
+        entityId,
+      )),
+    presence: Array.from({ length: simulation.world.entityCount }, (_, entityId) =>
+      getIndividualPlayerPresenceState(
+        combat.individualPlayerPresenceStore,
+        entityId,
+      )),
+    moraleMovementStates: [...combat.moraleMovementStates.entries()]
+      .sort((left, right) => left[0] - right[0]),
+    combatTotals: {
+      attacks: combat.totalIndividualAttackAttemptCount,
+      hitLoss: combat.totalIndividualAppliedHitLoss,
+      zeroHits: combat.totalIndividualZeroHitTransitionCount,
+      lifecycleTransitions: combat.totalIndividualLifecycleTransitionCount,
+      terminalTransitions: combat.totalIndividualTerminalTransitionCount,
+    },
+    casualtySummaries: combat.individualCasualtyUnitSummaries,
+  };
+}
 
 interface SmallBattleOptions {
   readonly scenarioEnergy?: SimulationScenario["energyProfile"];

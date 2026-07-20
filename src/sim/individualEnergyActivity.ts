@@ -22,7 +22,24 @@ import {
   type IndividualTreatmentActionResult,
   type IndividualTreatmentActionStore,
 } from "./individualTreatmentAction";
+import {
+  assertIndividualEnergyProfileOwnership,
+  getIndividualCurrentEnergy,
+  getTrustedIndividualEnergyProfile,
+  recoverIndividualEnergy,
+  spendIndividualEnergy,
+  type IndividualEnergyStore,
+  type TrustedIndividualEnergyProfileStore,
+} from "./individualEnergy";
 import type { WorldState } from "./types";
+
+export const INDIVIDUAL_ENERGY_WALKING_COST_PER_TICK = 1;
+export const INDIVIDUAL_ENERGY_JOGGING_COST_PER_TICK = 8;
+export const INDIVIDUAL_ENERGY_SPRINTING_COST_PER_TICK = 40;
+export const INDIVIDUAL_ENERGY_VALID_ATTACK_IMPULSE = 80;
+export const INDIVIDUAL_ENERGY_VALID_DEFENCE_IMPULSE = 50;
+export const INDIVIDUAL_ENERGY_ALERT_STATIONARY_RECOVERY = 2;
+export const INDIVIDUAL_ENERGY_DOWNED_REST_RECOVERY = 4;
 
 export type IndividualEnergyActivityContext =
   | "safeStationaryRest"
@@ -78,6 +95,13 @@ const AUTHORITY_BITS: Readonly<Record<IndividualEnergyMovementAuthority, number>
     respawnEgress: 1 << 6,
     externalDisplacement: 1 << 7,
   });
+const PERSONAL_MOVEMENT_AUTHORITY_MASK =
+  AUTHORITY_BITS.ordinaryMovement |
+  AUTHORITY_BITS.casualtyGathering |
+  AUTHORITY_BITS.activeDragHelper |
+  AUTHORITY_BITS.medicalApproach |
+  AUTHORITY_BITS.traumaWithdrawal |
+  AUTHORITY_BITS.respawnEgress;
 
 const TREATING = 1 << 0;
 const UNDER_TREATMENT = 1 << 1;
@@ -103,7 +127,21 @@ interface InternalIndividualEnergyActivityStore
   readonly movementAuthorityMaskByEntity: Uint16Array;
   readonly externallyMovedByEntity: Uint8Array;
   readonly actionEvidenceByEntity: Uint8Array;
+  readonly movementExpenditureRequestedByEntity: Float64Array;
+  readonly attackExpenditureRequestedByEntity: Float64Array;
+  readonly defenceExpenditureRequestedByEntity: Float64Array;
+  readonly totalExpenditureRequestedByEntity: Float64Array;
+  readonly expenditureAppliedByEntity: Uint32Array;
+  readonly recoveryRequestedByEntity: Uint32Array;
+  readonly recoveryAppliedByEntity: Uint32Array;
+  readonly energyBeforeByEntity: Uint32Array;
+  readonly energyAfterByEntity: Uint32Array;
+  readonly lastStrenuousTickByEntity: Float64Array;
+  readonly expenditureClampedByEntity: Uint8Array;
+  readonly recoveryClampedByEntity: Uint8Array;
+  readonly applicationRequestScratch: MutableIndividualEnergyApplicationRequest;
   observedTick: number;
+  applicationTick: number;
 }
 
 const activityStoreInternals = new WeakMap<
@@ -124,6 +162,46 @@ export interface IndividualEnergyActivityInspection {
   readonly externallyMoved: boolean;
   readonly movementAuthorities: readonly IndividualEnergyMovementAuthority[];
   readonly observedTick: number;
+  readonly movementExpenditureRequested: number;
+  readonly attackExpenditureRequested: number;
+  readonly defenceExpenditureRequested: number;
+  readonly totalExpenditureRequested: number;
+  readonly expenditureApplied: number;
+  readonly recoveryRequested: number;
+  readonly recoveryApplied: number;
+  readonly energyBefore: number;
+  readonly energyAfter: number;
+  readonly lastStrenuousTick: number | null;
+  readonly expenditureClamped: boolean;
+  readonly recoveryClamped: boolean;
+  readonly applicationTick: number;
+}
+
+export interface IndividualEnergyApplicationRequest {
+  readonly movementExpenditureRequested: number;
+  readonly attackExpenditureRequested: number;
+  readonly defenceExpenditureRequested: number;
+  readonly totalExpenditureRequested: number;
+  readonly recoveryRequested: number;
+}
+
+export interface IndividualEnergyApplicationRequestEvidence {
+  readonly dominantContext: IndividualEnergyActivityContext;
+  readonly movementOccurred: boolean;
+  readonly movementIntensity: IndividualEnergyMovementIntensity;
+  readonly personalMovementObserved: boolean;
+  readonly beingDragged: boolean;
+  readonly validAttackAttemptCount: number;
+  readonly validDefenceAttemptCount: number;
+  readonly safeRestRecoveryPerTick: number;
+}
+
+interface MutableIndividualEnergyApplicationRequest {
+  movementExpenditureRequested: number;
+  attackExpenditureRequested: number;
+  defenceExpenditureRequested: number;
+  totalExpenditureRequested: number;
+  recoveryRequested: number;
 }
 
 export interface IndividualEnergyActivityClassificationDependencies {
@@ -161,6 +239,8 @@ export function createIndividualEnergyActivityStore(
     throw new RangeError("Energy activity entityCount must be a non-negative safe integer.");
   }
   const publicStore = Object.freeze({ entityCount });
+  const lastStrenuousTickByEntity = new Float64Array(entityCount);
+  lastStrenuousTickByEntity.fill(-1);
   activityStoreInternals.set(publicStore, {
     entityCount,
     tickStartXByEntity: new Int32Array(entityCount),
@@ -177,7 +257,27 @@ export function createIndividualEnergyActivityStore(
     movementAuthorityMaskByEntity: new Uint16Array(entityCount),
     externallyMovedByEntity: new Uint8Array(entityCount),
     actionEvidenceByEntity: new Uint8Array(entityCount),
+    movementExpenditureRequestedByEntity: new Float64Array(entityCount),
+    attackExpenditureRequestedByEntity: new Float64Array(entityCount),
+    defenceExpenditureRequestedByEntity: new Float64Array(entityCount),
+    totalExpenditureRequestedByEntity: new Float64Array(entityCount),
+    expenditureAppliedByEntity: new Uint32Array(entityCount),
+    recoveryRequestedByEntity: new Uint32Array(entityCount),
+    recoveryAppliedByEntity: new Uint32Array(entityCount),
+    energyBeforeByEntity: new Uint32Array(entityCount),
+    energyAfterByEntity: new Uint32Array(entityCount),
+    lastStrenuousTickByEntity,
+    expenditureClampedByEntity: new Uint8Array(entityCount),
+    recoveryClampedByEntity: new Uint8Array(entityCount),
+    applicationRequestScratch: {
+      movementExpenditureRequested: 0,
+      attackExpenditureRequested: 0,
+      defenceExpenditureRequested: 0,
+      totalExpenditureRequested: 0,
+      recoveryRequested: 0,
+    },
     observedTick: 0,
+    applicationTick: -1,
   } as InternalIndividualEnergyActivityStore);
   return publicStore;
 }
@@ -315,6 +415,186 @@ export function classifyIndividualEnergyActivityOneTick(
   return store;
 }
 
+export function initializeIndividualEnergyActivityApplicationState(
+  activity: IndividualEnergyActivityStore,
+  energy: IndividualEnergyStore,
+): void {
+  const internal = requireStore(activity, energy.entityCount);
+  for (let entityId = 0; entityId < internal.entityCount; entityId += 1) {
+    const current = getIndividualCurrentEnergy(energy, entityId);
+    internal.energyBeforeByEntity[entityId] = current;
+    internal.energyAfterByEntity[entityId] = current;
+  }
+  internal.applicationTick = -1;
+}
+
+export function applyIndividualEnergyActivityOneTick(
+  activity: IndividualEnergyActivityStore,
+  profiles: TrustedIndividualEnergyProfileStore,
+  energy: IndividualEnergyStore,
+  tick: number,
+): IndividualEnergyActivityStore {
+  const internal = requireStore(activity, energy.entityCount);
+  if (profiles.entityCount !== internal.entityCount) {
+    throw new RangeError("Energy application stores must match entityCount.");
+  }
+  assertIndividualEnergyProfileOwnership(profiles, energy);
+  assertTick(tick);
+  if (internal.observedTick !== tick) {
+    throw new Error("Energy application must consume the finalised current-tick activity.");
+  }
+
+  // Validate and stage every requested value before any current-energy mutation.
+  for (let entityId = 0; entityId < internal.entityCount; entityId += 1) {
+    const profile = getTrustedIndividualEnergyProfile(profiles, entityId);
+    const request = internal.applicationRequestScratch;
+    deriveIndividualEnergyApplicationRequestInto(
+      CONTEXTS[internal.contextByEntity[entityId]!]!,
+      internal.distanceSquaredByEntity[entityId] !== 0,
+      INTENSITIES[internal.intensityByEntity[entityId]!]!,
+      (internal.movementAuthorityMaskByEntity[entityId]! &
+        PERSONAL_MOVEMENT_AUTHORITY_MASK) !== 0,
+      (internal.movementAuthorityMaskByEntity[entityId]! &
+        AUTHORITY_BITS.draggedPatient) !== 0,
+      internal.attackAttemptCountByEntity[entityId]!,
+      internal.defenceAttemptCountByEntity[entityId]!,
+      profile.safeRestRecoveryPerTick,
+      request,
+    );
+    internal.movementExpenditureRequestedByEntity[entityId] =
+      request.movementExpenditureRequested;
+    internal.attackExpenditureRequestedByEntity[entityId] =
+      request.attackExpenditureRequested;
+    internal.defenceExpenditureRequestedByEntity[entityId] =
+      request.defenceExpenditureRequested;
+    internal.totalExpenditureRequestedByEntity[entityId] =
+      request.totalExpenditureRequested;
+    internal.recoveryRequestedByEntity[entityId] = request.recoveryRequested;
+    internal.expenditureAppliedByEntity[entityId] = 0;
+    internal.recoveryAppliedByEntity[entityId] = 0;
+    internal.expenditureClampedByEntity[entityId] = 0;
+    internal.recoveryClampedByEntity[entityId] = 0;
+    const current = getIndividualCurrentEnergy(energy, entityId);
+    internal.energyBeforeByEntity[entityId] = current;
+    internal.energyAfterByEntity[entityId] = current;
+  }
+
+  for (let entityId = 0; entityId < internal.entityCount; entityId += 1) {
+    const expenditureRequested =
+      internal.totalExpenditureRequestedByEntity[entityId]!;
+    const recoveryRequested = internal.recoveryRequestedByEntity[entityId]!;
+    if (expenditureRequested > 0) {
+      const result = spendIndividualEnergy(
+        energy,
+        entityId,
+        expenditureRequested,
+        tick,
+      );
+      internal.expenditureAppliedByEntity[entityId] = result.appliedAmount;
+      internal.energyAfterByEntity[entityId] = result.currentEnergyAfter;
+      internal.expenditureClampedByEntity[entityId] =
+        result.appliedAmount < expenditureRequested ? 1 : 0;
+      internal.lastStrenuousTickByEntity[entityId] = tick;
+    } else if (recoveryRequested > 0) {
+      const result = recoverIndividualEnergy(
+        energy,
+        entityId,
+        recoveryRequested,
+        tick,
+      );
+      internal.recoveryAppliedByEntity[entityId] = result.appliedAmount;
+      internal.energyAfterByEntity[entityId] = result.currentEnergyAfter;
+      internal.recoveryClampedByEntity[entityId] =
+        result.appliedAmount < recoveryRequested ? 1 : 0;
+    }
+  }
+  internal.applicationTick = tick;
+  return activity;
+}
+
+export function deriveIndividualEnergyApplicationRequest(
+  evidence: IndividualEnergyApplicationRequestEvidence,
+): IndividualEnergyApplicationRequest {
+  const request: MutableIndividualEnergyApplicationRequest = {
+    movementExpenditureRequested: 0,
+    attackExpenditureRequested: 0,
+    defenceExpenditureRequested: 0,
+    totalExpenditureRequested: 0,
+    recoveryRequested: 0,
+  };
+  deriveIndividualEnergyApplicationRequestInto(
+    evidence.dominantContext,
+    evidence.movementOccurred,
+    evidence.movementIntensity,
+    evidence.personalMovementObserved,
+    evidence.beingDragged,
+    evidence.validAttackAttemptCount,
+    evidence.validDefenceAttemptCount,
+    evidence.safeRestRecoveryPerTick,
+    request,
+  );
+  return request;
+}
+
+function deriveIndividualEnergyApplicationRequestInto(
+  dominantContext: IndividualEnergyActivityContext,
+  movementOccurred: boolean,
+  movementIntensity: IndividualEnergyMovementIntensity,
+  personalMovementObserved: boolean,
+  beingDragged: boolean,
+  validAttackAttemptCount: number,
+  validDefenceAttemptCount: number,
+  safeRestRecoveryPerTick: number,
+  out: MutableIndividualEnergyApplicationRequest,
+): void {
+  assertNonNegativeSafeInteger(
+    validAttackAttemptCount,
+    "validAttackAttemptCount",
+  );
+  assertNonNegativeSafeInteger(
+    validDefenceAttemptCount,
+    "validDefenceAttemptCount",
+  );
+  assertNonNegativeSafeInteger(
+    safeRestRecoveryPerTick,
+    "safeRestRecoveryPerTick",
+  );
+  const movementExpenditureRequested =
+    movementOccurred && personalMovementObserved && !beingDragged
+      ? movementCostForIntensity(movementIntensity)
+      : 0;
+  const attackExpenditureRequested = checkedMultiplication(
+    validAttackAttemptCount,
+    INDIVIDUAL_ENERGY_VALID_ATTACK_IMPULSE,
+    "attack expenditure",
+  );
+  const defenceExpenditureRequested = checkedMultiplication(
+    validDefenceAttemptCount,
+    INDIVIDUAL_ENERGY_VALID_DEFENCE_IMPULSE,
+    "defence expenditure",
+  );
+  const totalExpenditureRequested = checkedAddition(
+    checkedAddition(
+      movementExpenditureRequested,
+      attackExpenditureRequested,
+      "movement and attack expenditure",
+    ),
+    defenceExpenditureRequested,
+    "total expenditure",
+  );
+  const recoveryRequested = totalExpenditureRequested === 0
+    ? recoveryForContext(
+        dominantContext,
+        safeRestRecoveryPerTick,
+      )
+    : 0;
+  out.movementExpenditureRequested = movementExpenditureRequested;
+  out.attackExpenditureRequested = attackExpenditureRequested;
+  out.defenceExpenditureRequested = defenceExpenditureRequested;
+  out.totalExpenditureRequested = totalExpenditureRequested;
+  out.recoveryRequested = recoveryRequested;
+}
+
 export function deriveIndividualEnergyMovementIntensity(
   displacementX: number,
   displacementY: number,
@@ -348,6 +628,25 @@ export function getIndividualEnergyActivityInspection(
     externallyMoved: internal.externallyMovedByEntity[entityId] !== 0,
     movementAuthorities: movementAuthorities(mask),
     observedTick: internal.observedTick,
+    movementExpenditureRequested:
+      internal.movementExpenditureRequestedByEntity[entityId]!,
+    attackExpenditureRequested:
+      internal.attackExpenditureRequestedByEntity[entityId]!,
+    defenceExpenditureRequested:
+      internal.defenceExpenditureRequestedByEntity[entityId]!,
+    totalExpenditureRequested:
+      internal.totalExpenditureRequestedByEntity[entityId]!,
+    expenditureApplied: internal.expenditureAppliedByEntity[entityId]!,
+    recoveryRequested: internal.recoveryRequestedByEntity[entityId]!,
+    recoveryApplied: internal.recoveryAppliedByEntity[entityId]!,
+    energyBefore: internal.energyBeforeByEntity[entityId]!,
+    energyAfter: internal.energyAfterByEntity[entityId]!,
+    lastStrenuousTick: nullableTick(
+      internal.lastStrenuousTickByEntity[entityId]!,
+    ),
+    expenditureClamped: internal.expenditureClampedByEntity[entityId] !== 0,
+    recoveryClamped: internal.recoveryClampedByEntity[entityId] !== 0,
+    applicationTick: internal.applicationTick,
   };
 }
 
@@ -551,6 +850,45 @@ function movementAuthorities(mask: number): readonly IndividualEnergyMovementAut
   return out;
 }
 
+function movementCostForIntensity(
+  intensity: IndividualEnergyMovementIntensity,
+): number {
+  switch (intensity) {
+    case "walking": return INDIVIDUAL_ENERGY_WALKING_COST_PER_TICK;
+    case "jogging": return INDIVIDUAL_ENERGY_JOGGING_COST_PER_TICK;
+    case "sprinting": return INDIVIDUAL_ENERGY_SPRINTING_COST_PER_TICK;
+    case "stationary": return 0;
+  }
+}
+
+function recoveryForContext(
+  context: IndividualEnergyActivityContext,
+  safeRestRecoveryPerTick: number,
+): number {
+  switch (context) {
+    case "safeStationaryRest": return safeRestRecoveryPerTick;
+    case "alertStationary": return INDIVIDUAL_ENERGY_ALERT_STATIONARY_RECOVERY;
+    case "downedRest": return INDIVIDUAL_ENERGY_DOWNED_REST_RECOVERY;
+    default: return 0;
+  }
+}
+
+function checkedMultiplication(left: number, right: number, name: string): number {
+  const result = left * right;
+  if (!Number.isSafeInteger(result)) {
+    throw new RangeError(`${name} exceeds safe integer storage.`);
+  }
+  return result;
+}
+
+function checkedAddition(left: number, right: number, name: string): number {
+  const result = left + right;
+  if (!Number.isSafeInteger(result)) {
+    throw new RangeError(`${name} exceeds safe integer storage.`);
+  }
+  return result;
+}
+
 function incrementChecked(array: Uint32Array, entityId: number, label: string): void {
   assertEntityId(entityId, array.length);
   const current = array[entityId]!;
@@ -593,4 +931,14 @@ function assertTick(tick: number): void {
   if (!Number.isSafeInteger(tick) || tick < 0) {
     throw new RangeError("Energy activity tick must be a non-negative safe integer.");
   }
+}
+
+function assertNonNegativeSafeInteger(value: number, name: string): void {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new RangeError(`${name} must be a non-negative safe integer.`);
+  }
+}
+
+function nullableTick(value: number): number | null {
+  return value < 0 ? null : value;
 }

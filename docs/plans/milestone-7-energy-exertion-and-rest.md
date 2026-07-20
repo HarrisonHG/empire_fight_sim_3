@@ -1,6 +1,6 @@
 # Milestone 7: Energy, Exertion, and Rest
 
-Status: active; 7A and 7B-1 implemented, 7B-2 and later slices deferred.
+Status: active; 7A, 7B-1, and 7B-2 implemented; 7C and later slices deferred.
 
 Implementation begins after Milestone 6 is accepted and the post-Milestone-6 main-battle medical integration spike is retained as the evolving `/` scenario.
 
@@ -663,6 +663,8 @@ or alter movement, gait, combat, pressure, morale, renderer, worker, or UI state
 
 ## 7B-2 — Base expenditure and recovery application
 
+Status: implemented.
+
 Deliver:
 
 - consume the accepted 7B-1 dominant context and exact displacement evidence;
@@ -688,6 +690,27 @@ Tests:
 Boundary:
 
 Observe production; do not yet limit movement or combat.
+
+Implementation notes:
+
+- `IndividualEnergyActivityStore` owns reusable entity-indexed current-tick
+  request, application, clamp, before/after, and last-strenuous outputs;
+- `IndividualEnergyStore` remains the sole current-energy and bounded-history
+  mutation authority through its named spend and recovery APIs;
+- exact net 7B-1 displacement produces at most one base gait charge;
+- personal gathering, drag-helper, medical-approach, trauma-withdrawal, and
+  respawn-egress movement use the ordinary observed gait charge;
+- dragged patients and solely externally displaced entities receive no base
+  movement charge;
+- canonical committed attack and defence records stack checked integer impulses;
+- any requested expenditure suppresses recovery, including when expenditure is
+  clamped at zero;
+- safe stationary recovery comes from the trusted profile, while alert and
+  downed recovery use the named initial constants;
+- treatment, waiting-at-respawn, terminal, and all other contexts remain neutral;
+- application runs in canonical entity-ID order after 7B-1 finalisation and
+  before final inspection/history snapshots;
+- energy remains downstream-only and cannot yet alter gameplay decisions.
 
 ---
 
