@@ -1,11 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import { moveWorldOneTick } from "../../src/sim/movement";
+import {
+  createIndividualEnergyStore,
+  createTrustedIndividualEnergyProfileStore,
+} from "../../src/sim/individualEnergy";
 import { advanceSimulationOneTick } from "../../src/sim/simulation";
 import type { SimulationState, WorldState } from "../../src/sim/types";
 
 describe("fixed-tick movement", () => {
   it("moves by exactly one stored integer velocity and advances one tick", () => {
+    const energyProfiles = createTrustedIndividualEnergyProfileStore({
+      entityCount: 1,
+      profiles: [{ entityId: 0 }],
+    });
     const simulation: SimulationState = {
       tick: 12,
       rngState: 123,
@@ -15,6 +23,8 @@ describe("fixed-tick movement", () => {
         velocitiesX: [2],
         velocitiesY: [-3],
       }),
+      trustedIndividualEnergyProfileStore: energyProfiles,
+      individualEnergyStore: createIndividualEnergyStore(energyProfiles),
     };
 
     advanceSimulationOneTick(simulation);

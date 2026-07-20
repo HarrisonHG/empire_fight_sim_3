@@ -1,6 +1,6 @@
 # Milestone 7: Energy, Exertion, and Rest
 
-Status: planned.
+Status: active; 7A implemented, 7B and later slices deferred.
 
 Implementation begins after Milestone 6 is accepted and the post-Milestone-6 main-battle medical integration spike is retained as the evolving `/` scenario.
 

@@ -30,6 +30,12 @@ import type {
 } from "./individualCombatProfile";
 import type { IndividualGlobalHitStore } from "./individualGlobalHits";
 import type {
+  IndividualEnergyBand,
+  IndividualEnergyStore,
+  TrustedIndividualEnergyProfileStore,
+  TrustedIndividualEnergyProfileValues,
+} from "./individualEnergy";
+import type {
   CasualtyProcedureKind,
   DeathCountPolicy,
   IndividualCasualtyProcedureProfileStore,
@@ -212,6 +218,8 @@ export interface CombatSandboxUnitScenario {
     readonly hasPhysick: boolean;
     readonly startingGenericHerbs?: number;
   };
+  /** Optional trusted energy template expanded to every member. */
+  readonly energyProfile?: TrustedIndividualEnergyProfileValues;
   /** Optional compact inspection label; does not affect simulation rules. */
   readonly label?: string;
   /** Optional formation-owned initial cohesion; also defines recovery maximum. */
@@ -302,6 +310,8 @@ export interface FormationSandboxUnitScenario {
   readonly unitSpeed: number;
   readonly order: UnitOrder;
   readonly cohesion?: number;
+  /** Optional trusted energy template expanded to every member. */
+  readonly energyProfile?: TrustedIndividualEnergyProfileValues;
 }
 
 export interface FormationSandboxIndividualScenario {
@@ -328,6 +338,8 @@ export interface SimulationScenario {
   readonly bounds: SimulationBounds;
   readonly minSpeedUnitsPerTick: number;
   readonly maxSpeedUnitsPerTick: number;
+  /** Scenario-wide trusted energy defaults, overridable by configured units. */
+  readonly energyProfile?: TrustedIndividualEnergyProfileValues;
   readonly combatSandbox?: CombatSandboxScenario;
   /**
    * Archived Milestone 3 visual regression fixture. This deliberately uses the
@@ -486,6 +498,17 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly executionTargetInterruptionHistoryCount?: number;
   readonly terminalizedByExecutionHistoryCount?: number;
   readonly genericHerbsConsumedHistoryCount?: number;
+  readonly currentEnergy?: number;
+  readonly maximumEnergy?: number;
+  readonly energyRatioFixedPoint?: number;
+  readonly energyBand?: IndividualEnergyBand;
+  readonly safeRestRecoveryPerTick?: number;
+  readonly startingEnergy?: number;
+  readonly minimumEnergyReached?: number;
+  readonly firstWindedTick?: number | null;
+  readonly firstSpentTick?: number | null;
+  readonly totalEnergySpent?: number;
+  readonly totalEnergyRecovered?: number;
   readonly hasChirurgeon?: boolean;
   readonly hasPhysick?: boolean;
   readonly currentGenericHerbs?: number;
@@ -680,6 +703,9 @@ export interface CombatSandboxSimulationState {
   readonly individualMeleeDefenceStore: IndividualMeleeDefenceStore;
   readonly individualLandedHitGateStore: IndividualLandedHitGateStore;
   readonly individualGlobalHitStore: IndividualGlobalHitStore;
+  /** Aliases the SimulationState-owned stores for bounded combat inspection. */
+  readonly trustedIndividualEnergyProfileStore: TrustedIndividualEnergyProfileStore;
+  readonly individualEnergyStore: IndividualEnergyStore;
   readonly individualCasualtyProcedureProfileStore: IndividualCasualtyProcedureProfileStore;
   readonly individualCasualtyLifecycleStore: IndividualCasualtyLifecycleStore;
   readonly individualPlayerPresenceStore: IndividualPlayerPresenceStore;
@@ -826,6 +852,8 @@ export interface SimulationState {
   tick: number;
   rngState: number;
   readonly world: WorldState;
+  readonly trustedIndividualEnergyProfileStore: TrustedIndividualEnergyProfileStore;
+  readonly individualEnergyStore: IndividualEnergyStore;
   readonly combatSandbox?: CombatSandboxSimulationState;
   readonly legacyCombatFoundationSandbox?: LegacyCombatFoundationSimulationState;
   readonly formationSandbox?: FormationSandboxSimulationState;

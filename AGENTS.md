@@ -40,12 +40,13 @@ If a referenced file is missing, first determine whether it is required for the 
 
 ## Current Project Phase
 
-Milestone 5, including its visual integration spike, is accepted.
+Milestone 6, including its retained visual suite and post-milestone integration
+spike, is accepted and archived in `docs/completed-plans/`.
 
-The project is implementing Milestone 6: casualties, dying, battlefield treatment,
-rescue, and player-presence state. Follow the accepted numbered slices in
-`docs/plans/milestone-6-casualties-dying-treatment-rescue-and-player-presence.md`
-without implementing later slices early.
+The project is implementing Milestone 7: energy, exertion, and rest. Follow the
+accepted numbered slices in
+`docs/plans/milestone-7-energy-exertion-and-rest.md` without implementing later
+slices early.
 
 ## Required Reading
 

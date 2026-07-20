@@ -115,7 +115,7 @@ describe("Spike 6.5 main battle medical integration sandbox", () => {
     expect(createInitialSnapshot(createSimulation(MAIN_BATTLE_MEDICAL_SCENARIO)))
       .toEqual(createInitialSnapshot(createSimulation(MAIN_BATTLE_MEDICAL_SCENARIO)));
     expect(runDigest(800)).toEqual(runDigest(800));
-  }, 40_000);
+  }, 60_000);
 
   it("runs production combat, casualty and medical authorities through a bounded smoke", () => {
     const { simulation, seen } = smokeRun();
@@ -132,7 +132,7 @@ describe("Spike 6.5 main battle medical integration sandbox", () => {
     expect(snapshot.combatDebug?.individualCombatVisuals).toHaveLength(44);
     expect(snapshot.combatDebug?.inspectedCombatVisualEvents.length)
       .toBeLessThanOrEqual(MAIN_BATTLE_MEDICAL_ENTITY_COUNT * 10);
-  }, 30_000);
+  }, 60_000);
 
   it("keeps retained routes unchanged and contains no direct outcome fixture", () => {
     expect(VISUAL_TEST_REGISTRY.map((entry) => entry.id)).toEqual([

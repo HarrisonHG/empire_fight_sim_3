@@ -204,6 +204,15 @@ import {
   getIndividualCurrentGlobalHits,
   getIndividualMaximumGlobalHits,
 } from "./individualGlobalHits";
+import {
+  createIndividualEnergyStore,
+  createTrustedIndividualEnergyProfileStore,
+  getIndividualEnergyInspection,
+  type IndividualEnergyStore,
+  type TrustedIndividualEnergyProfileConfig,
+  type TrustedIndividualEnergyProfileStore,
+  type TrustedIndividualEnergyProfileValues,
+} from "./individualEnergy";
 import { SeededRng } from "./rng";
 import {
   createUnitIdentityStore,
@@ -312,6 +321,14 @@ export function createSimulation(
   scenario: SimulationScenario,
 ): SimulationState {
   const initializedWorld = createWorld(scenario);
+  const trustedIndividualEnergyProfileStore =
+    createTrustedIndividualEnergyProfileStore({
+      entityCount: initializedWorld.world.entityCount,
+      profiles: expandScenarioEnergyProfiles(scenario),
+    });
+  const individualEnergyStore = createIndividualEnergyStore(
+    trustedIndividualEnergyProfileStore,
+  );
   const configuredSandboxCount =
     (scenario.combatSandbox === undefined ? 0 : 1) +
     (scenario.legacyCombatFoundationSandbox === undefined ? 0 : 1) +
@@ -328,6 +345,8 @@ export function createSimulation(
           initializedWorld.world,
           scenario.combatSandbox,
           scenario.seed,
+          trustedIndividualEnergyProfileStore,
+          individualEnergyStore,
         );
   const initializedLegacyCombatFoundationSandbox =
     scenario.legacyCombatFoundationSandbox === undefined
@@ -352,6 +371,8 @@ export function createSimulation(
       initializedLegacyCombatFoundationSandbox?.rngState ??
       initializedWorld.rngState,
     world: initializedWorld.world,
+    trustedIndividualEnergyProfileStore,
+    individualEnergyStore,
     ...(initializedCombatSandbox === undefined
       ? {}
       : { combatSandbox: initializedCombatSandbox.state }),
@@ -544,6 +565,8 @@ function createCombatSandbox(
   world: WorldState,
   scenario: CombatSandboxScenario,
   seed: number,
+  trustedIndividualEnergyProfileStore: TrustedIndividualEnergyProfileStore,
+  individualEnergyStore: IndividualEnergyStore,
 ): InitializedCombatSandbox {
   validateCombatSandboxScenario(world, scenario);
 
@@ -815,6 +838,8 @@ function createCombatSandbox(
     individualLandedHitGateStore:
       individualCombatPipelineStores.landedHitGateStore,
     individualGlobalHitStore: individualCombatPipelineStores.globalHitStore,
+    trustedIndividualEnergyProfileStore,
+    individualEnergyStore,
     individualCasualtyProcedureProfileStore,
     individualCasualtyLifecycleStore,
     individualPlayerPresenceStore,
@@ -986,6 +1011,94 @@ function createCombatSandbox(
   combatSandbox.debugSnapshot = createCombatDebugSnapshot(world, combatSandbox, 0);
 
   return { state: combatSandbox, rngState: deploymentRng.state };
+}
+
+function expandScenarioEnergyProfiles(
+  scenario: SimulationScenario,
+): readonly TrustedIndividualEnergyProfileConfig[] {
+  const profiles = Array.from(
+    { length: scenario.entityCount },
+    (_, entityId): TrustedIndividualEnergyProfileConfig => ({
+      entityId,
+      ...copyEnergyProfileValues(scenario.energyProfile),
+    }),
+  );
+
+  const combatScenario =
+    scenario.combatSandbox ?? scenario.legacyCombatFoundationSandbox;
+  if (combatScenario !== undefined) {
+    let entityId = 0;
+    for (let unitIndex = 0; unitIndex < combatScenario.units.length; unitIndex += 1) {
+      const unit = combatScenario.units[unitIndex]!;
+      const values = mergeEnergyProfileValues(
+        scenario.energyProfile,
+        unit.energyProfile,
+      );
+      for (let memberIndex = 0; memberIndex < unit.memberCount; memberIndex += 1) {
+        if (entityId < profiles.length) {
+          profiles[entityId] = { entityId, ...values };
+        }
+        entityId += 1;
+      }
+    }
+  } else if (scenario.formationSandbox !== undefined) {
+    const formationScenario: FormationSandboxScenario = scenario.formationSandbox;
+    for (
+      let unitIndex = 0;
+      unitIndex < formationScenario.units.length;
+      unitIndex += 1
+    ) {
+      const unit = formationScenario.units[unitIndex]!;
+      const values = mergeEnergyProfileValues(
+        scenario.energyProfile,
+        unit.energyProfile,
+      );
+      for (let memberIndex = 0; memberIndex < unit.memberEntityIds.length; memberIndex += 1) {
+        const entityId = unit.memberEntityIds[memberIndex]!;
+        if (entityId >= 0 && entityId < profiles.length) {
+          profiles[entityId] = { entityId, ...values };
+        }
+      }
+    }
+  }
+
+  return profiles;
+}
+
+function mergeEnergyProfileValues(
+  scenarioValues: TrustedIndividualEnergyProfileValues | undefined,
+  unitValues: TrustedIndividualEnergyProfileValues | undefined,
+): TrustedIndividualEnergyProfileValues {
+  const maximumEnergy =
+    unitValues?.maximumEnergy ?? scenarioValues?.maximumEnergy;
+  const startingEnergy =
+    unitValues?.startingEnergy ?? scenarioValues?.startingEnergy;
+  const safeRestRecoveryPerTick =
+    unitValues?.safeRestRecoveryPerTick ??
+    scenarioValues?.safeRestRecoveryPerTick;
+  return {
+    ...(maximumEnergy === undefined ? {} : { maximumEnergy }),
+    ...(startingEnergy === undefined ? {} : { startingEnergy }),
+    ...(safeRestRecoveryPerTick === undefined
+      ? {}
+      : { safeRestRecoveryPerTick }),
+  };
+}
+
+function copyEnergyProfileValues(
+  values: TrustedIndividualEnergyProfileValues | undefined,
+): TrustedIndividualEnergyProfileValues {
+  return {
+    ...(values?.maximumEnergy === undefined
+      ? {}
+      : { maximumEnergy: values.maximumEnergy }),
+    ...(values?.startingEnergy === undefined
+      ? {}
+      : { startingEnergy: values.startingEnergy }),
+    ...(values?.safeRestRecoveryPerTick === undefined
+      ? {}
+      : { safeRestRecoveryPerTick: values.safeRestRecoveryPerTick }),
+  };
 }
 
 function createLegacyCombatFoundationSandbox(
@@ -2795,6 +2908,11 @@ function collectInspectedIndividualSnapshots(
       combatSandbox.individualGenericHerbStore,
       entityId,
     );
+    const energy = getIndividualEnergyInspection(
+      combatSandbox.trustedIndividualEnergyProfileStore,
+      combatSandbox.individualEnergyStore,
+      entityId,
+    );
     const traumaticWound = getIndividualTraumaticWoundInspection(
       combatSandbox.individualTraumaticWoundStore,
       entityId,
@@ -2926,6 +3044,17 @@ function collectInspectedIndividualSnapshots(
         consolidatedHistory.terminalizedByExecutionCount,
       genericHerbsConsumedHistoryCount:
         consolidatedHistory.genericHerbsConsumedCount,
+      currentEnergy: energy.currentEnergy,
+      maximumEnergy: energy.maximumEnergy,
+      energyRatioFixedPoint: energy.ratioFixedPoint,
+      energyBand: energy.band,
+      safeRestRecoveryPerTick: energy.safeRestRecoveryPerTick,
+      startingEnergy: energy.startingEnergy,
+      minimumEnergyReached: energy.minimumEnergyReached,
+      firstWindedTick: energy.firstWindedTick,
+      firstSpentTick: energy.firstSpentTick,
+      totalEnergySpent: energy.totalEnergySpent,
+      totalEnergyRecovered: energy.totalEnergyRecovered,
       hasChirurgeon: medicalProfile.hasChirurgeon,
       hasPhysick: medicalProfile.hasPhysick,
       currentGenericHerbs: herbs.current,

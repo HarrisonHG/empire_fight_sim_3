@@ -1,6 +1,6 @@
 # Empire Fight Sim Milestone Roadmap
 
-Status: working roadmap. Updated 2026-07-20 through accepted Milestone 5, technically complete Milestone 6, and post-Milestone-6 integration Spike 6.5.
+Status: working roadmap. Updated 2026-07-20 through accepted Milestone 6, post-Milestone-6 integration Spike 6.5, and active Milestone 7A.
 
 This file records the current milestone series for the deterministic Empire LARP battle simulation. It includes completed foundation work, the active morale sequence, the individual-combat correction, and the likely future roadmap.
 
@@ -680,7 +680,7 @@ Boundary:
 
 ## Milestone 6: Casualties, Dying, Battlefield Treatment, Rescue, and Player-Presence State
 
-Status: technically complete through 6I-2; the retained 6J visual suite awaits human visual acceptance.
+Status: accepted and archived in `docs/completed-plans/`.
 
 Purpose:
 
@@ -725,7 +725,7 @@ Milestone 6 delivery slices:
 ```txt
 6H-2B  barbarian respawn-egress movement and waiting-at-respawn arrival
 6I     production consolidation, summaries, history, one-hour soak and performance
-6J     retained casualty-lifecycle visual suite; implemented, awaiting human acceptance
+6J     retained casualty-lifecycle visual suite and human acceptance
 ```
 
 Dependency and adoption boundaries:
@@ -768,7 +768,7 @@ The spike does not tune or replace any casualty, combat, morale, rescue, treatme
 
 ## Milestone 7: Energy, Exertion, and Rest
 
-Status: future.
+Status: active; standalone 7A energy foundations implemented.
 
 Purpose:
 

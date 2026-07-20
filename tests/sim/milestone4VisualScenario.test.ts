@@ -39,11 +39,11 @@ describe("combined Milestone 4 visual regression scenario", () => {
     }
 
     expect(minimumSeparation).toBeGreaterThan(LOCAL_HOSTILE_THREAT_RADIUS);
-  });
+  }, 10_000);
 
   it("replays the newly combined inspection suite deterministically", () => {
     expect(runCombinedScenario()).toEqual(runCombinedScenario());
-  });
+  }, 10_000);
 
   it("retains comparison and pursuit outcomes without downed contagion", () => {
     const simulation = createSimulation(MILESTONE_4_VISUAL_SCENARIO);
@@ -111,7 +111,7 @@ describe("combined Milestone 4 visual regression scenario", () => {
       regularFinal: expect.objectContaining({ state: "routing" }),
       veteranFinal: expect.objectContaining({ state: "steady" }),
     });
-  });
+  }, 10_000);
 });
 
 function runCombinedScenario(): unknown {

@@ -40,6 +40,11 @@ export const MAIN_BATTLE_MEDICAL_SCENARIO: SimulationScenario = Object.freeze({
   }),
   minSpeedUnitsPerTick: 1,
   maxSpeedUnitsPerTick: 1,
+  energyProfile: Object.freeze({
+    maximumEnergy: 10_000,
+    startingEnergy: 10_000,
+    safeRestRecoveryPerTick: 5,
+  }),
   combatSandbox: Object.freeze({
     kind: "liveCombatSandbox" as const,
     appliedDamagePressureScale: 2,
