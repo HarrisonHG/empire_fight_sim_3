@@ -106,6 +106,13 @@ export interface IndividualCombatPipelineBuffers {
   readonly zeroHitEvents: IndividualZeroHitEvent[];
 }
 
+export interface IndividualCombatLoadoutOverride {
+  readonly weaponCategory?: WeaponCategory;
+  readonly armourClass?: ArmourClass;
+  readonly shieldClass?: ShieldClass;
+  readonly fortitudeLevels?: number;
+}
+
 export interface IndividualCombatPipelineStageResult {
   readonly eligibleMeleeSourceCount: number;
   readonly selectedTargetCount: number;
@@ -448,6 +455,8 @@ export function createIndividualCombatProfileStoreFromUnitLoadouts(
   identityStore: UnitIdentityStore,
   loadoutStore: UnitLoadoutStore,
   fortitudeLevelsByUnit: ReadonlyMap<UnitId, number> = new Map(),
+  overridesByEntity: ReadonlyMap<number, IndividualCombatLoadoutOverride> =
+    new Map(),
 ): IndividualCombatProfileStore {
   if (identityStore.entityCount !== loadoutStore.entityCount) {
     throw new RangeError(
@@ -461,14 +470,18 @@ export function createIndividualCombatProfileStoreFromUnitLoadouts(
   for (let unitIndex = 0; unitIndex < unitIds.length; unitIndex += 1) {
     const unitId = unitIds[unitIndex]!;
     const loadout = getUnitLoadoutSummary(loadoutStore, unitId);
-    const weapon = mapLegacyWeaponCategory(loadout.weaponCategory);
-    const armour = mapLegacyArmourClass(loadout.armourClass);
-    const shield = mapLegacyShieldClass(loadout.shieldClass);
-    const shieldCarriedState = getMappedShieldCarriedState(shield, weapon);
-    const hasDreadnought = loadout.armourClass === "dreadnought";
     const members = getUnitMembers(identityStore, unitId);
     for (let memberIndex = 0; memberIndex < members.length; memberIndex += 1) {
       const entityId = members[memberIndex]!;
+      const override = overridesByEntity.get(entityId);
+      const weaponCategory = override?.weaponCategory ?? loadout.weaponCategory;
+      const armourClass = override?.armourClass ?? loadout.armourClass;
+      const shieldClass = override?.shieldClass ?? loadout.shieldClass;
+      const weapon = mapLegacyWeaponCategory(weaponCategory);
+      const armour = mapLegacyArmourClass(armourClass);
+      const shield = mapLegacyShieldClass(shieldClass);
+      const shieldCarriedState = getMappedShieldCarriedState(shield, weapon);
+      const hasDreadnought = armourClass === "dreadnought";
       profiles[entityId] = {
         entityId,
         primaryWeapon: weapon,
@@ -483,7 +496,8 @@ export function createIndividualCombatProfileStoreFromUnitLoadouts(
           hasThrown: true,
           hasAmbidexterity: true,
           enduranceLevels: 0,
-          fortitudeLevels: fortitudeLevelsByUnit.get(unitId) ?? 0,
+          fortitudeLevels:
+            override?.fortitudeLevels ?? fortitudeLevelsByUnit.get(unitId) ?? 0,
           hasDreadnought,
         },
         magicalCapabilities: {

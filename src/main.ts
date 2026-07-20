@@ -1,11 +1,15 @@
 import "./style.css";
 
-import { MORALE_INSPECTION_SCENARIO } from "./content/moraleInspectionScenario";
+import {
+  MAIN_BATTLE_MEDICAL_SCENARIO,
+  MAIN_BATTLE_SIDE_LABELS,
+} from "./content/mainBattleMedicalScenario";
 import { VISUAL_TEST_REGISTRY } from "./content/visualTestRegistry";
 import type { SimulationScenario } from "./sim/types";
 import { PixiEntityRenderer } from "./render/PixiEntityRenderer";
 import { Controls } from "./ui/Controls";
 import { MetricsPanel } from "./ui/MetricsPanel";
+import { MainBattleSummary } from "./ui/MainBattleSummary";
 import { resolveApplicationRoute } from "./ui/applicationRoute";
 import {
   createInitialDebugPanelVisibilityState,
@@ -45,11 +49,12 @@ if (route.kind === "visual-test-menu") {
   const scenario =
     route.kind === "visual-test-scenario"
       ? route.entry.scenario
-      : MORALE_INSPECTION_SCENARIO;
+      : MAIN_BATTLE_MEDICAL_SCENARIO;
   void startApplication(
     host,
     scenario,
     route.kind === "visual-test-scenario" ? route.entry : undefined,
+    route.kind === "trunk",
   );
 }
 
@@ -57,14 +62,18 @@ async function startApplication(
   host: HTMLElement,
   scenario: SimulationScenario,
   visualTestEntry?: (typeof VISUAL_TEST_REGISTRY)[number],
+  isMainBattle = false,
 ): Promise<void> {
   const renderer = await PixiEntityRenderer.create(host);
   renderer.setWorldLabels(visualTestEntry?.worldLabels ?? []);
   renderer.setCasualtyVisualsVisible(
-    visualTestEntry?.showCasualtyVisuals === true,
+    isMainBattle || visualTestEntry?.showCasualtyVisuals === true,
   );
   const workerClient = new SimulationWorkerClient();
   const metricsPanel = new MetricsPanel();
+  const mainBattleSummary = isMainBattle
+    ? new MainBattleSummary(MAIN_BATTLE_SIDE_LABELS)
+    : undefined;
   const visualTestScenarioPanel =
     visualTestEntry === undefined
       ? undefined
@@ -78,6 +87,9 @@ async function startApplication(
   ): void => {
     const hidden = shouldHideDebugPanels(state);
     metricsPanel.element.hidden = hidden;
+    if (mainBattleSummary !== undefined) {
+      mainBattleSummary.element.hidden = hidden;
+    }
     if (visualTestScenarioPanel !== undefined) {
       visualTestScenarioPanel.hidden = hidden;
     }
@@ -95,7 +107,7 @@ async function startApplication(
         applyDebugPanelVisibility(state);
       },
     },
-    visualTestEntry === undefined
+    visualTestEntry === undefined && !isMainBattle
       ? undefined
       : {
           getState: () => reachOverlayVisibility,
@@ -104,7 +116,7 @@ async function startApplication(
             renderer.setReachOverlayVisible(areReachOverlaysVisible(state));
           },
         },
-    visualTestEntry === undefined
+    visualTestEntry === undefined && !isMainBattle
       ? undefined
       : {
           getState: () => combatEventVisibility,
@@ -113,15 +125,17 @@ async function startApplication(
             renderer.setCombatEventsVisible(areCombatEventsVisible(state));
           },
         },
-    visualTestEntry === undefined
+    visualTestEntry === undefined && !isMainBattle
       ? undefined
       : {
           reset: () => {
             metricsPanel.clearInspectionHistory();
-            workerClient.reset(visualTestEntry.scenarioFactory());
+            workerClient.reset(
+              visualTestEntry?.scenarioFactory() ?? MAIN_BATTLE_MEDICAL_SCENARIO,
+            );
           },
         },
-    visualTestEntry === undefined
+    visualTestEntry === undefined && !isMainBattle
       ? undefined
       : {
           getState: () => playbackSpeed,
@@ -136,6 +150,9 @@ async function startApplication(
   const interfaceLayer = document.createElement("div");
   interfaceLayer.className = "interface-layer";
   interfaceLayer.append(controls.element, metricsPanel.element);
+  if (mainBattleSummary !== undefined) {
+    interfaceLayer.append(mainBattleSummary.element);
+  }
   if (visualTestScenarioPanel !== undefined) {
     interfaceLayer.append(visualTestScenarioPanel);
   }
@@ -146,6 +163,7 @@ async function startApplication(
     switch (message.type) {
       case "snapshot":
         metricsPanel.updateSnapshot(message.snapshot);
+        mainBattleSummary?.updateSnapshot(message.snapshot);
         try {
           renderer.applySnapshot(message.snapshot);
         } catch (error: unknown) {
@@ -186,6 +204,7 @@ async function startApplication(
       workerClient.dispose();
       controls.destroy();
       metricsPanel.destroy();
+      mainBattleSummary?.destroy();
       renderer.destroy();
     },
     { once: true },

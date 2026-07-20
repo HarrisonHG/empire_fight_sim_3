@@ -36,7 +36,8 @@ body {
 
 .controls,
 .metrics-panel,
-.visual-test-scenario-panel {
+.visual-test-scenario-panel,
+.main-battle-summary {
   pointer-events: auto;
   background: rgb(13 19 31 / 88%);
   border: 1px solid #475569;
@@ -52,6 +53,67 @@ body {
   pointer-events: auto;
   max-height: min(62vh, 620px);
   overflow-y: auto;
+}
+
+.main-battle-summary {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  width: min(660px, calc(100vw - 24px));
+  padding: 8px 10px;
+  box-sizing: border-box;
+  color: #e2e8f0;
+}
+
+.main-battle-summary h2 {
+  margin: 0 0 5px;
+  color: #f8fafc;
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.main-battle-summary__sides {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.main-battle-summary__side {
+  min-width: 0;
+  padding-left: 8px;
+  border-left: 3px solid #64748b;
+}
+
+.main-battle-summary__side:first-child {
+  border-left-color: #68a8ff;
+}
+
+.main-battle-summary__side:last-child {
+  border-left-color: #ff8a72;
+}
+
+.main-battle-summary__side h3,
+.main-battle-summary__side p {
+  margin: 0;
+}
+
+.main-battle-summary__side h3 {
+  color: #fff;
+  font-size: 0.82rem;
+}
+
+.main-battle-summary__side p {
+  margin-top: 2px;
+  color: #cbd5e1;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+@media (max-width: 720px) {
+  .main-battle-summary__sides {
+    grid-template-columns: 1fr;
+  }
 }
 
 .visual-test-scenario-panel h1 {

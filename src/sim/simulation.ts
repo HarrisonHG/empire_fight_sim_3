@@ -567,6 +567,10 @@ function createCombatSandbox(
     readonly respawnDestination?: { readonly x: number; readonly y: number };
   }> = [];
   const medicalProfiles: TrustedIndividualMedicalProfileConfig[] = [];
+  const individualCombatLoadoutOverrides = new Map<
+    number,
+    import("./individualCombatPipeline").IndividualCombatLoadoutOverride
+  >();
 
   let nextEntityId = 0;
   for (let unitIndex = 0; unitIndex < scenario.units.length; unitIndex += 1) {
@@ -574,6 +578,7 @@ function createCombatSandbox(
     const memberEntityIds: number[] = [];
 
     for (let memberIndex = 0; memberIndex < unit.memberCount; memberIndex += 1) {
+      const memberProfile = unit.memberProfiles?.[memberIndex];
       const entityId = nextEntityId;
       nextEntityId += 1;
       memberEntityIds.push(entityId);
@@ -590,13 +595,16 @@ function createCombatSandbox(
       world.velocitiesY[entityId] = 0;
       individualDefinitions.push({
         entityId,
-        role: unit.role,
+        role: memberProfile?.role ?? unit.role,
         slotRow: Math.floor(memberIndex / unit.cols),
         slotCol: memberIndex % unit.cols,
-        memberMaxStep: unit.memberMaxStep,
-        ...(unit.individualConfidence === undefined
+        memberMaxStep: memberProfile?.memberMaxStep ?? unit.memberMaxStep,
+        ...((memberProfile?.individualConfidence ?? unit.individualConfidence) === undefined
           ? {}
-          : { confidence: unit.individualConfidence }),
+          : {
+              confidence:
+                memberProfile?.individualConfidence ?? unit.individualConfidence,
+            }),
       });
       casualtyProcedureProfiles.push({
         entityId,
@@ -610,14 +618,37 @@ function createCombatSandbox(
           respawnDestination: unit.casualtyProcedure.respawnDestination,
         }),
       });
+      const startingGenericHerbs =
+        memberProfile?.medicalProfile?.startingGenericHerbs ??
+        unit.medicalProfile?.startingGenericHerbs;
       medicalProfiles.push({
         entityId,
-        hasChirurgeon: unit.medicalProfile?.hasChirurgeon ?? false,
-        hasPhysick: unit.medicalProfile?.hasPhysick ?? false,
-        ...(unit.medicalProfile?.startingGenericHerbs === undefined
+        hasChirurgeon:
+          memberProfile?.medicalProfile?.hasChirurgeon ??
+          unit.medicalProfile?.hasChirurgeon ?? false,
+        hasPhysick:
+          memberProfile?.medicalProfile?.hasPhysick ??
+          unit.medicalProfile?.hasPhysick ?? false,
+        ...(startingGenericHerbs === undefined
           ? {}
-          : { startingGenericHerbs: unit.medicalProfile.startingGenericHerbs }),
+          : { startingGenericHerbs }),
       });
+      if (memberProfile !== undefined) {
+        individualCombatLoadoutOverrides.set(entityId, {
+          ...(memberProfile.weaponCategory === undefined
+            ? {}
+            : { weaponCategory: memberProfile.weaponCategory }),
+          ...(memberProfile.armourClass === undefined
+            ? {}
+            : { armourClass: memberProfile.armourClass }),
+          ...(memberProfile.shieldClass === undefined
+            ? {}
+            : { shieldClass: memberProfile.shieldClass }),
+          ...(memberProfile.fortitudeLevels === undefined
+            ? {}
+            : { fortitudeLevels: memberProfile.fortitudeLevels }),
+        });
+      }
     }
 
     unitDefinitions.push({
@@ -667,6 +698,7 @@ function createCombatSandbox(
       identityStore,
       loadoutStore,
       new Map(scenario.units.map((unit) => [unit.unitId, unit.fortitudeLevels ?? 0])),
+      individualCombatLoadoutOverrides,
     );
   const individualCombatPipelineStores = createIndividualCombatPipelineStores(
     world,
@@ -1183,6 +1215,33 @@ function validateCombatSandboxScenario(
         unit.individualConfidence,
         "individualConfidence",
       );
+    }
+    if (unit.memberProfiles !== undefined) {
+      if (unit.memberProfiles.length !== unit.memberCount) {
+        throw new RangeError(
+          "Live combat member profiles must match the unit member count.",
+        );
+      }
+      for (const memberProfile of unit.memberProfiles) {
+        if (memberProfile.memberMaxStep !== undefined) {
+          assertPositiveSafeInteger(
+            memberProfile.memberMaxStep,
+            "memberProfile.memberMaxStep",
+          );
+        }
+        if (memberProfile.fortitudeLevels !== undefined) {
+          assertNonNegativeSafeInteger(
+            memberProfile.fortitudeLevels,
+            "memberProfile.fortitudeLevels",
+          );
+        }
+        if (memberProfile.individualConfidence !== undefined) {
+          assertNonNegativeSafeInteger(
+            memberProfile.individualConfidence,
+            "memberProfile.individualConfidence",
+          );
+        }
+      }
     }
     if (unit.rows * unit.cols < unit.memberCount) {
       throw new RangeError(

@@ -1,6 +1,6 @@
 # Empire Fight Sim Milestone Roadmap
 
-Status: working roadmap. Updated 2026-07-17 through accepted Milestone 5 and Milestone 6 implementation through 6H-2A-B.
+Status: working roadmap. Updated 2026-07-20 through accepted Milestone 5, technically complete Milestone 6, and post-Milestone-6 integration Spike 6.5.
 
 This file records the current milestone series for the deterministic Empire LARP battle simulation. It includes completed foundation work, the active morale sequence, the individual-combat correction, and the likely future roadmap.
 
@@ -680,7 +680,7 @@ Boundary:
 
 ## Milestone 6: Casualties, Dying, Battlefield Treatment, Rescue, and Player-Presence State
 
-Status: in progress; implemented through 6H-2A-B. Remaining: 6H-2B, 6I, and 6J.
+Status: technically complete through 6I-2; the retained 6J visual suite awaits human visual acceptance.
 
 Purpose:
 
@@ -720,12 +720,12 @@ activePresence
 
 `terminal` means the current battlefield life cannot be saved by ordinary treatment. A future Milestone 9 barbarian respawn boundary may begin a new active battlefield life; that is scenario-owned re-entry, not healing.
 
-Remaining Milestone 6 work:
+Milestone 6 delivery slices:
 
 ```txt
 6H-2B  barbarian respawn-egress movement and waiting-at-respawn arrival
 6I     production consolidation, summaries, history, one-hour soak and performance
-6J     retained casualty-lifecycle visual suite and human acceptance
+6J     retained casualty-lifecycle visual suite; implemented, awaiting human acceptance
 ```
 
 Dependency and adoption boundaries:
@@ -740,6 +740,29 @@ Dependency and adoption boundaries:
 Boundary:
 
 Milestone 6 does not implement Sentinel Gate movement, respawn batching/re-entry, perception memory, terrain-aware pathfinding, active CLEAVE/IMPALE generation, VENOM/WEAKNESS, energy, worker/renderer/UI presentation, or the final scenario clock.
+
+---
+
+## Spike 6.5: Main Battle Medical Integration Sandbox
+
+Status: implemented as a post-Milestone-6 integration spike. This is not Milestone 7 work.
+
+Purpose:
+
+Exercise the accepted production movement, combat, pressure, morale, casualty, rescue, treatment, terminal-comfort and barbarian-egress authorities together in one deterministic battle on the root route. The sandbox is an integration and observation surface, not a scripted outcome fixture.
+
+Implemented boundary:
+
+- four recognisable production units: two twelve-person citizen units and two ten-person barbarian units;
+- exactly one full Physick with six generic herbs and one herb-free Chirurgeon-only member per unit, authored through trusted medical profiles;
+- mixed per-member weapons, armour, shields, role, Fortitude and confidence expanded once into the existing entity-indexed authorities;
+- explicit citizen normal-Fortitude/terminal-comfort and barbarian fixed-death-count/respawn-destination procedures;
+- stable seed, opposing deployment geometry, rear medical space and off-battlefield barbarian respawn destinations;
+- existing production renderer grammar, debug inspection, combat/reach visibility, pause/play, single-step, speed and deterministic reset controls;
+- compact citizen/barbarian summaries derived from authoritative end-of-tick unit casualty summaries;
+- bounded headless smoke and deterministic replay coverage without scripted hits, casualties, routing, dragging, treatment, trauma, execution or terminal transitions.
+
+The spike does not tune or replace any casualty, combat, morale, rescue, treatment, execution, comfort or respawn mechanics. Variable battle outcomes and visual-density observations remain evidence for later milestone planning rather than Milestone 7 implementation.
 
 ---
 

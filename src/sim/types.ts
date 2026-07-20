@@ -158,6 +158,22 @@ export interface CombatSandboxDeploymentZone {
   readonly maxY: number;
 }
 
+/** Optional authored variation expanded into existing per-entity authorities. */
+export interface CombatSandboxMemberProfileScenario {
+  readonly role?: IndividualRole;
+  readonly fortitudeLevels?: number;
+  readonly memberMaxStep?: number;
+  readonly weaponCategory?: WeaponCategory;
+  readonly armourClass?: ArmourClass;
+  readonly shieldClass?: ShieldClass;
+  readonly medicalProfile?: {
+    readonly hasChirurgeon: boolean;
+    readonly hasPhysick: boolean;
+    readonly startingGenericHerbs?: number;
+  };
+  readonly individualConfidence?: number;
+}
+
 export interface CombatSandboxUnitScenario {
   readonly unitId: number;
   readonly factionId: number;
@@ -202,6 +218,8 @@ export interface CombatSandboxUnitScenario {
   readonly initialCohesion?: number;
   /** Optional per-member confidence used by persistent morale interpretation. */
   readonly individualConfidence?: number;
+  /** When present, contains exactly one authored profile per member index. */
+  readonly memberProfiles?: readonly CombatSandboxMemberProfileScenario[];
 }
 
 /**
