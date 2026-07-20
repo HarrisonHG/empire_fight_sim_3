@@ -10,6 +10,7 @@ import {
 } from "./combatPipeline";
 import {
   advanceFormationOneTick,
+  applyIndividualExternalMovementIntentWithAnchor,
   createFormationBehaviourStore,
   getIndividualRole,
   type FormationTickDiagnostics,
@@ -1413,10 +1414,34 @@ function applyRetainedCasualtyVisualFixturePreCombatInputs(
           break;
         case "landedHitLoss":
         case "traumaticWoundOpportunity":
+        case "boundedMove":
           break;
       }
     },
   );
+}
+
+function applyRetainedCasualtyVisualFixturePostExecutionMovement(
+  world: WorldState,
+  combatSandbox: CombatSandboxSimulationState,
+  tick: number,
+): void {
+  forEachRetainedCasualtyVisualFixtureEvent(combatSandbox, tick, (event) => {
+    if (event.kind !== "boundedMove") return;
+    assertRetainedVisualEntityId(event.entityId, world.entityCount);
+    if (!Number.isFinite(event.goalX) || !Number.isFinite(event.goalY)) {
+      throw new RangeError("Retained visual movement goal must be finite.");
+    }
+    applyIndividualExternalMovementIntentWithAnchor(
+      world,
+      combatSandbox.formationStore,
+      getUnitIdForEntity(combatSandbox.identityStore, event.entityId),
+      event.entityId,
+      event.goalX,
+      event.goalY,
+      "visualFixtureReposition",
+    );
+  });
 }
 
 function applyRetainedCasualtyVisualFixtureHitInputs(
@@ -1990,6 +2015,11 @@ export function advanceCombatSandboxOneTick(
           },
         },
       ),
+    );
+    applyRetainedCasualtyVisualFixturePostExecutionMovement(
+      world,
+      combatSandbox,
+      tick,
     );
     combatSandbox.individualTreatmentActionResult = {
       ...combatSandbox.individualTreatmentActionResult,

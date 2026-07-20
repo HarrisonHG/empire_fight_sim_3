@@ -27,6 +27,8 @@ import {
   renderVisualTestMenu,
 } from "./ui/VisualTestNavigation";
 import { SimulationWorkerClient } from "./worker/SimulationWorkerClient";
+import type { SimulationPlaybackSpeedMultiplier } from "./worker/protocol";
+import { DEFAULT_VISUAL_TEST_PLAYBACK_SPEED } from "./ui/visualTestPlaybackSpeed";
 
 const route = resolveApplicationRoute(
   window.location.pathname,
@@ -82,6 +84,8 @@ async function startApplication(
   };
   let reachOverlayVisibility = createInitialReachOverlayVisibilityState();
   let combatEventVisibility = createInitialCombatEventVisibilityState();
+  let playbackSpeed: SimulationPlaybackSpeedMultiplier =
+    DEFAULT_VISUAL_TEST_PLAYBACK_SPEED;
   const controls = new Controls(
     workerClient,
     {
@@ -117,6 +121,15 @@ async function startApplication(
             workerClient.reset(visualTestEntry.scenarioFactory());
           },
         },
+    visualTestEntry === undefined
+      ? undefined
+      : {
+          getState: () => playbackSpeed,
+          setState: (speed: SimulationPlaybackSpeedMultiplier) => {
+            playbackSpeed = speed;
+            workerClient.setPlaybackSpeed(speed);
+          },
+        },
   );
   renderer.setReachOverlayVisible(areReachOverlaysVisible(reachOverlayVisibility));
   renderer.setCombatEventsVisible(areCombatEventsVisible(combatEventVisibility));
@@ -145,6 +158,10 @@ async function startApplication(
       case "state":
         controls.updateWorkerStatus(message.status);
         metricsPanel.updateWorkerState(message);
+        break;
+      case "speed":
+        playbackSpeed = message.multiplier;
+        controls.updatePlaybackSpeed();
         break;
       case "error":
         console.error(

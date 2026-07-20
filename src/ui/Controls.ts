@@ -1,5 +1,6 @@
 import { SimulationWorkerClient } from "../worker/SimulationWorkerClient";
 import type { WorkerStatus } from "../worker/protocol";
+import type { SimulationPlaybackSpeedMultiplier } from "../worker/protocol";
 import {
   debugPanelAriaExpanded,
   debugPanelToggleLabel,
@@ -18,6 +19,11 @@ import {
   toggleCombatEventVisibility,
   type CombatEventVisibilityState,
 } from "./combatEventVisibility";
+import {
+  fasterVisualTestPlaybackSpeed,
+  slowerVisualTestPlaybackSpeed,
+  visualTestPlaybackSpeedLabel,
+} from "./visualTestPlaybackSpeed";
 
 export interface DebugPanelVisibilityBinding {
   readonly getState: () => DebugPanelVisibilityState;
@@ -38,6 +44,11 @@ export interface ScenarioResetBinding {
   readonly reset: () => void;
 }
 
+export interface PlaybackSpeedBinding {
+  readonly getState: () => SimulationPlaybackSpeedMultiplier;
+  readonly setState: (speed: SimulationPlaybackSpeedMultiplier) => void;
+}
+
 export class Controls {
   public readonly element: HTMLElement;
 
@@ -45,6 +56,9 @@ export class Controls {
   private readonly resumeButton = createButton("Resume", "resume");
   private readonly stepButton = createButton("Step", "step");
   private readonly resetButton = createButton("Reset scenario", "reset-scenario");
+  private readonly slowDownButton = createButton("Slow down time", "slow-down-time");
+  private readonly speedUpButton = createButton("Speed up time", "speed-up-time");
+  private readonly playbackSpeedValue = document.createElement("output");
   private readonly debugPanelsButton = createButton(
     "Hide debug panels",
     "debug-panels-toggle",
@@ -64,17 +78,26 @@ export class Controls {
     private readonly reachOverlayVisibility?: ReachOverlayVisibilityBinding,
     private readonly combatEventVisibility?: CombatEventVisibilityBinding,
     private readonly scenarioReset?: ScenarioResetBinding,
+    private readonly playbackSpeed?: PlaybackSpeedBinding,
   ) {
     this.element = document.createElement("section");
     this.element.className = "controls";
     this.element.setAttribute("aria-label", "Simulation controls");
-    this.element.append(
-      this.pauseButton,
-      this.resumeButton,
-      this.stepButton,
-      this.resetButton,
-      this.debugPanelsButton,
-    );
+    this.element.append(this.pauseButton, this.resumeButton, this.stepButton);
+    if (this.playbackSpeed !== undefined) {
+      const playbackControls = document.createElement("span");
+      playbackControls.className = "playback-speed-controls";
+      playbackControls.setAttribute("aria-label", "Simulation playback speed");
+      this.playbackSpeedValue.dataset["testid"] = "playback-speed";
+      this.playbackSpeedValue.setAttribute("aria-live", "polite");
+      playbackControls.append(
+        this.slowDownButton,
+        this.playbackSpeedValue,
+        this.speedUpButton,
+      );
+      this.element.append(playbackControls);
+    }
+    this.element.append(this.resetButton, this.debugPanelsButton);
     if (this.reachOverlayVisibility !== undefined) {
       this.element.append(this.reachOverlaysButton);
     }
@@ -86,6 +109,8 @@ export class Controls {
     this.resumeButton.addEventListener("click", this.handleResume);
     this.stepButton.addEventListener("click", this.handleStep);
     this.resetButton.addEventListener("click", this.handleReset);
+    this.slowDownButton.addEventListener("click", this.handleSlowDown);
+    this.speedUpButton.addEventListener("click", this.handleSpeedUp);
     this.debugPanelsButton.addEventListener("click", this.handleToggleDebugPanels);
     this.reachOverlaysButton.addEventListener(
       "click",
@@ -98,6 +123,7 @@ export class Controls {
     this.updateDebugPanelButton();
     this.updateReachOverlayButton();
     this.updateCombatEventButton();
+    this.updatePlaybackSpeedControls();
     this.updateWorkerStatus("idle");
   }
 
@@ -108,11 +134,17 @@ export class Controls {
     this.resetButton.disabled = this.scenarioReset === undefined;
   }
 
+  public updatePlaybackSpeed(): void {
+    this.updatePlaybackSpeedControls();
+  }
+
   public destroy(): void {
     this.pauseButton.removeEventListener("click", this.handlePause);
     this.resumeButton.removeEventListener("click", this.handleResume);
     this.stepButton.removeEventListener("click", this.handleStep);
     this.resetButton.removeEventListener("click", this.handleReset);
+    this.slowDownButton.removeEventListener("click", this.handleSlowDown);
+    this.speedUpButton.removeEventListener("click", this.handleSpeedUp);
     this.debugPanelsButton.removeEventListener(
       "click",
       this.handleToggleDebugPanels,
@@ -142,6 +174,20 @@ export class Controls {
 
   private readonly handleReset = (): void => {
     this.scenarioReset?.reset();
+  };
+
+  private readonly handleSlowDown = (): void => {
+    const binding = this.playbackSpeed;
+    if (binding === undefined) return;
+    binding.setState(slowerVisualTestPlaybackSpeed(binding.getState()));
+    this.updatePlaybackSpeedControls();
+  };
+
+  private readonly handleSpeedUp = (): void => {
+    const binding = this.playbackSpeed;
+    if (binding === undefined) return;
+    binding.setState(fasterVisualTestPlaybackSpeed(binding.getState()));
+    this.updatePlaybackSpeedControls();
   };
 
   private readonly handleToggleDebugPanels = (): void => {
@@ -204,6 +250,17 @@ export class Controls {
       "aria-pressed",
       combatEventAriaPressed(state),
     );
+  }
+
+  private updatePlaybackSpeedControls(): void {
+    const binding = this.playbackSpeed;
+    if (binding === undefined) return;
+    const speed = binding.getState();
+    const slower = slowerVisualTestPlaybackSpeed(speed);
+    const faster = fasterVisualTestPlaybackSpeed(speed);
+    this.playbackSpeedValue.textContent = visualTestPlaybackSpeedLabel(speed);
+    this.slowDownButton.disabled = slower === speed;
+    this.speedUpButton.disabled = faster === speed;
   }
 }
 

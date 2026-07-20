@@ -8,6 +8,7 @@
     "src/vite-env.d.ts",
     "src/sim/**/*.ts",
     "src/worker/protocol.ts",
+    "src/worker/simulationPlaybackClock.ts",
     "src/worker/SimulationRunner.ts",
     "tests/**/*.ts"
   ]

@@ -123,6 +123,22 @@ export const VISUAL_TEST_REGISTRY: readonly VisualTestEntry[] = Object.freeze([
     scenarioFactory: () => MILESTONE_3_COMBAT_FOUNDATION_SCENARIO,
   }),
   Object.freeze({
+    id: "morale-inspection",
+    title: "Morale, routing, and recovery regression",
+    milestone: "Milestone 4",
+    purpose:
+      "Combines the accepted comparison, contagion, and pursuit inspections in isolated areas.",
+    expectedObservations: Object.freeze([
+      "The recruit breaks first; the regular degrades faster than the veteran.",
+      "The routed recruit passes through and disrupts the reserve.",
+      "Routed units flee before stopping; recovering units halt and reform.",
+      "The veteran pursuit subject reaches steady and re-engages before the regular.",
+    ]),
+    recommendedTickRange: Object.freeze({ start: 0, end: 800 }),
+    scenario: MILESTONE_4_VISUAL_SCENARIO,
+    scenarioFactory: () => MILESTONE_4_VISUAL_SCENARIO,
+  }),
+  Object.freeze({
     id: INDIVIDUAL_COMBAT_VISUAL_SCENARIO_ID,
     title: "Individual combat regression",
     milestone: "Milestone 5 accepted",
@@ -176,22 +192,6 @@ export const VISUAL_TEST_REGISTRY: readonly VisualTestEntry[] = Object.freeze([
     recommendedTickRange: Object.freeze({ start: 0, end: 120 }),
     scenario: DEFENCE_OVERWHELM_SCENARIO,
     scenarioFactory: () => DEFENCE_OVERWHELM_SCENARIO,
-  }),
-  Object.freeze({
-    id: "morale-inspection",
-    title: "Morale, routing, and recovery regression",
-    milestone: "Milestone 4",
-    purpose:
-      "Combines the accepted comparison, contagion, and pursuit inspections in isolated areas.",
-    expectedObservations: Object.freeze([
-      "The recruit breaks first; the regular degrades faster than the veteran.",
-      "The routed recruit passes through and disrupts the reserve.",
-      "Routed units flee before stopping; recovering units halt and reform.",
-      "The veteran pursuit subject reaches steady and re-engages before the regular.",
-    ]),
-    recommendedTickRange: Object.freeze({ start: 0, end: 800 }),
-    scenario: MILESTONE_4_VISUAL_SCENARIO,
-    scenarioFactory: () => MILESTONE_4_VISUAL_SCENARIO,
   }),
 ]);
 

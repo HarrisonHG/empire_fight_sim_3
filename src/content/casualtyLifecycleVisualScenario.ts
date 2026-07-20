@@ -44,9 +44,9 @@ const CHAMBER_ENTITY_IDS = Object.freeze([
   Object.freeze([2, 3]),
   Object.freeze([4, 5]),
   Object.freeze([6, 7]),
-  Object.freeze([8, 9, 10, 11]),
-  Object.freeze([12, 13]),
-  Object.freeze([14, 15]),
+  Object.freeze([8, 9, 10, 11, 24]),
+  Object.freeze([12, 13, 26]),
+  Object.freeze([14, 15, 25]),
   Object.freeze([16, 17, 18]),
   Object.freeze([19]),
   Object.freeze([20, 21, 22, 23]),
@@ -66,10 +66,11 @@ export const CASUALTY_LIFECYCLE_VISUAL_CHAMBERS: readonly CasualtyLifecycleVisua
 export const CASUALTY_LIFECYCLE_VISUAL_LEGEND_LINES = Object.freeze([
   "Lifecycle: green ring active · red cross dying · violet square terminal awaiting comfort · cyan diamond comforted.",
   "Presence: amber chevrons respawn egress · blue double-square waiting at respawn.",
-  "Procedure: red burst fresh zero · clock arc death count · pause bars owned pause · orange rescue/drag lines and destination · short bars committed drag hands.",
-  "Medicine: gold claim line · white approach arrow · H herb · A/L disabled arm/leg · magenta trauma.",
-  "Treatment arcs: cyan dying · green missing hit · magenta trauma · amber herb limb · red herb-free limb · violet comfort.",
-  "Outcomes: ! interruption · + restoration · crossed blade execution in progress · red dagger execution completion · heart comfort completion.",
+  "Procedure: red burst fresh zero · outlined ring-arc death clock · pause bars owned pause · orange rescue/drag lines and destination · short bars committed drag hands.",
+  "Medicine: gold claim line · white approach arrow · H current/reserved herb · A/L disabled arm/leg · magenta trauma.",
+  "Treatment clocks: outlined ring arcs; cyan dying · green missing hit · magenta trauma · amber herb limb · red herb-free limb · violet comfort.",
+  "Execution: outward arrow executing · inward brackets being executed · shared red ring clock · persistent red dagger completion.",
+  "Outcomes: ! interruption · + restoration · heart comfort completion · combat-event crosses expire after their short standard lifetime.",
   "Production treatment, comfort and execution durations are unchanged. Chamber 9 uses an explicit 60-tick visual death-count policy.",
 ] as const);
 
@@ -78,15 +79,15 @@ export const CASUALTY_LIFECYCLE_EXPECTED_TIMELINE = Object.freeze([
   "2 · t0: normal and Fortitude counts start together; Fortitude has the longer authoritative duration.",
   "3 · early claim/approach; 600 valid progress ticks restore one hit after an owned pause.",
   "4 · early herb reservation; t40 range interruption releases it; t80 return allows a fresh action and later consumption.",
-  "5 · early rescue/gather; two helpers drag toward safety and hand the patient to the nearby Chirurgeon.",
-  "6 · early solo-Physick rescue; the carrier drags, claims and completes Chirurgeon treatment.",
-  "7 · early trauma opportunity; citizen withdraws toward the Physick, reserves one herb, clears trauma and returns.",
-  "8 · t0 execution starts; t100 completes; t120 Physick arrives; terminal comfort completes after 2,400 valid ticks.",
+  "5 · hostile exposure drives a sustained two-helper extraction toward safety, then physical Chirurgeon handoff.",
+  "6 · hostile exposure drives a sustained solo-Physick extraction, claim and Chirurgeon treatment.",
+  "7 · t3 trauma makes the armed citizen ignore the nearby hostile, withdraw to the Physick, receive herb treatment and return.",
+  "8 · t0 execution starts with distinct actor/target roles; t100 completes; the executor steps sideways; t120 Physick arrives; comfort follows.",
   "9 · early barbarian trauma opportunity is ignored; t60 death-count expiry begins egress, then waiting remains terminal.",
   "10 · early limb claims; disabled leg uses 600-tick herb treatment while disabled arm uses 2,400-tick herb-free treatment.",
 ] as const);
 
-export const CASUALTY_LIFECYCLE_TRAUMA_TICK = findSuccessfulTraumaTick(14, 15, 0);
+export const CASUALTY_LIFECYCLE_TRAUMA_TICK = findSuccessfulTraumaTick(14, 25, 0);
 
 const FIXTURE_EVENTS: readonly RetainedCasualtyVisualFixtureEvent[] = Object.freeze([
   hitAll(0, 1, 0),
@@ -99,7 +100,7 @@ const FIXTURE_EVENTS: readonly RetainedCasualtyVisualFixtureEvent[] = Object.fre
   Object.freeze({
     tick: CASUALTY_LIFECYCLE_TRAUMA_TICK,
     kind: "traumaticWoundOpportunity" as const,
-    attackerEntityId: 15,
+    attackerEntityId: 25,
     targetEntityId: 14,
     triggerKind: "limbCleave" as const,
   }),
@@ -110,6 +111,13 @@ const FIXTURE_EVENTS: readonly RetainedCasualtyVisualFixtureEvent[] = Object.fre
     executorEntityId: 17,
     targetEntityId: 16,
   }),
+  ...Array.from({ length: 24 }, (_, index) => Object.freeze({
+    tick: 101 + index,
+    kind: "boundedMove" as const,
+    entityId: 17,
+    goalX: chamber(8).centreX + 4,
+    goalY: chamber(8).centreY + 48,
+  })),
   Object.freeze({
     tick: 120,
     kind: "relocate" as const,
@@ -161,7 +169,7 @@ const FIXTURE_EVENTS: readonly RetainedCasualtyVisualFixtureEvent[] = Object.fre
 
 export const CASUALTY_LIFECYCLE_VISUAL_SCENARIO: SimulationScenario = Object.freeze({
   seed: CASUALTY_LIFECYCLE_VISUAL_SEED,
-  entityCount: 24,
+  entityCount: 27,
   bounds: Object.freeze({
     width: CASUALTY_LIFECYCLE_WORLD_WIDTH,
     height: CASUALTY_LIFECYCLE_WORLD_HEIGHT,
@@ -171,7 +179,7 @@ export const CASUALTY_LIFECYCLE_VISUAL_SCENARIO: SimulationScenario = Object.fre
   combatSandbox: Object.freeze({
     kind: "liveCombatSandbox" as const,
     appliedDamagePressureScale: 1,
-    inspectedEntityIds: Object.freeze(Array.from({ length: 24 }, (_, id) => id)),
+    inspectedEntityIds: Object.freeze(Array.from({ length: 27 }, (_, id) => id)),
     retainedCasualtyVisualFixture: Object.freeze({
       kind: "casualtyLifecycle" as const,
       events: FIXTURE_EVENTS,
@@ -199,7 +207,10 @@ export const CASUALTY_LIFECYCLE_VISUAL_SCENARIO: SimulationScenario = Object.fre
       unit(602, 8, 6, 20, 0, "Solo Physick carrier", {
         medicalProfile: medical(true, true, 0),
       }),
-      unit(701, 9, 7, -60, 0, "Traumatised citizen"),
+      unit(701, 9, 7, -60, 0, "Traumatised citizen", {
+        weaponCategory: "oneHanded",
+        weaponReachBand: "medium",
+      }),
       unit(702, 9, 7, 60, 0, "Trauma Physick", {
         medicalProfile: medical(true, true, 1),
       }),
@@ -223,6 +234,24 @@ export const CASUALTY_LIFECYCLE_VISUAL_SCENARIO: SimulationScenario = Object.fre
       unit(1003, 14, 10, 100, 0, "Disabled-arm patient"),
       unit(1004, 14, 10, 104, 0, "Herb-free limb Physick", {
         medicalProfile: medical(true, true, 0),
+      }),
+      unit(505, 15, 5, 80, 0, "Hostile extraction pressure", {
+        headingX: -1,
+        weaponCategory: "oneHanded",
+        weaponReachBand: "medium",
+        attackIntervalTicks: 1_000,
+      }),
+      unit(703, 17, 7, -56, 0, "Ignored hostile", {
+        headingX: -1,
+        weaponCategory: "oneHanded",
+        weaponReachBand: "medium",
+        attackIntervalTicks: 1_000,
+      }),
+      unit(603, 16, 6, 80, 0, "Hostile solo-extraction pressure", {
+        headingX: -1,
+        weaponCategory: "oneHanded",
+        weaponReachBand: "medium",
+        attackIntervalTicks: 1_000,
       }),
     ]),
   }),

@@ -17,6 +17,9 @@ describe("visual test application routing", () => {
     expect(resolveApplicationRoute("/test", "")).toEqual({
       kind: "visual-test-menu",
     });
+    expect(resolveApplicationRoute("/test/", "")).toEqual({
+      kind: "visual-test-menu",
+    });
   });
 
   it.each(VISUAL_TEST_REGISTRY)("resolves $id", (entry) => {
@@ -38,6 +41,21 @@ describe("visual test application routing", () => {
     expect(new Set(ids).size).toBe(ids.length);
     expect(buildVisualTestMenuItems(VISUAL_TEST_REGISTRY).map((item) => item.href))
       .toEqual(ids.map(visualTestHref));
+  });
+
+  it("shows casualty lifecycle in the menu and orders Milestone 4 before Milestone 5", () => {
+    const items = buildVisualTestMenuItems(VISUAL_TEST_REGISTRY);
+    expect(items).toContainEqual(expect.objectContaining({
+      id: "casualty-lifecycle",
+      href: "/test?scenario=casualty-lifecycle",
+    }));
+    const milestone4Index = items.findIndex((item) => item.milestone === "Milestone 4");
+    const milestone5Indexes = items
+      .map((item, index) => item.milestone.startsWith("Milestone 5") ? index : -1)
+      .filter((index) => index >= 0);
+    expect(milestone4Index).toBeGreaterThanOrEqual(0);
+    expect(milestone5Indexes.length).toBeGreaterThan(0);
+    expect(milestone5Indexes.every((index) => milestone4Index < index)).toBe(true);
   });
 
   it("keeps the archived Milestone 3 combat fixture isolated from current scenarios", () => {

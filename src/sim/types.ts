@@ -259,6 +259,13 @@ export type RetainedCasualtyVisualFixtureEvent =
       readonly entityId: number;
       readonly x: number;
       readonly y: number;
+    }
+  | {
+      readonly tick: number;
+      readonly kind: "boundedMove";
+      readonly entityId: number;
+      readonly goalX: number;
+      readonly goalY: number;
     };
 
 /** Explicit non-combat setup used only by retained formation visual tests. */

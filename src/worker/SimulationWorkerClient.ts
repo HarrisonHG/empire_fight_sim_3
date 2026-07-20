@@ -1,6 +1,7 @@
 import type { SimulationScenario } from "../sim/types";
 import {
   isWorkerMessage,
+  type SimulationPlaybackSpeedMultiplier,
   type WorkerCommand,
   type WorkerMessage,
 } from "./protocol";
@@ -38,6 +39,10 @@ export class SimulationWorkerClient {
 
   public step(): void {
     this.send({ type: "step" });
+  }
+
+  public setPlaybackSpeed(multiplier: SimulationPlaybackSpeedMultiplier): void {
+    this.send({ type: "setSpeed", multiplier });
   }
 
   public subscribe(listener: WorkerMessageListener): () => void {

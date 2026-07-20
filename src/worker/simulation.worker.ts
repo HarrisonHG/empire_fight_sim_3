@@ -1,10 +1,14 @@
 /// <reference lib="webworker" />
 
 import { FIXED_TICKS_PER_SECOND } from "../sim/simulation";
-import { isWorkerCommand, type WorkerMessage } from "./protocol";
+import {
+  isWorkerCommand,
+  type SimulationPlaybackSpeedMultiplier,
+  type WorkerMessage,
+} from "./protocol";
 import { SimulationRunner } from "./SimulationRunner";
+import { simulationPlaybackTickIntervalMs } from "./simulationPlaybackClock";
 
-const TICK_INTERVAL_MS = 1_000 / FIXED_TICKS_PER_SECOND;
 const MAX_CATCH_UP_TICKS_PER_CALLBACK = 5;
 const workerScope = self as DedicatedWorkerGlobalScope;
 const monotonicNow = (): number => performance.now();
@@ -13,6 +17,7 @@ const runner = new SimulationRunner(monotonicNow);
 let accumulatedMs = 0;
 let lastClockSample: number | undefined;
 let scheduledCallback: number | undefined;
+let playbackSpeed: SimulationPlaybackSpeedMultiplier = 1;
 
 workerScope.addEventListener("message", (event: MessageEvent<unknown>) => {
   if (!isWorkerCommand(event.data)) {
@@ -26,6 +31,12 @@ workerScope.addEventListener("message", (event: MessageEvent<unknown>) => {
   }
 
   const command = event.data;
+  if (command.type === "setSpeed") {
+    playbackSpeed = command.multiplier;
+    if (runner.status === "running") restartSchedulerClock();
+    publish({ type: "speed", multiplier: playbackSpeed });
+    return;
+  }
   const messages = runner.handleCommand(command);
   publishAll(messages);
 
@@ -63,12 +74,13 @@ function runSchedulerCallback(): void {
   lastClockSample = now;
 
   let completedTicks = 0;
+  const tickIntervalMs = currentTickIntervalMs();
   while (
-    accumulatedMs >= TICK_INTERVAL_MS &&
+    accumulatedMs >= tickIntervalMs &&
     completedTicks < MAX_CATCH_UP_TICKS_PER_CALLBACK &&
     runner.status === "running"
   ) {
-    accumulatedMs -= TICK_INTERVAL_MS;
+    accumulatedMs -= tickIntervalMs;
     publishAll(runner.runScheduledTick(accumulatedMs));
     completedTicks += 1;
   }
@@ -99,10 +111,17 @@ function scheduleNextCallback(): void {
   }
 
   const delayMs =
-    accumulatedMs >= TICK_INTERVAL_MS
+    accumulatedMs >= currentTickIntervalMs()
       ? 0
-      : Math.max(0, TICK_INTERVAL_MS - accumulatedMs);
+      : Math.max(0, currentTickIntervalMs() - accumulatedMs);
   scheduledCallback = workerScope.setTimeout(runSchedulerCallback, delayMs);
+}
+
+function currentTickIntervalMs(): number {
+  return simulationPlaybackTickIntervalMs(
+    FIXED_TICKS_PER_SECOND,
+    playbackSpeed,
+  );
 }
 
 function cancelScheduledCallback(): void {

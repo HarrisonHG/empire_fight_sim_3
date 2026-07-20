@@ -25,12 +25,31 @@ export interface StepWorkerCommand {
   readonly type: "step";
 }
 
+export const SIMULATION_PLAYBACK_SPEED_MULTIPLIERS = Object.freeze([
+  0.25,
+  0.5,
+  1,
+  2,
+  4,
+  8,
+  16,
+] as const);
+
+export type SimulationPlaybackSpeedMultiplier =
+  (typeof SIMULATION_PLAYBACK_SPEED_MULTIPLIERS)[number];
+
+export interface SetSpeedWorkerCommand {
+  readonly type: "setSpeed";
+  readonly multiplier: SimulationPlaybackSpeedMultiplier;
+}
+
 export type WorkerCommand =
   | StartWorkerCommand
   | ResetWorkerCommand
   | PauseWorkerCommand
   | ResumeWorkerCommand
-  | StepWorkerCommand;
+  | StepWorkerCommand
+  | SetSpeedWorkerCommand;
 
 export type WorkerCommandType = WorkerCommand["type"];
 export type WorkerStatus = "idle" | "running" | "paused";
@@ -58,6 +77,11 @@ export interface MetricsWorkerMessage {
   readonly snapshotBytes: number;
 }
 
+export interface SpeedWorkerMessage {
+  readonly type: "speed";
+  readonly multiplier: SimulationPlaybackSpeedMultiplier;
+}
+
 export type WorkerErrorCode =
   | "not-started"
   | "already-running"
@@ -78,6 +102,7 @@ export type WorkerMessage =
   | StateWorkerMessage
   | SnapshotWorkerMessage
   | MetricsWorkerMessage
+  | SpeedWorkerMessage
   | ErrorWorkerMessage;
 
 export function isWorkerCommand(value: unknown): value is WorkerCommand {
@@ -93,6 +118,8 @@ export function isWorkerCommand(value: unknown): value is WorkerCommand {
     case "resume":
     case "step":
       return true;
+    case "setSpeed":
+      return isSimulationPlaybackSpeedMultiplier(value["multiplier"]);
     default:
       return false;
   }
@@ -108,8 +135,19 @@ export function isWorkerMessage(value: unknown): value is WorkerMessage {
     value["type"] === "state" ||
     value["type"] === "snapshot" ||
     value["type"] === "metrics" ||
+    (value["type"] === "speed" &&
+      isSimulationPlaybackSpeedMultiplier(value["multiplier"])) ||
     value["type"] === "error"
   );
+}
+
+export function isSimulationPlaybackSpeedMultiplier(
+  value: unknown,
+): value is SimulationPlaybackSpeedMultiplier {
+  return typeof value === "number" &&
+    SIMULATION_PLAYBACK_SPEED_MULTIPLIERS.includes(
+      value as SimulationPlaybackSpeedMultiplier,
+    );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

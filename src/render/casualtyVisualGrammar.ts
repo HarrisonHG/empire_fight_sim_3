@@ -13,6 +13,7 @@ export interface CasualtyVisualGlyphSpec {
   readonly entityId: number;
   readonly lifecycleGlyph: CasualtyLifecycleGlyph;
   readonly freshZeroHit: boolean;
+  readonly deathCountVisible: boolean;
   readonly deathCountProgress: number;
   readonly deathCountPaused: boolean;
   readonly assistanceState: LiveCombatDebugIndividualSnapshot["casualtyAssistanceState"];
@@ -24,12 +25,13 @@ export interface CasualtyVisualGlyphSpec {
   readonly treatmentProgress: number;
   readonly currentHerbs: number;
   readonly reservedHerbs: number;
-  readonly consumedHerbs: number;
+  readonly consumedHerbsHistory: number;
   readonly traumaticWound: boolean;
   readonly traumaWithdrawal: boolean;
   readonly disabledArm: boolean;
   readonly disabledLeg: boolean;
   readonly executionProgress: number;
+  readonly executionRole: "executor" | "target" | "none";
   readonly executionCompleted: boolean;
   readonly treatmentInterrupted: boolean;
   readonly restoredHit: boolean;
@@ -47,8 +49,14 @@ export function createCasualtyVisualGlyphSpec(
     entityId: individual.entityId,
     lifecycleGlyph: lifecycleGlyph(individual),
     freshZeroHit: individual.reachedZeroHitsThisTick,
-    deathCountProgress: duration <= 0 ? 0 : clamp01((duration - remaining) / duration),
-    deathCountPaused: individual.deathCountPaused === true,
+    deathCountVisible: individual.characterLifecycleState === "dying",
+    deathCountProgress:
+      individual.characterLifecycleState !== "dying" || duration <= 0
+        ? 0
+        : clamp01((duration - remaining) / duration),
+    deathCountPaused:
+      individual.characterLifecycleState === "dying" &&
+      individual.deathCountPaused === true,
     assistanceState: individual.casualtyAssistanceState,
     dragPhase: individual.casualtyDragGroupPhase,
     committedDragHands: committedDragHands(individual.casualtyDragFreeHands),
@@ -64,7 +72,7 @@ export function createCasualtyVisualGlyphSpec(
       : clamp01((individual.treatmentProgressTicks ?? 0) / treatmentRequired),
     currentHerbs: individual.currentGenericHerbs ?? 0,
     reservedHerbs: individual.reservedGenericHerbs ?? 0,
-    consumedHerbs: individual.genericHerbsConsumedHistoryCount ?? 0,
+    consumedHerbsHistory: individual.genericHerbsConsumedHistoryCount ?? 0,
     traumaticWound: individual.traumaticWoundState === "active",
     traumaWithdrawal: individual.traumaWithdrawalActive === true,
     disabledArm: individual.disabledArm === true,
@@ -72,6 +80,13 @@ export function createCasualtyVisualGlyphSpec(
     executionProgress: individual.executionActionId === undefined
       ? 0
       : clamp01((individual.executionProgressTicks ?? 0) / executionRequired),
+    executionRole: individual.executionActionId === undefined
+      ? "none"
+      : individual.entityId === individual.executionExecutorEntityId
+        ? "executor"
+        : individual.entityId === individual.executionTargetEntityId
+          ? "target"
+          : "none",
     executionCompleted: individual.terminalCause === "execution",
     treatmentInterrupted:
       (individual.treatmentInterruptedHistoryCount ?? 0) > 0 ||

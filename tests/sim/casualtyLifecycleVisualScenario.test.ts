@@ -340,9 +340,9 @@ describe("Milestone 6 casualty lifecycle retained visual scenario", () => {
       .map((entry) => entry.id)).toEqual([
       "movement-behaviour",
       "combat-foundation",
+      "morale-inspection",
       "individual-combat",
       "defence-overwhelm",
-      "morale-inspection",
     ]);
     expect(VISUAL_TEST_REGISTRY.filter((entry) =>
       entry.id === "individual-combat" || entry.id === "defence-overwhelm")

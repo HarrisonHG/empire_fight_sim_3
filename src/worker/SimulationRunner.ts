@@ -17,6 +17,10 @@ import type {
 } from "./protocol";
 
 export type MonotonicClock = () => number;
+type SimulationRunnerCommand = Exclude<
+  WorkerCommand,
+  { readonly type: "setSpeed" }
+>;
 
 export class SimulationRunner {
   private simulation: SimulationState | undefined;
@@ -32,7 +36,7 @@ export class SimulationRunner {
     return this.simulation?.tick ?? null;
   }
 
-  public handleCommand(command: WorkerCommand): readonly WorkerMessage[] {
+  public handleCommand(command: SimulationRunnerCommand): readonly WorkerMessage[] {
     switch (command.type) {
       case "start":
         return this.start(command);

@@ -32,6 +32,7 @@ import {
   createCasualtyVisualGlyphSpec,
   type CasualtyVisualGlyphSpec,
 } from "./casualtyVisualGrammar";
+import { createProgressClockGlyphSpec } from "./progressClockGrammar";
 
 const DOT_RADIUS = 2;
 const DOT_COLOR = 0xe8_f1_ff;
@@ -604,16 +605,8 @@ function drawCasualtyGlyph(
     }
     graphics.stroke({ color: 0xff_4d_5e, width: 2, alpha: 0.95 });
   }
-  if (spec.deathCountProgress > 0 || spec.lifecycleGlyph === "dying") {
-    graphics
-      .arc(
-        0,
-        0,
-        12,
-        -Math.PI / 2,
-        -Math.PI / 2 + Math.PI * 2 * Math.max(0.02, spec.deathCountProgress),
-      )
-      .stroke({ color: 0xff_8a_7a, width: 2, alpha: 0.9 });
+  if (spec.deathCountVisible) {
+    drawProgressClock(graphics, 12, spec.deathCountProgress, 0x7a_3f_45, 0xff_8a_7a, 2);
   }
   if (spec.deathCountPaused) {
     graphics
@@ -650,21 +643,10 @@ function drawCasualtyGlyph(
       .stroke({ color: 0xff_e5_8f, width: 2, alpha: 0.9 });
   }
   if (spec.treatmentKind !== undefined) {
-    graphics
-      .arc(
-        0,
-        0,
-        16,
-        -Math.PI / 2,
-        -Math.PI / 2 + Math.PI * 2 * Math.max(0.02, spec.treatmentProgress),
-      )
-      .stroke({
-        color: treatmentColor(spec.treatmentKind),
-        width: 3,
-        alpha: 0.95,
-      });
+    const color = treatmentColor(spec.treatmentKind);
+    drawProgressClock(graphics, 16, spec.treatmentProgress, 0x4d_56_66, color, 3);
   }
-  if (spec.currentHerbs > 0 || spec.reservedHerbs > 0 || spec.consumedHerbs > 0) {
+  if (spec.currentHerbs > 0 || spec.reservedHerbs > 0) {
     const herbColor = spec.reservedHerbs > 0 ? 0xff_d9_66 : 0x7d_ff_a5;
     graphics
       .moveTo(-10, -20)
@@ -704,8 +686,32 @@ function drawCasualtyGlyph(
       .lineTo(14, 10)
       .stroke({ color: 0xff_75_75, width: 2, alpha: 0.95 });
   }
-  if (spec.executionProgress > 0) {
-    graphics.circle(0, 0, 21).stroke({ color: 0xff_3b_4d, width: 2, alpha: 0.9 });
+  if (spec.executionRole !== "none") {
+    drawProgressClock(graphics, 21, spec.executionProgress, 0x7d_2a_34, 0xff_3b_4d, 2);
+    if (spec.executionRole === "executor") {
+      graphics
+        .moveTo(17, -17)
+        .lineTo(25, -25)
+        .moveTo(19, -25)
+        .lineTo(25, -25)
+        .lineTo(25, -19)
+        .stroke({ color: 0xff_78_84, width: 2, alpha: 0.95 });
+    } else {
+      graphics
+        .moveTo(-25, -7)
+        .lineTo(-19, -7)
+        .lineTo(-19, -13)
+        .moveTo(25, -7)
+        .lineTo(19, -7)
+        .lineTo(19, -13)
+        .moveTo(-25, 7)
+        .lineTo(-19, 7)
+        .lineTo(-19, 13)
+        .moveTo(25, 7)
+        .lineTo(19, 7)
+        .lineTo(19, 13)
+        .stroke({ color: 0xff_78_84, width: 2, alpha: 0.95 });
+    }
     graphics
       .moveTo(-21, 0)
       .lineTo(-15, 0)
@@ -749,6 +755,44 @@ function drawCasualtyGlyph(
       .lineTo(15.5, -7)
       .lineTo(21, -13)
       .fill({ color: 0x73_e8_ff, alpha: 0.9 });
+  }
+}
+
+function drawProgressClock(
+  graphics: Graphics,
+  radius: number,
+  progress: number,
+  outlineColor: number,
+  progressColor: number,
+  progressWidth: number,
+): void {
+  const clock = createProgressClockGlyphSpec(radius, progress);
+  graphics.circle(0, 0, radius).stroke({
+    color: outlineColor,
+    width: 1,
+    alpha: 0.75,
+  });
+  switch (clock.progressPath.kind) {
+    case "none":
+      return;
+    case "circle":
+      graphics.circle(0, 0, radius).stroke({
+        color: progressColor,
+        width: progressWidth,
+        alpha: 0.95,
+      });
+      return;
+    case "arc":
+      graphics
+        .moveTo(clock.progressPath.startX, clock.progressPath.startY)
+        .arc(
+          0,
+          0,
+          radius,
+          clock.progressPath.startAngle,
+          clock.progressPath.endAngle,
+        )
+        .stroke({ color: progressColor, width: progressWidth, alpha: 0.95 });
   }
 }
 

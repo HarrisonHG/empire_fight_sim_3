@@ -155,6 +155,7 @@ body {
 
 .controls {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   padding: 8px;
 }
@@ -236,6 +237,19 @@ body {
 .individual-inspection-table th {
   color: #cbd5e1;
   font-weight: 600;
+}
+
+.playback-speed-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.playback-speed-controls output {
+  min-width: 3.25em;
+  color: #f8fafc;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
 .individual-inspection-table td:nth-child(9) {

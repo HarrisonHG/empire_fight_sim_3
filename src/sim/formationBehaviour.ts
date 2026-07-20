@@ -41,7 +41,8 @@ export type MovementMode =
   | "approachClaimedPatient"
   | "gatherForCasualty"
   | "dragCasualty"
-  | "waitAtTreatmentPosition";
+  | "waitAtTreatmentPosition"
+  | "visualFixtureReposition";
 
 export type UnitMovementStyle =
   | "formedMarch" // Normal advancing style when no blocker changes movement.
@@ -606,6 +607,44 @@ export function applyIndividualExternalMovementIntent(
   internal.stuckTicks[entityId] = 0;
   internal.isStuck[entityId] = 0;
   return nextX !== currentX || nextY !== currentY;
+}
+
+/**
+ * Scenario orchestration variant for a one-member unit: advances the member
+ * through the normal bounded movement path and carries its formation anchor by
+ * the same applied delta so the following formation tick does not undo it.
+ */
+export function applyIndividualExternalMovementIntentWithAnchor(
+  world: WorldState,
+  store: FormationBehaviourStore,
+  unitId: UnitId,
+  entityId: number,
+  goalX: number,
+  goalY: number,
+  mode: MovementMode,
+): boolean {
+  const internal = asInternal(store);
+  const unitIndex = internal.unitIndexById.get(unitId);
+  if (unitIndex === undefined) throw new RangeError(`Unknown unit id ${unitId}.`);
+  const beforeX = world.positionsX[entityId]!;
+  const beforeY = world.positionsY[entityId]!;
+  const moved = applyIndividualExternalMovementIntent(
+    world,
+    store,
+    entityId,
+    goalX,
+    goalY,
+    mode,
+  );
+  internal.anchorX[unitIndex] = clampWorldCoordinate(
+    internal.anchorX[unitIndex]! + world.positionsX[entityId]! - beforeX,
+    world.bounds.width,
+  );
+  internal.anchorY[unitIndex] = clampWorldCoordinate(
+    internal.anchorY[unitIndex]! + world.positionsY[entityId]! - beforeY,
+    world.bounds.height,
+  );
+  return moved;
 }
 
 /** Applies a caller-bounded shared-group delta without independently reclamping its magnitude. */
