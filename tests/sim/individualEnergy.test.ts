@@ -14,6 +14,7 @@ import {
   getIndividualEnergyBand,
   getIndividualEnergyHistoryInspection,
   getIndividualEnergyInspection,
+  getIndividualEnergyLastStrenuousTick,
   getIndividualEnergyRatioFixedPoint,
   getIndividualMaximumEnergy,
   getTrustedIndividualEnergyProfile,
@@ -206,11 +207,28 @@ describe("individual energy state and bands", () => {
       minimumEnergyReached: 0,
       firstWindedTick: 5,
       firstSpentTick: 7,
+      lastStrenuousTick: 10,
       totalEnergySpent: 10_600,
       totalEnergyRecovered: 600,
     });
     expect(Object.keys(getIndividualEnergyInspection(profiles, energy, 0)))
-      .toHaveLength(12);
+      .toHaveLength(13);
+  });
+
+  it("owns last strenuous tick through requested spend, including at zero", () => {
+    const profiles = createTrustedIndividualEnergyProfileStore({
+      entityCount: 1,
+      profiles: [{ entityId: 0, maximumEnergy: 100, startingEnergy: 0 }],
+    });
+    const energy = createIndividualEnergyStore(profiles);
+
+    expect(getIndividualEnergyLastStrenuousTick(energy, 0)).toBeNull();
+    spendIndividualEnergy(energy, 0, 50, 12);
+    expect(getIndividualEnergyLastStrenuousTick(energy, 0)).toBe(12);
+    expect(getIndividualEnergyInspection(profiles, energy, 0)
+      .lastStrenuousTick).toBe(12);
+    recoverIndividualEnergy(energy, 0, 10, 13);
+    expect(getIndividualEnergyLastStrenuousTick(energy, 0)).toBe(12);
   });
 
   it("records initially winded or spent profiles at tick zero", () => {

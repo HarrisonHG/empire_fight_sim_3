@@ -228,6 +228,26 @@ describe("Milestone 7B-1 production activity observation", () => {
     expect(totalSpent).toBeGreaterThan(0);
   }, 15_000);
 
+  it("completes observation, classification and application for every combat tick", () => {
+    const simulation = createSimulation(createSmallBattleScenario({}));
+    for (let expectedTick = 0; expectedTick < 5; expectedTick += 1) {
+      advanceSimulationOneTick(simulation);
+      const phase = getIndividualEnergyActivityInspection(
+        simulation.combatSandbox!.individualEnergyActivityStore,
+        0,
+      );
+      expect({
+        observed: phase.observedTick,
+        classified: phase.classificationTick,
+        applied: phase.applicationTick,
+      }).toEqual({
+        observed: expectedTick,
+        classified: expectedTick,
+        applied: expectedTick,
+      });
+    }
+  });
+
   it("carries bounded activity fields through existing inspected snapshots", () => {
     const simulation = createSimulation(createSmallBattleScenario({}));
     advanceSimulationOneTick(simulation);

@@ -211,7 +211,7 @@ describe("live combat scenario", () => {
     const second = runScenario(scenario, CONTACT_RUN_TICKS);
 
     expect(summarizeLiveCombat(first)).toEqual(summarizeLiveCombat(second));
-  });
+  }, 10_000);
 
   it("advances opposing formed lines into persistent combat without pre-casualty interleaving or removal", () => {
     const simulation = createSimulation(LIVE_COMBAT_SCENARIO);

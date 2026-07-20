@@ -3189,7 +3189,7 @@ function collectInspectedIndividualSnapshots(
       energyRecoveryAppliedThisTick: energyActivity.recoveryApplied,
       energyBeforeThisTick: energyActivity.energyBefore,
       energyAfterThisTick: energyActivity.energyAfter,
-      energyLastStrenuousTick: energyActivity.lastStrenuousTick,
+      energyLastStrenuousTick: energy.lastStrenuousTick,
       energyExpenditureClampedThisTick:
         energyActivity.expenditureClamped,
       energyRecoveryClampedThisTick: energyActivity.recoveryClamped,

@@ -25,6 +25,7 @@ import {
 import {
   assertIndividualEnergyProfileOwnership,
   getIndividualCurrentEnergy,
+  getIndividualEnergyLastStrenuousTick,
   getTrustedIndividualEnergyProfile,
   recoverIndividualEnergy,
   spendIndividualEnergy,
@@ -136,12 +137,13 @@ interface InternalIndividualEnergyActivityStore
   readonly recoveryAppliedByEntity: Uint32Array;
   readonly energyBeforeByEntity: Uint32Array;
   readonly energyAfterByEntity: Uint32Array;
-  readonly lastStrenuousTickByEntity: Float64Array;
   readonly expenditureClampedByEntity: Uint8Array;
   readonly recoveryClampedByEntity: Uint8Array;
   readonly applicationRequestScratch: MutableIndividualEnergyApplicationRequest;
-  observedTick: number;
-  applicationTick: number;
+  energyStore: IndividualEnergyStore | undefined;
+  observationStartedTick: number;
+  classificationCompletedTick: number;
+  applicationCompletedTick: number;
 }
 
 const activityStoreInternals = new WeakMap<
@@ -162,6 +164,7 @@ export interface IndividualEnergyActivityInspection {
   readonly externallyMoved: boolean;
   readonly movementAuthorities: readonly IndividualEnergyMovementAuthority[];
   readonly observedTick: number;
+  readonly classificationTick: number;
   readonly movementExpenditureRequested: number;
   readonly attackExpenditureRequested: number;
   readonly defenceExpenditureRequested: number;
@@ -239,8 +242,6 @@ export function createIndividualEnergyActivityStore(
     throw new RangeError("Energy activity entityCount must be a non-negative safe integer.");
   }
   const publicStore = Object.freeze({ entityCount });
-  const lastStrenuousTickByEntity = new Float64Array(entityCount);
-  lastStrenuousTickByEntity.fill(-1);
   activityStoreInternals.set(publicStore, {
     entityCount,
     tickStartXByEntity: new Int32Array(entityCount),
@@ -266,7 +267,6 @@ export function createIndividualEnergyActivityStore(
     recoveryAppliedByEntity: new Uint32Array(entityCount),
     energyBeforeByEntity: new Uint32Array(entityCount),
     energyAfterByEntity: new Uint32Array(entityCount),
-    lastStrenuousTickByEntity,
     expenditureClampedByEntity: new Uint8Array(entityCount),
     recoveryClampedByEntity: new Uint8Array(entityCount),
     applicationRequestScratch: {
@@ -276,8 +276,10 @@ export function createIndividualEnergyActivityStore(
       totalExpenditureRequested: 0,
       recoveryRequested: 0,
     },
-    observedTick: 0,
-    applicationTick: -1,
+    energyStore: undefined,
+    observationStartedTick: -1,
+    classificationCompletedTick: -1,
+    applicationCompletedTick: -1,
   } as InternalIndividualEnergyActivityStore);
   return publicStore;
 }
@@ -289,6 +291,12 @@ export function beginIndividualEnergyActivityObservation(
 ): void {
   const internal = requireStore(store, world.entityCount);
   assertTick(tick);
+  if (tick < internal.observationStartedTick) {
+    throw new Error("Energy activity observation cannot move backwards.");
+  }
+  if (internal.applicationCompletedTick === tick) {
+    throw new Error("Energy activity observation cannot restart an applied tick.");
+  }
   internal.tickStartXByEntity.set(world.positionsX);
   internal.tickStartYByEntity.set(world.positionsY);
   internal.checkpointXByEntity.set(world.positionsX);
@@ -301,8 +309,12 @@ export function beginIndividualEnergyActivityObservation(
   internal.movementAuthorityMaskByEntity.fill(0);
   internal.externallyMovedByEntity.fill(0);
   internal.actionEvidenceByEntity.fill(0);
+  internal.contextByEntity.fill(0);
   internal.intensityByEntity.fill(0);
-  internal.observedTick = tick;
+  resetApplicationOutputs(internal);
+  internal.observationStartedTick = tick;
+  internal.classificationCompletedTick = -1;
+  internal.applicationCompletedTick = -1;
 }
 
 /**
@@ -315,6 +327,7 @@ export function observeIndividualEnergyMovementAuthority(
   authority: IndividualEnergyMovementAuthority,
 ): void {
   const internal = requireStore(store, world.entityCount);
+  assertObservationOpen(internal);
   const bit = AUTHORITY_BITS[authority];
   for (let entityId = 0; entityId < internal.entityCount; entityId += 1) {
     const x = world.positionsX[entityId]!;
@@ -337,6 +350,7 @@ export function observeIndividualEnergyCasualtyMovement(
   groups: CasualtyDragGroupStore,
 ): void {
   const internal = requireStore(store, world.entityCount);
+  assertObservationOpen(internal);
   if (groups.entityCount !== internal.entityCount) {
     throw new RangeError("Energy activity drag store must match entityCount.");
   }
@@ -380,8 +394,11 @@ export function classifyIndividualEnergyActivityOneTick(
   const internal = requireStore(store, world.entityCount);
   validateDependencies(internal.entityCount, dependencies);
   assertTick(dependencies.tick);
-  if (dependencies.tick !== internal.observedTick) {
-    throw new Error("Energy activity finalisation must match its observation tick.");
+  if (dependencies.tick !== internal.observationStartedTick) {
+    throw new Error("Energy activity classification requires observation for the same tick.");
+  }
+  if (internal.classificationCompletedTick === dependencies.tick) {
+    throw new Error("Energy activity classification already completed for this observation.");
   }
 
   addTreatmentEvidence(internal, dependencies);
@@ -412,6 +429,7 @@ export function classifyIndividualEnergyActivityOneTick(
       internal, dependencies, entityId, distanceSquared, intensity,
     ));
   }
+  internal.classificationCompletedTick = dependencies.tick;
   return store;
 }
 
@@ -420,12 +438,12 @@ export function initializeIndividualEnergyActivityApplicationState(
   energy: IndividualEnergyStore,
 ): void {
   const internal = requireStore(activity, energy.entityCount);
+  bindEnergyStore(internal, energy);
   for (let entityId = 0; entityId < internal.entityCount; entityId += 1) {
     const current = getIndividualCurrentEnergy(energy, entityId);
     internal.energyBeforeByEntity[entityId] = current;
     internal.energyAfterByEntity[entityId] = current;
   }
-  internal.applicationTick = -1;
 }
 
 export function applyIndividualEnergyActivityOneTick(
@@ -440,9 +458,16 @@ export function applyIndividualEnergyActivityOneTick(
   }
   assertIndividualEnergyProfileOwnership(profiles, energy);
   assertTick(tick);
-  if (internal.observedTick !== tick) {
-    throw new Error("Energy application must consume the finalised current-tick activity.");
+  if (internal.applicationCompletedTick === tick) {
+    throw new Error("Energy activity application already completed for this tick.");
   }
+  if (internal.observationStartedTick !== tick) {
+    throw new Error("Energy activity application requires observation for the same tick.");
+  }
+  if (internal.classificationCompletedTick !== tick) {
+    throw new Error("Energy activity application requires completed classification for the same tick.");
+  }
+  bindEnergyStore(internal, energy);
 
   // Validate and stage every requested value before any current-energy mutation.
   for (let entityId = 0; entityId < internal.entityCount; entityId += 1) {
@@ -494,7 +519,6 @@ export function applyIndividualEnergyActivityOneTick(
       internal.energyAfterByEntity[entityId] = result.currentEnergyAfter;
       internal.expenditureClampedByEntity[entityId] =
         result.appliedAmount < expenditureRequested ? 1 : 0;
-      internal.lastStrenuousTickByEntity[entityId] = tick;
     } else if (recoveryRequested > 0) {
       const result = recoverIndividualEnergy(
         energy,
@@ -508,7 +532,7 @@ export function applyIndividualEnergyActivityOneTick(
         result.appliedAmount < recoveryRequested ? 1 : 0;
     }
   }
-  internal.applicationTick = tick;
+  internal.applicationCompletedTick = tick;
   return activity;
 }
 
@@ -627,7 +651,8 @@ export function getIndividualEnergyActivityInspection(
     movementOccurred: internal.distanceSquaredByEntity[entityId] !== 0,
     externallyMoved: internal.externallyMovedByEntity[entityId] !== 0,
     movementAuthorities: movementAuthorities(mask),
-    observedTick: internal.observedTick,
+    observedTick: internal.observationStartedTick,
+    classificationTick: internal.classificationCompletedTick,
     movementExpenditureRequested:
       internal.movementExpenditureRequestedByEntity[entityId]!,
     attackExpenditureRequested:
@@ -641,12 +666,12 @@ export function getIndividualEnergyActivityInspection(
     recoveryApplied: internal.recoveryAppliedByEntity[entityId]!,
     energyBefore: internal.energyBeforeByEntity[entityId]!,
     energyAfter: internal.energyAfterByEntity[entityId]!,
-    lastStrenuousTick: nullableTick(
-      internal.lastStrenuousTickByEntity[entityId]!,
-    ),
+    lastStrenuousTick: internal.energyStore === undefined
+      ? null
+      : getIndividualEnergyLastStrenuousTick(internal.energyStore, entityId),
     expenditureClamped: internal.expenditureClampedByEntity[entityId] !== 0,
     recoveryClamped: internal.recoveryClampedByEntity[entityId] !== 0,
-    applicationTick: internal.applicationTick,
+    applicationTick: internal.applicationCompletedTick,
   };
 }
 
@@ -907,6 +932,53 @@ function validateDependencies(
   }
 }
 
+function assertObservationOpen(
+  store: InternalIndividualEnergyActivityStore,
+): void {
+  if (store.observationStartedTick < 0) {
+    throw new Error("Energy activity observation must begin before recording evidence.");
+  }
+  if (store.classificationCompletedTick === store.observationStartedTick) {
+    throw new Error("Energy activity observation is closed after classification.");
+  }
+}
+
+function bindEnergyStore(
+  activity: InternalIndividualEnergyActivityStore,
+  energy: IndividualEnergyStore,
+): void {
+  if (activity.energyStore !== undefined && activity.energyStore !== energy) {
+    throw new RangeError(
+      "Energy activity inspection must use its bound individual energy store.",
+    );
+  }
+  activity.energyStore = energy;
+}
+
+function resetApplicationOutputs(
+  store: InternalIndividualEnergyActivityStore,
+): void {
+  store.movementExpenditureRequestedByEntity.fill(0);
+  store.attackExpenditureRequestedByEntity.fill(0);
+  store.defenceExpenditureRequestedByEntity.fill(0);
+  store.totalExpenditureRequestedByEntity.fill(0);
+  store.expenditureAppliedByEntity.fill(0);
+  store.recoveryRequestedByEntity.fill(0);
+  store.recoveryAppliedByEntity.fill(0);
+  store.expenditureClampedByEntity.fill(0);
+  store.recoveryClampedByEntity.fill(0);
+  if (store.energyStore === undefined) {
+    store.energyBeforeByEntity.fill(0);
+    store.energyAfterByEntity.fill(0);
+    return;
+  }
+  for (let entityId = 0; entityId < store.entityCount; entityId += 1) {
+    const current = getIndividualCurrentEnergy(store.energyStore, entityId);
+    store.energyBeforeByEntity[entityId] = current;
+    store.energyAfterByEntity[entityId] = current;
+  }
+}
+
 function requireStore(
   store: IndividualEnergyActivityStore,
   entityCount = store.entityCount,
@@ -937,8 +1009,4 @@ function assertNonNegativeSafeInteger(value: number, name: string): void {
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new RangeError(`${name} must be a non-negative safe integer.`);
   }
-}
-
-function nullableTick(value: number): number | null {
-  return value < 0 ? null : value;
 }

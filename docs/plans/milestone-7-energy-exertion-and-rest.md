@@ -1,6 +1,8 @@
 # Milestone 7: Energy, Exertion, and Rest
 
-Status: active; 7A, 7B-1, and 7B-2 implemented; 7C and later slices deferred.
+Status: active; 7A, 7B-1, 7B-2, and the narrow 7B-2A authority
+sequencing correction are implemented; 7B is complete and 7C and later slices
+are deferred.
 
 Implementation begins after Milestone 6 is accepted and the post-Milestone-6 main-battle medical integration spike is retained as the evolving `/` scenario.
 
@@ -711,6 +713,40 @@ Implementation notes:
 - application runs in canonical entity-ID order after 7B-1 finalisation and
   before final inspection/history snapshots;
 - energy remains downstream-only and cannot yet alter gameplay decisions.
+
+---
+
+## 7B-2A — Energy authority sequencing and ownership correction
+
+Status: implemented.
+
+The reusable `IndividualEnergyActivityStore` explicitly tracks the current
+observation-started, classification-completed, and application-completed ticks.
+All three begin at `-1`. Production and focused callers must follow:
+
+```text
+begin observation
+→ observe authoritative movement and action evidence
+→ classify exactly once
+→ apply exactly once
+```
+
+Beginning a new observation resets current-tick evidence and application
+outputs, and invalidates the previous classification. A creation-time tick-zero
+debug classification may be replaced by the real tick-zero observation before
+application. Backwards observation, restarting an applied tick, classification
+without its matching observation, duplicate classification, application before
+classification, and duplicate application are rejected before they can mutate
+action impulses, energy, bounded history, or current-tick outputs.
+
+Persistent `lastStrenuousTick` is owned only by `IndividualEnergyStore` and is
+updated by the canonical spend API whenever requested expenditure is positive,
+including when expenditure clamps to zero. Recovery never changes it. Activity
+inspection exposes only a read-model value sourced from that authority.
+
+This correction changes no tuning, activity classification, expenditure,
+recovery, or gameplay outcome. Milestone 7B is complete after this correction;
+7C remains the next implementation slice.
 
 ---
 

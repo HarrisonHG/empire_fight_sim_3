@@ -651,9 +651,215 @@ describe("individual energy base expenditure and recovery", () => {
       minimumEnergyReached: 0,
       firstWindedTick: 10,
       firstSpentTick: 10,
+      lastStrenuousTick: 10,
       totalEnergySpent: 70,
       totalEnergyRecovered: 10,
     });
+  });
+});
+
+describe("individual energy activity tick lifecycle", () => {
+  it("rejects classification and application before observation", () => {
+    const harness = createEnergyHarness({ startingEnergy: 100 });
+    const historyBefore = getIndividualEnergyHistoryInspection(harness.energy, 0);
+
+    expect(() => classifyIndividualEnergyActivityOneTick(
+      harness.fixture.activity,
+      dependencies(harness.fixture, 0),
+    )).toThrow(/classification requires observation/);
+    expect(() => applyIndividualEnergyActivityOneTick(
+      harness.fixture.activity,
+      harness.profiles,
+      harness.energy,
+      0,
+    )).toThrow(/application requires observation/);
+    expect(getIndividualCurrentEnergy(harness.energy, 0)).toBe(100);
+    expect(getIndividualEnergyHistoryInspection(harness.energy, 0))
+      .toEqual(historyBefore);
+  });
+
+  it("rejects application after observation but before classification", () => {
+    const harness = createEnergyHarness({ startingEnergy: 100 });
+    beginIndividualEnergyActivityObservation(
+      harness.fixture.activity, harness.fixture.world, 0,
+    );
+    const activityBefore = getIndividualEnergyActivityInspection(
+      harness.fixture.activity, 0,
+    );
+    expect(() => applyIndividualEnergyActivityOneTick(
+      harness.fixture.activity,
+      harness.profiles,
+      harness.energy,
+      0,
+    )).toThrow(/requires completed classification/);
+    expect(getIndividualCurrentEnergy(harness.energy, 0)).toBe(100);
+    expect(getIndividualEnergyActivityInspection(harness.fixture.activity, 0))
+      .toEqual(activityBefore);
+  });
+
+  it("rejects duplicate classification without duplicating action impulses", () => {
+    const harness = createEnergyHarness({ startingEnergy: 500 });
+    beginIndividualEnergyActivityObservation(
+      harness.fixture.activity, harness.fixture.world, 0,
+    );
+    const input = {
+      ...dependencies(harness.fixture, 0),
+      attackAttempts: [attack(0, "attempted")],
+      defenceAttempts: [defence(0, "landed"), defence(0, "parried")],
+    };
+    classifyIndividualEnergyActivityOneTick(harness.fixture.activity, input);
+    const before = getIndividualEnergyActivityInspection(
+      harness.fixture.activity, 0,
+    );
+
+    expect(() => classifyIndividualEnergyActivityOneTick(
+      harness.fixture.activity, input,
+    )).toThrow(/classification already completed/);
+    expect(getIndividualEnergyActivityInspection(harness.fixture.activity, 0))
+      .toEqual(before);
+    expect(before).toMatchObject({
+      validAttackAttemptCount: 1,
+      validDefenceAttemptCount: 2,
+      observedTick: 0,
+      classificationTick: 0,
+      applicationTick: -1,
+    });
+  });
+
+  it("rejects duplicate expenditure without changing energy, history or outputs", () => {
+    const harness = createEnergyHarness({ startingEnergy: 500 });
+    beginIndividualEnergyActivityObservation(
+      harness.fixture.activity, harness.fixture.world, 1,
+    );
+    classifyIndividualEnergyActivityOneTick(harness.fixture.activity, {
+      ...dependencies(harness.fixture, 1),
+      attackAttempts: [attack(0, "attempted")],
+    });
+    applyIndividualEnergyActivityOneTick(
+      harness.fixture.activity, harness.profiles, harness.energy, 1,
+    );
+    const energyBefore = getIndividualCurrentEnergy(harness.energy, 0);
+    const historyBefore = getIndividualEnergyHistoryInspection(harness.energy, 0);
+    const activityBefore = getIndividualEnergyActivityInspection(
+      harness.fixture.activity, 0,
+    );
+
+    expect(() => applyIndividualEnergyActivityOneTick(
+      harness.fixture.activity, harness.profiles, harness.energy, 1,
+    )).toThrow(/application already completed/);
+    expect(getIndividualCurrentEnergy(harness.energy, 0)).toBe(energyBefore);
+    expect(getIndividualEnergyHistoryInspection(harness.energy, 0))
+      .toEqual(historyBefore);
+    expect(getIndividualEnergyActivityInspection(harness.fixture.activity, 0))
+      .toEqual(activityBefore);
+  });
+
+  it("rejects duplicate recovery without changing energy, history or outputs", () => {
+    const harness = createEnergyHarness({
+      maximumEnergy: 100,
+      startingEnergy: 50,
+      safeRestRecoveryPerTick: 7,
+    });
+    beginIndividualEnergyActivityObservation(
+      harness.fixture.activity, harness.fixture.world, 2,
+    );
+    classifyIndividualEnergyActivityOneTick(
+      harness.fixture.activity, dependencies(harness.fixture, 2),
+    );
+    applyIndividualEnergyActivityOneTick(
+      harness.fixture.activity, harness.profiles, harness.energy, 2,
+    );
+    const historyBefore = getIndividualEnergyHistoryInspection(harness.energy, 0);
+    const activityBefore = getIndividualEnergyActivityInspection(
+      harness.fixture.activity, 0,
+    );
+
+    expect(() => applyIndividualEnergyActivityOneTick(
+      harness.fixture.activity, harness.profiles, harness.energy, 2,
+    )).toThrow(/application already completed/);
+    expect(getIndividualCurrentEnergy(harness.energy, 0)).toBe(57);
+    expect(getIndividualEnergyHistoryInspection(harness.energy, 0))
+      .toEqual(historyBefore);
+    expect(getIndividualEnergyActivityInspection(harness.fixture.activity, 0))
+      .toEqual(activityBefore);
+  });
+
+  it("supports the next tick and replaces creation-time tick-zero classification", () => {
+    const harness = createEnergyHarness({ startingEnergy: 500 });
+    beginIndividualEnergyActivityObservation(
+      harness.fixture.activity, harness.fixture.world, 0,
+    );
+    classifyIndividualEnergyActivityOneTick(
+      harness.fixture.activity, dependencies(harness.fixture, 0),
+    );
+
+    // Production may replace its creation-time debug classification with the
+    // real tick-zero observation before any application has occurred.
+    beginIndividualEnergyActivityObservation(
+      harness.fixture.activity, harness.fixture.world, 0,
+    );
+    classifyIndividualEnergyActivityOneTick(harness.fixture.activity, {
+      ...dependencies(harness.fixture, 0),
+      attackAttempts: [attack(0, "attempted")],
+    });
+    applyIndividualEnergyActivityOneTick(
+      harness.fixture.activity, harness.profiles, harness.energy, 0,
+    );
+    expect(getIndividualCurrentEnergy(harness.energy, 0)).toBe(420);
+    expect(() => beginIndividualEnergyActivityObservation(
+      harness.fixture.activity, harness.fixture.world, 0,
+    )).toThrow(/cannot restart an applied tick/);
+
+    beginIndividualEnergyActivityObservation(
+      harness.fixture.activity, harness.fixture.world, 1,
+    );
+    expect(getIndividualEnergyActivityInspection(harness.fixture.activity, 0))
+      .toMatchObject({
+        observedTick: 1,
+        classificationTick: -1,
+        applicationTick: -1,
+        totalExpenditureRequested: 0,
+        expenditureApplied: 0,
+        recoveryApplied: 0,
+        energyBefore: 420,
+        energyAfter: 420,
+      });
+    classifyIndividualEnergyActivityOneTick(
+      harness.fixture.activity, dependencies(harness.fixture, 1),
+    );
+    applyIndividualEnergyActivityOneTick(
+      harness.fixture.activity, harness.profiles, harness.energy, 1,
+    );
+    expect(getIndividualEnergyActivityInspection(harness.fixture.activity, 0))
+      .toMatchObject({ observedTick: 1, classificationTick: 1, applicationTick: 1 });
+  });
+
+  it("rejects backwards observation without changing applied state", () => {
+    const harness = createEnergyHarness({ startingEnergy: 500 });
+    beginIndividualEnergyActivityObservation(
+      harness.fixture.activity, harness.fixture.world, 3,
+    );
+    classifyIndividualEnergyActivityOneTick(
+      harness.fixture.activity, dependencies(harness.fixture, 3),
+    );
+    applyIndividualEnergyActivityOneTick(
+      harness.fixture.activity, harness.profiles, harness.energy, 3,
+    );
+    beginIndividualEnergyActivityObservation(
+      harness.fixture.activity, harness.fixture.world, 4,
+    );
+    const historyBefore = getIndividualEnergyHistoryInspection(harness.energy, 0);
+    const activityBefore = getIndividualEnergyActivityInspection(
+      harness.fixture.activity, 0,
+    );
+
+    expect(() => beginIndividualEnergyActivityObservation(
+      harness.fixture.activity, harness.fixture.world, 3,
+    )).toThrow(/cannot move backwards/);
+    expect(getIndividualEnergyHistoryInspection(harness.energy, 0))
+      .toEqual(historyBefore);
+    expect(getIndividualEnergyActivityInspection(harness.fixture.activity, 0))
+      .toEqual(activityBefore);
   });
 });
 

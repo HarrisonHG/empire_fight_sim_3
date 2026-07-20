@@ -47,6 +47,7 @@ export interface IndividualEnergyHistoryInspection {
   readonly minimumEnergyReached: number;
   readonly firstWindedTick: number | null;
   readonly firstSpentTick: number | null;
+  readonly lastStrenuousTick: number | null;
   readonly totalEnergySpent: number;
   readonly totalEnergyRecovered: number;
 }
@@ -79,6 +80,7 @@ interface EnergyStoreInternal {
   readonly minimumEnergyByEntity: Uint32Array;
   readonly firstWindedTickByEntity: Float64Array;
   readonly firstSpentTickByEntity: Float64Array;
+  readonly lastStrenuousTickByEntity: Float64Array;
   readonly totalEnergySpentByEntity: Uint32Array;
   readonly totalEnergyRecoveredByEntity: Uint32Array;
 }
@@ -172,8 +174,10 @@ export function createIndividualEnergyStore(
   const minimumEnergyByEntity = new Uint32Array(profiles.entityCount);
   const firstWindedTickByEntity = new Float64Array(profiles.entityCount);
   const firstSpentTickByEntity = new Float64Array(profiles.entityCount);
+  const lastStrenuousTickByEntity = new Float64Array(profiles.entityCount);
   firstWindedTickByEntity.fill(-1);
   firstSpentTickByEntity.fill(-1);
+  lastStrenuousTickByEntity.fill(-1);
 
   for (let entityId = 0; entityId < profiles.entityCount; entityId += 1) {
     const profile = getTrustedIndividualEnergyProfile(profiles, entityId);
@@ -196,6 +200,7 @@ export function createIndividualEnergyStore(
     minimumEnergyByEntity,
     firstWindedTickByEntity,
     firstSpentTickByEntity,
+    lastStrenuousTickByEntity,
     totalEnergySpentByEntity: new Uint32Array(profiles.entityCount),
     totalEnergyRecoveredByEntity: new Uint32Array(profiles.entityCount),
   });
@@ -240,6 +245,15 @@ export function getIndividualEnergyBand(
     getIndividualCurrentEnergy(store, entityId),
     getIndividualMaximumEnergy(store, entityId),
   );
+}
+
+export function getIndividualEnergyLastStrenuousTick(
+  store: IndividualEnergyStore,
+  entityId: number,
+): number | null {
+  const internal = requireEnergyStoreInternal(store);
+  assertEntityId(entityId, store.entityCount);
+  return nullableTick(internal.lastStrenuousTickByEntity[entityId]!);
 }
 
 export function deriveIndividualEnergyBand(
@@ -305,6 +319,9 @@ export function spendIndividualEnergy(
   );
   internal.currentEnergyByEntity[entityId] = currentEnergyAfter;
   internal.totalEnergySpentByEntity[entityId] = totalEnergySpent;
+  if (requestedAmount > 0) {
+    internal.lastStrenuousTickByEntity[entityId] = tick;
+  }
   updateMinimumAndThresholdHistory(
     internal,
     entityId,
@@ -368,6 +385,9 @@ export function getIndividualEnergyHistoryInspection(
     minimumEnergyReached: internal.minimumEnergyByEntity[entityId]!,
     firstWindedTick: nullableTick(internal.firstWindedTickByEntity[entityId]!),
     firstSpentTick: nullableTick(internal.firstSpentTickByEntity[entityId]!),
+    lastStrenuousTick: nullableTick(
+      internal.lastStrenuousTickByEntity[entityId]!,
+    ),
     totalEnergySpent: internal.totalEnergySpentByEntity[entityId]!,
     totalEnergyRecovered: internal.totalEnergyRecoveredByEntity[entityId]!,
   };
@@ -399,6 +419,9 @@ export function getIndividualEnergyInspection(
     minimumEnergyReached: internal.minimumEnergyByEntity[entityId]!,
     firstWindedTick: nullableTick(internal.firstWindedTickByEntity[entityId]!),
     firstSpentTick: nullableTick(internal.firstSpentTickByEntity[entityId]!),
+    lastStrenuousTick: nullableTick(
+      internal.lastStrenuousTickByEntity[entityId]!,
+    ),
     totalEnergySpent: internal.totalEnergySpentByEntity[entityId]!,
     totalEnergyRecovered: internal.totalEnergyRecoveredByEntity[entityId]!,
   };
