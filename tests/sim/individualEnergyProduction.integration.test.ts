@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { MAIN_BATTLE_MEDICAL_SCENARIO } from "../../src/content/mainBattleMedicalScenario";
+import { CASUALTY_LIFECYCLE_VISUAL_SCENARIO } from "../../src/content/casualtyLifecycleVisualScenario";
 import {
   DEFAULT_MAXIMUM_ENERGY,
   DEFAULT_SAFE_REST_RECOVERY_PER_TICK,
@@ -9,6 +10,7 @@ import {
   getIndividualEnergyInspection,
   getTrustedIndividualEnergyProfile,
 } from "../../src/sim/individualEnergy";
+import { getIndividualEnergyActivityInspection } from "../../src/sim/individualEnergyActivity";
 import {
   advanceSimulationOneTick,
   createInitialSnapshot,
@@ -162,6 +164,63 @@ describe("Milestone 7A production energy integration", () => {
         totalEnergySpent: 0,
         totalEnergyRecovered: 0,
       });
+  });
+});
+
+describe("Milestone 7B-1 production activity observation", () => {
+  it("exposes final current-tick activity without spending or recovering energy", () => {
+    const simulation = createSimulation(CASUALTY_LIFECYCLE_VISUAL_SCENARIO);
+    const observed = new Set<string>();
+    for (let tick = 0; tick < 130; tick += 1) {
+      advanceSimulationOneTick(simulation);
+      for (let entityId = 0; entityId < simulation.world.entityCount; entityId += 1) {
+        observed.add(getIndividualEnergyActivityInspection(
+          simulation.combatSandbox!.individualEnergyActivityStore,
+          entityId,
+        ).dominantContext);
+      }
+    }
+    for (const context of [
+      "downedRest",
+      "medicalApproach",
+      "dragging",
+      "beingDragged",
+      "treating",
+      "underTreatment",
+      "executionCommitment",
+      "respawnEgress",
+      "waitingAtRespawn",
+      "inactiveTerminal",
+    ]) expect(observed.has(context)).toBe(true);
+    for (let entityId = 0; entityId < simulation.world.entityCount; entityId += 1) {
+      expect(getIndividualEnergyInspection(
+        simulation.trustedIndividualEnergyProfileStore,
+        simulation.individualEnergyStore,
+        entityId,
+      )).toMatchObject({
+        currentEnergy: 10_000,
+        totalEnergySpent: 0,
+        totalEnergyRecovered: 0,
+      });
+    }
+  }, 15_000);
+
+  it("carries bounded activity fields through existing inspected snapshots", () => {
+    const simulation = createSimulation(createSmallBattleScenario({}));
+    advanceSimulationOneTick(simulation);
+    const inspected = createInitialSnapshot(simulation).combatDebug!
+      .inspectedIndividuals[0]!;
+    expect(inspected).toMatchObject({
+      energyActivityContext: expect.any(String),
+      energyDisplacementX: expect.any(Number),
+      energyDisplacementY: expect.any(Number),
+      energyMovementDistanceSquared: expect.any(Number),
+      energyMovementIntensity: expect.any(String),
+      energyAttackImpulsesThisTick: expect.any(Number),
+      energyDefenceImpulsesThisTick: expect.any(Number),
+      energyMovementOccurredThisTick: expect.any(Boolean),
+      energyExternallyMovedThisTick: expect.any(Boolean),
+    });
   });
 });
 

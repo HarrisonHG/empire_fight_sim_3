@@ -253,6 +253,16 @@ export function getIndividualCombatPressureInspection(
   };
 }
 
+/** Allocation-free current-tick threat evidence for derived activity reads. */
+export function hasIndividualNearbyHostilePressureEvidence(
+  store: CombatPressureStore,
+  entityId: number,
+): boolean {
+  const internal = asInternal(store);
+  assertEntityId(entityId, internal.entityCount);
+  return internal.nearbyHostileCountByEntity[entityId]! > 0;
+}
+
 /**
  * Runs after combat consequences and before morale assessment. Consequence
  * pressure was already applied by applyCombatConsequences; this stage records

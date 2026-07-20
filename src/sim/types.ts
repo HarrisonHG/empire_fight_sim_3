@@ -36,6 +36,11 @@ import type {
   TrustedIndividualEnergyProfileValues,
 } from "./individualEnergy";
 import type {
+  IndividualEnergyActivityContext,
+  IndividualEnergyActivityStore,
+  IndividualEnergyMovementIntensity,
+} from "./individualEnergyActivity";
+import type {
   CasualtyProcedureKind,
   DeathCountPolicy,
   IndividualCasualtyProcedureProfileStore,
@@ -509,6 +514,15 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly firstSpentTick?: number | null;
   readonly totalEnergySpent?: number;
   readonly totalEnergyRecovered?: number;
+  readonly energyActivityContext?: IndividualEnergyActivityContext;
+  readonly energyDisplacementX?: number;
+  readonly energyDisplacementY?: number;
+  readonly energyMovementDistanceSquared?: number;
+  readonly energyMovementIntensity?: IndividualEnergyMovementIntensity;
+  readonly energyAttackImpulsesThisTick?: number;
+  readonly energyDefenceImpulsesThisTick?: number;
+  readonly energyMovementOccurredThisTick?: boolean;
+  readonly energyExternallyMovedThisTick?: boolean;
   readonly hasChirurgeon?: boolean;
   readonly hasPhysick?: boolean;
   readonly currentGenericHerbs?: number;
@@ -706,6 +720,7 @@ export interface CombatSandboxSimulationState {
   /** Aliases the SimulationState-owned stores for bounded combat inspection. */
   readonly trustedIndividualEnergyProfileStore: TrustedIndividualEnergyProfileStore;
   readonly individualEnergyStore: IndividualEnergyStore;
+  readonly individualEnergyActivityStore: IndividualEnergyActivityStore;
   readonly individualCasualtyProcedureProfileStore: IndividualCasualtyProcedureProfileStore;
   readonly individualCasualtyLifecycleStore: IndividualCasualtyLifecycleStore;
   readonly individualPlayerPresenceStore: IndividualPlayerPresenceStore;

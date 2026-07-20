@@ -1,6 +1,6 @@
 # Milestone 7: Energy, Exertion, and Rest
 
-Status: active; 7A implemented, 7B and later slices deferred.
+Status: active; 7A and 7B-1 implemented, 7B-2 and later slices deferred.
 
 Implementation begins after Milestone 6 is accepted and the post-Milestone-6 main-battle medical integration spike is retained as the evolving `/` scenario.
 
@@ -604,15 +604,70 @@ No expenditure, recovery, movement, combat, morale, renderer, or UI integration.
 
 ---
 
-## 7B — Authoritative activity classification and base expenditure/recovery
+## 7B-1 — Authoritative activity classification
 
 Deliver:
 
-- one dominant activity context per entity;
-- actual-displacement adapter;
-- attack and defence exertion impulses;
+- one reusable entity-indexed current-tick activity record per entity;
+- exact net integer displacement evidence captured once from tick-start and final positions;
+- observation-only walk/jog/sprint intensity derived from integer axis displacement;
+- authoritative movement-source flags for ordinary movement, gathering, dragging,
+  being dragged, medical approach, trauma withdrawal, respawn egress, and forced displacement;
+- canonical attack-attempt and defence-attempt counts from production records;
+- final lifecycle, presence, treatment, execution, pressure, and casualty precedence;
+- bounded inspected-entity fields;
+- no energy expenditure, recovery, history change, or gameplay effect.
+
+Dominant-context precedence is deterministic:
+
+```text
+waitingAtRespawn
+respawnEgress
+terminalComforted / removedFromBattlefield
+beingDragged
+dragging
+treating
+underTreatment
+executionCommitment
+other terminal state
+medicalApproach
+downedRest
+observed walk / jog / sprint
+alertStationary / safeStationaryRest
+```
+
+Attack and defence records remain separate impulses and do not replace the
+dominant context. A canonical invalidated attack record represents an attack
+that was already committed; invalid pre-commitment input emits no record.
+
+Production observes movement-authority checkpoints without summing their
+distances. The final activity store records only the exact tick-start-to-final
+displacement, so several authorities cannot double-charge movement in 7B-2.
+
+Tests:
+
+- all dominant contexts and precedence;
+- personal versus external movement and integer intensity;
+- canonical valid/committed-invalid attacks and successful/failed defence;
+- multiple same-tick defence attempts;
+- caller-owned store reuse, replay, and processing-order independence;
+- production casualty procedure integration with unchanged energy;
+- idle structural coverage at 100–2,000 entities.
+
+Boundary:
+
+Observe production only. Do not spend or recover energy, update energy history,
+or alter movement, gait, combat, pressure, morale, renderer, worker, or UI state.
+
+---
+
+## 7B-2 — Base expenditure and recovery application
+
+Deliver:
+
+- consume the accepted 7B-1 dominant context and exact displacement evidence;
+- translate attack and defence counts into exertion impulses;
 - safe/alert/downed rest;
-- current-tick reusable exertion records;
 - energy application and clamping;
 - production ordering after physical actions;
 - no energy effects on behaviour yet.

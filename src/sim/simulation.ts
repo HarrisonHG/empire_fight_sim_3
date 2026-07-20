@@ -23,6 +23,7 @@ import {
   advanceIndividualCombatPressureOneTick,
   createCombatPressureStore,
   getIndividualCombatPressureInspection,
+  hasIndividualNearbyHostilePressureEvidence,
 } from "./combatPressure";
 import {
   createCombatSurvivabilityStore,
@@ -213,6 +214,14 @@ import {
   type TrustedIndividualEnergyProfileStore,
   type TrustedIndividualEnergyProfileValues,
 } from "./individualEnergy";
+import {
+  beginIndividualEnergyActivityObservation,
+  classifyIndividualEnergyActivityOneTick,
+  createIndividualEnergyActivityStore,
+  getIndividualEnergyActivityInspection,
+  observeIndividualEnergyCasualtyMovement,
+  observeIndividualEnergyMovementAuthority,
+} from "./individualEnergyActivity";
 import { SeededRng } from "./rng";
 import {
   createUnitIdentityStore,
@@ -799,6 +808,8 @@ function createCombatSandbox(
     createIndividualMedicalClaimStore(world.entityCount);
   const individualExecutionActionStore =
     createIndividualExecutionActionStore(world.entityCount);
+  const individualEnergyActivityStore =
+    createIndividualEnergyActivityStore(world.entityCount);
   const individualDefenceHandAvailabilitySource =
     createPrioritizedIndividualDefenceHandAvailabilitySource(
       individualDragHandCommitmentStore,
@@ -840,6 +851,7 @@ function createCombatSandbox(
     individualGlobalHitStore: individualCombatPipelineStores.globalHitStore,
     trustedIndividualEnergyProfileStore,
     individualEnergyStore,
+    individualEnergyActivityStore,
     individualCasualtyProcedureProfileStore,
     individualCasualtyLifecycleStore,
     individualPlayerPresenceStore,
@@ -1008,6 +1020,27 @@ function createCombatSandbox(
     combatSandbox.individualCasualtyUnitSummaryStore,
     casualtySummaryDependencies(world, combatSandbox),
   );
+  beginIndividualEnergyActivityObservation(
+    individualEnergyActivityStore,
+    world,
+    0,
+  );
+  classifyIndividualEnergyActivityOneTick(individualEnergyActivityStore, {
+    world,
+    lifecycle: combatSandbox.individualCasualtyLifecycleStore,
+    presence: combatSandbox.individualPlayerPresenceStore,
+    treatments: combatSandbox.individualTreatmentActionStore,
+    treatmentResult: combatSandbox.individualTreatmentActionResult,
+    executions: combatSandbox.individualExecutionActionStore,
+    executionResult: combatSandbox.individualExecutionActionResult,
+    attackAttempts: [],
+    defenceAttempts: [],
+    isAlert: (entityId) => hasIndividualNearbyHostilePressureEvidence(
+      combatSandbox.pressureStore,
+      entityId,
+    ),
+    tick: 0,
+  });
   combatSandbox.debugSnapshot = createCombatDebugSnapshot(world, combatSandbox, 0);
 
   return { state: combatSandbox, rngState: deploymentRng.state };
@@ -1775,10 +1808,21 @@ export function advanceCombatSandboxOneTick(
       entityId,
     ) === "terminalAwaitingComfort";
 
+  beginIndividualEnergyActivityObservation(
+    combatSandbox.individualEnergyActivityStore,
+    world,
+    tick,
+  );
+
   applyRetainedCasualtyVisualFixturePreCombatInputs(
     world,
     combatSandbox,
     tick,
+  );
+  observeIndividualEnergyMovementAuthority(
+    combatSandbox.individualEnergyActivityStore,
+    world,
+    "externalDisplacement",
   );
 
   const formationResult = runStage("formation", () => {
@@ -1877,6 +1921,11 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.individualCasualtyLifecycleStore,
       combatSandbox.individualOrdinaryParticipationSnapshot,
     );
+    observeIndividualEnergyMovementAuthority(
+      combatSandbox.individualEnergyActivityStore,
+      world,
+      "ordinaryMovement",
+    );
     combatSandbox.casualtyDragMovementResult = runCasualtyStage(
       "dragMovement",
       () => advanceCasualtyDragGroupsBeforeCombat(
@@ -1893,6 +1942,11 @@ export function advanceCombatSandboxOneTick(
         combatSandbox.casualtyDragMovementBuffers,
         combatSandbox.individualPlayerPresenceStore,
       ),
+    );
+    observeIndividualEnergyCasualtyMovement(
+      combatSandbox.individualEnergyActivityStore,
+      world,
+      combatSandbox.casualtyDragGroupStore,
     );
     advanceIndividualMedicalClaimApproachMovementOneTick(
       world,
@@ -1921,6 +1975,11 @@ export function advanceCombatSandboxOneTick(
         ),
         isUnavailable: isExecutionCommitted,
       },
+    );
+    observeIndividualEnergyMovementAuthority(
+      combatSandbox.individualEnergyActivityStore,
+      world,
+      "medicalApproach",
     );
     advanceIndividualTraumaWithdrawalMovementOneTick(
       world,
@@ -2070,6 +2129,11 @@ export function advanceCombatSandboxOneTick(
         },
       ),
     );
+    observeIndividualEnergyMovementAuthority(
+      combatSandbox.individualEnergyActivityStore,
+      world,
+      "traumaWithdrawal",
+    );
     combatSandbox.individualTreatmentActionResult = runCasualtyStage(
       "treatmentAndComfort",
       () => advanceIndividualTreatmentActionsOneTick(
@@ -2193,6 +2257,11 @@ export function advanceCombatSandboxOneTick(
       combatSandbox,
       tick,
     );
+    observeIndividualEnergyMovementAuthority(
+      combatSandbox.individualEnergyActivityStore,
+      world,
+      "externalDisplacement",
+    );
     combatSandbox.individualTreatmentActionResult = {
       ...combatSandbox.individualTreatmentActionResult,
       activeActionCount: getActiveIndividualTreatmentActionCount(
@@ -2279,6 +2348,11 @@ export function advanceCombatSandboxOneTick(
         tick,
         combatSandbox.individualRespawnEgressBuffers,
       ),
+    );
+    observeIndividualEnergyMovementAuthority(
+      combatSandbox.individualEnergyActivityStore,
+      world,
+      "respawnEgress",
     );
     for (const arrival of combatSandbox.individualRespawnEgressResult.arrivalRecords) {
       clearIncompatibleIndividualCasualtyAssistance(
@@ -2399,6 +2473,25 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.individualCasualtyLifecycleStore,
       combatSandbox.individualOrdinaryParticipationSnapshot,
     ),
+  );
+  classifyIndividualEnergyActivityOneTick(
+    combatSandbox.individualEnergyActivityStore,
+    {
+      world,
+      lifecycle: combatSandbox.individualCasualtyLifecycleStore,
+      presence: combatSandbox.individualPlayerPresenceStore,
+      treatments: combatSandbox.individualTreatmentActionStore,
+      treatmentResult: combatSandbox.individualTreatmentActionResult,
+      executions: combatSandbox.individualExecutionActionStore,
+      executionResult: combatSandbox.individualExecutionActionResult,
+      attackAttempts: individualCombatResult.attackAttempts,
+      defenceAttempts: individualCombatResult.defenceRecords,
+      isAlert: (entityId) => hasIndividualNearbyHostilePressureEvidence(
+        combatSandbox.pressureStore,
+        entityId,
+      ),
+      tick,
+    },
   );
   runStage("routingContagion", () =>
     advanceRoutingContagionOneTick(
@@ -2913,6 +3006,10 @@ function collectInspectedIndividualSnapshots(
       combatSandbox.individualEnergyStore,
       entityId,
     );
+    const energyActivity = getIndividualEnergyActivityInspection(
+      combatSandbox.individualEnergyActivityStore,
+      entityId,
+    );
     const traumaticWound = getIndividualTraumaticWoundInspection(
       combatSandbox.individualTraumaticWoundStore,
       entityId,
@@ -3055,6 +3152,18 @@ function collectInspectedIndividualSnapshots(
       firstSpentTick: energy.firstSpentTick,
       totalEnergySpent: energy.totalEnergySpent,
       totalEnergyRecovered: energy.totalEnergyRecovered,
+      energyActivityContext: energyActivity.dominantContext,
+      energyDisplacementX: energyActivity.displacementX,
+      energyDisplacementY: energyActivity.displacementY,
+      energyMovementDistanceSquared:
+        energyActivity.actualMovementDistanceSquared,
+      energyMovementIntensity: energyActivity.movementIntensity,
+      energyAttackImpulsesThisTick:
+        energyActivity.validAttackAttemptCount,
+      energyDefenceImpulsesThisTick:
+        energyActivity.validDefenceAttemptCount,
+      energyMovementOccurredThisTick: energyActivity.movementOccurred,
+      energyExternallyMovedThisTick: energyActivity.externallyMoved,
       hasChirurgeon: medicalProfile.hasChirurgeon,
       hasPhysick: medicalProfile.hasPhysick,
       currentGenericHerbs: herbs.current,
