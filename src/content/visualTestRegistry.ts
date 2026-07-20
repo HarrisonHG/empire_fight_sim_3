@@ -50,6 +50,7 @@ export interface VisualTestWorldLabel {
 
 export interface VisualTestFocusArea extends VisualTestWorldLabel {
   readonly id: number;
+  readonly entityIds: readonly number[];
   readonly width: number;
   readonly height: number;
 }
@@ -73,6 +74,7 @@ export const VISUAL_TEST_REGISTRY: readonly VisualTestEntry[] = Object.freeze([
     focusAreas: Object.freeze(CASUALTY_LIFECYCLE_VISUAL_CHAMBERS.map((area) =>
       Object.freeze({
         id: area.id,
+        entityIds: area.entityIds,
         text: area.label,
         x: area.centreX,
         y: area.centreY,
@@ -123,7 +125,7 @@ export const VISUAL_TEST_REGISTRY: readonly VisualTestEntry[] = Object.freeze([
   Object.freeze({
     id: INDIVIDUAL_COMBAT_VISUAL_SCENARIO_ID,
     title: "Individual combat regression",
-    milestone: "Milestone 5 pending human inspection",
+    milestone: "Milestone 5 accepted",
     purpose:
       "Retains deterministic individual-combat chambers for defence, reach, armour hits, landed-hit gates, and zero-hit eligibility.",
     expectedObservations: Object.freeze([
@@ -133,7 +135,7 @@ export const VISUAL_TEST_REGISTRY: readonly VisualTestEntry[] = Object.freeze([
       "The polearm attacker commits from farther away than the one-handed attacker.",
       "Heavy armour starts with more global hits while ordinary accepted strikes remove one hit.",
       "Same-pair landed outcomes faster than one second are gate-rejected and do not remove hits.",
-      "Separate attackers can each land one accepted hit on the same target; zero-hit fighters remain standing until the casualty milestone.",
+      "Separate attackers can each land one accepted hit on the same target; zero-hit fighters transition into authoritative dying state and are filtered from ordinary interaction.",
     ]),
     legendLines: INDIVIDUAL_COMBAT_VISUAL_CHAMBER_LEGEND_LINES,
     worldLabels: Object.freeze([
@@ -153,7 +155,7 @@ export const VISUAL_TEST_REGISTRY: readonly VisualTestEntry[] = Object.freeze([
   Object.freeze({
     id: DEFENCE_OVERWHELM_SCENARIO_ID,
     title: "Guard readiness and overwhelm regression",
-    milestone: "Milestone 5 pending human inspection",
+    milestone: "Milestone 5 accepted",
     purpose:
       "Shows persistent guard readiness, offensive openings, cadence depletion, experience recovery, and rear desperate defence.",
     expectedObservations: Object.freeze([

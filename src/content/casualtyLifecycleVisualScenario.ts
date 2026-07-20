@@ -9,7 +9,7 @@ import {
 } from "../sim/individualTraumaticWound";
 
 export const CASUALTY_LIFECYCLE_VISUAL_SCENARIO_ID = "casualty-lifecycle";
-export const CASUALTY_LIFECYCLE_VISUAL_SEED = 0x6c_006a;
+export const CASUALTY_LIFECYCLE_VISUAL_SEED = 0x6c_0004;
 export const CASUALTY_LIFECYCLE_CHAMBER_SPACING = 620;
 export const CASUALTY_LIFECYCLE_LOCAL_INTERACTION_RADIUS = 192;
 export const CASUALTY_LIFECYCLE_WORLD_WIDTH = 3_120;
@@ -66,11 +66,11 @@ export const CASUALTY_LIFECYCLE_VISUAL_CHAMBERS: readonly CasualtyLifecycleVisua
 export const CASUALTY_LIFECYCLE_VISUAL_LEGEND_LINES = Object.freeze([
   "Lifecycle: green ring active · red cross dying · violet square terminal awaiting comfort · cyan diamond comforted.",
   "Presence: amber chevrons respawn egress · blue double-square waiting at respawn.",
-  "Procedure: red burst fresh zero · clock arc death count · pause bars owned pause · orange rescue/drag lines and destination.",
+  "Procedure: red burst fresh zero · clock arc death count · pause bars owned pause · orange rescue/drag lines and destination · short bars committed drag hands.",
   "Medicine: gold claim line · white approach arrow · H herb · A/L disabled arm/leg · magenta trauma.",
   "Treatment arcs: cyan dying · green missing hit · magenta trauma · amber herb limb · red herb-free limb · violet comfort.",
-  "Outcomes: ! interruption · + restoration · crossed blade execution · heart comfort completion.",
-  "All timings use production constants; official headless tests remain authoritative.",
+  "Outcomes: ! interruption · + restoration · crossed blade execution in progress · red dagger execution completion · heart comfort completion.",
+  "Production treatment, comfort and execution durations are unchanged. Chamber 9 uses an explicit 60-tick visual death-count policy.",
 ] as const);
 
 export const CASUALTY_LIFECYCLE_EXPECTED_TIMELINE = Object.freeze([

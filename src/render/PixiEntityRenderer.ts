@@ -632,6 +632,13 @@ function drawCasualtyGlyph(
       .lineTo(16, 14)
       .stroke({ color: 0xff_9f_43, width: 3, alpha: 0.95 });
   }
+  for (let hand = 0; hand < spec.committedDragHands; hand += 1) {
+    const y = 16 + hand * 4;
+    graphics
+      .moveTo(-17, y)
+      .lineTo(-9, y)
+      .stroke({ color: 0xff_d0_78, width: 2, alpha: 0.95 });
+  }
   if (spec.hasMedicalClaim) {
     graphics.circle(0, 0, 19).stroke({ color: 0xff_d9_66, width: 1, alpha: 0.8 });
   }
@@ -705,6 +712,18 @@ function drawCasualtyGlyph(
       .moveTo(15, 0)
       .lineTo(21, 0)
       .stroke({ color: 0xff_3b_4d, width: 2, alpha: 0.9 });
+  }
+  if (spec.executionCompleted) {
+    graphics
+      .moveTo(19, -10)
+      .lineTo(19, 7)
+      .moveTo(14, -5)
+      .lineTo(24, -5)
+      .moveTo(16, 7)
+      .lineTo(19, 11)
+      .lineTo(22, 7)
+      .closePath()
+      .stroke({ color: 0xff_24_3f, width: 2, alpha: 1 });
   }
   if (spec.treatmentInterrupted) {
     graphics

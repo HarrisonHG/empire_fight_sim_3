@@ -2,7 +2,7 @@
 
 Status: in progress.
 
-Milestone 5, including its defence-readiness and pressure/visual-regression spike, was accepted on 2026-07-15. Milestone 6 is technically implemented through 6J. The retained visual suite is implemented and awaiting human visual acceptance; Milestone 6 is not yet accepted.
+Milestone 5, including its defence-readiness and pressure/visual-regression spike, was accepted on 2026-07-15. Milestone 6 is technically implemented through the 6J-B pre-acceptance correction. The retained visual suite is implemented and awaiting human visual acceptance; Milestone 6 is not yet accepted.
 
 ## Progress
 
@@ -28,6 +28,7 @@ Milestone 5, including its defence-readiness and pressure/visual-regression spik
 | 6I-1B | implemented | Actual-drag history, limb-condition completion summaries, and exact herb-consumption history addition. |
 | 6I-2 | implemented | Representative performance, deterministic one-hour soak, output-reuse verification, and final technical acceptance. |
 | 6J | implemented; awaiting human visual acceptance | Ten-chamber retained casualty lifecycle suite, authoritative debug grammar, inspection and chamber focus. |
+| 6J-B | implemented; awaiting human visual acceptance | Clean chamber trauma, incompatible assistance cleanup, hand/execution glyphs, focused inspection, and visible wording reconciliation. |
 
 This progress table is the status authority for Milestone 6. Individual slice sections remain the behavioural specification.
 

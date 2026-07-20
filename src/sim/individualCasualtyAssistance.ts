@@ -612,6 +612,42 @@ export function releaseIndividualTreatmentPositionReservation(
   internal.blockedReformationTickByEntity[patientEntityId] = NO_ENTITY;
 }
 
+/**
+ * Clears assistance residue after an authoritative player-presence transition.
+ * Active drag groups remain owned by drag cancellation and are never displaced here.
+ */
+export function clearIncompatibleIndividualCasualtyAssistance(
+  presenceStore: IndividualPlayerPresenceStore,
+  assistanceStore: IndividualCasualtyAssistanceStore,
+  groupStore: CasualtyDragGroupStore,
+  entityId: number,
+): boolean {
+  validateEntityCounts(
+    presenceStore.entityCount,
+    presenceStore,
+    assistanceStore,
+    groupStore,
+  );
+  assertEntityId(entityId, presenceStore.entityCount);
+  const presence = getIndividualPlayerPresenceState(presenceStore, entityId);
+  if (
+    presence !== "respawnEgress" &&
+    presence !== "waitingAtRespawn" &&
+    presence !== "terminalComforted" &&
+    presence !== "removedFromBattlefield"
+  ) return false;
+  const assistance = asAssistanceStore(assistanceStore);
+  const groupId = assistance.dragGroupIdByEntity[entityId]!;
+  if (
+    groupId !== NO_ENTITY &&
+    asGroupStore(groupStore).activeGroups.some((group) => group.groupId === groupId)
+  ) return false;
+  releaseParticipant(assistance, entityId);
+  assistance.rescueRequestedTickByEntity[entityId] = NO_ENTITY;
+  assistance.blockedReformationTickByEntity[entityId] = NO_ENTITY;
+  return true;
+}
+
 export function projectCasualtyDragOrdinaryParticipation(
   groupStore: CasualtyDragGroupStore,
   snapshot: IndividualOrdinaryParticipationSnapshot,

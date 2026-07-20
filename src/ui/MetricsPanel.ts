@@ -16,6 +16,11 @@ import {
   shouldClearRetainedInspectionEvents,
 } from "./individualInspectionFormatting";
 import { formatMoraleOverlayValues } from "./moraleOverlayFormatting";
+import {
+  filterIndividualInspectionByFocus,
+  selectVisualTestFocus,
+  type VisualTestFocusSelection,
+} from "./visualTestFocus";
 
 const FPS_SAMPLE_WINDOW_MS = 500;
 const MAX_COMBAT_EVENT_LOG_ROWS = 12;
@@ -38,6 +43,10 @@ export class MetricsPanel {
   private readonly combatEventLogValue = createMetricValue("combat-event-log");
   private readonly retainedInspectionEvents = new Map<number, string>();
   private readonly retainedCombatEventLog: string[] = [];
+  private individualInspectionFocus = selectVisualTestFocus();
+  private latestInspectionTick: number | undefined;
+  private latestInspectedIndividuals: readonly LiveCombatDebugIndividualSnapshot[] = [];
+  private latestInspectedUnits: readonly LiveCombatDebugUnitSnapshot[] = [];
   private frameRequest: number | undefined;
   private sampleStartedAt: number | undefined;
   private sampledFrames = 0;
@@ -154,6 +163,17 @@ export class MetricsPanel {
     this.combatEventLogValue.textContent = "--";
   }
 
+  public setIndividualInspectionFocus(selection: VisualTestFocusSelection): void {
+    this.individualInspectionFocus = selection;
+    if (this.latestInspectionTick !== undefined) {
+      this.renderIndividualInspection(
+        this.latestInspectionTick,
+        this.latestInspectedIndividuals,
+        this.latestInspectedUnits,
+      );
+    }
+  }
+
   public destroy(): void {
     if (this.frameRequest !== undefined) {
       cancelAnimationFrame(this.frameRequest);
@@ -191,6 +211,9 @@ export class MetricsPanel {
     this.combatEventLogValue.textContent = "--";
     this.retainedInspectionEvents.clear();
     this.retainedCombatEventLog.length = 0;
+    this.latestInspectionTick = undefined;
+    this.latestInspectedIndividuals = [];
+    this.latestInspectedUnits = [];
   }
 
   private renderIndividualInspection(
@@ -198,6 +221,9 @@ export class MetricsPanel {
     individuals: readonly LiveCombatDebugIndividualSnapshot[],
     units: readonly LiveCombatDebugUnitSnapshot[],
   ): void {
+    this.latestInspectionTick = tick;
+    this.latestInspectedIndividuals = individuals;
+    this.latestInspectedUnits = units;
     if (individuals.length === 0) {
       this.individualInspectionValue.textContent = "--";
       this.retainedInspectionEvents.clear();
@@ -210,9 +236,13 @@ export class MetricsPanel {
         this.retainedInspectionEvents.set(individual.entityId, eventSummary);
       }
     }
+    const visibleIndividuals = filterIndividualInspectionByFocus(
+      individuals,
+      this.individualInspectionFocus,
+    );
     const rows = buildIndividualInspectionRows(
       tick,
-      individuals,
+      visibleIndividuals,
       units,
       this.retainedInspectionEvents,
     );
@@ -241,8 +271,8 @@ export class MetricsPanel {
     }
     header.append(headerRow);
     const body = document.createElement("tbody");
-    for (let index = 0; index < individuals.length; index += 1) {
-      const individual = individuals[index]!;
+    for (let index = 0; index < visibleIndividuals.length; index += 1) {
+      const individual = visibleIndividuals[index]!;
       const inspectionRow = rows[index]!;
       const row = document.createElement("tr");
       for (const value of [

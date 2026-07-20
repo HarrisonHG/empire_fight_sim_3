@@ -17,6 +17,7 @@ export interface CasualtyVisualGlyphSpec {
   readonly deathCountPaused: boolean;
   readonly assistanceState: LiveCombatDebugIndividualSnapshot["casualtyAssistanceState"];
   readonly dragPhase: LiveCombatDebugIndividualSnapshot["casualtyDragGroupPhase"];
+  readonly committedDragHands: 0 | 1 | 2;
   readonly hasMedicalClaim: boolean;
   readonly isApproachingClaimedPatient: boolean;
   readonly treatmentKind: LiveCombatDebugIndividualSnapshot["treatmentKind"];
@@ -29,6 +30,7 @@ export interface CasualtyVisualGlyphSpec {
   readonly disabledArm: boolean;
   readonly disabledLeg: boolean;
   readonly executionProgress: number;
+  readonly executionCompleted: boolean;
   readonly treatmentInterrupted: boolean;
   readonly restoredHit: boolean;
   readonly comfortCompleted: boolean;
@@ -49,6 +51,7 @@ export function createCasualtyVisualGlyphSpec(
     deathCountPaused: individual.deathCountPaused === true,
     assistanceState: individual.casualtyAssistanceState,
     dragPhase: individual.casualtyDragGroupPhase,
+    committedDragHands: committedDragHands(individual.casualtyDragFreeHands),
     hasMedicalClaim:
       (individual.claimedMedicalPatientEntityId ?? -1) >= 0 ||
       (individual.claimedMedicalPhysickEntityId ?? -1) >= 0,
@@ -69,12 +72,20 @@ export function createCasualtyVisualGlyphSpec(
     executionProgress: individual.executionActionId === undefined
       ? 0
       : clamp01((individual.executionProgressTicks ?? 0) / executionRequired),
+    executionCompleted: individual.terminalCause === "execution",
     treatmentInterrupted:
       (individual.treatmentInterruptedHistoryCount ?? 0) > 0 ||
       (individual.treatmentPerformedInterruptedHistoryCount ?? 0) > 0,
     restoredHit: (individual.hitRestorationHistoryCount ?? 0) > 0,
     comfortCompleted: (individual.comfortCompletedTick ?? -1) >= 0,
   };
+}
+
+function committedDragHands(freeHands: number | undefined): 0 | 1 | 2 {
+  if (freeHands === undefined) return 0;
+  const committed = 2 - freeHands;
+  if (committed <= 0) return 0;
+  return committed === 1 ? 1 : 2;
 }
 
 function lifecycleGlyph(

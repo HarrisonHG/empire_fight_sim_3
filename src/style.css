@@ -100,6 +100,12 @@ body {
   cursor: pointer;
 }
 
+.visual-test-focus-controls button[aria-pressed="true"] {
+  border-color: #f8fafc;
+  background: #334155;
+  color: #fff;
+}
+
 .visual-test-scenario-panel details {
   margin-top: 8px;
   color: #cbd5e1;

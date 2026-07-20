@@ -92,6 +92,7 @@ import {
   createIndividualCasualtyAssistanceStore,
   advanceCasualtyDragGroupsBeforeCombat,
   cancelCasualtyDragGroupsFromPostCombatEvidence,
+  clearIncompatibleIndividualCasualtyAssistance,
   projectCasualtyDragOrdinaryParticipation,
   promoteTerminalCitizenCasualtyDragGroups,
   refreshCasualtyDragMovementFinalPhaseCounts,
@@ -2046,6 +2047,22 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.casualtyDragMovementBuffers.cancellationRecords,
       combatSandbox.individualPlayerPresenceStore,
     );
+    for (const transition of combatSandbox.individualTerminalPresenceTransitions) {
+      clearIncompatibleIndividualCasualtyAssistance(
+        combatSandbox.individualPlayerPresenceStore,
+        combatSandbox.individualCasualtyAssistanceStore,
+        combatSandbox.casualtyDragGroupStore,
+        transition.entityId,
+      );
+    }
+    for (const completion of combatSandbox.individualTreatmentActionResult.completedRecords) {
+      clearIncompatibleIndividualCasualtyAssistance(
+        combatSandbox.individualPlayerPresenceStore,
+        combatSandbox.individualCasualtyAssistanceStore,
+        combatSandbox.casualtyDragGroupStore,
+        completion.patientEntityId,
+      );
+    }
     combatSandbox.casualtyDragMovementResult =
       refreshCasualtyDragMovementFinalPhaseCounts(
         combatSandbox.casualtyDragGroupStore,
@@ -2061,6 +2078,14 @@ export function advanceCombatSandboxOneTick(
         combatSandbox.individualRespawnEgressBuffers,
       ),
     );
+    for (const arrival of combatSandbox.individualRespawnEgressResult.arrivalRecords) {
+      clearIncompatibleIndividualCasualtyAssistance(
+        combatSandbox.individualPlayerPresenceStore,
+        combatSandbox.individualCasualtyAssistanceStore,
+        combatSandbox.casualtyDragGroupStore,
+        arrival.entityId,
+      );
+    }
     prepareIndividualCasualtyLocalQuery(
       world,
       combatSandbox.individualCasualtyLifecycleStore,

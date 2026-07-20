@@ -7,22 +7,29 @@ import {
   CASUALTY_LIFECYCLE_CHAMBER_SPACING,
   CASUALTY_LIFECYCLE_LOCAL_INTERACTION_RADIUS,
   CASUALTY_LIFECYCLE_RECOMMENDED_END_TICK,
+  CASUALTY_LIFECYCLE_TRAUMA_TICK,
   CASUALTY_LIFECYCLE_VISUAL_CHAMBERS,
   CASUALTY_LIFECYCLE_VISUAL_LEGEND_LINES,
   CASUALTY_LIFECYCLE_VISUAL_SCENARIO,
   CASUALTY_LIFECYCLE_VISUAL_SCENARIO_ID,
+  CASUALTY_LIFECYCLE_VISUAL_SEED,
 } from "../../src/content/casualtyLifecycleVisualScenario";
 import {
   findVisualTestEntry,
   VISUAL_TEST_REGISTRY,
 } from "../../src/content/visualTestRegistry";
 import { createCasualtyVisualGlyphSpec } from "../../src/render/casualtyVisualGrammar";
+import { getIndividualCasualtyAssistanceInspection } from "../../src/sim/individualCasualtyAssistance";
 import {
   getIndividualCharacterLifecycleState,
   getIndividualPlayerPresenceState,
 } from "../../src/sim/individualCasualtyLifecycle";
 import { getIndividualCurrentGlobalHits } from "../../src/sim/individualGlobalHits";
 import { getIndividualLimbDisabilityInspection } from "../../src/sim/individualLimbDisability";
+import {
+  calculateTraumaticWoundOpportunityRoll,
+  getIndividualTraumaticWoundInspection,
+} from "../../src/sim/individualTraumaticWound";
 import {
   CHIRURGEON_DYING_TREATMENT_PROGRESS_TICKS,
   PHYSICK_LIMB_NO_HERB_TREATMENT_PROGRESS_TICKS,
@@ -112,7 +119,51 @@ describe("Milestone 6 casualty lifecycle retained visual scenario", () => {
     expect(runAndDigest(200)).toEqual(
       runAndDigest(200),
     );
-  }, 30_000);
+    expect(digestSimulation(completedTrace().simulation)).toEqual(
+      runAndDigest(CASUALTY_LIFECYCLE_RECOMMENDED_END_TICK),
+    );
+  }, 90_000);
+
+  it("uses the clean chamber seed and isolates the explicit tick-3 trauma opportunity", () => {
+    expect(CASUALTY_LIFECYCLE_VISUAL_SEED).toBe(0x6c_0004);
+    expect(CASUALTY_LIFECYCLE_TRAUMA_TICK).toBe(3);
+    const zeroHitPairs = [
+      [0, 1], [2, 1], [3, 1], [4, 5], [8, 9], [12, 13], [16, 17],
+    ] as const;
+    for (const [targetEntityId, attackerEntityId] of zeroHitPairs) {
+      expect(calculateTraumaticWoundOpportunityRoll(
+        CASUALTY_LIFECYCLE_VISUAL_SEED,
+        { targetEntityId, attackerEntityId, tick: 0, triggerKind: "zeroHit" },
+      )).toBeGreaterThanOrEqual(100);
+    }
+    expect(calculateTraumaticWoundOpportunityRoll(
+      CASUALTY_LIFECYCLE_VISUAL_SEED,
+      { targetEntityId: 14, attackerEntityId: 15, tick: 3, triggerKind: "limbCleave" },
+    )).toBeLessThan(100);
+
+    const simulation = createSimulation(CASUALTY_LIFECYCLE_VISUAL_SCENARIO);
+    advanceSimulationOneTick(simulation);
+    const combat = requireCombat(simulation);
+    for (const entityId of zeroHitPairs.map(([target]) => target)) {
+      expect(getIndividualTraumaticWoundInspection(
+        combat.individualTraumaticWoundStore,
+        entityId,
+      ).state).toBe("none");
+    }
+    advanceTicks(simulation, 3);
+    expect(getIndividualTraumaticWoundInspection(
+      combat.individualTraumaticWoundStore,
+      14,
+    )).toMatchObject({
+      state: "active",
+      latestEpisodeTick: 3,
+      latestTriggerKind: "limbCleave",
+    });
+    expect(getIndividualTraumaticWoundInspection(
+      combat.individualTraumaticWoundStore,
+      19,
+    ).state).toBe("none");
+  });
 
   it("retains official treatment and execution durations without fixture overrides", () => {
     expect(CHIRURGEON_DYING_TREATMENT_PROGRESS_TICKS).toBe(600);
@@ -253,6 +304,36 @@ describe("Milestone 6 casualty lifecycle retained visual scenario", () => {
     });
   }, 30_000);
 
+  it("clears barbarian assistance throughout respawn egress and waiting", () => {
+    const simulation = createSimulation(CASUALTY_LIFECYCLE_VISUAL_SCENARIO);
+    let sawEgress = false;
+    let sawWaiting = false;
+    for (let index = 0; index < 400; index += 1) {
+      advanceSimulationOneTick(simulation);
+      const combat = requireCombat(simulation);
+      const presence = getIndividualPlayerPresenceState(
+        combat.individualPlayerPresenceStore,
+        19,
+      );
+      if (presence !== "respawnEgress" && presence !== "waitingAtRespawn") continue;
+      sawEgress ||= presence === "respawnEgress";
+      sawWaiting ||= presence === "waitingAtRespawn";
+      expect(getIndividualCasualtyAssistanceInspection(
+        combat.individualCasualtyAssistanceStore,
+        19,
+      )).toMatchObject({
+        state: "none",
+        dragGroupId: -1,
+        destinationX: -1,
+        destinationY: -1,
+        claimedPhysickEntityId: -1,
+      });
+      expect(combat.casualtyAssistanceDecisionResult.rescueRequestedRecords)
+        .not.toContainEqual(expect.objectContaining({ patientEntityId: 19 }));
+    }
+    expect({ sawEgress, sawWaiting }).toEqual({ sawEgress: true, sawWaiting: true });
+  }, 30_000);
+
   it("does not alter existing retained entries or introduce browser dependencies into simulation", () => {
     expect(VISUAL_TEST_REGISTRY.filter((entry) =>
       entry.id !== CASUALTY_LIFECYCLE_VISUAL_SCENARIO_ID)
@@ -263,6 +344,9 @@ describe("Milestone 6 casualty lifecycle retained visual scenario", () => {
       "defence-overwhelm",
       "morale-inspection",
     ]);
+    expect(VISUAL_TEST_REGISTRY.filter((entry) =>
+      entry.id === "individual-combat" || entry.id === "defence-overwhelm")
+      .every((entry) => entry.milestone === "Milestone 5 accepted")).toBe(true);
     for (const path of simulationSourceFiles()) {
       const source = readFileSync(path, "utf8");
       expect(source).not.toMatch(/from ["'](?:pixi\.js|\.\.\/render|\.\.\/ui)["']/);
@@ -343,6 +427,10 @@ function completedTrace(): CompletedVisualTrace {
 function runAndDigest(ticks: number): unknown {
   const simulation = createSimulation(CASUALTY_LIFECYCLE_VISUAL_SCENARIO);
   advanceTicks(simulation, ticks);
+  return digestSimulation(simulation);
+}
+
+function digestSimulation(simulation: SimulationState): unknown {
   const snapshot = createPositionSnapshot(simulation);
   return {
     tick: simulation.tick,

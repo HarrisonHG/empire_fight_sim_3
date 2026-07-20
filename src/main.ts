@@ -66,8 +66,9 @@ async function startApplication(
   const visualTestScenarioPanel =
     visualTestEntry === undefined
       ? undefined
-      : createVisualTestScenarioPanel(visualTestEntry, (focus) => {
+      : createVisualTestScenarioPanel(visualTestEntry, (focus, selection) => {
           renderer.setWorldFocus(focus);
+          metricsPanel.setIndividualInspectionFocus(selection);
         });
   let debugPanelVisibility = createInitialDebugPanelVisibilityState();
   const applyDebugPanelVisibility = (

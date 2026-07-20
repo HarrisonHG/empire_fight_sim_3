@@ -1,6 +1,11 @@
 import type { VisualTestEntry } from "../content/visualTestRegistry";
 import type { RenderWorldFocus } from "../render/PixiEntityRenderer";
 import { buildVisualTestMenuItems } from "./visualTestMenuItems";
+import {
+  isVisualTestFocusSelected,
+  selectVisualTestFocus,
+  type VisualTestFocusSelection,
+} from "./visualTestFocus";
 
 export function renderVisualTestMenu(
   host: HTMLElement,
@@ -54,7 +59,10 @@ export function renderVisualTestMenu(
 
 export function createVisualTestScenarioPanel(
   entry: VisualTestEntry,
-  setFocus?: (focus?: RenderWorldFocus) => void,
+  setFocus?: (
+    focus: RenderWorldFocus | undefined,
+    selection: VisualTestFocusSelection,
+  ) => void,
 ): HTMLElement {
   const panel = document.createElement("aside");
   panel.className = "visual-test-scenario-panel";
@@ -83,19 +91,43 @@ export function createVisualTestScenarioPanel(
     focusHeading.textContent = "Chamber focus";
     const focusControls = document.createElement("div");
     focusControls.className = "visual-test-focus-controls";
-    const allButton = focusButton("All chambers", 0, () => setFocus());
+    let selection = selectVisualTestFocus();
+    const buttons: HTMLButtonElement[] = [];
+    const activate = (
+      nextSelection: VisualTestFocusSelection,
+      focus?: RenderWorldFocus,
+    ): void => {
+      selection = nextSelection;
+      for (const button of buttons) {
+        const buttonId = button.dataset["focusId"] === "all"
+          ? "all"
+          : Number(button.dataset["focusId"]);
+        button.setAttribute(
+          "aria-pressed",
+          isVisualTestFocusSelected(selection, buttonId) ? "true" : "false",
+        );
+      }
+      setFocus(focus, selection);
+    };
+    const allButton = focusButton("All chambers", 0, "all", true, () =>
+      activate(selectVisualTestFocus()));
+    buttons.push(allButton);
     focusControls.append(allButton);
     for (const area of entry.focusAreas) {
-      focusControls.append(focusButton(
+      const button = focusButton(
         `${area.id} ${area.text}`,
         area.id,
-        () => setFocus({
+        area.id,
+        false,
+        () => activate(selectVisualTestFocus(area), {
           x: area.x,
           y: area.y,
           width: area.width,
           height: area.height,
         }),
-      ));
+      );
+      buttons.push(button);
+      focusControls.append(button);
     }
     panel.append(focusHeading, focusControls);
   }
@@ -114,12 +146,16 @@ export function createVisualTestScenarioPanel(
 function focusButton(
   label: string,
   id: number,
+  focusId: number | "all",
+  selected: boolean,
   activate: () => void,
 ): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
   button.textContent = label;
   button.dataset["testid"] = `chamber-focus-${id}`;
+  button.dataset["focusId"] = focusId.toString();
+  button.setAttribute("aria-pressed", selected ? "true" : "false");
   button.addEventListener("click", activate);
   return button;
 }
