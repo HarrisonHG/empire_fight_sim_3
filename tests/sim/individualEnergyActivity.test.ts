@@ -473,9 +473,12 @@ describe("individual energy base expenditure and recovery", () => {
     expect(getIndividualEnergyActivityInspection(harness.fixture.activity, 0))
       .toMatchObject({
         movementIntensity: "jogging",
+        requestedPhysicalGait: "walking",
+        actualPhysicalGait: "walking",
+        physicalGaitSource: "ordinaryMovement",
         externallyMoved: true,
-        movementExpenditureRequested: 8,
-        expenditureApplied: 8,
+        movementExpenditureRequested: 1,
+        expenditureApplied: 1,
       });
   });
 
@@ -499,9 +502,100 @@ describe("individual energy base expenditure and recovery", () => {
     expect(getIndividualEnergyActivityInspection(harness.fixture.activity, 0))
       .toMatchObject({
         actualMovementDistanceSquared: 4,
-        movementExpenditureRequested: 8,
-        totalExpenditureRequested: 8,
+        actualPhysicalGait: "walking",
+        physicalGaitSource: "medicalApproach",
+        movementExpenditureRequested: 1,
+        totalExpenditureRequested: 1,
       });
+  });
+
+  it.each([
+    "ordinaryMovement",
+    "routingMovement",
+    "casualtyGathering",
+    "activeDragHelper",
+    "medicalApproach",
+    "traumaWithdrawal",
+    "respawnEgress",
+  ] as const)("retains explicit %s gait evidence", (source) => {
+    const harness = createEnergyHarness({ startingEnergy: 100 });
+    beginIndividualEnergyActivityObservation(
+      harness.fixture.activity, harness.fixture.world, 0,
+    );
+    harness.fixture.world.positionsX[0] = 1;
+    observeIndividualEnergyMovementAuthority(
+      harness.fixture.activity,
+      harness.fixture.world,
+      source,
+      source === "routingMovement" ? "sprinting" : "jogging",
+    );
+    classifyIndividualEnergyActivityOneTick(
+      harness.fixture.activity, dependencies(harness.fixture, 0),
+    );
+    expect(getIndividualEnergyActivityInspection(harness.fixture.activity, 0))
+      .toMatchObject({
+        requestedPhysicalGait:
+          source === "routingMovement" ? "sprinting" : "jogging",
+        actualPhysicalGait:
+          source === "routingMovement" ? "sprinting" : "jogging",
+        physicalGaitSource: source,
+        gaitProducedDisplacement: true,
+      });
+  });
+
+  it("keeps no-movement, dragged and externally relocated gait stationary", () => {
+    for (const source of [
+      "ordinaryMovement", "draggedPatient", "externalDisplacement",
+    ] as const) {
+      const harness = createEnergyHarness({ startingEnergy: 100 });
+      beginIndividualEnergyActivityObservation(
+        harness.fixture.activity, harness.fixture.world, 0,
+      );
+      if (source !== "ordinaryMovement") {
+        harness.fixture.world.positionsX[0] = 9;
+      }
+      observeIndividualEnergyMovementAuthority(
+        harness.fixture.activity,
+        harness.fixture.world,
+        () => ({ source, requestedGait: "stationary" }),
+      );
+      classifyIndividualEnergyActivityOneTick(
+        harness.fixture.activity, dependencies(harness.fixture, 0),
+      );
+      expect(getIndividualEnergyActivityInspection(harness.fixture.activity, 0))
+        .toMatchObject({
+          actualPhysicalGait: "stationary",
+          gaitProducedDisplacement: false,
+        });
+    }
+  });
+
+  it("charges equal displacement using distinct explicit gait semantics", () => {
+    for (const [gait, expected] of [
+      ["walking", 1], ["jogging", 8], ["sprinting", 40],
+    ] as const) {
+      const harness = createEnergyHarness({ startingEnergy: 100 });
+      beginIndividualEnergyActivityObservation(
+        harness.fixture.activity, harness.fixture.world, 0,
+      );
+      harness.fixture.world.positionsX[0] = 1;
+      observeIndividualEnergyMovementAuthority(
+        harness.fixture.activity, harness.fixture.world, "ordinaryMovement", gait,
+      );
+      classifyIndividualEnergyActivityOneTick(
+        harness.fixture.activity, dependencies(harness.fixture, 0),
+      );
+      applyIndividualEnergyActivityOneTick(
+        harness.fixture.activity, harness.profiles, harness.energy, 0,
+      );
+      expect(getIndividualEnergyActivityInspection(harness.fixture.activity, 0))
+        .toMatchObject({
+          actualMovementDistanceSquared: 1,
+          movementIntensity: "walking",
+          actualPhysicalGait: gait,
+          movementExpenditureRequested: expected,
+        });
+    }
   });
 
   it("uses trusted safe recovery and reports maximum clamping", () => {
@@ -821,6 +915,10 @@ describe("individual energy activity tick lifecycle", () => {
         totalExpenditureRequested: 0,
         expenditureApplied: 0,
         recoveryApplied: 0,
+        requestedPhysicalGait: "stationary",
+        actualPhysicalGait: "stationary",
+        physicalGaitSource: null,
+        gaitProducedDisplacement: false,
         energyBefore: 420,
         energyAfter: 420,
       });

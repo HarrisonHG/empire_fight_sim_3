@@ -33,6 +33,10 @@ import {
   type TrustedIndividualEnergyProfileStore,
 } from "./individualEnergy";
 import type { WorldState } from "./types";
+import {
+  getIndividualConfiguredMaxStep,
+  type FormationBehaviourStore,
+} from "./formationBehaviour";
 
 export const INDIVIDUAL_ENERGY_WALKING_COST_PER_TICK = 1;
 export const INDIVIDUAL_ENERGY_JOGGING_COST_PER_TICK = 8;
@@ -59,14 +63,18 @@ export type IndividualEnergyActivityContext =
   | "waitingAtRespawn"
   | "inactiveTerminal";
 
-export type IndividualEnergyMovementIntensity =
+export type IndividualPhysicalGait =
   | "stationary"
   | "walking"
   | "jogging"
   | "sprinting";
 
+/** Retained diagnostic name; physical gait is now the expenditure authority. */
+export type IndividualEnergyMovementIntensity = IndividualPhysicalGait;
+
 export type IndividualEnergyMovementAuthority =
   | "ordinaryMovement"
+  | "routingMovement"
   | "casualtyGathering"
   | "activeDragHelper"
   | "draggedPatient"
@@ -88,16 +96,21 @@ const INTENSITIES: readonly IndividualEnergyMovementIntensity[] = Object.freeze(
 const AUTHORITY_BITS: Readonly<Record<IndividualEnergyMovementAuthority, number>> =
   Object.freeze({
     ordinaryMovement: 1 << 0,
-    casualtyGathering: 1 << 1,
-    activeDragHelper: 1 << 2,
-    draggedPatient: 1 << 3,
-    medicalApproach: 1 << 4,
-    traumaWithdrawal: 1 << 5,
-    respawnEgress: 1 << 6,
-    externalDisplacement: 1 << 7,
+    routingMovement: 1 << 1,
+    casualtyGathering: 1 << 2,
+    activeDragHelper: 1 << 3,
+    draggedPatient: 1 << 4,
+    medicalApproach: 1 << 5,
+    traumaWithdrawal: 1 << 6,
+    respawnEgress: 1 << 7,
+    externalDisplacement: 1 << 8,
   });
+const MOVEMENT_AUTHORITIES = Object.freeze(
+  Object.keys(AUTHORITY_BITS) as IndividualEnergyMovementAuthority[],
+);
 const PERSONAL_MOVEMENT_AUTHORITY_MASK =
   AUTHORITY_BITS.ordinaryMovement |
+  AUTHORITY_BITS.routingMovement |
   AUTHORITY_BITS.casualtyGathering |
   AUTHORITY_BITS.activeDragHelper |
   AUTHORITY_BITS.medicalApproach |
@@ -120,6 +133,10 @@ interface InternalIndividualEnergyActivityStore
   readonly checkpointYByEntity: Int32Array;
   readonly contextByEntity: Uint8Array;
   readonly intensityByEntity: Uint8Array;
+  readonly requestedGaitByEntity: Uint8Array;
+  readonly actualGaitByEntity: Uint8Array;
+  readonly gaitSourceByEntity: Int8Array;
+  readonly gaitProducedDisplacementByEntity: Uint8Array;
   readonly displacementXByEntity: Float64Array;
   readonly displacementYByEntity: Float64Array;
   readonly distanceSquaredByEntity: Float64Array;
@@ -158,6 +175,10 @@ export interface IndividualEnergyActivityInspection {
   /** Exact squared integer displacement; no floating-point square root is charged. */
   readonly actualMovementDistanceSquared: number;
   readonly movementIntensity: IndividualEnergyMovementIntensity;
+  readonly requestedPhysicalGait: IndividualPhysicalGait;
+  readonly actualPhysicalGait: IndividualPhysicalGait;
+  readonly physicalGaitSource: IndividualEnergyMovementAuthority | null;
+  readonly gaitProducedDisplacement: boolean;
   readonly validAttackAttemptCount: number;
   readonly validDefenceAttemptCount: number;
   readonly movementOccurred: boolean;
@@ -192,6 +213,7 @@ export interface IndividualEnergyApplicationRequestEvidence {
   readonly dominantContext: IndividualEnergyActivityContext;
   readonly movementOccurred: boolean;
   readonly movementIntensity: IndividualEnergyMovementIntensity;
+  readonly actualPhysicalGait?: IndividualPhysicalGait;
   readonly personalMovementObserved: boolean;
   readonly beingDragged: boolean;
   readonly validAttackAttemptCount: number;
@@ -235,6 +257,15 @@ export interface IndividualEnergyActivityContextEvidence {
   readonly alert: boolean;
 }
 
+export interface IndividualPhysicalGaitAuthorityEvidence {
+  readonly source: IndividualEnergyMovementAuthority;
+  readonly requestedGait: IndividualPhysicalGait;
+}
+
+export type IndividualPhysicalGaitEvidenceResolver = (
+  entityId: number,
+) => IndividualPhysicalGaitAuthorityEvidence | undefined;
+
 export function createIndividualEnergyActivityStore(
   entityCount: number,
 ): IndividualEnergyActivityStore {
@@ -250,6 +281,10 @@ export function createIndividualEnergyActivityStore(
     checkpointYByEntity: new Int32Array(entityCount),
     contextByEntity: new Uint8Array(entityCount),
     intensityByEntity: new Uint8Array(entityCount),
+    requestedGaitByEntity: new Uint8Array(entityCount),
+    actualGaitByEntity: new Uint8Array(entityCount),
+    gaitSourceByEntity: new Int8Array(entityCount),
+    gaitProducedDisplacementByEntity: new Uint8Array(entityCount),
     displacementXByEntity: new Float64Array(entityCount),
     displacementYByEntity: new Float64Array(entityCount),
     distanceSquaredByEntity: new Float64Array(entityCount),
@@ -281,6 +316,8 @@ export function createIndividualEnergyActivityStore(
     classificationCompletedTick: -1,
     applicationCompletedTick: -1,
   } as InternalIndividualEnergyActivityStore);
+  const internal = activityStoreInternals.get(publicStore)!;
+  internal.gaitSourceByEntity.fill(-1);
   return publicStore;
 }
 
@@ -311,6 +348,10 @@ export function beginIndividualEnergyActivityObservation(
   internal.actionEvidenceByEntity.fill(0);
   internal.contextByEntity.fill(0);
   internal.intensityByEntity.fill(0);
+  internal.requestedGaitByEntity.fill(0);
+  internal.actualGaitByEntity.fill(0);
+  internal.gaitSourceByEntity.fill(-1);
+  internal.gaitProducedDisplacementByEntity.fill(0);
   resetApplicationOutputs(internal);
   internal.observationStartedTick = tick;
   internal.classificationCompletedTick = -1;
@@ -324,21 +365,46 @@ export function beginIndividualEnergyActivityObservation(
 export function observeIndividualEnergyMovementAuthority(
   store: IndividualEnergyActivityStore,
   world: WorldState,
-  authority: IndividualEnergyMovementAuthority,
+  authority: IndividualEnergyMovementAuthority | IndividualPhysicalGaitEvidenceResolver,
+  requestedGait?: IndividualPhysicalGait,
 ): void {
   const internal = requireStore(store, world.entityCount);
   assertObservationOpen(internal);
-  const bit = AUTHORITY_BITS[authority];
   for (let entityId = 0; entityId < internal.entityCount; entityId += 1) {
     const x = world.positionsX[entityId]!;
     const y = world.positionsY[entityId]!;
-    if (x === internal.checkpointXByEntity[entityId] &&
-        y === internal.checkpointYByEntity[entityId]) continue;
+    const moved = x !== internal.checkpointXByEntity[entityId] ||
+      y !== internal.checkpointYByEntity[entityId];
+    const evidence = typeof authority === "function"
+      ? authority(entityId)
+      : moved
+        ? {
+            source: authority,
+            requestedGait: requestedGait ?? deriveIndividualEnergyMovementIntensity(
+              x - internal.checkpointXByEntity[entityId]!,
+              y - internal.checkpointYByEntity[entityId]!,
+            ),
+          }
+        : undefined;
+    if (evidence === undefined) continue;
+    const bit = AUTHORITY_BITS[evidence.source];
     internal.movementAuthorityMaskByEntity[entityId] =
       internal.movementAuthorityMaskByEntity[entityId]! | bit;
-    if (authority === "externalDisplacement" || authority === "draggedPatient") {
+    if (evidence.source === "externalDisplacement" ||
+        evidence.source === "draggedPatient") {
       internal.externallyMovedByEntity[entityId] = 1;
     }
+    recordPhysicalGaitEvidence(
+      internal,
+      entityId,
+      evidence.source,
+      evidence.requestedGait,
+      moved,
+    );
+  }
+  for (let entityId = 0; entityId < internal.entityCount; entityId += 1) {
+    const x = world.positionsX[entityId]!;
+    const y = world.positionsY[entityId]!;
     internal.checkpointXByEntity[entityId] = x;
     internal.checkpointYByEntity[entityId] = y;
   }
@@ -348,11 +414,15 @@ export function observeIndividualEnergyCasualtyMovement(
   store: IndividualEnergyActivityStore,
   world: WorldState,
   groups: CasualtyDragGroupStore,
+  formation: FormationBehaviourStore,
 ): void {
   const internal = requireStore(store, world.entityCount);
   assertObservationOpen(internal);
   if (groups.entityCount !== internal.entityCount) {
     throw new RangeError("Energy activity drag store must match entityCount.");
+  }
+  if (formation.entityCount !== internal.entityCount) {
+    throw new RangeError("Energy activity formation store must match entityCount.");
   }
   for (const group of getActiveCasualtyDragGroups(groups)) {
     const helperAuthority = group.phase === "gathering"
@@ -369,6 +439,17 @@ export function observeIndividualEnergyCasualtyMovement(
             AUTHORITY_BITS[helperAuthority];
         }
         markChangedEntity(internal, world, helperEntityId, helperAuthority, false);
+        recordPhysicalGaitEvidence(
+          internal,
+          helperEntityId,
+          helperAuthority,
+          helperAuthority === "activeDragHelper"
+            ? "walking"
+            : requestedGaitForMaximumStep(
+                getIndividualConfiguredMaxStep(formation, helperEntityId),
+              ),
+          entityChangedSinceCheckpoint(internal, world, helperEntityId),
+        );
       }
     }
     if (group.phase === "dragging" ||
@@ -378,6 +459,13 @@ export function observeIndividualEnergyCasualtyMovement(
           internal.movementAuthorityMaskByEntity[group.patientEntityId]! |
           AUTHORITY_BITS.draggedPatient;
       markChangedEntity(internal, world, group.patientEntityId, "draggedPatient", true);
+      recordPhysicalGaitEvidence(
+        internal,
+        group.patientEntityId,
+        "draggedPatient",
+        "stationary",
+        entityChangedSinceCheckpoint(internal, world, group.patientEntityId),
+      );
     }
   }
   // A cancelled group may have moved before combat. Preserve its already-marked
@@ -425,8 +513,16 @@ export function classifyIndividualEnergyActivityOneTick(
     internal.distanceSquaredByEntity[entityId] = distanceSquared;
     const intensity = deriveIndividualEnergyMovementIntensity(dx, dy);
     internal.intensityByEntity[entityId] = INTENSITIES.indexOf(intensity);
+    if (distanceSquared === 0) {
+      internal.actualGaitByEntity[entityId] = 0;
+      internal.gaitProducedDisplacementByEntity[entityId] = 0;
+    }
     internal.contextByEntity[entityId] = CONTEXTS.indexOf(classifyContext(
-      internal, dependencies, entityId, distanceSquared, intensity,
+      internal,
+      dependencies,
+      entityId,
+      distanceSquared,
+      INTENSITIES[internal.actualGaitByEntity[entityId]!]!,
     ));
   }
   internal.classificationCompletedTick = dependencies.tick;
@@ -476,7 +572,7 @@ export function applyIndividualEnergyActivityOneTick(
     deriveIndividualEnergyApplicationRequestInto(
       CONTEXTS[internal.contextByEntity[entityId]!]!,
       internal.distanceSquaredByEntity[entityId] !== 0,
-      INTENSITIES[internal.intensityByEntity[entityId]!]!,
+      INTENSITIES[internal.actualGaitByEntity[entityId]!]!,
       (internal.movementAuthorityMaskByEntity[entityId]! &
         PERSONAL_MOVEMENT_AUTHORITY_MASK) !== 0,
       (internal.movementAuthorityMaskByEntity[entityId]! &
@@ -549,7 +645,7 @@ export function deriveIndividualEnergyApplicationRequest(
   deriveIndividualEnergyApplicationRequestInto(
     evidence.dominantContext,
     evidence.movementOccurred,
-    evidence.movementIntensity,
+    evidence.actualPhysicalGait ?? evidence.movementIntensity,
     evidence.personalMovementObserved,
     evidence.beingDragged,
     evidence.validAttackAttemptCount,
@@ -563,7 +659,7 @@ export function deriveIndividualEnergyApplicationRequest(
 function deriveIndividualEnergyApplicationRequestInto(
   dominantContext: IndividualEnergyActivityContext,
   movementOccurred: boolean,
-  movementIntensity: IndividualEnergyMovementIntensity,
+  actualPhysicalGait: IndividualPhysicalGait,
   personalMovementObserved: boolean,
   beingDragged: boolean,
   validAttackAttemptCount: number,
@@ -585,7 +681,7 @@ function deriveIndividualEnergyApplicationRequestInto(
   );
   const movementExpenditureRequested =
     movementOccurred && personalMovementObserved && !beingDragged
-      ? movementCostForIntensity(movementIntensity)
+      ? movementCostForIntensity(actualPhysicalGait)
       : 0;
   const attackExpenditureRequested = checkedMultiplication(
     validAttackAttemptCount,
@@ -646,6 +742,15 @@ export function getIndividualEnergyActivityInspection(
     displacementY: internal.displacementYByEntity[entityId]!,
     actualMovementDistanceSquared: internal.distanceSquaredByEntity[entityId]!,
     movementIntensity: INTENSITIES[internal.intensityByEntity[entityId]!]!,
+    requestedPhysicalGait:
+      INTENSITIES[internal.requestedGaitByEntity[entityId]!]!,
+    actualPhysicalGait:
+      INTENSITIES[internal.actualGaitByEntity[entityId]!]!,
+    physicalGaitSource: nullableMovementAuthority(
+      internal.gaitSourceByEntity[entityId]!,
+    ),
+    gaitProducedDisplacement:
+      internal.gaitProducedDisplacementByEntity[entityId] !== 0,
     validAttackAttemptCount: internal.attackAttemptCountByEntity[entityId]!,
     validDefenceAttemptCount: internal.defenceAttemptCountByEntity[entityId]!,
     movementOccurred: internal.distanceSquaredByEntity[entityId] !== 0,
@@ -869,10 +974,71 @@ function orActionEvidence(
 
 function movementAuthorities(mask: number): readonly IndividualEnergyMovementAuthority[] {
   const out: IndividualEnergyMovementAuthority[] = [];
-  for (const authority of Object.keys(AUTHORITY_BITS) as IndividualEnergyMovementAuthority[]) {
+  for (const authority of MOVEMENT_AUTHORITIES) {
     if ((mask & AUTHORITY_BITS[authority]) !== 0) out.push(authority);
   }
   return out;
+}
+
+export function requestedGaitForMaximumStep(
+  maximumStep: number,
+): IndividualPhysicalGait {
+  if (!Number.isSafeInteger(maximumStep) || maximumStep < 0) {
+    throw new RangeError("Physical gait maximum step must be non-negative.");
+  }
+  if (maximumStep === 0) return "stationary";
+  if (maximumStep === 1) return "walking";
+  if (maximumStep === 2) return "jogging";
+  return "sprinting";
+}
+
+function recordPhysicalGaitEvidence(
+  store: InternalIndividualEnergyActivityStore,
+  entityId: number,
+  source: IndividualEnergyMovementAuthority,
+  requestedGait: IndividualPhysicalGait,
+  producedDisplacement: boolean,
+): void {
+  const sourceIndex = MOVEMENT_AUTHORITIES.indexOf(source);
+  const currentSource = nullableMovementAuthority(
+    store.gaitSourceByEntity[entityId]!,
+  );
+  if (currentSource !== null &&
+      gaitSourcePrecedence(source) < gaitSourcePrecedence(currentSource)) {
+    return;
+  }
+  const externallyImposed = source === "externalDisplacement" ||
+    source === "draggedPatient";
+  store.gaitSourceByEntity[entityId] = sourceIndex;
+  store.requestedGaitByEntity[entityId] = INTENSITIES.indexOf(requestedGait);
+  store.actualGaitByEntity[entityId] =
+    producedDisplacement && !externallyImposed
+      ? INTENSITIES.indexOf(requestedGait)
+      : 0;
+  store.gaitProducedDisplacementByEntity[entityId] =
+    producedDisplacement && !externallyImposed ? 1 : 0;
+}
+
+function gaitSourcePrecedence(
+  source: IndividualEnergyMovementAuthority,
+): number {
+  switch (source) {
+    case "externalDisplacement": return 0;
+    case "ordinaryMovement": return 1;
+    case "routingMovement": return 2;
+    case "traumaWithdrawal": return 3;
+    case "medicalApproach": return 4;
+    case "casualtyGathering": return 5;
+    case "respawnEgress": return 6;
+    case "activeDragHelper": return 7;
+    case "draggedPatient": return 8;
+  }
+}
+
+function nullableMovementAuthority(
+  sourceIndex: number,
+): IndividualEnergyMovementAuthority | null {
+  return sourceIndex < 0 ? null : MOVEMENT_AUTHORITIES[sourceIndex] ?? null;
 }
 
 function movementCostForIntensity(

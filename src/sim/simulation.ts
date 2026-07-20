@@ -12,6 +12,8 @@ import {
   advanceFormationOneTick,
   applyIndividualExternalMovementIntentWithAnchor,
   createFormationBehaviourStore,
+  getIndividualConfiguredMaxStep,
+  getIndividualMovementMode,
   getIndividualRole,
   type FormationTickDiagnostics,
   getUnitCohesion,
@@ -223,7 +225,14 @@ import {
   initializeIndividualEnergyActivityApplicationState,
   observeIndividualEnergyCasualtyMovement,
   observeIndividualEnergyMovementAuthority,
+  requestedGaitForMaximumStep,
 } from "./individualEnergyActivity";
+import {
+  assertIndividualEnergyCapabilityProjectionTick,
+  createIndividualEnergyCapabilityStore,
+  getIndividualEnergyCapabilityInspection,
+  projectIndividualEnergyCapabilitiesOneTick,
+} from "./individualEnergyCapability";
 import { SeededRng } from "./rng";
 import {
   createUnitIdentityStore,
@@ -812,6 +821,8 @@ function createCombatSandbox(
     createIndividualExecutionActionStore(world.entityCount);
   const individualEnergyActivityStore =
     createIndividualEnergyActivityStore(world.entityCount);
+  const individualEnergyCapabilityStore =
+    createIndividualEnergyCapabilityStore(world.entityCount);
   const individualDefenceHandAvailabilitySource =
     createPrioritizedIndividualDefenceHandAvailabilitySource(
       individualDragHandCommitmentStore,
@@ -854,6 +865,7 @@ function createCombatSandbox(
     trustedIndividualEnergyProfileStore,
     individualEnergyStore,
     individualEnergyActivityStore,
+    individualEnergyCapabilityStore,
     individualCasualtyProcedureProfileStore,
     individualCasualtyLifecycleStore,
     individualPlayerPresenceStore,
@@ -1819,6 +1831,17 @@ export function advanceCombatSandboxOneTick(
     world,
     tick,
   );
+  projectIndividualEnergyCapabilitiesOneTick(
+    combatSandbox.individualEnergyCapabilityStore,
+    combatSandbox.individualEnergyStore,
+    combatSandbox.individualCasualtyLifecycleStore,
+    combatSandbox.individualPlayerPresenceStore,
+    tick,
+  );
+  assertIndividualEnergyCapabilityProjectionTick(
+    combatSandbox.individualEnergyCapabilityStore,
+    tick,
+  );
 
   applyRetainedCasualtyVisualFixturePreCombatInputs(
     world,
@@ -1829,6 +1852,7 @@ export function advanceCombatSandboxOneTick(
     combatSandbox.individualEnergyActivityStore,
     world,
     "externalDisplacement",
+    "stationary",
   );
 
   const formationResult = runStage("formation", () => {
@@ -1930,7 +1954,29 @@ export function advanceCombatSandboxOneTick(
     observeIndividualEnergyMovementAuthority(
       combatSandbox.individualEnergyActivityStore,
       world,
-      "ordinaryMovement",
+      (entityId) => {
+        if (!isIndividualOrdinaryParticipationEligible(
+          combatSandbox.individualOrdinaryParticipationSnapshot,
+          entityId,
+        )) return undefined;
+        const unitId = getUnitIdForEntity(combatSandbox.identityStore, entityId);
+        if (combatSandbox.moraleMovementStates.get(unitId) === "routing") {
+          return { source: "routingMovement", requestedGait: "sprinting" };
+        }
+        const mode = getIndividualMovementMode(
+          combatSandbox.formationStore,
+          entityId,
+        );
+        return {
+          source: "ordinaryMovement",
+          requestedGait: mode === "holdPosition"
+            ? "stationary"
+            : requestedGaitForMaximumStep(getIndividualConfiguredMaxStep(
+                combatSandbox.formationStore,
+                entityId,
+              )),
+        };
+      },
     );
     combatSandbox.casualtyDragMovementResult = runCasualtyStage(
       "dragMovement",
@@ -1953,6 +1999,7 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.individualEnergyActivityStore,
       world,
       combatSandbox.casualtyDragGroupStore,
+      combatSandbox.formationStore,
     );
     advanceIndividualMedicalClaimApproachMovementOneTick(
       world,
@@ -1985,7 +2032,20 @@ export function advanceCombatSandboxOneTick(
     observeIndividualEnergyMovementAuthority(
       combatSandbox.individualEnergyActivityStore,
       world,
-      "medicalApproach",
+      (entityId) => getIndividualMovementMode(
+        combatSandbox.formationStore,
+        entityId,
+      ) === "approachClaimedPatient"
+        ? {
+            source: "medicalApproach",
+            requestedGait: requestedGaitForMaximumStep(
+              getIndividualConfiguredMaxStep(
+                combatSandbox.formationStore,
+                entityId,
+              ),
+            ),
+          }
+        : undefined,
     );
     advanceIndividualTraumaWithdrawalMovementOneTick(
       world,
@@ -2138,7 +2198,20 @@ export function advanceCombatSandboxOneTick(
     observeIndividualEnergyMovementAuthority(
       combatSandbox.individualEnergyActivityStore,
       world,
-      "traumaWithdrawal",
+      (entityId) => getIndividualMovementMode(
+        combatSandbox.formationStore,
+        entityId,
+      ) === "withdrawForTreatment"
+        ? {
+            source: "traumaWithdrawal",
+            requestedGait: requestedGaitForMaximumStep(
+              getIndividualConfiguredMaxStep(
+                combatSandbox.formationStore,
+                entityId,
+              ),
+            ),
+          }
+        : undefined,
     );
     combatSandbox.individualTreatmentActionResult = runCasualtyStage(
       "treatmentAndComfort",
@@ -2267,6 +2340,7 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.individualEnergyActivityStore,
       world,
       "externalDisplacement",
+      "stationary",
     );
     combatSandbox.individualTreatmentActionResult = {
       ...combatSandbox.individualTreatmentActionResult,
@@ -2359,6 +2433,7 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.individualEnergyActivityStore,
       world,
       "respawnEgress",
+      "walking",
     );
     for (const arrival of combatSandbox.individualRespawnEgressResult.arrivalRecords) {
       clearIncompatibleIndividualCasualtyAssistance(
@@ -3022,6 +3097,10 @@ function collectInspectedIndividualSnapshots(
       combatSandbox.individualEnergyActivityStore,
       entityId,
     );
+    const energyCapability = getIndividualEnergyCapabilityInspection(
+      combatSandbox.individualEnergyCapabilityStore,
+      entityId,
+    );
     const traumaticWound = getIndividualTraumaticWoundInspection(
       combatSandbox.individualTraumaticWoundStore,
       entityId,
@@ -3170,6 +3249,20 @@ function collectInspectedIndividualSnapshots(
       energyMovementDistanceSquared:
         energyActivity.actualMovementDistanceSquared,
       energyMovementIntensity: energyActivity.movementIntensity,
+      energyRequestedPhysicalGait: energyActivity.requestedPhysicalGait,
+      energyActualPhysicalGait: energyActivity.actualPhysicalGait,
+      energyPhysicalGaitSource: energyActivity.physicalGaitSource,
+      energyGaitProducedDisplacement:
+        energyActivity.gaitProducedDisplacement,
+      energyCapabilityProjectionTick: energyCapability.projectionTick,
+      energyCapabilitySourceEnergy: energyCapability.sourceEnergy,
+      energyCapabilitySourceBand: energyCapability.sourceEnergyBand,
+      energyMaximumOrdinaryGait: energyCapability.maximumOrdinaryGait,
+      energyMaximumRoutingGait: energyCapability.maximumRoutingGait,
+      energyCanInitiateOrdinarySprintOrCharge:
+        energyCapability.canInitiateOrdinarySprintOrCharge,
+      energyMinimumSafeWalkAvailable:
+        energyCapability.minimumSafeWalkAvailable,
       energyAttackImpulsesThisTick:
         energyActivity.validAttackAttemptCount,
       energyDefenceImpulsesThisTick:

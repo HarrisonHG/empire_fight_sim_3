@@ -15,6 +15,11 @@ import {
   getIndividualEnergyActivityInspection,
   observeIndividualEnergyMovementAuthority,
 } from "../../src/sim/individualEnergyActivity";
+import {
+  createIndividualEnergyCapabilityStore,
+  getIndividualEnergyCapabilityInspection,
+  projectIndividualEnergyCapabilitiesOneTick,
+} from "../../src/sim/individualEnergyCapability";
 import type { IndividualMeleeAttackAttemptRecord } from "../../src/sim/individualCombatAction";
 import type { IndividualMeleeDefenceRecord } from "../../src/sim/individualMeleeDefence";
 import {
@@ -93,12 +98,36 @@ describe("individual energy structural performance", () => {
       }
       const inspectionMilliseconds = performance.now() - inspectionStart;
 
+      const capabilityStore = createIndividualEnergyCapabilityStore(entityCount);
+      const lifecycle = createIndividualCasualtyLifecycleStore(entityCount);
+      const presence = createIndividualPlayerPresenceStore(entityCount);
+      const capabilityStart = performance.now();
+      projectIndividualEnergyCapabilitiesOneTick(
+        capabilityStore,
+        energy,
+        lifecycle,
+        presence,
+        2,
+      );
+      let capabilityChecksum = 0;
+      for (let entityId = 0; entityId < entityCount; entityId += 1) {
+        const capability = getIndividualEnergyCapabilityInspection(
+          capabilityStore,
+          entityId,
+        );
+        capabilityChecksum += capability.sourceEnergy +
+          (capability.canInitiateOrdinarySprintOrCharge ? 1 : 0);
+      }
+      const capabilityMilliseconds = performance.now() - capabilityStart;
+
       expect(profiles.entityCount).toBe(entityCount);
       expect(energy.entityCount).toBe(entityCount);
       expect(Object.values(bandCounts).reduce((sum, count) => sum + count, 0))
         .toBe(entityCount);
       expect(inspectionFieldCount).toBeLessThanOrEqual(16);
       expect(Number.isSafeInteger(inspectionChecksum)).toBe(true);
+      expect(Number.isSafeInteger(capabilityChecksum)).toBe(true);
+      expect(Object.keys(capabilityStore)).toEqual(["entityCount"]);
       expect(Object.keys(profiles)).toEqual(["entityCount"]);
       expect(Object.keys(energy)).toEqual(["entityCount"]);
 
@@ -108,6 +137,7 @@ describe("individual energy structural performance", () => {
         storeCreationMilliseconds,
         bandDerivationMilliseconds,
         inspectionMilliseconds,
+        capabilityMilliseconds,
         bandCounts,
         inspectionFieldCount,
         storageShape: "entity-indexed typed arrays behind opaque stores",
@@ -209,7 +239,12 @@ describe("individual energy activity structural performance", () => {
       for (let entityId = 0; entityId < entityCount; entityId += 1) {
         world.positionsX[entityId] = entityId % 4;
       }
-      observeIndividualEnergyMovementAuthority(activity, world, "ordinaryMovement");
+      observeIndividualEnergyMovementAuthority(activity, world, (entityId) => ({
+        source: "ordinaryMovement",
+        requestedGait: (["stationary", "walking", "jogging", "sprinting"] as const)[
+          entityId % 4
+        ]!,
+      }));
       classifyIndividualEnergyActivityOneTick(activity, {
         ...baseDependencies,
         attackAttempts: [],
@@ -250,7 +285,7 @@ describe("individual energy activity structural performance", () => {
       expect(idleRecoveryApplied).toBe(entityCount * 5);
       expect(mixedMovementRequested).toBeGreaterThan(0);
       expect(denseImpulseRequested).toBe(entityCount * 180);
-      expect(fieldCount).toBeLessThanOrEqual(28);
+      expect(fieldCount).toBeLessThanOrEqual(32);
       expect(Object.keys(activity)).toEqual(["entityCount"]);
 
       console.info("Individual energy activity structural report", JSON.stringify({

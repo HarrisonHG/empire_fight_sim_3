@@ -11,11 +11,13 @@ import {
   getTrustedIndividualEnergyProfile,
 } from "../../src/sim/individualEnergy";
 import { getIndividualEnergyActivityInspection } from "../../src/sim/individualEnergyActivity";
+import { getIndividualEnergyCapabilityInspection } from "../../src/sim/individualEnergyCapability";
 import {
   getIndividualCharacterLifecycleState,
   getIndividualPlayerPresenceState,
 } from "../../src/sim/individualCasualtyLifecycle";
 import { getIndividualCurrentGlobalHits } from "../../src/sim/individualGlobalHits";
+import { getIndividualCombatPressureInspection } from "../../src/sim/combatPressure";
 import {
   advanceSimulationOneTick,
   createInitialSnapshot,
@@ -193,13 +195,22 @@ describe("Milestone 7B-1 production activity observation", () => {
   it("applies final current-tick activity without feeding energy back into behaviour", () => {
     const simulation = createSimulation(CASUALTY_LIFECYCLE_VISUAL_SCENARIO);
     const observed = new Set<string>();
+    let sawWalkingRespawnEgress = false;
     for (let tick = 0; tick < 130; tick += 1) {
       advanceSimulationOneTick(simulation);
       for (let entityId = 0; entityId < simulation.world.entityCount; entityId += 1) {
-        observed.add(getIndividualEnergyActivityInspection(
+        const activity = getIndividualEnergyActivityInspection(
           simulation.combatSandbox!.individualEnergyActivityStore,
           entityId,
-        ).dominantContext);
+        );
+        observed.add(activity.dominantContext);
+        if (entityId === 19 &&
+            activity.physicalGaitSource === "respawnEgress" &&
+            activity.gaitProducedDisplacement) {
+          expect(activity.actualPhysicalGait).toBe("walking");
+          expect(activity.movementExpenditureRequested).toBe(1);
+          sawWalkingRespawnEgress = true;
+        }
       }
     }
     for (const context of [
@@ -214,6 +225,7 @@ describe("Milestone 7B-1 production activity observation", () => {
       "waitingAtRespawn",
       "inactiveTerminal",
     ]) expect(observed.has(context)).toBe(true);
+    expect(sawWalkingRespawnEgress).toBe(true);
     let totalSpent = 0;
     for (let entityId = 0; entityId < simulation.world.entityCount; entityId += 1) {
       const energy = getIndividualEnergyInspection(
@@ -245,6 +257,14 @@ describe("Milestone 7B-1 production activity observation", () => {
         classified: expectedTick,
         applied: expectedTick,
       });
+      const capability = simulation.combatSandbox!
+        .individualEnergyCapabilityStore;
+      const capabilityInspection = getIndividualEnergyCapabilityInspection(
+        capability,
+        0,
+      );
+      expect(capabilityInspection.projectionTick).toBe(expectedTick);
+      expect(capabilityInspection.sourceEnergy).toBe(phase.energyBefore);
     }
   });
 
@@ -259,6 +279,15 @@ describe("Milestone 7B-1 production activity observation", () => {
       energyDisplacementY: expect.any(Number),
       energyMovementDistanceSquared: expect.any(Number),
       energyMovementIntensity: expect.any(String),
+      energyRequestedPhysicalGait: expect.any(String),
+      energyActualPhysicalGait: expect.any(String),
+      energyCapabilityProjectionTick: expect.any(Number),
+      energyCapabilitySourceEnergy: expect.any(Number),
+      energyCapabilitySourceBand: expect.any(String),
+      energyMaximumOrdinaryGait: expect.any(String),
+      energyMaximumRoutingGait: expect.any(String),
+      energyCanInitiateOrdinarySprintOrCharge: expect.any(Boolean),
+      energyMinimumSafeWalkAvailable: expect.any(Boolean),
       energyAttackImpulsesThisTick: expect.any(Number),
       energyDefenceImpulsesThisTick: expect.any(Number),
       energyMovementOccurredThisTick: expect.any(Boolean),
@@ -322,6 +351,14 @@ function gameplayDigest(simulation: ReturnType<typeof createSimulation>) {
       )),
     moraleMovementStates: [...combat.moraleMovementStates.entries()]
       .sort((left, right) => left[0] - right[0]),
+    pressure: Array.from(
+      { length: simulation.world.entityCount },
+      (_, entityId) => getIndividualCombatPressureInspection(
+        combat.formationStore,
+        combat.pressureStore,
+        entityId,
+      ),
+    ),
     combatTotals: {
       attacks: combat.totalIndividualAttackAttemptCount,
       hitLoss: combat.totalIndividualAppliedHitLoss,

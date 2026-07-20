@@ -39,7 +39,10 @@ import type {
   IndividualEnergyActivityContext,
   IndividualEnergyActivityStore,
   IndividualEnergyMovementIntensity,
+  IndividualEnergyMovementAuthority,
+  IndividualPhysicalGait,
 } from "./individualEnergyActivity";
+import type { IndividualEnergyCapabilityStore } from "./individualEnergyCapability";
 import type {
   CasualtyProcedureKind,
   DeathCountPolicy,
@@ -519,6 +522,17 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly energyDisplacementY?: number;
   readonly energyMovementDistanceSquared?: number;
   readonly energyMovementIntensity?: IndividualEnergyMovementIntensity;
+  readonly energyRequestedPhysicalGait?: IndividualPhysicalGait;
+  readonly energyActualPhysicalGait?: IndividualPhysicalGait;
+  readonly energyPhysicalGaitSource?: IndividualEnergyMovementAuthority | null;
+  readonly energyGaitProducedDisplacement?: boolean;
+  readonly energyCapabilityProjectionTick?: number;
+  readonly energyCapabilitySourceEnergy?: number;
+  readonly energyCapabilitySourceBand?: IndividualEnergyBand;
+  readonly energyMaximumOrdinaryGait?: IndividualPhysicalGait;
+  readonly energyMaximumRoutingGait?: IndividualPhysicalGait;
+  readonly energyCanInitiateOrdinarySprintOrCharge?: boolean;
+  readonly energyMinimumSafeWalkAvailable?: boolean;
   readonly energyAttackImpulsesThisTick?: number;
   readonly energyDefenceImpulsesThisTick?: number;
   readonly energyMovementOccurredThisTick?: boolean;
@@ -733,6 +747,7 @@ export interface CombatSandboxSimulationState {
   readonly trustedIndividualEnergyProfileStore: TrustedIndividualEnergyProfileStore;
   readonly individualEnergyStore: IndividualEnergyStore;
   readonly individualEnergyActivityStore: IndividualEnergyActivityStore;
+  readonly individualEnergyCapabilityStore: IndividualEnergyCapabilityStore;
   readonly individualCasualtyProcedureProfileStore: IndividualCasualtyProcedureProfileStore;
   readonly individualCasualtyLifecycleStore: IndividualCasualtyLifecycleStore;
   readonly individualPlayerPresenceStore: IndividualPlayerPresenceStore;

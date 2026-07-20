@@ -1,8 +1,9 @@
 # Milestone 7: Energy, Exertion, and Rest
 
 Status: active; 7A, 7B-1, 7B-2, and the narrow 7B-2A authority
-sequencing correction are implemented; 7B is complete and 7C and later slices
-are deferred.
+sequencing correction are implemented; 7B is complete. 7C is split into 7C-1
+gait/capability authority and 7C-2
+movement enforcement; 7C-1 is implemented.
 
 Implementation begins after Milestone 6 is accepted and the post-Milestone-6 main-battle medical integration spike is retained as the evolving `/` scenario.
 
@@ -746,16 +747,42 @@ inspection exposes only a read-model value sourced from that authority.
 
 This correction changes no tuning, activity classification, expenditure,
 recovery, or gameplay outcome. Milestone 7B is complete after this correction;
-7C remains the next implementation slice.
+7C-1 is implemented below and 7C-2 remains the next implementation slice.
 
 ---
 
-## 7C — Gait authority, movement limits, sprint/charge exhaustion
+## 7C-1 — Explicit physical-gait authority and tick-start capability
+
+Status: implemented.
 
 Deliver:
 
-- explicit physical-gait output or adapter;
-- tick-start movement capability;
+- canonical `IndividualPhysicalGait` separate from formation and morale state;
+- reusable current-tick requested/actual gait, source, displacement and external
+  movement evidence in `IndividualEnergyActivityStore`;
+- explicit gait evidence at ordinary, routing, casualty gathering/dragging,
+  medical approach, trauma withdrawal, respawn egress, dragged-patient and
+  scenario-relocation boundaries;
+- semantic gait, rather than coordinate-distance thresholds, as the 7B movement
+  expenditure authority while retaining displacement diagnostics;
+- entity-indexed `IndividualEnergyCapabilityStore` projected once at tick start
+  from preceding energy and final lifecycle/presence;
+- fresh/working sprint, winded jog, spent minimum-walk, and non-mobile stationary
+  capability outputs;
+- projection-tick validation and no same-tick energy feedback;
+- bounded inspection and 100–2,000 entity structural coverage.
+
+Boundary:
+
+7C-1 observes and projects only. It does not clamp gait, alter movement distance,
+end sprint/charge, slow routing, or feed capability back into behaviour.
+
+---
+
+## 7C-2 — Movement enforcement, sprint exhaustion and routing degradation
+
+Deliver:
+
 - band-based walk/jog/sprint limits;
 - energy-limited sprint/charge duration;
 - minimum safe walk;
