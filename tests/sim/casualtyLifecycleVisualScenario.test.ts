@@ -138,7 +138,7 @@ describe("Milestone 6 casualty lifecycle retained visual scenario", () => {
     }
     expect(calculateTraumaticWoundOpportunityRoll(
       CASUALTY_LIFECYCLE_VISUAL_SEED,
-      { targetEntityId: 14, attackerEntityId: 15, tick: 3, triggerKind: "limbCleave" },
+      { targetEntityId: 14, attackerEntityId: 25, tick: 3, triggerKind: "limbCleave" },
     )).toBeLessThan(100);
 
     const simulation = createSimulation(CASUALTY_LIFECYCLE_VISUAL_SCENARIO);
@@ -215,6 +215,161 @@ describe("Milestone 6 casualty lifecycle retained visual scenario", () => {
       disabledLeg: limb.disabledLeg,
     });
   });
+
+  it("keeps both hostile-driven extraction chambers visibly dragging through production movement", () => {
+    const simulation = createSimulation(CASUALTY_LIFECYCLE_VISUAL_SCENARIO);
+    const phases = new Map<number, {
+      first: number;
+      last: number;
+      ticks: number;
+      minimumX: number;
+    }>();
+    let helperHands: readonly [number, number] | undefined;
+    let soloHands: number | undefined;
+    for (let index = 0; index < 800; index += 1) {
+      advanceSimulationOneTick(simulation);
+      const snapshot = createPositionSnapshot(simulation);
+      for (const patientEntityId of [8, 12]) {
+        const patient = inspected(snapshot, patientEntityId);
+        if (patient.casualtyDragGroupPhase !== "dragging") continue;
+        const phase = phases.get(patientEntityId) ?? {
+          first: simulation.tick,
+          last: simulation.tick,
+          ticks: 0,
+          minimumX: simulation.world.positionsX[patientEntityId]!,
+        };
+        phase.last = simulation.tick;
+        phase.ticks += 1;
+        phase.minimumX = Math.min(
+          phase.minimumX,
+          simulation.world.positionsX[patientEntityId]!,
+        );
+        phases.set(patientEntityId, phase);
+        if (patientEntityId === 8) {
+          helperHands = [
+            2 - (inspected(snapshot, 9).casualtyDragFreeHands ?? 2),
+            2 - (inspected(snapshot, 10).casualtyDragFreeHands ?? 2),
+          ];
+        } else {
+          soloHands = 2 - (inspected(snapshot, 13).casualtyDragFreeHands ?? 2);
+        }
+      }
+    }
+    expect(phases.get(8)).toMatchObject({ first: 7, ticks: 96 });
+    expect(phases.get(12)?.ticks).toBeGreaterThanOrEqual(30);
+    expect(helperHands).toEqual([1, 1]);
+    expect(soloHands).toBe(2);
+    expect(phases.get(8)!.minimumX).toBeLessThan(chamberCentreX(5) - 30);
+    expect(phases.get(12)!.minimumX).toBeLessThan(chamberCentreX(6) - 30);
+    const final = createPositionSnapshot(simulation);
+    expect(inspected(final, 8)).toMatchObject({
+      characterLifecycleState: "active",
+      currentGlobalHits: 1,
+    });
+    expect(inspected(final, 12)).toMatchObject({
+      characterLifecycleState: "active",
+      currentGlobalHits: 1,
+    });
+  }, 30_000);
+
+  it("makes the traumatised citizen drop a plausible hostile and withdraw instead", () => {
+    const simulation = createSimulation(CASUALTY_LIFECYCLE_VISUAL_SCENARIO);
+    advanceSimulationOneTick(simulation);
+    expect(inspected(createPositionSnapshot(simulation), 14)).toMatchObject({
+      selectedTargetEntityId: 25,
+      traumaticWoundState: "none",
+    });
+    advanceTicks(simulation, 3);
+    expect(inspected(createPositionSnapshot(simulation), 14)).toMatchObject({
+      traumaticWoundState: "active",
+      thisTickAttackOutcome: "none",
+    });
+    advanceSimulationOneTick(simulation);
+    const withdrawal = createPositionSnapshot(simulation);
+    expect(inspected(withdrawal, 14)).toMatchObject({
+      selectedTargetEntityId: null,
+      thisTickAttackOutcome: "none",
+      traumaWithdrawalActive: true,
+      withdrawalTargetPhysickEntityId: 15,
+      tickStartCombatEligible: false,
+    });
+    expect(inspected(withdrawal, 25)).toMatchObject({
+      tickStartCombatEligible: true,
+      selectedTargetEntityId: 14,
+    });
+    const startX = simulation.world.positionsX[14]!;
+    for (let index = 0; index < 20; index += 1) {
+      advanceSimulationOneTick(simulation);
+      const citizen = inspected(createPositionSnapshot(simulation), 14);
+      expect(citizen.selectedTargetEntityId).toBeNull();
+      expect(citizen.thisTickAttackOutcome).toBe("none");
+    }
+    expect(simulation.world.positionsX[14]).toBeGreaterThan(startX);
+  });
+
+  it("shows distinct execution roles, clears them on completion and repositions the executor by bounded steps", () => {
+    const simulation = createSimulation(CASUALTY_LIFECYCLE_VISUAL_SCENARIO);
+    advanceSimulationOneTick(simulation);
+    const active = createPositionSnapshot(simulation);
+    const executor = createCasualtyVisualGlyphSpec(inspected(active, 17));
+    const target = createCasualtyVisualGlyphSpec(inspected(active, 16));
+    expect(executor.executionRole).toBe("executor");
+    expect(target.executionRole).toBe("target");
+    expect(executor.executionProgress).toBe(target.executionProgress);
+
+    advanceTicks(simulation, 100);
+    let previousY = simulation.world.positionsY[17]!;
+    const completed = createPositionSnapshot(simulation);
+    expect(createCasualtyVisualGlyphSpec(inspected(completed, 17)).executionRole)
+      .toBe("none");
+    expect(createCasualtyVisualGlyphSpec(inspected(completed, 16))).toMatchObject({
+      executionRole: "none",
+      executionCompleted: true,
+    });
+    for (let index = 0; index < 24; index += 1) {
+      advanceSimulationOneTick(simulation);
+      const nextY = simulation.world.positionsY[17]!;
+      expect(nextY - previousY).toBeGreaterThanOrEqual(0);
+      expect(nextY - previousY).toBeLessThanOrEqual(2);
+      previousY = nextY;
+    }
+    expect(previousY).toBe(chamberCentreY(8) + 48);
+  });
+
+  it("removes the barbarian death clock on expiry, throughout egress and at waiting", () => {
+    const simulation = createSimulation(CASUALTY_LIFECYCLE_VISUAL_SCENARIO);
+    let sawEgress = false;
+    let sawWaiting = false;
+    for (let index = 0; index < 400; index += 1) {
+      advanceSimulationOneTick(simulation);
+      const individual = inspected(createPositionSnapshot(simulation), 19);
+      const glyph = createCasualtyVisualGlyphSpec(individual);
+      if (individual.characterLifecycleState === "dying") {
+        expect(glyph.deathCountVisible).toBe(true);
+        continue;
+      }
+      if (individual.playerPresenceState === "respawnEgress") sawEgress = true;
+      if (individual.playerPresenceState === "waitingAtRespawn") sawWaiting = true;
+      expect(glyph).toMatchObject({
+        deathCountVisible: false,
+        deathCountProgress: 0,
+      });
+    }
+    expect({ sawEgress, sawWaiting }).toEqual({ sawEgress: true, sawWaiting: true });
+  });
+
+  it("does not retain Chamber 10 herb history as a green cross or stale combat event", () => {
+    const snapshot = createPositionSnapshot(completedTrace().simulation);
+    const healer = createCasualtyVisualGlyphSpec(inspected(snapshot, 21));
+    expect(healer).toMatchObject({
+      consumedHerbsHistory: 1,
+      herbInventoryMarker: "none",
+    });
+    const chamberEntityIds = new Set([20, 21, 22, 23]);
+    expect(snapshot.combatDebug?.inspectedCombatVisualEvents.filter((event) =>
+      chamberEntityIds.has(event.attackerEntityId) ||
+      chamberEntityIds.has(event.targetEntityId))).toEqual([]);
+  }, 30_000);
 
   it("shows lifecycle, rescue, treatment, execution, comfort and egress milestones", () => {
     const { seen } = completedTrace();
@@ -460,6 +615,14 @@ function minimumChamberCentreDistance(): number {
     }
   }
   return minimum;
+}
+
+function chamberCentreX(chamberId: number): number {
+  return CASUALTY_LIFECYCLE_VISUAL_CHAMBERS[chamberId - 1]!.centreX;
+}
+
+function chamberCentreY(chamberId: number): number {
+  return CASUALTY_LIFECYCLE_VISUAL_CHAMBERS[chamberId - 1]!.centreY;
 }
 
 function minimumCrossChamberEntityDistance(simulation: SimulationState): number {

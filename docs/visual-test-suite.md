@@ -29,6 +29,7 @@ Run `npm run dev`, then open:
 | `/test?scenario=morale-inspection` | Milestone 4 accepted 2026-07-12 | 0-800 | Recruit breaks first, regular degrades faster than veteran, pass-through disrupts the reserve, routers flee before recovery, recovering units halt and reform, and the veteran pursuit subject returns to steady before the regular. |
 | `/test?scenario=individual-combat` | Milestone 5 accepted 2026-07-15 | 0-80 | Seven isolated landscape-grid chambers show frontal parry, held shield block, two-on-one guard overwhelm, polearm reach, armour/global-hit totals, one-second same-pair gate rejection, and independent attackers zeroing a target without removal. |
 | `/test?scenario=defence-overwhelm` | Milestone 5 accepted 2026-07-15 | 0-220 | Six isolated chambers show offensive openings, regular/recruit/veteran readiness recovery under different attack cadences, cumulative overwhelm, and rare rear desperate defence. |
+| `/test?scenario=casualty-lifecycle` | Milestone 6 awaiting human visual acceptance | 0-2650 | Ten isolated chambers show zero-hit lifecycle, death counts, rescue and dragging, medical treatment, trauma withdrawal, execution/comfort, respawn staging, and limb treatment. |
 
 Unknown scenario IDs show a clear error followed by the full menu. Scenario
 pages include a **Back to visual test menu** link and start paused at tick 0;
@@ -212,6 +213,30 @@ cadence acceptance remains headless: regular at 20 ticks stays at 100%; recruit
 at 20 ticks and regular at 10 ticks trace 100%, 90%, 80%, 70%, 60%, 50%, 40%,
 30%, 20%, 10%, with the tenth spend reaching stored zero; veteran at 10 ticks
 traces 100%, 95%, 90%, 85%, 80%, 75%, 70%, 65%, 60%, 55%.
+
+## Casualty lifecycle visual grammar
+
+`/test?scenario=casualty-lifecycle` uses shared outlined ring clocks for death
+counts, treatment and execution. Partial progress is an arc around the
+circumference only; it has no centre-to-edge line and is never a filled wedge.
+Execution adds an outward arrow to the executor and inward brackets to the
+target while both display the same authoritative action progress. The target's
+persistent dagger appears only from terminal cause `execution`.
+
+Chambers 5 and 6 include ordinary hostile entities whose real local exposure
+drives a 96-unit safe extraction. The resulting production dragging phase lasts
+well beyond 30 ticks before the two-helper physical handoff or solo-Physick
+treatment. Chamber 7 starts with an armed citizen selecting an adjacent hostile;
+after the explicit trauma opportunity, the citizen drops that target, makes no
+ordinary attack while withdrawing, and moves through production trauma-support
+behaviour. The hostile remains an ordinary, targetable participant.
+
+World-space H marks show current or reserved herbs, not cumulative consumption
+history. Consumption remains in bounded inspection. Combat crosses remain
+transient renderer records and expire after the standard ten-tick retention
+window. The Chamber 9 death clock is lifecycle-specific and disappears as soon
+as the barbarian becomes terminal; egress and waiting use their own presence
+glyphs.
 
 The debug panel constrains its height to the viewport, scrolls vertically when
 the debug content is long, and wraps the individual table in horizontal

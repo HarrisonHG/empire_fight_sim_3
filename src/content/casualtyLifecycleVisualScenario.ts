@@ -208,8 +208,9 @@ export const CASUALTY_LIFECYCLE_VISUAL_SCENARIO: SimulationScenario = Object.fre
         medicalProfile: medical(true, true, 0),
       }),
       unit(701, 9, 7, -60, 0, "Traumatised citizen", {
-        weaponCategory: "oneHanded",
+        weaponCategory: "twoHanded",
         weaponReachBand: "medium",
+        attackIntervalTicks: 1_000,
       }),
       unit(702, 9, 7, 60, 0, "Trauma Physick", {
         medicalProfile: medical(true, true, 1),

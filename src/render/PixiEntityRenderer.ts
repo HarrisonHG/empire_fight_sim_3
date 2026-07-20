@@ -646,8 +646,10 @@ function drawCasualtyGlyph(
     const color = treatmentColor(spec.treatmentKind);
     drawProgressClock(graphics, 16, spec.treatmentProgress, 0x4d_56_66, color, 3);
   }
-  if (spec.currentHerbs > 0 || spec.reservedHerbs > 0) {
-    const herbColor = spec.reservedHerbs > 0 ? 0xff_d9_66 : 0x7d_ff_a5;
+  if (spec.herbInventoryMarker !== "none") {
+    const herbColor = spec.herbInventoryMarker === "reserved"
+      ? 0xff_d9_66
+      : 0x7d_ff_a5;
     graphics
       .moveTo(-10, -20)
       .lineTo(-10, -12)
@@ -772,28 +774,27 @@ function drawProgressClock(
     width: 1,
     alpha: 0.75,
   });
-  switch (clock.progressPath.kind) {
-    case "none":
-      return;
-    case "circle":
-      graphics.circle(0, 0, radius).stroke({
-        color: progressColor,
-        width: progressWidth,
-        alpha: 0.95,
-      });
-      return;
-    case "arc":
-      graphics
-        .moveTo(clock.progressPath.startX, clock.progressPath.startY)
-        .arc(
+  if (clock.progressPath.commands.length === 0) return;
+  for (const command of clock.progressPath.commands) {
+    switch (command.kind) {
+      case "moveTo":
+        graphics.moveTo(command.x, command.y);
+        break;
+      case "arc":
+        graphics.arc(
           0,
           0,
-          radius,
-          clock.progressPath.startAngle,
-          clock.progressPath.endAngle,
-        )
-        .stroke({ color: progressColor, width: progressWidth, alpha: 0.95 });
+          command.radius,
+          command.startAngle,
+          command.endAngle,
+        );
+        break;
+      case "circle":
+        graphics.circle(0, 0, command.radius);
+        break;
+    }
   }
+  graphics.stroke({ color: progressColor, width: progressWidth, alpha: 0.95 });
 }
 
 function drawCasualtyLifecycleGlyph(

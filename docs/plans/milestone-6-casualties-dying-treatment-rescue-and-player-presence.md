@@ -2,7 +2,7 @@
 
 Status: in progress.
 
-Milestone 5, including its defence-readiness and pressure/visual-regression spike, was accepted on 2026-07-15. Milestone 6 is technically implemented through the 6J-B pre-acceptance correction. The retained visual suite is implemented and awaiting human visual acceptance; Milestone 6 is not yet accepted.
+Milestone 5, including its defence-readiness and pressure/visual-regression spike, was accepted on 2026-07-15. Milestone 6 is technically implemented through the 6J-C final clarity correction. The retained visual suite is implemented and awaiting human visual acceptance; Milestone 6 is not yet accepted.
 
 ## Progress
 
@@ -29,6 +29,7 @@ Milestone 5, including its defence-readiness and pressure/visual-regression spik
 | 6I-2 | implemented | Representative performance, deterministic one-hour soak, output-reuse verification, and final technical acceptance. |
 | 6J | implemented; awaiting human visual acceptance | Ten-chamber retained casualty lifecycle suite, authoritative debug grammar, inspection and chamber focus. |
 | 6J-B | implemented; awaiting human visual acceptance | Clean chamber trauma, incompatible assistance cleanup, hand/execution glyphs, focused inspection, and visible wording reconciliation. |
+| 6J-C | implemented; awaiting human visual acceptance | Ring-only timed clocks, sustained hostile-driven extraction, trauma combat avoidance, execution roles/repositioning, and stale-marker cleanup. |
 
 This progress table is the status authority for Milestone 6. Individual slice sections remain the behavioural specification.
 
@@ -1751,7 +1752,7 @@ Human acceptance questions:
 - are citizen and barbarian procedures clearly distinct;
 - is any AI over-eager to rescue, heal, or execute?
 
-Implementation status: the retained route, ten isolated chambers, authoritative world-space casualty grammar, bounded inspection, deterministic reset and chamber-focus controls are implemented. The fixture retains official 600-tick treatment, 100-tick execution and 2,400-tick comfort/herb-free-limb durations. Only the barbarian chamber uses its explicitly configured 60-tick fixed death count to keep expiry and egress observable. Automated checks do not constitute human visual acceptance; Milestone 6 remains unaccepted until the questions above are reviewed in the browser.
+Implementation status: the retained route, ten isolated chambers, authoritative world-space casualty grammar, bounded inspection, deterministic reset and chamber-focus controls are implemented. Shared timed clocks use an outlined circumference with ring-only progress: partial progress begins with a move on the circumference and never draws a centre radial. Chambers 5 and 6 use genuine nearby hostile exposure to produce sustained production rescue extraction before handoff/treatment. Chamber 7 begins with an armed citizen plausibly targeting a genuine hostile, then shows authoritative trauma withdrawal clearing ordinary targeting. Chamber 8 distinguishes executor and target roles around one authoritative execution clock and uses a bounded scenario-only post-completion reposition instruction. Cumulative herb-consumption history remains inspectable but no longer masquerades as a persistent world-space green cross; transient combat events retain their standard ten-tick presentation lifetime. The fixture retains official 600-tick treatment, 100-tick execution and 2,400-tick comfort/herb-free-limb durations. Only the barbarian chamber uses its explicitly configured 60-tick fixed death count to keep expiry and egress observable. Automated checks do not constitute human visual acceptance; Milestone 6 remains unaccepted until the questions above are reviewed in the browser.
 
 Milestone 6 is accepted only after headless regression, performance, and human visual inspection.
 

@@ -26,6 +26,7 @@ export interface CasualtyVisualGlyphSpec {
   readonly currentHerbs: number;
   readonly reservedHerbs: number;
   readonly consumedHerbsHistory: number;
+  readonly herbInventoryMarker: "current" | "reserved" | "none";
   readonly traumaticWound: boolean;
   readonly traumaWithdrawal: boolean;
   readonly disabledArm: boolean;
@@ -73,6 +74,11 @@ export function createCasualtyVisualGlyphSpec(
     currentHerbs: individual.currentGenericHerbs ?? 0,
     reservedHerbs: individual.reservedGenericHerbs ?? 0,
     consumedHerbsHistory: individual.genericHerbsConsumedHistoryCount ?? 0,
+    herbInventoryMarker: (individual.reservedGenericHerbs ?? 0) > 0
+      ? "reserved"
+      : (individual.currentGenericHerbs ?? 0) > 0
+        ? "current"
+        : "none",
     traumaticWound: individual.traumaticWoundState === "active",
     traumaWithdrawal: individual.traumaWithdrawalActive === true,
     disabledArm: individual.disabledArm === true,
