@@ -59,6 +59,7 @@ export type UnitMovementStyle =
   | "routeAway"; // 4E temporary routing movement; stored order remains intact.
 
 export interface FormationEnergyGaitCapabilitySource {
+  readonly entityCount: number;
   readonly projectionTick: number | null;
   getMaximumOrdinaryGait(entityId: number): IndividualPhysicalGait;
   getMaximumRoutingGait(entityId: number): IndividualPhysicalGait;
@@ -219,6 +220,7 @@ interface InternalFormationBehaviourStore extends FormationBehaviourStore {
   readonly movementMode: MovementMode[];
   readonly requestedPhysicalGait: IndividualPhysicalGait[];
   readonly effectivePhysicalGait: IndividualPhysicalGait[];
+  energyGaitProjectionTickUsed: number | null;
   readonly lastEmittedMovementMode: (MovementMode | null)[];
   readonly lastEmittedUnitStyle: (UnitMovementStyle | null)[];
 
@@ -351,6 +353,7 @@ export function createFormationBehaviourStore(
     effectivePhysicalGait: new Array<IndividualPhysicalGait>(
       config.entityCount,
     ).fill("stationary"),
+    energyGaitProjectionTickUsed: null,
     lastEmittedMovementMode: new Array<MovementMode | null>(
       config.entityCount,
     ).fill(null),
@@ -599,6 +602,12 @@ export function getIndividualEffectivePhysicalGait(
   return internal.effectivePhysicalGait[entityId]!;
 }
 
+export function getFormationEnergyGaitProjectionTickUsed(
+  store: FormationBehaviourStore,
+): number | null {
+  return asInternal(store).energyGaitProjectionTickUsed;
+}
+
 export function clampPhysicalGait(
   requested: IndividualPhysicalGait,
   maximum: IndividualPhysicalGait,
@@ -833,10 +842,12 @@ export function advanceFormationOneTick(
   if (energyGaitContext !== undefined) {
     if (!Number.isSafeInteger(energyGaitContext.tick) ||
         energyGaitContext.tick < 0 ||
-        energyGaitContext.capabilities.projectionTick !== energyGaitContext.tick) {
+        energyGaitContext.capabilities.projectionTick !== energyGaitContext.tick ||
+        energyGaitContext.capabilities.entityCount !== internal.entityCount) {
       throw new Error("Formation energy gait capability must project the current tick.");
     }
   }
+  internal.energyGaitProjectionTickUsed = energyGaitContext?.tick ?? null;
   internal.routingPassThroughCount = 0;
   const unitIds = getUnitIds(identityStore);
   const blockerGrid =

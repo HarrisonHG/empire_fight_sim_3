@@ -842,7 +842,7 @@ changes.
 
 ## 7C-2A-1 — Capability bridge and effective-gait projection
 
-Status: implemented.
+Status: in progress.
 
 Formation owns requested and reusable effective physical gait. A narrow
 formation-layer read-only capability contract avoids an activity/formation/

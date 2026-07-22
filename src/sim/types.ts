@@ -141,6 +141,7 @@ import type {
 } from "./routingContagion";
 import type {
   FormationBehaviourStore,
+  FormationEnergyGaitCapabilitySource,
   IndividualRole,
   UnitMovementStyle,
   UnitOrder,
@@ -525,6 +526,10 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly energyMovementDistanceSquared?: number;
   readonly energyMovementIntensity?: IndividualEnergyMovementIntensity;
   readonly energyRequestedPhysicalGait?: IndividualPhysicalGait;
+  readonly formationRequestedPhysicalGait?: IndividualPhysicalGait;
+  readonly formationEffectivePhysicalGait?: IndividualPhysicalGait;
+  readonly formationGaitReducedByCapability?: boolean;
+  readonly formationEnergyGaitProjectionTickUsed?: number | null;
   readonly energyActualPhysicalGait?: IndividualPhysicalGait;
   readonly energyPhysicalGaitSource?: IndividualEnergyMovementAuthority | null;
   readonly energyGaitProducedDisplacement?: boolean;
@@ -750,6 +755,7 @@ export interface CombatSandboxSimulationState {
   readonly individualEnergyStore: IndividualEnergyStore;
   readonly individualEnergyActivityStore: IndividualEnergyActivityStore;
   readonly individualEnergyCapabilityStore: IndividualEnergyCapabilityStore;
+  readonly formationEnergyGaitCapabilities: FormationEnergyGaitCapabilitySource;
   readonly individualCasualtyProcedureProfileStore: IndividualCasualtyProcedureProfileStore;
   readonly individualCasualtyLifecycleStore: IndividualCasualtyLifecycleStore;
   readonly individualPlayerPresenceStore: IndividualPlayerPresenceStore;

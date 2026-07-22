@@ -162,6 +162,39 @@ export function getIndividualEnergyCapabilityInspection(
   };
 }
 
+export function getIndividualEnergyCapabilityProjectionTick(
+  store: IndividualEnergyCapabilityStore,
+): number | null {
+  return requireStore(store).projectionTick;
+}
+
+export function getIndividualMaximumOrdinaryGait(
+  store: IndividualEnergyCapabilityStore,
+  entityId: number,
+): IndividualPhysicalGait {
+  const internal = requireStore(store);
+  assertEntityId(entityId, internal.entityCount);
+  return GAITS[internal.ordinaryMaximumGaitByEntity[entityId]!]!;
+}
+
+export function getIndividualMaximumRoutingGait(
+  store: IndividualEnergyCapabilityStore,
+  entityId: number,
+): IndividualPhysicalGait {
+  const internal = requireStore(store);
+  assertEntityId(entityId, internal.entityCount);
+  return GAITS[internal.routingMaximumGaitByEntity[entityId]!]!;
+}
+
+export function getIndividualMinimumSafeWalkAvailable(
+  store: IndividualEnergyCapabilityStore,
+  entityId: number,
+): boolean {
+  const internal = requireStore(store);
+  assertEntityId(entityId, internal.entityCount);
+  return internal.minimumSafeWalkByEntity[entityId] !== 0;
+}
+
 function maximumGaitForBand(
   band: IndividualEnergyBand,
 ): IndividualPhysicalGait {

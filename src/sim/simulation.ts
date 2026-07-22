@@ -14,6 +14,9 @@ import {
   createFormationBehaviourStore,
   getIndividualConfiguredMaxStep,
   getIndividualRequestedPhysicalGait,
+  getIndividualEffectivePhysicalGait,
+  getFormationEnergyGaitProjectionTickUsed,
+  physicalGaitRank,
   getIndividualMovementMode,
   getIndividualRole,
   type FormationTickDiagnostics,
@@ -232,6 +235,10 @@ import {
   assertIndividualEnergyCapabilityProjectionTick,
   createIndividualEnergyCapabilityStore,
   getIndividualEnergyCapabilityInspection,
+  getIndividualEnergyCapabilityProjectionTick,
+  getIndividualMaximumOrdinaryGait,
+  getIndividualMaximumRoutingGait,
+  getIndividualMinimumSafeWalkAvailable,
   projectIndividualEnergyCapabilitiesOneTick,
 } from "./individualEnergyCapability";
 import { SeededRng } from "./rng";
@@ -835,6 +842,20 @@ function createCombatSandbox(
       individualCasualtyLifecycleStore,
       individualPlayerPresenceStore,
     );
+  const formationEnergyGaitCapabilities = {
+    entityCount: world.entityCount,
+    get projectionTick() {
+      return getIndividualEnergyCapabilityProjectionTick(
+        individualEnergyCapabilityStore,
+      );
+    },
+    getMaximumOrdinaryGait: (entityId: number) =>
+      getIndividualMaximumOrdinaryGait(individualEnergyCapabilityStore, entityId),
+    getMaximumRoutingGait: (entityId: number) =>
+      getIndividualMaximumRoutingGait(individualEnergyCapabilityStore, entityId),
+    getMinimumSafeWalkAvailable: (entityId: number) =>
+      getIndividualMinimumSafeWalkAvailable(individualEnergyCapabilityStore, entityId),
+  };
   const individualDefenceHandAvailabilitySource =
     createPrioritizedIndividualDefenceHandAvailabilitySource(
       individualDragHandCommitmentStore,
@@ -878,6 +899,7 @@ function createCombatSandbox(
     individualEnergyStore,
     individualEnergyActivityStore,
     individualEnergyCapabilityStore,
+    formationEnergyGaitCapabilities,
     individualCasualtyProcedureProfileStore,
     individualCasualtyLifecycleStore,
     individualPlayerPresenceStore,
@@ -1965,26 +1987,7 @@ export function advanceCombatSandboxOneTick(
       instrumentation?.formationDiagnostics,
       combatSandbox.individualCasualtyLifecycleStore,
       combatSandbox.individualOrdinaryParticipationSnapshot,
-      {
-        tick,
-        capabilities: {
-          projectionTick: getIndividualEnergyCapabilityInspection(
-            combatSandbox.individualEnergyCapabilityStore, 0,
-          ).projectionTick,
-          getMaximumOrdinaryGait: (entityId) =>
-            getIndividualEnergyCapabilityInspection(
-              combatSandbox.individualEnergyCapabilityStore, entityId,
-            ).maximumOrdinaryGait,
-          getMaximumRoutingGait: (entityId) =>
-            getIndividualEnergyCapabilityInspection(
-              combatSandbox.individualEnergyCapabilityStore, entityId,
-            ).maximumRoutingGait,
-          getMinimumSafeWalkAvailable: (entityId) =>
-            getIndividualEnergyCapabilityInspection(
-              combatSandbox.individualEnergyCapabilityStore, entityId,
-            ).minimumSafeWalkAvailable,
-        },
-      },
+      { tick, capabilities: combatSandbox.formationEnergyGaitCapabilities },
     );
     observeIndividualEnergyMovementAuthority(
       combatSandbox.individualEnergyActivityStore,
@@ -3277,6 +3280,20 @@ function collectInspectedIndividualSnapshots(
         energyActivity.actualMovementDistanceSquared,
       energyMovementIntensity: energyActivity.movementIntensity,
       energyRequestedPhysicalGait: energyActivity.requestedPhysicalGait,
+      formationRequestedPhysicalGait: getIndividualRequestedPhysicalGait(
+        combatSandbox.formationStore, entityId,
+      ),
+      formationEffectivePhysicalGait: getIndividualEffectivePhysicalGait(
+        combatSandbox.formationStore, entityId,
+      ),
+      formationGaitReducedByCapability:
+        physicalGaitRank(getIndividualRequestedPhysicalGait(
+          combatSandbox.formationStore, entityId,
+        )) > physicalGaitRank(getIndividualEffectivePhysicalGait(
+          combatSandbox.formationStore, entityId,
+        )),
+      formationEnergyGaitProjectionTickUsed:
+        getFormationEnergyGaitProjectionTickUsed(combatSandbox.formationStore),
       energyActualPhysicalGait: energyActivity.actualPhysicalGait,
       energyPhysicalGaitSource: energyActivity.physicalGaitSource,
       energyGaitProducedDisplacement:
