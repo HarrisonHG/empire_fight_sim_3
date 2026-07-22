@@ -344,7 +344,7 @@ describe("formation behaviour: physical gait authority", () => {
       .toBe("walking");
   });
 
-  it("keeps advance gait requested when coordinate correction produces no movement, holds stationary, and routes at sprinting", () => {
+  it("keeps advance authority distinct from zero displacement, holds stationary, and routes at sprinting", () => {
     const { world, identity, store } = createTestHarness({
       entityCount: 1,
       identity: { entityCount: 1, units: [{ unitId: 1, factionId: 1, memberEntityIds: [0] }] },
@@ -358,11 +358,12 @@ describe("formation behaviour: physical gait authority", () => {
     });
 
     advanceFormationOneTick(world, identity, store);
-    expect(getIndividualMovementMode(store, 0)).toBe("holdPosition");
+    expect(getIndividualMovementMode(store, 0)).toBe("advanceWithUnit");
     expect(getIndividualRequestedPhysicalGait(store, 0)).toBe("walking");
 
     setUnitOrder(store, 1, "hold");
     advanceFormationOneTick(world, identity, store);
+    expect(getIndividualMovementMode(store, 0)).toBe("holdPosition");
     expect(getIndividualRequestedPhysicalGait(store, 0)).toBe("stationary");
 
     advanceFormationOneTick(world, identity, store, new Map([[1, "routing"]]));

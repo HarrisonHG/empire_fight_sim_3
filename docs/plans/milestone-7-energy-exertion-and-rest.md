@@ -4,7 +4,7 @@ Status: active; 7A, 7B-1, 7B-2, and the narrow 7B-2A authority
 sequencing correction are implemented; 7B is complete. 7C is split into 7C-1
 gait/capability authority and 7C-2
 movement enforcement; 7C-1 and the narrow 7C-1A gait/capability inspection
-correction are implemented.
+and 7C-1B verification corrections are implemented.
 
 Implementation begins after Milestone 6 is accepted and the post-Milestone-6 main-battle medical integration spike is retained as the evolving `/` scenario.
 
@@ -807,6 +807,22 @@ first production projection replaces that preview at tick 0, retaining
 duplicate and backwards-projection validation. This correction does not alter
 positions, movement modes/styles, combat, casualty outcomes, pressure or
 morale.
+
+---
+
+## 7C-1B — Supported-runtime verification correction
+
+Status: implemented.
+
+The 7C-1A verification fixtures were corrected without changing formation or
+production movement rules. An advancing low-level formation member with a zero
+correction limit retains `advanceWithUnit` semantics and its requested unit
+gait; lack of displacement is not an explicit hold. The production regression
+now uses valid positive `memberMaxStep` values and an existing hostile-contact
+blocker to prove requested jogging, actual stationary gait, and zero movement
+expenditure. This preserves the intended validation boundary: low-level
+formation-store tests may use a zero correction limit, but authored live combat
+scenario content requires a positive correction limit.
 
 ---
 

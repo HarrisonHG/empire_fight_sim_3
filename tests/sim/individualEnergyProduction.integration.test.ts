@@ -238,11 +238,38 @@ describe("Milestone 7B-1 production activity observation", () => {
     const combat = source.combatSandbox!;
     const simulation = createSimulation({
       ...source,
+      entityCount: 2,
       combatSandbox: {
         ...combat,
+        inspectedEntityIds: [0, 1],
         units: combat.units.map((unit, index) => index === 0
-          ? { ...unit, memberMaxStep: 0 }
-          : unit),
+          ? {
+              ...unit,
+              memberCount: 1,
+              deploymentZone: { minX: 100, maxX: 100, minY: 120, maxY: 120 },
+              anchorX: 100,
+              anchorY: 120,
+              rows: 1,
+              cols: 1,
+              memberMaxStep: 1,
+              ...(unit.memberProfiles === undefined
+                ? {}
+                : { memberProfiles: unit.memberProfiles.slice(0, 1) }),
+            }
+          : {
+              ...unit,
+              memberCount: 1,
+              deploymentZone: { minX: 101, maxX: 101, minY: 120, maxY: 120 },
+              anchorX: 101,
+              anchorY: 120,
+              rows: 1,
+              cols: 1,
+              memberMaxStep: 1,
+              order: "hold",
+              ...(unit.memberProfiles === undefined
+                ? {}
+                : { memberProfiles: unit.memberProfiles.slice(0, 1) }),
+            }),
       },
     });
     advanceSimulationOneTick(simulation);
