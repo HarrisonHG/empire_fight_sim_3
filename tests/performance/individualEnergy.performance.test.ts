@@ -98,9 +98,11 @@ describe("individual energy structural performance", () => {
       }
       const inspectionMilliseconds = performance.now() - inspectionStart;
 
-      const capabilityStore = createIndividualEnergyCapabilityStore(entityCount);
       const lifecycle = createIndividualCasualtyLifecycleStore(entityCount);
       const presence = createIndividualPlayerPresenceStore(entityCount);
+      const capabilityStore = createIndividualEnergyCapabilityStore(
+        entityCount, energy, lifecycle, presence,
+      );
       const capabilityStart = performance.now();
       projectIndividualEnergyCapabilitiesOneTick(
         capabilityStore,

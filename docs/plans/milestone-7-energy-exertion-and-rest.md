@@ -3,7 +3,8 @@
 Status: active; 7A, 7B-1, 7B-2, and the narrow 7B-2A authority
 sequencing correction are implemented; 7B is complete. 7C is split into 7C-1
 gait/capability authority and 7C-2
-movement enforcement; 7C-1 is implemented.
+movement enforcement; 7C-1 and the narrow 7C-1A gait/capability inspection
+correction are implemented.
 
 Implementation begins after Milestone 6 is accepted and the post-Milestone-6 main-battle medical integration spike is retained as the evolving `/` scenario.
 
@@ -776,6 +777,36 @@ Boundary:
 
 7C-1 observes and projects only. It does not clamp gait, alter movement distance,
 end sprint/charge, slow routing, or feed capability back into behaviour.
+
+---
+
+## 7C-1A — Formation-owned ordinary gait and initial capability inspection
+
+Status: implemented.
+
+This narrow correction removes `memberMaxStep` from ordinary physical-gait
+authority. `memberMaxStep` remains the per-member coordinate
+slot-following/correction limit. Formation now expands an immutable,
+unit-owned `ordinaryPhysicalGait` once: legacy scenarios default from
+`unitSpeed` (`0` stationary, `1` walking, `2` jogging, `>=3` sprinting), while
+an explicit scenario value overrides that compatibility adapter without
+changing coordinate speed.
+
+Each formation tick exposes requested gait per entity: ordinary advance,
+giving-ground and detour movement use the unit gait; routing requests
+sprinting; effective holds and non-participation request stationary. Requested
+gait remains present when movement is blocked and actual gait is stationary.
+The energy observer consumes this formation output; specialist casualty,
+medical, egress, patient and external-displacement policies are unchanged.
+The main-battle `unitSpeed: 2` / `memberMaxStep: 3` advance therefore uses
+jogging expenditure (8 per moving tick), not sprint expenditure.
+
+Capability inspection now seeds a real creation-time preview from current
+energy, lifecycle and presence with `projectionTick: null`. The canonical
+first production projection replaces that preview at tick 0, retaining
+duplicate and backwards-projection validation. This correction does not alter
+positions, movement modes/styles, combat, casualty outcomes, pressure or
+morale.
 
 ---
 

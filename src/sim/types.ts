@@ -201,6 +201,7 @@ export interface CombatSandboxUnitScenario {
   readonly rows: number;
   readonly cols: number;
   readonly unitSpeed: number;
+  readonly ordinaryPhysicalGait?: IndividualPhysicalGait;
   readonly order: UnitOrder;
   readonly role: IndividualRole;
   /** Feeds the existing individual combat profile qualification authority. */
@@ -316,6 +317,7 @@ export interface FormationSandboxUnitScenario {
   readonly rows: number;
   readonly cols: number;
   readonly unitSpeed: number;
+  readonly ordinaryPhysicalGait?: IndividualPhysicalGait;
   readonly order: UnitOrder;
   readonly cohesion?: number;
   /** Optional trusted energy template expanded to every member. */
@@ -526,7 +528,7 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly energyActualPhysicalGait?: IndividualPhysicalGait;
   readonly energyPhysicalGaitSource?: IndividualEnergyMovementAuthority | null;
   readonly energyGaitProducedDisplacement?: boolean;
-  readonly energyCapabilityProjectionTick?: number;
+  readonly energyCapabilityProjectionTick?: number | null;
   readonly energyCapabilitySourceEnergy?: number;
   readonly energyCapabilitySourceBand?: IndividualEnergyBand;
   readonly energyMaximumOrdinaryGait?: IndividualPhysicalGait;

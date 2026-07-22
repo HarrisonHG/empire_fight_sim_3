@@ -33,7 +33,17 @@ describe("individual tick-start energy capability", () => {
     const energy = createIndividualEnergyStore(profiles);
     const lifecycle = createIndividualCasualtyLifecycleStore(4);
     const presence = createIndividualPlayerPresenceStore(4);
-    const capability = createIndividualEnergyCapabilityStore(4);
+    const capability = createIndividualEnergyCapabilityStore(
+      4, energy, lifecycle, presence,
+    );
+
+    expect(getIndividualEnergyCapabilityInspection(capability, 0))
+      .toMatchObject({
+        projectionTick: null,
+        sourceEnergy: 100,
+        sourceEnergyBand: "fresh",
+        maximumOrdinaryGait: "sprinting",
+      });
 
     projectIndividualEnergyCapabilitiesOneTick(
       capability, energy, lifecycle, presence, 0,
@@ -150,16 +160,23 @@ describe("individual tick-start energy capability", () => {
       fixture.energy,
       fixture.lifecycle,
       fixture.presence,
-      2,
+      0,
     );
-    assertIndividualEnergyCapabilityProjectionTick(fixture.capability, 2);
+    assertIndividualEnergyCapabilityProjectionTick(fixture.capability, 0);
     expect(() => projectIndividualEnergyCapabilitiesOneTick(
       fixture.capability,
       fixture.energy,
       fixture.lifecycle,
       fixture.presence,
-      2,
+      0,
     )).toThrow(/already projected/);
+    projectIndividualEnergyCapabilitiesOneTick(
+      fixture.capability,
+      fixture.energy,
+      fixture.lifecycle,
+      fixture.presence,
+      2,
+    );
     expect(() => projectIndividualEnergyCapabilitiesOneTick(
       fixture.capability,
       fixture.energy,
@@ -175,11 +192,16 @@ function capabilityFixture(startingEnergy: number) {
     entityCount: 1,
     profiles: [{ entityId: 0, maximumEnergy: 100, startingEnergy }],
   });
+  const energy = createIndividualEnergyStore(profiles);
+  const lifecycle = createIndividualCasualtyLifecycleStore(1);
+  const presence = createIndividualPlayerPresenceStore(1);
   return {
-    energy: createIndividualEnergyStore(profiles),
-    lifecycle: createIndividualCasualtyLifecycleStore(1),
-    presence: createIndividualPlayerPresenceStore(1),
-    capability: createIndividualEnergyCapabilityStore(1),
+    energy,
+    lifecycle,
+    presence,
+    capability: createIndividualEnergyCapabilityStore(
+      1, energy, lifecycle, presence,
+    ),
   };
 }
 

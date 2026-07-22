@@ -137,6 +137,27 @@ describe("Milestone 7A production energy integration", () => {
     });
   });
 
+  it("previews real initial capability without pretending a production tick projected it", () => {
+    const simulation = createSimulation(createSmallBattleScenario({}));
+    const inspected = createInitialSnapshot(simulation).combatDebug!
+      .inspectedIndividuals[0]!;
+    expect(inspected).toMatchObject({
+      energyCapabilityProjectionTick: null,
+      energyCapabilitySourceEnergy: 10_000,
+      energyCapabilitySourceBand: "fresh",
+      energyMaximumOrdinaryGait: "sprinting",
+      energyMaximumRoutingGait: "sprinting",
+      energyCanInitiateOrdinarySprintOrCharge: true,
+      energyMinimumSafeWalkAvailable: true,
+    });
+
+    advanceSimulationOneTick(simulation);
+    expect(getIndividualEnergyCapabilityInspection(
+      simulation.combatSandbox!.individualEnergyCapabilityStore,
+      0,
+    ).projectionTick).toBe(0);
+  });
+
   it("replays deterministically and differing energy values cannot change 7A gameplay", () => {
     const defaultScenario = createSmallBattleScenario({ inspect: false });
     const variedScenario = createSmallBattleScenario({
@@ -192,6 +213,50 @@ describe("Milestone 7A production energy integration", () => {
 });
 
 describe("Milestone 7B-1 production activity observation", () => {
+  it("charges main-battle ordinary advance as jogging from unit speed, not member correction speed", () => {
+    const simulation = createSimulation(MAIN_BATTLE_MEDICAL_SCENARIO);
+    advanceSimulationOneTick(simulation);
+
+    let movingCitizenCount = 0;
+    for (let entityId = 0; entityId < 12; entityId += 1) {
+      const activity = getIndividualEnergyActivityInspection(
+        simulation.combatSandbox!.individualEnergyActivityStore,
+        entityId,
+      );
+      expect(activity.requestedPhysicalGait).toBe("jogging");
+      if (activity.gaitProducedDisplacement) {
+        movingCitizenCount += 1;
+        expect(activity.actualPhysicalGait).toBe("jogging");
+        expect(activity.movementExpenditureRequested).toBe(8);
+      }
+    }
+    expect(movingCitizenCount).toBeGreaterThan(0);
+  });
+
+  it("retains a blocked advance request while classifying its actual gait as stationary", () => {
+    const source = createSmallBattleScenario({});
+    const combat = source.combatSandbox!;
+    const simulation = createSimulation({
+      ...source,
+      combatSandbox: {
+        ...combat,
+        units: combat.units.map((unit, index) => index === 0
+          ? { ...unit, memberMaxStep: 0 }
+          : unit),
+      },
+    });
+    advanceSimulationOneTick(simulation);
+
+    const activity = getIndividualEnergyActivityInspection(
+      simulation.combatSandbox!.individualEnergyActivityStore,
+      0,
+    );
+    expect(activity.requestedPhysicalGait).toBe("jogging");
+    expect(activity.actualPhysicalGait).toBe("stationary");
+    expect(activity.gaitProducedDisplacement).toBe(false);
+    expect(activity.movementExpenditureRequested).toBe(0);
+  });
+
   it("applies final current-tick activity without feeding energy back into behaviour", () => {
     const simulation = createSimulation(CASUALTY_LIFECYCLE_VISUAL_SCENARIO);
     const observed = new Set<string>();

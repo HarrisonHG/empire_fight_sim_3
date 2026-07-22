@@ -13,6 +13,7 @@ import {
   applyIndividualExternalMovementIntentWithAnchor,
   createFormationBehaviourStore,
   getIndividualConfiguredMaxStep,
+  getIndividualRequestedPhysicalGait,
   getIndividualMovementMode,
   getIndividualRole,
   type FormationTickDiagnostics,
@@ -552,6 +553,9 @@ function createFormationSandbox(
       rows: unit.rows,
       cols: unit.cols,
       unitSpeed: unit.unitSpeed,
+      ...(unit.ordinaryPhysicalGait === undefined ? {} : {
+        ordinaryPhysicalGait: unit.ordinaryPhysicalGait,
+      }),
       order: unit.order,
       ...(unit.cohesion === undefined ? {} : { cohesion: unit.cohesion }),
     })),
@@ -729,6 +733,9 @@ function createCombatSandbox(
       rows: unit.rows,
       cols: unit.cols,
       unitSpeed: unit.unitSpeed,
+      ...(unit.ordinaryPhysicalGait === undefined ? {} : {
+        ordinaryPhysicalGait: unit.ordinaryPhysicalGait,
+      }),
       order: unit.order,
       ...(unit.initialCohesion === undefined
         ? {}
@@ -822,7 +829,12 @@ function createCombatSandbox(
   const individualEnergyActivityStore =
     createIndividualEnergyActivityStore(world.entityCount);
   const individualEnergyCapabilityStore =
-    createIndividualEnergyCapabilityStore(world.entityCount);
+    createIndividualEnergyCapabilityStore(
+      world.entityCount,
+      individualEnergyStore,
+      individualCasualtyLifecycleStore,
+      individualPlayerPresenceStore,
+    );
   const individualDefenceHandAvailabilitySource =
     createPrioritizedIndividualDefenceHandAvailabilitySource(
       individualDragHandCommitmentStore,
@@ -1240,6 +1252,9 @@ function createLegacyCombatFoundationSandbox(
       rows: unit.rows,
       cols: unit.cols,
       unitSpeed: unit.unitSpeed,
+      ...(unit.ordinaryPhysicalGait === undefined ? {} : {
+        ordinaryPhysicalGait: unit.ordinaryPhysicalGait,
+      }),
       order: unit.order,
       ...(unit.initialCohesion === undefined
         ? {}
@@ -1960,21 +1975,13 @@ export function advanceCombatSandboxOneTick(
           entityId,
         )) return undefined;
         const unitId = getUnitIdForEntity(combatSandbox.identityStore, entityId);
-        if (combatSandbox.moraleMovementStates.get(unitId) === "routing") {
-          return { source: "routingMovement", requestedGait: "sprinting" };
-        }
-        const mode = getIndividualMovementMode(
-          combatSandbox.formationStore,
-          entityId,
-        );
+        const routing = combatSandbox.moraleMovementStates.get(unitId) === "routing";
         return {
-          source: "ordinaryMovement",
-          requestedGait: mode === "holdPosition"
-            ? "stationary"
-            : requestedGaitForMaximumStep(getIndividualConfiguredMaxStep(
-                combatSandbox.formationStore,
-                entityId,
-              )),
+          source: routing ? "routingMovement" : "ordinaryMovement",
+          requestedGait: getIndividualRequestedPhysicalGait(
+            combatSandbox.formationStore,
+            entityId,
+          ),
         };
       },
     );

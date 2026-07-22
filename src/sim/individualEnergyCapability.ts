@@ -17,7 +17,7 @@ export interface IndividualEnergyCapabilityStore {
 }
 
 export interface IndividualEnergyCapabilityInspection {
-  readonly projectionTick: number;
+  readonly projectionTick: number | null;
   readonly sourceEnergy: number;
   readonly sourceEnergyBand: IndividualEnergyBand;
   readonly maximumOrdinaryGait: IndividualPhysicalGait;
@@ -34,7 +34,7 @@ interface InternalIndividualEnergyCapabilityStore
   readonly routingMaximumGaitByEntity: Uint8Array;
   readonly canInitiateSprintByEntity: Uint8Array;
   readonly minimumSafeWalkByEntity: Uint8Array;
-  projectionTick: number;
+  projectionTick: number | null;
 }
 
 const BANDS: readonly IndividualEnergyBand[] = Object.freeze([
@@ -50,6 +50,9 @@ const capabilityStoreInternals = new WeakMap<
 
 export function createIndividualEnergyCapabilityStore(
   entityCount: number,
+  energy: IndividualEnergyStore,
+  lifecycle: IndividualCasualtyLifecycleStore,
+  presence: IndividualPlayerPresenceStore,
 ): IndividualEnergyCapabilityStore {
   if (!Number.isSafeInteger(entityCount) || entityCount < 0) {
     throw new RangeError(
@@ -65,8 +68,9 @@ export function createIndividualEnergyCapabilityStore(
     routingMaximumGaitByEntity: new Uint8Array(entityCount),
     canInitiateSprintByEntity: new Uint8Array(entityCount),
     minimumSafeWalkByEntity: new Uint8Array(entityCount),
-    projectionTick: -1,
+    projectionTick: null,
   });
+  populateCapabilities(store, energy, lifecycle, presence);
   return store;
 }
 
@@ -83,13 +87,29 @@ export function projectIndividualEnergyCapabilitiesOneTick(
     throw new RangeError("Energy capability dependencies must match entityCount.");
   }
   assertTick(tick);
-  if (tick < internal.projectionTick) {
+  if (internal.projectionTick !== null && tick < internal.projectionTick) {
     throw new Error("Energy capability projection cannot move backwards.");
   }
   if (tick === internal.projectionTick) {
     throw new Error("Energy capability already projected for this tick.");
   }
 
+  populateCapabilities(store, energy, lifecycle, presence);
+  internal.projectionTick = tick;
+  return store;
+}
+
+function populateCapabilities(
+  store: IndividualEnergyCapabilityStore,
+  energy: IndividualEnergyStore,
+  lifecycle: IndividualCasualtyLifecycleStore,
+  presence: IndividualPlayerPresenceStore,
+): void {
+  const internal = requireStore(store, energy.entityCount);
+  if (lifecycle.entityCount !== internal.entityCount ||
+      presence.entityCount !== internal.entityCount) {
+    throw new RangeError("Energy capability dependencies must match entityCount.");
+  }
   for (let entityId = 0; entityId < internal.entityCount; entityId += 1) {
     const currentEnergy = getIndividualCurrentEnergy(energy, entityId);
     const band = getIndividualEnergyBand(energy, entityId);
@@ -105,8 +125,6 @@ export function projectIndividualEnergyCapabilitiesOneTick(
       mobile && (band === "fresh" || band === "working") ? 1 : 0;
     internal.minimumSafeWalkByEntity[entityId] = mobile ? 1 : 0;
   }
-  internal.projectionTick = tick;
-  return store;
 }
 
 export function assertIndividualEnergyCapabilityProjectionTick(

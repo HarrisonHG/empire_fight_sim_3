@@ -30,6 +30,7 @@ import {
   isIndividualOrdinaryParticipationEligible,
   type IndividualOrdinaryParticipationSnapshot,
 } from "./individualOrdinaryParticipation";
+import type { IndividualPhysicalGait } from "./individualEnergyActivity";
 
 export type UnitOrder = "hold" | "advance" | "advanceCautious";
 export type IndividualRole = "recruit" | "regular" | "veteran";
@@ -67,6 +68,7 @@ export interface UnitFormationConfig {
   readonly rows: number;
   readonly cols: number;
   readonly unitSpeed: number;
+  readonly ordinaryPhysicalGait?: IndividualPhysicalGait;
   readonly order: UnitOrder;
   readonly cohesion?: number;
 }
@@ -175,6 +177,7 @@ interface InternalFormationBehaviourStore extends FormationBehaviourStore {
   readonly rows: Int32Array;
   readonly cols: Int32Array;
   readonly unitSpeed: Int32Array;
+  readonly ordinaryPhysicalGait: IndividualPhysicalGait[];
   /** Fixed-point carry for morale-reduced anchor movement. */
   readonly anchorMovementRemainder: Int32Array;
   readonly orders: UnitOrder[];
@@ -202,6 +205,7 @@ interface InternalFormationBehaviourStore extends FormationBehaviourStore {
   readonly stuckTicks: Int32Array;
   readonly isStuck: Uint8Array;
   readonly movementMode: MovementMode[];
+  readonly requestedPhysicalGait: IndividualPhysicalGait[];
   readonly lastEmittedMovementMode: (MovementMode | null)[];
   readonly lastEmittedUnitStyle: (UnitMovementStyle | null)[];
 
@@ -299,6 +303,9 @@ export function createFormationBehaviourStore(
     rows: new Int32Array(unitCount),
     cols: new Int32Array(unitCount),
     unitSpeed: new Int32Array(unitCount),
+    ordinaryPhysicalGait: new Array<IndividualPhysicalGait>(unitCount).fill(
+      "stationary",
+    ),
     anchorMovementRemainder: new Int32Array(unitCount),
     orders: new Array<UnitOrder>(unitCount).fill("hold"),
     cohesion: new Int32Array(unitCount),
@@ -325,6 +332,9 @@ export function createFormationBehaviourStore(
     movementMode: new Array<MovementMode>(config.entityCount).fill(
       "holdPosition",
     ),
+    requestedPhysicalGait: new Array<IndividualPhysicalGait>(
+      config.entityCount,
+    ).fill("stationary"),
     lastEmittedMovementMode: new Array<MovementMode | null>(
       config.entityCount,
     ).fill(null),
@@ -373,6 +383,8 @@ export function createFormationBehaviourStore(
     store.rows[index] = unitConfig.rows;
     store.cols[index] = unitConfig.cols;
     store.unitSpeed[index] = unitConfig.unitSpeed;
+    store.ordinaryPhysicalGait[index] = unitConfig.ordinaryPhysicalGait ??
+      defaultOrdinaryPhysicalGaitForUnitSpeed(unitConfig.unitSpeed);
     store.orders[index] = unitConfig.order;
     const configuredCohesion = clampIntegerState(
       unitConfig.cohesion ?? DEFAULT_COHESION,
@@ -543,6 +555,33 @@ export function getUnitConfiguredSpeed(
 ): number {
   const internal = asInternal(store);
   return internal.unitSpeed[requireUnitIndex(internal, unitId)]!;
+}
+
+export function getUnitOrdinaryPhysicalGait(
+  store: FormationBehaviourStore,
+  unitId: UnitId,
+): IndividualPhysicalGait {
+  const internal = asInternal(store);
+  return internal.ordinaryPhysicalGait[requireUnitIndex(internal, unitId)]!;
+}
+
+export function getIndividualRequestedPhysicalGait(
+  store: FormationBehaviourStore,
+  entityId: number,
+): IndividualPhysicalGait {
+  const internal = asInternal(store);
+  assertEntityIdInRange(entityId, internal.entityCount);
+  return internal.requestedPhysicalGait[entityId]!;
+}
+
+export function defaultOrdinaryPhysicalGaitForUnitSpeed(
+  unitSpeed: number,
+): IndividualPhysicalGait {
+  assertNonNegativeInteger(unitSpeed, "unitSpeed");
+  if (unitSpeed === 0) return "stationary";
+  if (unitSpeed === 1) return "walking";
+  if (unitSpeed === 2) return "jogging";
+  return "sprinting";
 }
 
 export function getIndividualConfidence(
@@ -830,6 +869,7 @@ function processUnit(
     for (let index = 0; index < unitMembers.length; index += 1) {
       const entityId = unitMembers[index]!;
       store.movementMode[entityId] = "holdPosition";
+      store.requestedPhysicalGait[entityId] = "stationary";
       store.stuckTicks[entityId] = 0;
       store.isStuck[entityId] = 0;
     }
@@ -867,6 +907,9 @@ function processUnit(
     );
     return;
   }
+  const requestedPhysicalGait = order === "hold"
+    ? "stationary"
+    : store.ordinaryPhysicalGait[unitIndex]!;
   const anchorMovementScale = anchorMovementScaleForMorale(
     moraleMovementState,
   );
@@ -989,10 +1032,12 @@ function processUnit(
     const entityId = members[index]!;
     if (!isFormationParticipant(lifecycleStore, entityId, ordinaryParticipation)) {
       store.movementMode[entityId] = "holdPosition";
+      store.requestedPhysicalGait[entityId] = "stationary";
       store.stuckTicks[entityId] = 0;
       store.isStuck[entityId] = 0;
       continue;
     }
+    store.requestedPhysicalGait[entityId] = requestedPhysicalGait;
     const role = store.roles[entityId]!;
     const slotRow = store.slotRow[entityId]!;
     const slotCol = store.slotCol[entityId]!;
@@ -1445,10 +1490,12 @@ function processRoutingUnit(
     const entityId = members[memberIndex]!;
     if (!isFormationParticipant(lifecycleStore, entityId, ordinaryParticipation)) {
       store.movementMode[entityId] = "holdPosition";
+      store.requestedPhysicalGait[entityId] = "stationary";
       store.stuckTicks[entityId] = 0;
       store.isStuck[entityId] = 0;
       continue;
     }
+    store.requestedPhysicalGait[entityId] = "sprinting";
     const memberMaxStep = store.memberMaxStep[entityId]!;
     const requestedForwardStep = memberMaxStep;
     const allowedForwardStep = getHostileContactForwardStepLimit(

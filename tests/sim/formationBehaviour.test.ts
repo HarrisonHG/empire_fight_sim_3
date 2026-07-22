@@ -6,11 +6,13 @@ import {
   createFormationBehaviourStore,
   getIndividualPressure,
   getIndividualMovementMode,
+  getIndividualRequestedPhysicalGait,
   getIndividualStuckTicks,
   getUnitAnchor,
   getUnitCohesion,
   getUnitMovementStyle,
   getUnitOrder,
+  getUnitOrdinaryPhysicalGait,
   setIndividualPressure,
   setUnitOrder,
   type FormationBehaviourConfig,
@@ -277,6 +279,96 @@ function moveBlockerOutOfForwardPath(world: WorldState): void {
   world.positionsX[1] = 500;
   world.positionsY[1] = 500;
 }
+
+describe("formation behaviour: physical gait authority", () => {
+  it("expands unit speed once, preserves an explicit override, and ignores member correction limits", () => {
+    const { world, identity, store } = createTestHarness({
+      entityCount: 4,
+      identity: {
+        entityCount: 4,
+        units: [
+          { unitId: 1, factionId: 1, memberEntityIds: [0] },
+          { unitId: 2, factionId: 1, memberEntityIds: [1] },
+          { unitId: 3, factionId: 1, memberEntityIds: [2] },
+          { unitId: 4, factionId: 1, memberEntityIds: [3] },
+        ],
+      },
+      formation: {
+        entityCount: 4,
+        rngSeed: 0x7c1a,
+        units: [
+          { unitId: 1, anchorX: 100, anchorY: 20, headingX: 1, headingY: 0, spacing: 4, rows: 1, cols: 1, unitSpeed: 0, order: "advance" },
+          { unitId: 2, anchorX: 300, anchorY: 20, headingX: 1, headingY: 0, spacing: 4, rows: 1, cols: 1, unitSpeed: 1, order: "advance" },
+          { unitId: 3, anchorX: 500, anchorY: 20, headingX: 1, headingY: 0, spacing: 4, rows: 1, cols: 1, unitSpeed: 2, order: "advance" },
+          { unitId: 4, anchorX: 700, anchorY: 20, headingX: 1, headingY: 0, spacing: 4, rows: 1, cols: 1, unitSpeed: 4, ordinaryPhysicalGait: "jogging", order: "advance" },
+        ],
+        individuals: [
+          { entityId: 0, role: "regular", slotRow: 0, slotCol: 0, memberMaxStep: 3 },
+          { entityId: 1, role: "regular", slotRow: 0, slotCol: 0, memberMaxStep: 3 },
+          { entityId: 2, role: "regular", slotRow: 0, slotCol: 0, memberMaxStep: 4 },
+          { entityId: 3, role: "regular", slotRow: 0, slotCol: 0, memberMaxStep: 1 },
+        ],
+      },
+      initialPositions: [
+        { entityId: 0, x: 100, y: 20 }, { entityId: 1, x: 300, y: 20 },
+        { entityId: 2, x: 500, y: 20 }, { entityId: 3, x: 700, y: 20 },
+      ],
+    });
+
+    advanceFormationOneTick(world, identity, store);
+    expect(getUnitOrdinaryPhysicalGait(store, 1)).toBe("stationary");
+    expect(getUnitOrdinaryPhysicalGait(store, 2)).toBe("walking");
+    expect(getUnitOrdinaryPhysicalGait(store, 3)).toBe("jogging");
+    expect(getUnitOrdinaryPhysicalGait(store, 4)).toBe("jogging");
+    expect([0, 1, 2, 3].map((entityId) =>
+      getIndividualRequestedPhysicalGait(store, entityId),
+    )).toEqual(["stationary", "walking", "jogging", "jogging"]);
+    // Both members advance one coordinate, but the explicit unit gait keeps
+    // their physical semantics independent from that equal displacement.
+    expect(world.positionsX[1]! - 300).toBe(1);
+    expect(world.positionsX[3]! - 700).toBe(1);
+  });
+
+  it("does not let member correction limits change ordinary gait", () => {
+    const slowCorrection = createBlockerHarness({ sourceMemberMaxStep: 1 });
+    const fastCorrection = createBlockerHarness({ sourceMemberMaxStep: 5 });
+    advanceFormationOneTick(
+      slowCorrection.world, slowCorrection.identity, slowCorrection.store,
+    );
+    advanceFormationOneTick(
+      fastCorrection.world, fastCorrection.identity, fastCorrection.store,
+    );
+    expect(getIndividualRequestedPhysicalGait(slowCorrection.store, 0))
+      .toBe("walking");
+    expect(getIndividualRequestedPhysicalGait(fastCorrection.store, 0))
+      .toBe("walking");
+  });
+
+  it("keeps advance gait requested when coordinate correction produces no movement, holds stationary, and routes at sprinting", () => {
+    const { world, identity, store } = createTestHarness({
+      entityCount: 1,
+      identity: { entityCount: 1, units: [{ unitId: 1, factionId: 1, memberEntityIds: [0] }] },
+      formation: {
+        entityCount: 1,
+        rngSeed: 0x7c1b,
+        units: [{ unitId: 1, anchorX: 50, anchorY: 50, headingX: 1, headingY: 0, spacing: 4, rows: 1, cols: 1, unitSpeed: 2, ordinaryPhysicalGait: "walking", order: "advance" }],
+        individuals: [{ entityId: 0, role: "regular", slotRow: 0, slotCol: 0, memberMaxStep: 0 }],
+      },
+      initialPositions: [{ entityId: 0, x: 50, y: 50 }],
+    });
+
+    advanceFormationOneTick(world, identity, store);
+    expect(getIndividualMovementMode(store, 0)).toBe("holdPosition");
+    expect(getIndividualRequestedPhysicalGait(store, 0)).toBe("walking");
+
+    setUnitOrder(store, 1, "hold");
+    advanceFormationOneTick(world, identity, store);
+    expect(getIndividualRequestedPhysicalGait(store, 0)).toBe("stationary");
+
+    advanceFormationOneTick(world, identity, store, new Map([[1, "routing"]]));
+    expect(getIndividualRequestedPhysicalGait(store, 0)).toBe("sprinting");
+  });
+});
 
 describe("formation behaviour: slot following", () => {
   it("keeps a formed column advancing without members overtaking each other", () => {
