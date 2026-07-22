@@ -58,6 +58,18 @@ export type UnitMovementStyle =
   | "giveGround" // 4H-3: wavering contact response; retreat without routing.
   | "routeAway"; // 4E temporary routing movement; stored order remains intact.
 
+export interface FormationEnergyGaitCapabilitySource {
+  readonly projectionTick: number | null;
+  getMaximumOrdinaryGait(entityId: number): IndividualPhysicalGait;
+  getMaximumRoutingGait(entityId: number): IndividualPhysicalGait;
+  getMinimumSafeWalkAvailable(entityId: number): boolean;
+}
+
+export interface FormationEnergyGaitTickContext {
+  readonly tick: number;
+  readonly capabilities: FormationEnergyGaitCapabilitySource;
+}
+
 export interface UnitFormationConfig {
   readonly unitId: UnitId;
   readonly anchorX: number;
@@ -206,6 +218,7 @@ interface InternalFormationBehaviourStore extends FormationBehaviourStore {
   readonly isStuck: Uint8Array;
   readonly movementMode: MovementMode[];
   readonly requestedPhysicalGait: IndividualPhysicalGait[];
+  readonly effectivePhysicalGait: IndividualPhysicalGait[];
   readonly lastEmittedMovementMode: (MovementMode | null)[];
   readonly lastEmittedUnitStyle: (UnitMovementStyle | null)[];
 
@@ -333,6 +346,9 @@ export function createFormationBehaviourStore(
       "holdPosition",
     ),
     requestedPhysicalGait: new Array<IndividualPhysicalGait>(
+      config.entityCount,
+    ).fill("stationary"),
+    effectivePhysicalGait: new Array<IndividualPhysicalGait>(
       config.entityCount,
     ).fill("stationary"),
     lastEmittedMovementMode: new Array<MovementMode | null>(
@@ -574,6 +590,41 @@ export function getIndividualRequestedPhysicalGait(
   return internal.requestedPhysicalGait[entityId]!;
 }
 
+export function getIndividualEffectivePhysicalGait(
+  store: FormationBehaviourStore,
+  entityId: number,
+): IndividualPhysicalGait {
+  const internal = asInternal(store);
+  assertEntityIdInRange(entityId, internal.entityCount);
+  return internal.effectivePhysicalGait[entityId]!;
+}
+
+export function clampPhysicalGait(
+  requested: IndividualPhysicalGait,
+  maximum: IndividualPhysicalGait,
+): IndividualPhysicalGait {
+  return physicalGaitRank(requested) <= physicalGaitRank(maximum)
+    ? requested
+    : maximum;
+}
+
+export function physicalGaitRank(gait: IndividualPhysicalGait): number {
+  return gait === "stationary" ? 0 : gait === "walking" ? 1 : gait === "jogging" ? 2 : 3;
+}
+
+function effectiveGaitFor(
+  requested: IndividualPhysicalGait,
+  entityId: number,
+  routing: boolean,
+  context: FormationEnergyGaitTickContext | undefined,
+): IndividualPhysicalGait {
+  if (context === undefined) return requested;
+  const maximum = routing
+    ? context.capabilities.getMaximumRoutingGait(entityId)
+    : context.capabilities.getMaximumOrdinaryGait(entityId);
+  return clampPhysicalGait(requested, maximum);
+}
+
 export function defaultOrdinaryPhysicalGaitForUnitSpeed(
   unitSpeed: number,
 ): IndividualPhysicalGait {
@@ -761,6 +812,7 @@ export function advanceFormationOneTick(
   diagnostics?: FormationTickDiagnostics,
   lifecycleStore?: IndividualCasualtyLifecycleStore,
   ordinaryParticipation?: IndividualOrdinaryParticipationSnapshot,
+  energyGaitContext?: FormationEnergyGaitTickContext,
 ): FormationTickResult {
   const internal = asInternal(store);
   validateWorldForBehaviour(world, internal, identityStore);
@@ -778,6 +830,13 @@ export function advanceFormationOneTick(
   }
 
   const events: FormationEvent[] = [];
+  if (energyGaitContext !== undefined) {
+    if (!Number.isSafeInteger(energyGaitContext.tick) ||
+        energyGaitContext.tick < 0 ||
+        energyGaitContext.capabilities.projectionTick !== energyGaitContext.tick) {
+      throw new Error("Formation energy gait capability must project the current tick.");
+    }
+  }
   internal.routingPassThroughCount = 0;
   const unitIds = getUnitIds(identityStore);
   const blockerGrid =
@@ -823,6 +882,7 @@ export function advanceFormationOneTick(
       diagnostics,
       lifecycleStore,
       ordinaryParticipation,
+      energyGaitContext,
     );
   }
   if (diagnostics !== undefined) {
@@ -860,6 +920,7 @@ function processUnit(
   diagnostics: FormationTickDiagnostics | undefined,
   lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
   ordinaryParticipation: IndividualOrdinaryParticipationSnapshot | undefined,
+  energyGaitContext: FormationEnergyGaitTickContext | undefined,
 ): void {
   const unitMembers = getUnitMembers(identityStore, unitId);
   if (!hasFormationParticipant(unitMembers, lifecycleStore, ordinaryParticipation)) {
@@ -870,6 +931,7 @@ function processUnit(
       const entityId = unitMembers[index]!;
       store.movementMode[entityId] = "holdPosition";
       store.requestedPhysicalGait[entityId] = "stationary";
+      store.effectivePhysicalGait[entityId] = "stationary";
       store.stuckTicks[entityId] = 0;
       store.isStuck[entityId] = 0;
     }
@@ -904,6 +966,7 @@ function processUnit(
       diagnostics,
       lifecycleStore,
       ordinaryParticipation,
+      energyGaitContext,
     );
     return;
   }
@@ -1033,11 +1096,15 @@ function processUnit(
     if (!isFormationParticipant(lifecycleStore, entityId, ordinaryParticipation)) {
       store.movementMode[entityId] = "holdPosition";
       store.requestedPhysicalGait[entityId] = "stationary";
+      store.effectivePhysicalGait[entityId] = "stationary";
       store.stuckTicks[entityId] = 0;
       store.isStuck[entityId] = 0;
       continue;
     }
     store.requestedPhysicalGait[entityId] = requestedPhysicalGait;
+    store.effectivePhysicalGait[entityId] = effectiveGaitFor(
+      requestedPhysicalGait, entityId, false, energyGaitContext,
+    );
     const role = store.roles[entityId]!;
     const slotRow = store.slotRow[entityId]!;
     const slotCol = store.slotCol[entityId]!;
@@ -1442,6 +1509,7 @@ function processRoutingUnit(
   diagnostics: FormationTickDiagnostics | undefined,
   lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
   ordinaryParticipation: IndividualOrdinaryParticipationSnapshot | undefined,
+  energyGaitContext: FormationEnergyGaitTickContext | undefined,
 ): void {
   const routeHeadingX = store.routingHeadingX[unitIndex]!;
   const routeHeadingY = store.routingHeadingY[unitIndex]!;
@@ -1491,11 +1559,15 @@ function processRoutingUnit(
     if (!isFormationParticipant(lifecycleStore, entityId, ordinaryParticipation)) {
       store.movementMode[entityId] = "holdPosition";
       store.requestedPhysicalGait[entityId] = "stationary";
+      store.effectivePhysicalGait[entityId] = "stationary";
       store.stuckTicks[entityId] = 0;
       store.isStuck[entityId] = 0;
       continue;
     }
     store.requestedPhysicalGait[entityId] = "sprinting";
+    store.effectivePhysicalGait[entityId] = effectiveGaitFor(
+      "sprinting", entityId, true, energyGaitContext,
+    );
     const memberMaxStep = store.memberMaxStep[entityId]!;
     const requestedForwardStep = memberMaxStep;
     const allowedForwardStep = getHostileContactForwardStepLimit(

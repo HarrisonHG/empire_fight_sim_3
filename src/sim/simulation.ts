@@ -1965,6 +1965,26 @@ export function advanceCombatSandboxOneTick(
       instrumentation?.formationDiagnostics,
       combatSandbox.individualCasualtyLifecycleStore,
       combatSandbox.individualOrdinaryParticipationSnapshot,
+      {
+        tick,
+        capabilities: {
+          projectionTick: getIndividualEnergyCapabilityInspection(
+            combatSandbox.individualEnergyCapabilityStore, 0,
+          ).projectionTick,
+          getMaximumOrdinaryGait: (entityId) =>
+            getIndividualEnergyCapabilityInspection(
+              combatSandbox.individualEnergyCapabilityStore, entityId,
+            ).maximumOrdinaryGait,
+          getMaximumRoutingGait: (entityId) =>
+            getIndividualEnergyCapabilityInspection(
+              combatSandbox.individualEnergyCapabilityStore, entityId,
+            ).maximumRoutingGait,
+          getMinimumSafeWalkAvailable: (entityId) =>
+            getIndividualEnergyCapabilityInspection(
+              combatSandbox.individualEnergyCapabilityStore, entityId,
+            ).minimumSafeWalkAvailable,
+        },
+      },
     );
     observeIndividualEnergyMovementAuthority(
       combatSandbox.individualEnergyActivityStore,

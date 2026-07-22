@@ -840,6 +840,43 @@ changes.
 
 ---
 
+## 7C-2A-1 — Capability bridge and effective-gait projection
+
+Status: implemented.
+
+Formation owns requested and reusable effective physical gait. A narrow
+formation-layer read-only capability contract avoids an activity/formation/
+capability import cycle. Production supplies the tick-start capability adapter
+and rejects a non-current projection before formation mutation. This slice
+projects only: positions, movement modes, remainders and energy expenditure
+remain unchanged.
+
+---
+
+## 7C-2A-2 — Ordinary member movement enforcement
+
+Deferred: ordinary coordinate ceilings and actual-effective-gait expenditure.
+
+---
+
+## 7C-2A-3 — Routing member movement enforcement
+
+Deferred: routing coordinate ceilings and minimum-walk movement enforcement.
+
+---
+
+## 7C-2A-4 — Lower-median anchor enforcement and consolidation
+
+Deferred: anchor lower-median gait, bounded diagnostics and consolidated tests.
+
+---
+
+## 7C-2B — Specialist movement enforcement and gait-summary consolidation
+
+Deferred: casualty, medical, trauma and respawn-egress enforcement.
+
+---
+
 ## 7C-2 — Movement enforcement, sprint exhaustion and routing degradation
 
 Deliver:
