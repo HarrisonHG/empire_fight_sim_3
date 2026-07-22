@@ -32,6 +32,7 @@ import {
   type UnitIdentityConfig,
 } from "../../src/sim/unitIdentity";
 import type { WorldState } from "../../src/sim/types";
+import type { IndividualPhysicalGait } from "../../src/sim/individualEnergyActivity";
 
 interface HarnessConfig {
   readonly bounds?: { readonly width: number; readonly height: number };
@@ -286,15 +287,24 @@ function moveBlockerOutOfForwardPath(world: WorldState): void {
 
 describe("formation behaviour: physical gait authority", () => {
   it("orders and clamps physical gait without promotion", () => {
-    expect(["stationary", "walking", "jogging", "sprinting"].map(
-      (gait) => physicalGaitRank(gait as "stationary"),
-    )).toEqual([0, 1, 2, 3]);
+    const orderedGaits: readonly IndividualPhysicalGait[] = [
+      "stationary", "walking", "jogging", "sprinting",
+    ];
+    expect(orderedGaits.map(physicalGaitRank)).toEqual([0, 1, 2, 3]);
     expect(clampPhysicalGait("sprinting", "sprinting")).toBe("sprinting");
     expect(clampPhysicalGait("sprinting", "jogging")).toBe("jogging");
     expect(clampPhysicalGait("sprinting", "walking")).toBe("walking");
     expect(clampPhysicalGait("jogging", "walking")).toBe("walking");
     expect(clampPhysicalGait("walking", "sprinting")).toBe("walking");
     expect(clampPhysicalGait("stationary", "sprinting")).toBe("stationary");
+  });
+
+  it("keeps hold stationary and legacy callers requested-equals-effective", () => {
+    const harness = createBlockerHarness({ sourceOrder: "hold" });
+    advanceFormationOneTick(harness.world, harness.identity, harness.store);
+    expect(getIndividualRequestedPhysicalGait(harness.store, 0)).toBe("stationary");
+    expect(getIndividualEffectivePhysicalGait(harness.store, 0)).toBe("stationary");
+    expect(getFormationEnergyGaitProjectionTickUsed(harness.store)).toBeNull();
   });
 
   it("projects ordinary and routing gait through the supplied capability context", () => {
