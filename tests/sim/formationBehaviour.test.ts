@@ -33,6 +33,10 @@ import {
 } from "../../src/sim/unitIdentity";
 import type { WorldState } from "../../src/sim/types";
 import type { IndividualPhysicalGait } from "../../src/sim/individualEnergyActivity";
+import {
+  createIndividualOrdinaryParticipationSnapshot,
+  setIndividualOrdinaryParticipationEligible,
+} from "../../src/sim/individualOrdinaryParticipation";
 
 interface HarnessConfig {
   readonly bounds?: { readonly width: number; readonly height: number };
@@ -305,6 +309,29 @@ describe("formation behaviour: physical gait authority", () => {
     expect(getIndividualRequestedPhysicalGait(harness.store, 0)).toBe("stationary");
     expect(getIndividualEffectivePhysicalGait(harness.store, 0)).toBe("stationary");
     expect(getFormationEnergyGaitProjectionTickUsed(harness.store)).toBeNull();
+  });
+
+  it("projects excluded ordinary participants as stationary and overwrites gait on a later tick", () => {
+    const harness = createBlockerHarness();
+    const participation = createIndividualOrdinaryParticipationSnapshot(2);
+    let projectionTick = 7;
+    const capabilities = {
+      entityCount: 2,
+      get projectionTick() { return projectionTick; },
+      getMaximumOrdinaryGait: () => "walking" as const,
+      getMaximumRoutingGait: () => "jogging" as const,
+      getMinimumSafeWalkAvailable: () => true,
+    };
+    advanceFormationOneTick(harness.world, harness.identity, harness.store,
+      undefined, undefined, undefined, participation, { tick: 7, capabilities });
+    expect(getIndividualEffectivePhysicalGait(harness.store, 0)).toBe("walking");
+    projectionTick = 8;
+    setIndividualOrdinaryParticipationEligible(participation, 0, false);
+    advanceFormationOneTick(harness.world, harness.identity, harness.store,
+      undefined, undefined, undefined, participation, { tick: 8, capabilities });
+    expect(getIndividualRequestedPhysicalGait(harness.store, 0)).toBe("stationary");
+    expect(getIndividualEffectivePhysicalGait(harness.store, 0)).toBe("stationary");
+    expect(getFormationEnergyGaitProjectionTickUsed(harness.store)).toBe(8);
   });
 
   it("projects ordinary and routing gait through the supplied capability context", () => {

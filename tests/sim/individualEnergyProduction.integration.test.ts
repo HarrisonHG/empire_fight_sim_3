@@ -210,6 +210,57 @@ describe("Milestone 7A production energy integration", () => {
     expect(history.minimumEnergyReached).toBeLessThan(19_000);
     expect(history.totalEnergySpent).toBeGreaterThan(0);
   });
+
+  it("keeps spent gait projection inspection-only while gameplay and expenditure remain unenforced", () => {
+    const fresh = createSimulation(createSmallBattleScenario({}));
+    const spent = createSimulation(createSmallBattleScenario({
+      firstUnitEnergy: {
+        maximumEnergy: 100,
+        startingEnergy: 0,
+        safeRestRecoveryPerTick: 0,
+      },
+    }));
+    const freshAdapter = fresh.combatSandbox!.formationEnergyGaitCapabilities;
+    const spentAdapter = spent.combatSandbox!.formationEnergyGaitCapabilities;
+    advanceSimulationOneTick(fresh);
+    advanceSimulationOneTick(spent);
+
+    const freshInspection = createPositionSnapshot(fresh).combatDebug!
+      .inspectedIndividuals[0]!;
+    const spentInspection = createPositionSnapshot(spent).combatDebug!
+      .inspectedIndividuals[0]!;
+    expect(spentInspection).toMatchObject({
+      formationRequestedPhysicalGait: "jogging",
+      formationEffectivePhysicalGait: "walking",
+      formationGaitReducedByCapability: true,
+      formationEnergyGaitProjectionTickUsed: 0,
+      energyRequestedPhysicalGait: "jogging",
+      energyActualPhysicalGait: "jogging",
+      energyMovementExpenditureRequestedThisTick: 8,
+    });
+    expect(freshInspection).toMatchObject({
+      formationRequestedPhysicalGait: "jogging",
+      formationEffectivePhysicalGait: "jogging",
+      formationGaitReducedByCapability: false,
+      energyActualPhysicalGait: "jogging",
+      energyMovementExpenditureRequestedThisTick: 8,
+    });
+    expect(Array.from(fresh.world.positionsX)).toEqual(Array.from(spent.world.positionsX));
+    expect(Array.from(fresh.world.positionsY)).toEqual(Array.from(spent.world.positionsY));
+    expect(gameplayDigest(spent)).toEqual(gameplayDigest(fresh));
+    expect(fresh.combatSandbox!.formationEnergyGaitCapabilities).toBe(freshAdapter);
+    expect(spent.combatSandbox!.formationEnergyGaitCapabilities).toBe(spentAdapter);
+    expect(freshAdapter.entityCount).toBe(4);
+    expect(spentAdapter.entityCount).toBe(4);
+    expect(freshAdapter.projectionTick).toBe(0);
+    expect(spentAdapter.projectionTick).toBe(0);
+    advanceSimulationOneTick(fresh);
+    advanceSimulationOneTick(spent);
+    expect(fresh.combatSandbox!.formationEnergyGaitCapabilities).toBe(freshAdapter);
+    expect(spent.combatSandbox!.formationEnergyGaitCapabilities).toBe(spentAdapter);
+    expect(freshAdapter.projectionTick).toBe(1);
+    expect(spentAdapter.projectionTick).toBe(1);
+  });
 });
 
 describe("Milestone 7B-1 production activity observation", () => {

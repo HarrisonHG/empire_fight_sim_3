@@ -1,10 +1,8 @@
 # Milestone 7: Energy, Exertion, and Rest
 
-Status: active; 7A, 7B-1, 7B-2, and the narrow 7B-2A authority
-sequencing correction are implemented; 7B is complete. 7C is split into 7C-1
-gait/capability authority and 7C-2
-movement enforcement; 7C-1 and the narrow 7C-1A gait/capability inspection
-and 7C-1B/7C-1C verification corrections are implemented.
+Status: active; 7A and 7B are complete. 7C-1 gait authority and capability
+projection is implemented. 7C-2 formation and routing movement enforcement
+and 7C-3 specialist movement enforcement and consolidation are not started.
 
 Implementation begins after Milestone 6 is accepted and the post-Milestone-6 main-battle medical integration spike is retained as the evolving `/` scenario.
 
@@ -752,155 +750,59 @@ recovery, or gameplay outcome. Milestone 7B is complete after this correction;
 
 ---
 
-## 7C-1 — Explicit physical-gait authority and tick-start capability
+## 7C-1 — Gait authority and capability projection — implemented
 
-Status: implemented.
+- Formation owns ordinary physical gait independently of coordinate correction
+  limits and morale or formation style.
+- Tick-start individual capability projection derives fresh/working sprint,
+  winded jog, spent minimum-walk, and non-mobile stationary limits from the
+  preceding energy and final lifecycle/presence authorities.
+- A reusable formation capability bridge reads entity count, projection tick,
+  ordinary capability, routing capability, and minimum-walk availability
+  directly from the capability store.
+- Formation records requested and effective gait separately. Ordinary and
+  routing participants select their corresponding capabilities; holds and
+  non-participants remain stationary. A later valid tick deterministically
+  overwrites the previous projection.
+- Bounded inspection keeps formation requested/effective/reduction fields
+  separate from actual energy-activity gait and expenditure.
+- Focused validation rejects null, stale, future, and mismatched capability
+  contexts before formation mutation. Production regressions prove adapter
+  reuse, live metadata, blocked-movement semantics, and projection-only
+  fresh-versus-spent equivalence.
+- Semantic actual gait owns energy expenditure while requested and effective
+  formation gait remain diagnostic until movement enforcement begins.
+- `memberMaxStep` remains a coordinate slot-correction limit. Low-level
+  formation tests may exercise zero correction limits where permitted, while
+  authored production scenarios require a positive safe integer.
+- Production combat sandboxes require at least one entity. The formation
+  capability adapter reads store-level metadata directly and does not depend on
+  inspecting a particular entity.
+- The creation-time capability preview uses a null projection tick; the first
+  production tick replaces it with the canonical tick-zero projection without
+  same-tick energy feedback.
 
-Deliver:
-
-- canonical `IndividualPhysicalGait` separate from formation and morale state;
-- reusable current-tick requested/actual gait, source, displacement and external
-  movement evidence in `IndividualEnergyActivityStore`;
-- explicit gait evidence at ordinary, routing, casualty gathering/dragging,
-  medical approach, trauma withdrawal, respawn egress, dragged-patient and
-  scenario-relocation boundaries;
-- semantic gait, rather than coordinate-distance thresholds, as the 7B movement
-  expenditure authority while retaining displacement diagnostics;
-- entity-indexed `IndividualEnergyCapabilityStore` projected once at tick start
-  from preceding energy and final lifecycle/presence;
-- fresh/working sprint, winded jog, spent minimum-walk, and non-mobile stationary
-  capability outputs;
-- projection-tick validation and no same-tick energy feedback;
-- bounded inspection and 100–2,000 entity structural coverage.
-
-Boundary:
-
-7C-1 observes and projects only. It does not clamp gait, alter movement distance,
-end sprint/charge, slow routing, or feed capability back into behaviour.
-
----
-
-## 7C-1A — Formation-owned ordinary gait and initial capability inspection
-
-Status: implemented.
-
-This narrow correction removes `memberMaxStep` from ordinary physical-gait
-authority. `memberMaxStep` remains the per-member coordinate
-slot-following/correction limit. Formation now expands an immutable,
-unit-owned `ordinaryPhysicalGait` once: legacy scenarios default from
-`unitSpeed` (`0` stationary, `1` walking, `2` jogging, `>=3` sprinting), while
-an explicit scenario value overrides that compatibility adapter without
-changing coordinate speed.
-
-Each formation tick exposes requested gait per entity: ordinary advance,
-giving-ground and detour movement use the unit gait; routing requests
-sprinting; effective holds and non-participation request stationary. Requested
-gait remains present when movement is blocked and actual gait is stationary.
-The energy observer consumes this formation output; specialist casualty,
-medical, egress, patient and external-displacement policies are unchanged.
-The main-battle `unitSpeed: 2` / `memberMaxStep: 3` advance therefore uses
-jogging expenditure (8 per moving tick), not sprint expenditure.
-
-Capability inspection now seeds a real creation-time preview from current
-energy, lifecycle and presence with `projectionTick: null`. The canonical
-first production projection replaces that preview at tick 0, retaining
-duplicate and backwards-projection validation. This correction does not alter
-positions, movement modes/styles, combat, casualty outcomes, pressure or
-morale.
+Boundary: 7C-1 projects capability but does not enforce it. It does not clamp
+actual movement, alter movement distance or remainders, end sprint/charge, slow
+routing, or change combat, casualty, pressure, morale, or specialist movement.
 
 ---
 
-## 7C-1B — Supported-runtime verification correction
+## 7C-2 — Formation and routing movement enforcement — not started
 
-Status: implemented.
+Planned work includes ordinary and routing coordinate ceilings, minimum-walk
+movement, actual-effective-gait expenditure, sprint exhaustion timing,
+lower-median anchor enforcement, and bounded unit diagnostics.
 
-The 7C-1A verification fixtures were corrected without changing formation or
-production movement rules. An advancing low-level formation member with a zero
-correction limit retains `advanceWithUnit` semantics and its requested unit
-gait; lack of displacement is not an explicit hold. The production regression
-now uses valid positive `memberMaxStep` values and an existing hostile-contact
-blocker to prove requested jogging, actual stationary gait, and zero movement
-expenditure. This preserves the intended validation boundary: low-level
-formation-store tests may use a zero correction limit, but authored live combat
-scenario content requires a positive correction limit.
+No combat-tempo, pressure, equipment-burden, rest-decision, or specialist
+movement enforcement belongs to this step.
 
 ---
 
-## 7C-1C — Full-suite test stability correction
+## 7C-3 — Specialist movement enforcement and consolidation — not started
 
-Status: implemented.
-
-The live-combat inspected-entity regression searched for current-tick combat
-evidence by creating a complete position/debug snapshot on every tick. It now
-checks the authoritative production attack, defence, hit-application and
-zero-hit buffers first, and creates exactly one snapshot only once a configured
-inspected entity has relevant current-tick evidence. The deterministic combat
-run and snapshot assertions are unchanged; no simulation or snapshot behaviour
-changes.
-
----
-
-## 7C-2A-1 — Capability bridge and effective-gait projection
-
-Status: in progress.
-
-Formation owns requested and reusable effective physical gait. A narrow
-formation-layer read-only capability contract avoids an activity/formation/
-capability import cycle. Production supplies the tick-start capability adapter
-and rejects a non-current projection before formation mutation. This slice
-projects only: positions, movement modes, remainders and energy expenditure
-remain unchanged.
-
----
-
-## 7C-2A-2 — Ordinary member movement enforcement
-
-Deferred: ordinary coordinate ceilings and actual-effective-gait expenditure.
-
----
-
-## 7C-2A-3 — Routing member movement enforcement
-
-Deferred: routing coordinate ceilings and minimum-walk movement enforcement.
-
----
-
-## 7C-2A-4 — Lower-median anchor enforcement and consolidation
-
-Deferred: anchor lower-median gait, bounded diagnostics and consolidated tests.
-
----
-
-## 7C-2B — Specialist movement enforcement and gait-summary consolidation
-
-Deferred: casualty, medical, trauma and respawn-egress enforcement.
-
----
-
-## 7C-2 — Movement enforcement, sprint exhaustion and routing degradation
-
-Deliver:
-
-- band-based walk/jog/sprint limits;
-- energy-limited sprint/charge duration;
-- minimum safe walk;
-- routing-safe degradation;
-- movement records and unit gait summaries.
-
-Tests:
-
-- fresh entity can sprint;
-- sprint drains and ends naturally;
-- winded cannot initiate ordinary sprint;
-- spent retains minimum walk;
-- routing degrades rather than freezing;
-- formation style remains independent from gait;
-- no same-tick energy feedback loop;
-- world-bound and deterministic movement.
-
-Boundary:
-
-No combat-tempo, pressure, equipment burden, or rest decisions yet.
+Planned work includes casualty, medical, trauma-withdrawal and respawn-egress
+enforcement, followed by gait-summary and diagnostic consolidation.
 
 ---
 
