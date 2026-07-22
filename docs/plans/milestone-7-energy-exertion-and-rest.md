@@ -4,7 +4,7 @@ Status: active; 7A, 7B-1, 7B-2, and the narrow 7B-2A authority
 sequencing correction are implemented; 7B is complete. 7C is split into 7C-1
 gait/capability authority and 7C-2
 movement enforcement; 7C-1 and the narrow 7C-1A gait/capability inspection
-and 7C-1B verification corrections are implemented.
+and 7C-1B/7C-1C verification corrections are implemented.
 
 Implementation begins after Milestone 6 is accepted and the post-Milestone-6 main-battle medical integration spike is retained as the evolving `/` scenario.
 
@@ -823,6 +823,20 @@ blocker to prove requested jogging, actual stationary gait, and zero movement
 expenditure. This preserves the intended validation boundary: low-level
 formation-store tests may use a zero correction limit, but authored live combat
 scenario content requires a positive correction limit.
+
+---
+
+## 7C-1C — Full-suite test stability correction
+
+Status: implemented.
+
+The live-combat inspected-entity regression searched for current-tick combat
+evidence by creating a complete position/debug snapshot on every tick. It now
+checks the authoritative production attack, defence, hit-application and
+zero-hit buffers first, and creates exactly one snapshot only once a configured
+inspected entity has relevant current-tick evidence. The deterministic combat
+run and snapshot assertions are unchanged; no simulation or snapshot behaviour
+changes.
 
 ---
 

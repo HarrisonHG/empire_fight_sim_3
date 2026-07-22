@@ -136,24 +136,18 @@ describe("live combat scenario", () => {
     const simulation = createSimulation(
       liveCombatWithInspectedEntities(inspectedEntityIds),
     );
+    const combat = requireCombatSandbox(simulation);
     let inspected: readonly LiveCombatDebugIndividualSnapshot[] = [];
 
     for (let tick = 0; tick < CONTACT_RUN_TICKS; tick += 1) {
       advanceSimulationOneTick(simulation);
+      if (!hasInspectedCurrentTickCombatEvidence(combat, inspectedEntityIds)) {
+        continue;
+      }
       inspected =
         createPositionSnapshot(simulation).combatDebug?.inspectedIndividuals ??
         [];
-      if (
-        inspected.some(
-          (individual) =>
-            individual.thisTickAttackOutcome !== "none" ||
-            individual.thisTickDefenceOutcome !== "none" ||
-            individual.thisTickAppliedHitLoss > 0 ||
-            individual.reachedZeroHitsThisTick,
-        )
-      ) {
-        break;
-      }
+      break;
     }
 
     expect(inspected.map((individual) => individual.entityId)).toEqual(
@@ -542,6 +536,29 @@ function inspectedAttackOutcome(
     }
   }
   return outcome;
+}
+
+function hasInspectedCurrentTickCombatEvidence(
+  combat: ReturnType<typeof requireCombatSandbox>,
+  inspectedEntityIds: readonly number[],
+): boolean {
+  const isInspected = (entityId: number): boolean =>
+    inspectedEntityIds.includes(entityId);
+  const buffers = combat.individualCombatPipelineBuffers;
+  for (const attempt of buffers.attackAttempts) {
+    if (isInspected(attempt.attackerEntityId)) return true;
+  }
+  for (const record of buffers.defenceRecords) {
+    if (isInspected(record.attackerEntityId) ||
+        isInspected(record.defenderEntityId)) return true;
+  }
+  for (const application of buffers.hitApplications) {
+    if (isInspected(application.targetEntityId)) return true;
+  }
+  for (const event of buffers.zeroHitEvents) {
+    if (isInspected(event.entityId)) return true;
+  }
+  return false;
 }
 
 function inspectedDefenceOutcome(
