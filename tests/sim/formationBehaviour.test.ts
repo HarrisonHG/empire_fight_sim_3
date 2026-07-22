@@ -7,12 +7,16 @@ import {
   getIndividualPressure,
   getIndividualMovementMode,
   getIndividualRequestedPhysicalGait,
+  getIndividualEffectivePhysicalGait,
+  getFormationEnergyGaitProjectionTickUsed,
   getIndividualStuckTicks,
   getUnitAnchor,
   getUnitCohesion,
   getUnitMovementStyle,
   getUnitOrder,
   getUnitOrdinaryPhysicalGait,
+  clampPhysicalGait,
+  physicalGaitRank,
   setIndividualPressure,
   setUnitOrder,
   type FormationBehaviourConfig,
@@ -281,6 +285,75 @@ function moveBlockerOutOfForwardPath(world: WorldState): void {
 }
 
 describe("formation behaviour: physical gait authority", () => {
+  it("orders and clamps physical gait without promotion", () => {
+    expect(["stationary", "walking", "jogging", "sprinting"].map(
+      (gait) => physicalGaitRank(gait as "stationary"),
+    )).toEqual([0, 1, 2, 3]);
+    expect(clampPhysicalGait("sprinting", "sprinting")).toBe("sprinting");
+    expect(clampPhysicalGait("sprinting", "jogging")).toBe("jogging");
+    expect(clampPhysicalGait("sprinting", "walking")).toBe("walking");
+    expect(clampPhysicalGait("jogging", "walking")).toBe("walking");
+    expect(clampPhysicalGait("walking", "sprinting")).toBe("walking");
+    expect(clampPhysicalGait("stationary", "sprinting")).toBe("stationary");
+  });
+
+  it("projects ordinary and routing gait through the supplied capability context", () => {
+    const harness = createBlockerHarness();
+    const capabilities = {
+      entityCount: 2,
+      projectionTick: 7,
+      getMaximumOrdinaryGait: () => "walking" as const,
+      getMaximumRoutingGait: () => "jogging" as const,
+      getMinimumSafeWalkAvailable: () => true,
+    };
+    advanceFormationOneTick(
+      harness.world, harness.identity, harness.store, undefined, undefined,
+      undefined, undefined, { tick: 7, capabilities },
+    );
+    expect(getIndividualRequestedPhysicalGait(harness.store, 0)).toBe("walking");
+    expect(getIndividualEffectivePhysicalGait(harness.store, 0)).toBe("walking");
+    expect(getFormationEnergyGaitProjectionTickUsed(harness.store)).toBe(7);
+
+    advanceFormationOneTick(
+      harness.world, harness.identity, harness.store, new Map([[1, "routing"]]),
+      undefined, undefined, undefined, { tick: 7, capabilities },
+    );
+    expect(getIndividualRequestedPhysicalGait(harness.store, 0)).toBe("sprinting");
+    expect(getIndividualEffectivePhysicalGait(harness.store, 0)).toBe("jogging");
+  });
+
+  it("rejects invalid capability contexts before formation mutation", () => {
+    for (const [projectionTick, entityCount] of [[null, 2], [6, 2], [8, 2], [7, 3]] as const) {
+      const harness = createBlockerHarness();
+      const before = {
+        positions: Array.from(harness.world.positionsX),
+        anchor: getUnitAnchor(harness.store, 1),
+        mode: getIndividualMovementMode(harness.store, 0),
+        requested: getIndividualRequestedPhysicalGait(harness.store, 0),
+        effective: getIndividualEffectivePhysicalGait(harness.store, 0),
+        projection: getFormationEnergyGaitProjectionTickUsed(harness.store),
+      };
+      const capabilities = {
+        entityCount,
+        projectionTick,
+        getMaximumOrdinaryGait: () => "walking" as const,
+        getMaximumRoutingGait: () => "walking" as const,
+        getMinimumSafeWalkAvailable: () => true,
+      };
+      expect(() => advanceFormationOneTick(
+        harness.world, harness.identity, harness.store, undefined, undefined,
+        undefined, undefined, { tick: 7, capabilities },
+      )).toThrow(/capability/);
+      expect({
+        positions: Array.from(harness.world.positionsX),
+        anchor: getUnitAnchor(harness.store, 1),
+        mode: getIndividualMovementMode(harness.store, 0),
+        requested: getIndividualRequestedPhysicalGait(harness.store, 0),
+        effective: getIndividualEffectivePhysicalGait(harness.store, 0),
+        projection: getFormationEnergyGaitProjectionTickUsed(harness.store),
+      }).toEqual(before);
+    }
+  });
   it("expands unit speed once, preserves an explicit override, and ignores member correction limits", () => {
     const { world, identity, store } = createTestHarness({
       entityCount: 4,
