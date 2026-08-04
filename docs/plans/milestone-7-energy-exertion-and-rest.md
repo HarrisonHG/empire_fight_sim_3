@@ -763,9 +763,9 @@ slice.
   ordinary capability, routing capability, and minimum-walk availability
   directly from the capability store.
 - Formation records requested and effective gait separately. Ordinary and
-  routing participants select their corresponding capabilities; holds and
-  non-participants remain stationary. A later valid tick deterministically
-  overwrites the previous projection.
+  routing participants select their corresponding capabilities; explicit holds
+  keep the unit anchor stationary and non-participants remain stationary. A
+  later valid tick deterministically overwrites the previous projection.
 - Bounded inspection keeps formation requested/effective/reduction fields
   separate from actual energy-activity gait and expenditure.
 - Focused validation rejects null, stale, future, and mismatched capability
@@ -833,6 +833,11 @@ routing, or change combat, casualty, pressure, morale, or specialist movement.
   energy ceilings. Bounds-only blocking retains requested/effective gait while
   actual gait is stationary and free, and fixed-point remainders remain owned
   by the existing movement policy.
+- Explicit hold and recovery keep requested unit and effective anchor gait
+  stationary while eligible member slot correction uses the named walking
+  reformation gait. Existing morale scaling applies before the energy ceiling;
+  zero-energy active members retain minimum walking, and actual displacement
+  alone determines actual gait and expenditure.
 - Consolidation regressions cover ordinary and routing requested/effective/
   actual gait separation, lower-median anchor policy, diagnostic overwrite,
   following-tick capability changes, and post-energy pass-through segments.
@@ -842,6 +847,10 @@ routing, or change combat, casualty, pressure, morale, or specialist movement.
 - Structural performance coverage exercises 100, 500, 1,000 and 2,000 entities,
   including 100 units of 20 at 2,000 entities, without timing thresholds or
   inspection-object use in the hot formation path.
+- Retained pre-energy Milestone 3 and 4 fixtures use a finite shared isolation
+  energy profile and explicit fixture gait/geometry where required. This keeps
+  their documented combat, morale, contagion and recovery observations visible
+  without changing production defaults or morale mechanics.
 
 No combat-tempo, pressure, equipment-burden, rest-decision, or specialist
 movement enforcement belongs to this step.

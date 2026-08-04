@@ -381,7 +381,11 @@ describe("live combat scenario", () => {
     expect(simulation.legacyCombatFoundationSandbox).toBeDefined();
 
     let sawLegacyApplication = false;
-    for (let tick = 0; tick < CONTACT_RUN_TICKS; tick += 1) {
+    for (
+      let tick = 0;
+      tick < entry.recommendedTickRange.end;
+      tick += 1
+    ) {
       advanceSimulationOneTick(simulation);
       const debug = createPositionSnapshot(simulation).combatDebug;
       if (debug === undefined) {
@@ -390,10 +394,22 @@ describe("live combat scenario", () => {
       sawLegacyApplication ||= debug.gateAcceptedHitCount > 0;
     }
 
-    // The archived fixture does not supply tick-start energy capability. Its
-    // historical combat application timing is not retained once formation
-    // movement consistently enforces authored physical gait.
-    expect(sawLegacyApplication).toBe(false);
+    const finalDebug = createPositionSnapshot(simulation).combatDebug;
+    if (finalDebug === undefined) {
+      throw new Error("Archived combat foundation fixture is missing debug.");
+    }
+    expect(finalDebug).toMatchObject({
+      totalAttackAttemptCount: expect.any(Number),
+      totalLandedOutcomeCount: expect.any(Number),
+      totalGateAcceptedHitCount: expect.any(Number),
+    });
+    expect(finalDebug.totalAttackAttemptCount).toBeGreaterThan(0);
+    expect(finalDebug.totalLandedOutcomeCount).toBeGreaterThan(0);
+    expect(finalDebug.totalGateAcceptedHitCount).toBeGreaterThan(0);
+    expect(
+      simulation.legacyCombatFoundationSandbox!.totalConsequenceCount,
+    ).toBeGreaterThan(0);
+    expect(sawLegacyApplication).toBe(true);
     expect(simulation.world.entityCount).toBe(35);
     expect(Array.from(simulation.world.ids)).toEqual(
       Array.from({ length: 35 }, (_, index) => index),

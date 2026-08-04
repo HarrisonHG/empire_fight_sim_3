@@ -1,4 +1,5 @@
 import type { CombatSandboxUnitScenario, SimulationScenario } from "../sim/types";
+import { RETAINED_SCENARIO_ISOLATION_ENERGY_PROFILE } from "./retainedScenarioEnergyProfile";
 
 export const MORALE_INSPECTION_SCENARIO: SimulationScenario = Object.freeze({
   seed: 0x4a_2,
@@ -6,6 +7,7 @@ export const MORALE_INSPECTION_SCENARIO: SimulationScenario = Object.freeze({
   bounds: Object.freeze({ width: 1_280, height: 720 }),
   minSpeedUnitsPerTick: 1,
   maxSpeedUnitsPerTick: 1,
+  energyProfile: RETAINED_SCENARIO_ISOLATION_ENERGY_PROFILE,
   combatSandbox: Object.freeze({
     kind: "liveCombatSandbox",
     appliedDamagePressureScale: 7,
@@ -54,6 +56,7 @@ function blueUnit(
     rows: 2,
     cols: 5,
     unitSpeed,
+    ordinaryPhysicalGait: "jogging",
     order,
     role,
     memberMaxStep,
@@ -92,6 +95,7 @@ function hostileUnit(
     rows: 2,
     cols: 5,
     unitSpeed: 0,
+    ordinaryPhysicalGait: "jogging",
     order: "hold",
     role: "regular",
     memberMaxStep: 3,

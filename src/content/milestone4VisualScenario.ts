@@ -4,6 +4,7 @@ import {
   PURSUIT_VETERAN_SCENARIO,
 } from "./pursuitScenarios";
 import type { CombatSandboxUnitScenario, SimulationScenario } from "../sim/types";
+import { RETAINED_SCENARIO_ISOLATION_ENERGY_PROFILE } from "./retainedScenarioEnergyProfile";
 
 export const MILESTONE_4_VISUAL_AREAS = Object.freeze([
   Object.freeze({ id: "comparison", unitIds: Object.freeze([11, 12, 13, 14, 21, 22, 23]) }),
@@ -12,7 +13,13 @@ export const MILESTONE_4_VISUAL_AREAS = Object.freeze([
 ]);
 
 const comparisonUnits = requireUnits(MORALE_INSPECTION_SCENARIO).map((unit) =>
-  translateUnit(unit, unit.unitId, 0, 0, "Comparison area"),
+  translateUnit(
+    unit,
+    unit.unitId,
+    unit.unitId === 13 ? -20 : 0,
+    0,
+    "Comparison area",
+  ),
 );
 const regularPursuitUnits = requireUnits(PURSUIT_REGULAR_SCENARIO).map((unit) =>
   translateUnit(unit, unit.unitId, 0, 740, "Regular pursuit area"),
@@ -34,6 +41,7 @@ export const MILESTONE_4_VISUAL_SCENARIO: SimulationScenario = Object.freeze({
   bounds: Object.freeze({ width: 1_280, height: 1_900 }),
   minSpeedUnitsPerTick: 1,
   maxSpeedUnitsPerTick: 1,
+  energyProfile: RETAINED_SCENARIO_ISOLATION_ENERGY_PROFILE,
   combatSandbox: Object.freeze({
     kind: "liveCombatSandbox",
     appliedDamagePressureScale: 7,

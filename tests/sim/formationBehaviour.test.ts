@@ -772,7 +772,8 @@ describe("formation behaviour: physical gait authority", () => {
     expect(getUnitEnergyGaitDiagnostics(hold.store, 1)).toMatchObject({
       requestedUnitPhysicalGait: "stationary",
       effectiveAnchorPhysicalGait: "stationary",
-      stationaryEffectiveMemberCount: 2,
+      stationaryEffectiveMemberCount: 0,
+      walkingEffectiveMemberCount: 2,
       preEnergyAnchorStep: 0,
       postEnergyAnchorStep: 0,
     });
@@ -1103,7 +1104,7 @@ describe("formation behaviour: physical gait authority", () => {
     expect(getIndividualMovementReducedByEnergy(alreadySlower.store, 0)).toBe(false);
   });
 
-  it("keeps explicit holds and non-participants at zero diagnostics and overwrites prior reductions", () => {
+  it("lets explicit holds reform at walking gait while non-participants stay stationary", () => {
     const harness = createEnergyEnforcementHarness({
       requestedGait: "sprinting",
       maximumGait: "walking",
@@ -1113,14 +1114,16 @@ describe("formation behaviour: physical gait authority", () => {
 
     setUnitOrder(harness.store, 1, "hold");
     harness.advance();
-    expect(getIndividualMovementMode(harness.store, 0)).toBe("holdPosition");
+    expect(getIndividualMovementMode(harness.store, 0)).toBe("moveToFormationSlot");
     expect([
       getIndividualPreEnergyStepX(harness.store, 0),
       getIndividualPreEnergyStepY(harness.store, 0),
       getIndividualPostEnergyStepX(harness.store, 0),
       getIndividualPostEnergyStepY(harness.store, 0),
-    ]).toEqual([0, 0, 0, 0]);
-    expect(getIndividualMovementReducedByEnergy(harness.store, 0)).toBe(false);
+    ]).toEqual([4, 4, 1, 1]);
+    expect(getIndividualMovementReducedByEnergy(harness.store, 0)).toBe(true);
+    expect(getIndividualRequestedPhysicalGait(harness.store, 0)).toBe("walking");
+    expect(getIndividualEffectivePhysicalGait(harness.store, 0)).toBe("walking");
 
     const participation = createIndividualOrdinaryParticipationSnapshot(1);
     setIndividualOrdinaryParticipationEligible(participation, 0, false);
@@ -1277,11 +1280,15 @@ describe("formation behaviour: physical gait authority", () => {
     expect(build(true)).toEqual(build(false));
   });
 
-  it("keeps hold stationary and legacy callers requested-equals-effective", () => {
+  it("keeps the hold anchor stationary while legacy callers project walking reformation", () => {
     const harness = createBlockerHarness({ sourceOrder: "hold" });
     advanceFormationOneTick(harness.world, harness.identity, harness.store);
-    expect(getIndividualRequestedPhysicalGait(harness.store, 0)).toBe("stationary");
-    expect(getIndividualEffectivePhysicalGait(harness.store, 0)).toBe("stationary");
+    expect(getIndividualRequestedPhysicalGait(harness.store, 0)).toBe("walking");
+    expect(getIndividualEffectivePhysicalGait(harness.store, 0)).toBe("walking");
+    expect(getUnitEnergyGaitDiagnostics(harness.store, 1)).toMatchObject({
+      requestedUnitPhysicalGait: "stationary",
+      effectiveAnchorPhysicalGait: "stationary",
+    });
     expect(getFormationEnergyGaitProjectionTickUsed(harness.store)).toBeNull();
   });
 
@@ -1434,7 +1441,7 @@ describe("formation behaviour: physical gait authority", () => {
       .toBe("walking");
   });
 
-  it("keeps advance authority distinct from zero displacement, holds stationary, and routes at sprinting", () => {
+  it("keeps advance, hold-reformation, and routing gait authorities distinct", () => {
     const { world, identity, store } = createTestHarness({
       entityCount: 1,
       identity: { entityCount: 1, units: [{ unitId: 1, factionId: 1, memberEntityIds: [0] }] },
@@ -1454,7 +1461,12 @@ describe("formation behaviour: physical gait authority", () => {
     setUnitOrder(store, 1, "hold");
     advanceFormationOneTick(world, identity, store);
     expect(getIndividualMovementMode(store, 0)).toBe("holdPosition");
-    expect(getIndividualRequestedPhysicalGait(store, 0)).toBe("stationary");
+    expect(getIndividualRequestedPhysicalGait(store, 0)).toBe("walking");
+    expect(getIndividualEffectivePhysicalGait(store, 0)).toBe("walking");
+    expect(getUnitEnergyGaitDiagnostics(store, 1)).toMatchObject({
+      requestedUnitPhysicalGait: "stationary",
+      effectiveAnchorPhysicalGait: "stationary",
+    });
 
     advanceFormationOneTick(world, identity, store, new Map([[1, "routing"]]));
     expect(getIndividualRequestedPhysicalGait(store, 0)).toBe("sprinting");
@@ -2220,8 +2232,10 @@ describe("formation behaviour: unit blocker arbitration", () => {
     advanceFormationOneTick(world, identity, store);
 
     expect(getUnitMovementStyle(store, 1)).toBe("orderedHalt");
-    expect(world.positionsX[0]).toBe(96);
+    expect(world.positionsX[0]).toBe(97);
     expect(world.positionsX[0]).toBeLessThan(world.positionsX[1]!);
+    expect(getIndividualPreEnergyStepX(store, 0)).toBe(1);
+    expect(getIndividualPostEnergyStepX(store, 0)).toBe(1);
   });
 
   it("keeps lateral formation correction while clamping hostile forward contact", () => {

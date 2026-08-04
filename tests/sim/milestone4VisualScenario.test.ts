@@ -4,7 +4,10 @@ import {
   MILESTONE_4_VISUAL_AREAS,
   MILESTONE_4_VISUAL_SCENARIO,
 } from "../../src/content/milestone4VisualScenario";
-import { getUnitAnchor } from "../../src/sim/formationBehaviour";
+import {
+  getUnitAnchor,
+  getUnitMovementStyle,
+} from "../../src/sim/formationBehaviour";
 import { LOCAL_HOSTILE_THREAT_RADIUS } from "../../src/sim/moraleMovement";
 import { getPersistentUnitMorale } from "../../src/sim/persistentMorale";
 import {
@@ -56,8 +59,10 @@ describe("combined Milestone 4 visual regression scenario", () => {
     let veteranPursuitRouted = false;
     let regularRouteTick: number | undefined;
     let veteranRouteTick: number | undefined;
+    let recruitRouteTick: number | undefined;
     let regularReturnTick: number | undefined;
     let veteranReturnTick: number | undefined;
+    let veteranReengaged = false;
 
     for (let tick = 1; tick <= 800; tick += 1) {
       advanceSimulationOneTick(simulation);
@@ -74,6 +79,7 @@ describe("combined Milestone 4 visual regression scenario", () => {
         51,
       );
       recruitRouted ||= recruit.state === "routing";
+      if (recruit.state === "routing" && recruitRouteTick === undefined) recruitRouteTick = tick;
       reserveDisrupted ||= reserve.state !== "steady";
       regularMoreDegraded ||= moraleRank(regular.state) > moraleRank(veteran.state);
       regularPursuitRouted ||= regularPursuit.state === "routing";
@@ -94,23 +100,30 @@ describe("combined Milestone 4 visual regression scenario", () => {
       ) {
         veteranReturnTick = tick;
       }
+      const veteranMovementStyle = getUnitMovementStyle(
+        combat.formationStore,
+        51,
+      );
+      veteranReengaged ||=
+        veteranReturnTick !== undefined &&
+        veteranMovementStyle !== "orderedHalt" &&
+        veteranMovementStyle !== "routeAway";
     }
 
     expect(recruitRouted).toBe(true);
-    expect(reserveDisrupted).toBe(false);
+    expect(reserveDisrupted).toBe(true);
     expect(regularMoreDegraded).toBe(true);
-    expect(regularPursuitRouted).toBe(false);
-    expect(veteranPursuitRouted).toBe(false);
+    expect(regularPursuitRouted).toBe(true);
+    expect(veteranPursuitRouted).toBe(true);
+    expect(recruitRouteTick).toBeLessThan(regularRouteTick!);
+    expect(recruitRouteTick).toBeLessThan(veteranRouteTick!);
+    expect(veteranReturnTick).toBeDefined();
+    expect(regularReturnTick).toBeUndefined();
+    expect(veteranReengaged).toBe(true);
     const regularFinal = getPersistentUnitMorale(combat.persistentMoraleStore, 31);
     const veteranFinal = getPersistentUnitMorale(combat.persistentMoraleStore, 51);
-    expect({ veteranReturnTick, regularReturnTick, regularRouteTick, veteranRouteTick, regularFinal, veteranFinal }).toEqual({
-      veteranReturnTick: undefined,
-      regularReturnTick: undefined,
-      regularRouteTick: undefined,
-      veteranRouteTick: undefined,
-      regularFinal: expect.objectContaining({ state: "steady", cohesion: 455 }),
-      veteranFinal: expect.objectContaining({ state: "steady", cohesion: 520 }),
-    });
+    expect(regularFinal.state).not.toBe("steady");
+    expect(veteranFinal.state).toBe("steady");
   }, 10_000);
 });
 

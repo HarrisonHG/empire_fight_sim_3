@@ -840,6 +840,93 @@ describe("Milestone 7B-1 production activity observation", () => {
       });
   });
 
+  it("charges recovering slot correction as walking only when it displaces", () => {
+    const run = (initialX: number) => {
+      const source = createSmallBattleScenario({
+        scenarioEnergy: {
+          maximumEnergy: 100,
+          startingEnergy: 0,
+          safeRestRecoveryPerTick: 0,
+        },
+      });
+      const combat = source.combatSandbox!;
+      const units = combat.units.map((unit, unitIndex) => {
+        const { memberProfiles: _memberProfiles, ...base } = unit;
+        return unitIndex === 0
+          ? {
+              ...base,
+              memberCount: 1,
+              deploymentZone: {
+                minX: initialX,
+                maxX: initialX,
+                minY: 120,
+                maxY: 120,
+              },
+              anchorX: 100,
+              anchorY: 120,
+              rows: 1,
+              cols: 1,
+              unitSpeed: 4,
+              ordinaryPhysicalGait: "sprinting" as const,
+              order: "advance" as const,
+              memberMaxStep: 4,
+            }
+          : {
+              ...base,
+              memberCount: 1,
+              deploymentZone: {
+                minX: 420,
+                maxX: 420,
+                minY: 120,
+                maxY: 120,
+              },
+              anchorX: 420,
+              anchorY: 120,
+              rows: 1,
+              cols: 1,
+              order: "hold" as const,
+            };
+      });
+      const simulation = createSimulation({
+        ...source,
+        entityCount: 2,
+        combatSandbox: {
+          ...combat,
+          inspectedEntityIds: [0],
+          units,
+        },
+      });
+      simulation.combatSandbox!.moraleMovementStates.set(1, "recovering");
+      advanceSimulationOneTick(simulation);
+      return {
+        anchor: getUnitAnchor(simulation.combatSandbox!.formationStore, 1),
+        positionX: simulation.world.positionsX[0],
+        inspection: createPositionSnapshot(simulation).combatDebug!
+          .inspectedIndividuals[0],
+      };
+    };
+
+    const displaced = run(80);
+    expect(displaced.anchor).toEqual({ x: 100, y: 120 });
+    expect(displaced.positionX).toBe(81);
+    expect(displaced.inspection).toMatchObject({
+      formationRequestedPhysicalGait: "walking",
+      formationEffectivePhysicalGait: "walking",
+      energyActualPhysicalGait: "walking",
+      energyMovementExpenditureRequestedThisTick: 1,
+    });
+
+    const aligned = run(100);
+    expect(aligned.anchor).toEqual({ x: 100, y: 120 });
+    expect(aligned.positionX).toBe(100);
+    expect(aligned.inspection).toMatchObject({
+      formationRequestedPhysicalGait: "walking",
+      formationEffectivePhysicalGait: "walking",
+      energyActualPhysicalGait: "stationary",
+      energyMovementExpenditureRequestedThisTick: 0,
+    });
+  });
+
   it("applies final current-tick activity without feeding energy back into behaviour", () => {
     const simulation = createSimulation(CASUALTY_LIFECYCLE_VISUAL_SCENARIO);
     const observed = new Set<string>();

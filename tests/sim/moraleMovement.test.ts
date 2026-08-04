@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  FORMATION_REFORMATION_PHYSICAL_GAIT,
   advanceFormationOneTick,
   createFormationBehaviourStore,
   getIndividualConfiguredMaxStep,
+  getIndividualEffectivePhysicalGait,
+  getIndividualMovementMode,
+  getIndividualPostEnergyStepX,
+  getIndividualPreEnergyStepX,
+  getIndividualRequestedPhysicalGait,
   getUnitAnchor,
   getUnitConfiguredSpeed,
+  getUnitEnergyGaitDiagnostics,
   getUnitMovementStyle,
   getUnitOrder,
 } from "../../src/sim/formationBehaviour";
@@ -65,7 +72,7 @@ describe("morale movement modifiers", () => {
     expect(shaken.world.positionsX[0]).toBe(113);
   });
 
-  it("keeps explicit holds stationary across morale movement states", () => {
+  it("holds the anchor while morale independently scales walking reformation", () => {
     const steady = createMoraleMovementHarness({
       initialMemberX: 80,
       order: "hold",
@@ -83,9 +90,20 @@ describe("morale movement modifiers", () => {
     advanceTicks(strained, 20, moraleStates("strained"));
     advanceTicks(shaken, 20, moraleStates("shaken"));
 
-    expect(steady.world.positionsX[0]).toBe(80);
-    expect(strained.world.positionsX[0]).toBe(80);
-    expect(shaken.world.positionsX[0]).toBe(80);
+    expect(getUnitAnchor(steady.store, UNIT_ID)).toEqual({ x: 100, y: 100 });
+    expect(getUnitAnchor(strained.store, UNIT_ID)).toEqual({ x: 100, y: 100 });
+    expect(getUnitAnchor(shaken.store, UNIT_ID)).toEqual({ x: 100, y: 100 });
+    expect(steady.world.positionsX[0]).toBe(100);
+    expect(strained.world.positionsX[0]).toBe(97);
+    expect(shaken.world.positionsX[0]).toBe(93);
+    expect(getIndividualRequestedPhysicalGait(steady.store, 0)).toBe(
+      FORMATION_REFORMATION_PHYSICAL_GAIT,
+    );
+    expect(getIndividualEffectivePhysicalGait(steady.store, 0)).toBe("walking");
+    expect(getUnitEnergyGaitDiagnostics(steady.store, UNIT_ID)).toMatchObject({
+      requestedUnitPhysicalGait: "stationary",
+      effectiveAnchorPhysicalGait: "stationary",
+    });
   });
 
   it("uses distinct deterministic hostile-contact traces for strained, shaken, and wavering", () => {
@@ -126,13 +144,11 @@ describe("morale movement modifiers", () => {
       if (state === "wavering") {
         expect(harness.world.positionsX[0]).toBeGreaterThan(80);
         expect(harness.world.positionsX[0]).toBeLessThan(100);
-      } else {
-        expect(harness.world.positionsX[0]).toBe(80);
-      }
+      } else expect(harness.world.positionsX[0]).toBe(85);
     },
   );
 
-  it("suspends an advancing order and movement while recovering", () => {
+  it("suspends an advancing anchor while recovering members reform", () => {
     const harness = createMoraleMovementHarness({ initialMemberX: 80 });
     const states = moraleStates("recovering");
     const anchor = getUnitAnchor(harness.store, UNIT_ID);
@@ -142,7 +158,27 @@ describe("morale movement modifiers", () => {
     expect(getUnitOrder(harness.store, UNIT_ID)).toBe("advance");
     expect(getUnitMovementStyle(harness.store, UNIT_ID)).toBe("orderedHalt");
     expect(getUnitAnchor(harness.store, UNIT_ID)).toEqual(anchor);
-    expect(harness.world.positionsX[0]).toBe(80);
+    expect(harness.world.positionsX[0]).toBe(85);
+    expect(getIndividualMovementMode(harness.store, 0)).toBe("moveToFormationSlot");
+    expect(getIndividualRequestedPhysicalGait(harness.store, 0)).toBe("walking");
+    expect(getIndividualEffectivePhysicalGait(harness.store, 0)).toBe("walking");
+  });
+
+  it("does not move or charge a correction step when already in position", () => {
+    const harness = createMoraleMovementHarness({ order: "hold" });
+
+    advanceFormationOneTick(
+      harness.world,
+      harness.identity,
+      harness.store,
+      moraleStates("recovering"),
+    );
+
+    expect(getUnitAnchor(harness.store, UNIT_ID)).toEqual({ x: 100, y: 100 });
+    expect(harness.world.positionsX[0]).toBe(100);
+    expect(getIndividualMovementMode(harness.store, 0)).toBe("holdPosition");
+    expect(getIndividualPreEnergyStepX(harness.store, 0)).toBe(0);
+    expect(getIndividualPostEnergyStepX(harness.store, 0)).toBe(0);
   });
 
   it("does not mutate configured movement rates", () => {

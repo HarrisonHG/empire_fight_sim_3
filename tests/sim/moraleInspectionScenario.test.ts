@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { MORALE_INSPECTION_SCENARIO } from "../../src/content/moraleInspectionScenario";
 import {
+  getIndividualMovementMode,
   getUnitAnchor,
   getUnitMovementStyle,
 } from "../../src/sim/formationBehaviour";
@@ -18,7 +19,7 @@ const VETERAN = 11;
 const REGULAR = 12;
 const RECRUIT = 13;
 const RESERVE = 14;
-const RUN_TICKS = 400;
+const RUN_TICKS = 800;
 
 describe("Milestone 4 morale inspection scenario", () => {
   it("allows allied units while requiring an opposing faction", () => {
@@ -48,17 +49,18 @@ describe("Milestone 4 morale inspection scenario", () => {
     expect(first.initialEntityCount).toBe(70);
     expect(first.memberCount).toBe(70);
     expect(first.veteranRouted).toBe(false);
-    expect(first.regularSeverelyDegraded).toBe(false);
-    expect(first.regularOutperformedVeteran).toBe(false);
-    expect(first.recruitRouted).toBe(false);
-    expect(first.reservePassThroughContagion).toBe(false);
-    expect(first.reserveDisrupted).toBe(false);
+    expect(first.regularSeverelyDegraded).toBe(true);
+    expect(first.regularOutperformedVeteran).toBe(true);
+    expect(first.recruitRouted).toBe(true);
+    expect(first.reservePassThroughContagion).toBe(true);
+    expect(first.reserveDisrupted).toBe(true);
     expect(first.reserveRouted).toBe(false);
-    expect(first.recruitRecovered).toBe(false);
-    expect(first.recruitCompletedRecovery).toBe(false);
-    expect(first.recruitRecoveryTicks).toBe(0);
-    expect(first.recoveringAnchorHeld).toBe(false);
-    expect(first.recoveringMovementSuspended).toBe(false);
+    expect(first.recruitRecovered).toBe(true);
+    expect(first.recruitCompletedRecovery).toBe(true);
+    expect(first.recruitRecoveryTicks).toBeGreaterThan(0);
+    expect(first.recoveringAnchorHeld).toBe(true);
+    expect(first.recoveringMovementSuspended).toBe(true);
+    expect(first.recoveringMembersReformed).toBe(true);
     expect(first.finalEntityCount).toBe(70);
     expect(first.finalMemberCount).toBe(70);
   });
@@ -80,6 +82,7 @@ function runInspectionScenario() {
   let recruitRecovered = false;
   let recoveringAnchorHeld = false;
   let recoveringMovementSuspended = false;
+  let recoveringMembersReformed = false;
   let reservePassThroughContagion = false;
   let reserveDisrupted = false;
   let reserveRouted = false;
@@ -92,6 +95,13 @@ function runInspectionScenario() {
     const movingFromRecovery =
       getPersistentUnitMorale(combat.persistentMoraleStore, RECRUIT).state ===
       "recovering";
+    const recruitMembers = getUnitMembers(combat.identityStore, RECRUIT);
+    const preTickRecruitPositions = movingFromRecovery
+      ? recruitMembers.map((entityId) => ({
+        x: simulation.world.positionsX[entityId]!,
+        y: simulation.world.positionsY[entityId]!,
+      }))
+      : [];
     advanceSimulationOneTick(simulation);
     const veteran = getPersistentUnitMorale(combat.persistentMoraleStore, VETERAN);
     const regular = getPersistentUnitMorale(combat.persistentMoraleStore, REGULAR);
@@ -115,6 +125,12 @@ function runInspectionScenario() {
     if (movingFromRecovery) {
       recoveringMovementSuspended ||=
         getUnitMovementStyle(combat.formationStore, RECRUIT) === "orderedHalt";
+      recoveringMembersReformed ||= recruitMembers.some((entityId, index) =>
+        getIndividualMovementMode(combat.formationStore, entityId) ===
+          "moveToFormationSlot" &&
+        (simulation.world.positionsX[entityId] !== preTickRecruitPositions[index]!.x ||
+          simulation.world.positionsY[entityId] !== preTickRecruitPositions[index]!.y)
+      );
     }
     const reserveContagion = combat.routingContagionSummaries.find(
       (summary) => summary.unitId === RESERVE,
@@ -149,6 +165,7 @@ function runInspectionScenario() {
     recruitRecoveryTicks,
     recoveringAnchorHeld,
     recoveringMovementSuspended,
+    recoveringMembersReformed,
     reservePassThroughContagion,
     reserveDisrupted,
     reserveRouted,

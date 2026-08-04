@@ -32,6 +32,9 @@ import {
 } from "./individualOrdinaryParticipation";
 import type { IndividualPhysicalGait } from "./individualEnergyActivity";
 
+export const FORMATION_REFORMATION_PHYSICAL_GAIT: IndividualPhysicalGait =
+  "walking";
+
 export type UnitOrder = "hold" | "advance" | "advanceCautious";
 export type IndividualRole = "recruit" | "regular" | "veteran";
 export type MovementMode =
@@ -1145,14 +1148,18 @@ function processUnit(
     );
     return;
   }
-  const requestedPhysicalGait = order === "hold"
+  const requestedUnitPhysicalGait = order === "hold"
     ? "stationary"
+    : store.ordinaryPhysicalGait[unitIndex]!;
+  const requestedMemberPhysicalGait = order === "hold"
+    ? FORMATION_REFORMATION_PHYSICAL_GAIT
     : store.ordinaryPhysicalGait[unitIndex]!;
   projectOrdinaryUnitPhysicalGaits(
     store,
     unitMembers,
     unitIndex,
-    requestedPhysicalGait,
+    requestedUnitPhysicalGait,
+    requestedMemberPhysicalGait,
     lifecycleStore,
     ordinaryParticipation,
     energyGaitContext,
@@ -1501,41 +1508,35 @@ function processUnit(
       }
     }
 
-    if (order === "hold") {
-      stepX = 0;
-      stepY = 0;
-      mode = "holdPosition";
-    } else {
-      const boundedNextX = clampWorldCoordinate(
-        posX + stepX,
-        world.bounds.width,
-      );
-      const boundedNextY = clampWorldCoordinate(
-        posY + stepY,
-        world.bounds.height,
-      );
-      stepX = boundedNextX - posX;
-      stepY = boundedNextY - posY;
-      store.preEnergyStepX[entityId] = stepX;
-      store.preEnergyStepY[entityId] = stepY;
-      const energyCoordinateCeiling = physicalGaitCoordinateCeiling(
-        effectivePhysicalGait,
-      );
-      if (energyCoordinateCeiling !== null) {
-        const postEnergyStepX = clampComponent(stepX, energyCoordinateCeiling);
-        const postEnergyStepY = clampComponent(stepY, energyCoordinateCeiling);
-        if (postEnergyStepX !== stepX || postEnergyStepY !== stepY) {
-          store.movementReducedByEnergy[entityId] = 1;
-          if (postEnergyStepX === 0 && postEnergyStepY === 0) {
-            mode = "holdPosition";
-          }
+    const boundedNextX = clampWorldCoordinate(
+      posX + stepX,
+      world.bounds.width,
+    );
+    const boundedNextY = clampWorldCoordinate(
+      posY + stepY,
+      world.bounds.height,
+    );
+    stepX = boundedNextX - posX;
+    stepY = boundedNextY - posY;
+    store.preEnergyStepX[entityId] = stepX;
+    store.preEnergyStepY[entityId] = stepY;
+    const energyCoordinateCeiling = physicalGaitCoordinateCeiling(
+      effectivePhysicalGait,
+    );
+    if (energyCoordinateCeiling !== null) {
+      const postEnergyStepX = clampComponent(stepX, energyCoordinateCeiling);
+      const postEnergyStepY = clampComponent(stepY, energyCoordinateCeiling);
+      if (postEnergyStepX !== stepX || postEnergyStepY !== stepY) {
+        store.movementReducedByEnergy[entityId] = 1;
+        if (postEnergyStepX === 0 && postEnergyStepY === 0) {
+          mode = "holdPosition";
         }
-        stepX = postEnergyStepX;
-        stepY = postEnergyStepY;
       }
-      store.postEnergyStepX[entityId] = stepX;
-      store.postEnergyStepY[entityId] = stepY;
+      stepX = postEnergyStepX;
+      stepY = postEnergyStepY;
     }
+    store.postEnergyStepX[entityId] = stepX;
+    store.postEnergyStepY[entityId] = stepY;
 
     world.positionsX[entityId] = posX + stepX;
     world.positionsY[entityId] = posY + stepY;
@@ -1597,7 +1598,8 @@ function projectOrdinaryUnitPhysicalGaits(
   store: InternalFormationBehaviourStore,
   members: readonly number[],
   unitIndex: number,
-  requestedPhysicalGait: IndividualPhysicalGait,
+  requestedUnitPhysicalGait: IndividualPhysicalGait,
+  requestedMemberPhysicalGait: IndividualPhysicalGait,
   lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
   ordinaryParticipation: IndividualOrdinaryParticipationSnapshot | undefined,
   energyGaitContext: FormationEnergyGaitTickContext | undefined,
@@ -1607,7 +1609,7 @@ function projectOrdinaryUnitPhysicalGaits(
   let joggingCount = 0;
   let sprintingCount = 0;
 
-  store.requestedUnitPhysicalGait[unitIndex] = requestedPhysicalGait;
+  store.requestedUnitPhysicalGait[unitIndex] = requestedUnitPhysicalGait;
   store.anchorEnergyPolicyApplied[unitIndex] = 1;
   for (let memberIndex = 0; memberIndex < members.length; memberIndex += 1) {
     const entityId = members[memberIndex]!;
@@ -1617,9 +1619,9 @@ function projectOrdinaryUnitPhysicalGaits(
       continue;
     }
 
-    store.requestedPhysicalGait[entityId] = requestedPhysicalGait;
+    store.requestedPhysicalGait[entityId] = requestedMemberPhysicalGait;
     const effectivePhysicalGait = effectiveGaitFor(
-      requestedPhysicalGait,
+      requestedMemberPhysicalGait,
       entityId,
       false,
       energyGaitContext,
@@ -1638,12 +1640,14 @@ function projectOrdinaryUnitPhysicalGaits(
   store.eligibleEnergyGaitMemberCount[unitIndex] =
     stationaryCount + walkingCount + joggingCount + sprintingCount;
   store.effectiveAnchorPhysicalGait[unitIndex] =
-    lowerMedianPhysicalGaitFromCounts(
-      stationaryCount,
-      walkingCount,
-      joggingCount,
-      sprintingCount,
-    );
+    requestedUnitPhysicalGait === "stationary"
+      ? "stationary"
+      : lowerMedianPhysicalGaitFromCounts(
+        stationaryCount,
+        walkingCount,
+        joggingCount,
+        sprintingCount,
+      );
 }
 
 function projectRoutingUnitPhysicalGaits(

@@ -1,4 +1,5 @@
 import type { CombatSandboxUnitScenario, SimulationScenario } from "../sim/types";
+import { RETAINED_SCENARIO_ISOLATION_ENERGY_PROFILE } from "./retainedScenarioEnergyProfile";
 
 /**
  * Small deterministic inspection cases for the 4H-4 routing lifecycle. The
@@ -17,6 +18,7 @@ function createPursuitScenario(
     bounds: Object.freeze({ width: 1_280, height: 720 }),
     minSpeedUnitsPerTick: 1,
     maxSpeedUnitsPerTick: 1,
+    energyProfile: RETAINED_SCENARIO_ISOLATION_ENERGY_PROFILE,
     combatSandbox: Object.freeze({
       kind: "liveCombatSandbox",
       appliedDamagePressureScale: 7,
@@ -47,6 +49,7 @@ function bluePursuitUnit(
     rows: 2,
     cols: 5,
     unitSpeed: 3,
+    ordinaryPhysicalGait: "sprinting",
     order: "advance",
     role,
     memberMaxStep: 4,
@@ -82,6 +85,7 @@ function redPursuitUnit(): CombatSandboxUnitScenario {
     rows: 2,
     cols: 5,
     unitSpeed: 2,
+    ordinaryPhysicalGait: "sprinting",
     order: "advance",
     role: "regular",
     memberMaxStep: 3,

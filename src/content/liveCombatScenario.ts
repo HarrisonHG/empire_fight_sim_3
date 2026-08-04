@@ -1,4 +1,5 @@
 import type { SimulationScenario } from "../sim/types";
+import { RETAINED_SCENARIO_ISOLATION_ENERGY_PROFILE } from "./retainedScenarioEnergyProfile";
 
 export const DEFAULT_LIVE_COMBAT_SEED = 0x35c0_0001;
 
@@ -93,10 +94,19 @@ export const LIVE_COMBAT_SCENARIO: SimulationScenario = Object.freeze({
   }),
 });
 
-const MILESTONE_3_COMBAT_SANDBOX =
-  LIVE_COMBAT_SCENARIO.combatSandbox as NonNullable<
+const MILESTONE_3_COMBAT_SANDBOX = Object.freeze({
+  ...(LIVE_COMBAT_SCENARIO.combatSandbox as NonNullable<
     SimulationScenario["combatSandbox"]
-  >;
+  >),
+  units: Object.freeze(
+    (LIVE_COMBAT_SCENARIO.combatSandbox as NonNullable<
+      SimulationScenario["combatSandbox"]
+    >).units.map((unit) => Object.freeze({
+      ...unit,
+      ordinaryPhysicalGait: "sprinting" as const,
+    })),
+  ),
+});
 
 /** Archived Milestone 3 unit-combat fixture; not the production combat path. */
 export const MILESTONE_3_COMBAT_FOUNDATION_SCENARIO: SimulationScenario =
@@ -106,5 +116,6 @@ export const MILESTONE_3_COMBAT_FOUNDATION_SCENARIO: SimulationScenario =
     bounds: LIVE_COMBAT_SCENARIO.bounds,
     minSpeedUnitsPerTick: LIVE_COMBAT_SCENARIO.minSpeedUnitsPerTick,
     maxSpeedUnitsPerTick: LIVE_COMBAT_SCENARIO.maxSpeedUnitsPerTick,
+    energyProfile: RETAINED_SCENARIO_ISOLATION_ENERGY_PROFILE,
     legacyCombatFoundationSandbox: MILESTONE_3_COMBAT_SANDBOX,
   });
