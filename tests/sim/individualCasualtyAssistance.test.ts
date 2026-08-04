@@ -43,6 +43,12 @@ import {
 } from "../../src/sim/individualTraumaticWound";
 import { advanceSimulationOneTick, createSimulation } from "../../src/sim/simulation";
 import {
+  beginIndividualEnergyActivityObservation,
+  getIndividualEnergyActivityInspection,
+} from "../../src/sim/individualEnergyActivity";
+import { projectIndividualEnergyCapabilitiesOneTick } from "../../src/sim/individualEnergyCapability";
+import { getIndividualMovementMode } from "../../src/sim/formationBehaviour";
+import {
   createIndividualMedicalClaimBuffers,
   createIndividualMedicalClaimStore,
   decideIndividualMedicalClaimsAndHandoffs,
@@ -652,6 +658,109 @@ describe("individual casualty assistance and sparse drag groups", () => {
     expect(hands.getFreeHands(1)).toBeUndefined();
     prepare(simulation);
     expect(decidePrepared(simulation, 5).groupStartedRecords).toHaveLength(0);
+  });
+
+  it("rejects an unaccepted specialist projection before drag or formation mutation", () => {
+    const simulation = createSimulation(scenario([
+      unit(1, 1, 100),
+      { ...unit(2, 1, 104), medicalProfile: physick() },
+      unit(3, 2, 230),
+    ]));
+    const combat = requireCombat(simulation);
+    down(simulation, 0, 2);
+    decide(simulation, 2);
+    const setupBuffers = createCasualtyDragMovementBuffers();
+    advanceCasualtyDragGroupsBeforeCombat(
+      simulation.world, combat.identityStore, combat.formationStore,
+      combat.individualCasualtyLifecycleStore,
+      combat.individualTraumaticWoundStore, combat.moraleMovementStates,
+      combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore,
+      combat.individualDragHandCommitmentStore, 3, setupBuffers,
+      combat.individualPlayerPresenceStore,
+    );
+    const group = getActiveCasualtyDragGroups(
+      combat.casualtyDragGroupStore,
+    )[0]! as ReturnType<typeof getActiveCasualtyDragGroups>[number] & {
+      dragSpeedRemainder: number;
+    };
+    expect(group.phase).toBe("dragging");
+
+    beginIndividualEnergyActivityObservation(
+      combat.individualEnergyActivityStore, simulation.world, 4,
+    );
+    projectIndividualEnergyCapabilitiesOneTick(
+      combat.individualEnergyCapabilityStore,
+      simulation.individualEnergyStore,
+      combat.individualCasualtyLifecycleStore,
+      combat.individualPlayerPresenceStore,
+      4,
+    );
+    const buffers = createCasualtyDragMovementBuffers();
+    buffers.reachedSafetyRecords.push({
+      groupId: 99, patientEntityId: 99, tick: 99,
+    });
+    const before = {
+      positionsX: Array.from(simulation.world.positionsX),
+      positionsY: Array.from(simulation.world.positionsY),
+      modes: Array.from(
+        { length: simulation.world.entityCount },
+        (_, entityId) => getIndividualMovementMode(
+          combat.formationStore, entityId,
+        ),
+      ),
+      group: {
+        phase: group.phase,
+        phaseEnteredTick: group.phaseEnteredTick,
+        dragSpeedRemainder: group.dragSpeedRemainder,
+      },
+      buffers: {
+        cancellationRecords: [...buffers.cancellationRecords],
+        draggingStartedRecords: [...buffers.draggingStartedRecords],
+        reachedSafetyRecords: [...buffers.reachedSafetyRecords],
+      },
+      patientActivity: getIndividualEnergyActivityInspection(
+        combat.individualEnergyActivityStore, 0,
+      ),
+      helperActivity: getIndividualEnergyActivityInspection(
+        combat.individualEnergyActivityStore, 1,
+      ),
+    };
+
+    expect(() => advanceCasualtyDragGroupsBeforeCombat(
+      simulation.world, combat.identityStore, combat.formationStore,
+      combat.individualCasualtyLifecycleStore,
+      combat.individualTraumaticWoundStore, combat.moraleMovementStates,
+      combat.individualCasualtyAssistanceStore, combat.casualtyDragGroupStore,
+      combat.individualDragHandCommitmentStore, 4, buffers,
+      combat.individualPlayerPresenceStore,
+      combat.specialistPhysicalGaitAdapter,
+    )).toThrow(/unaccepted/);
+    expect({
+      positionsX: Array.from(simulation.world.positionsX),
+      positionsY: Array.from(simulation.world.positionsY),
+      modes: Array.from(
+        { length: simulation.world.entityCount },
+        (_, entityId) => getIndividualMovementMode(
+          combat.formationStore, entityId,
+        ),
+      ),
+      group: {
+        phase: group.phase,
+        phaseEnteredTick: group.phaseEnteredTick,
+        dragSpeedRemainder: group.dragSpeedRemainder,
+      },
+      buffers: {
+        cancellationRecords: [...buffers.cancellationRecords],
+        draggingStartedRecords: [...buffers.draggingStartedRecords],
+        reachedSafetyRecords: [...buffers.reachedSafetyRecords],
+      },
+      patientActivity: getIndividualEnergyActivityInspection(
+        combat.individualEnergyActivityStore, 0,
+      ),
+      helperActivity: getIndividualEnergyActivityInspection(
+        combat.individualEnergyActivityStore, 1,
+      ),
+    }).toEqual(before);
   });
 
   it("clamps effective destinations to the shared feasible translation at every world boundary", () => {

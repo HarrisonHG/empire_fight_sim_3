@@ -60,19 +60,27 @@ export interface IndividualSpecialistPhysicalGaitAdapter {
   readonly entityCount: number;
   readonly acceptedProjectionTick: number | null;
   acceptCapabilityProjection(tick: number): void;
-  recordActiveSpecialistMovement(
+  validateCurrentTick(): void;
+  preflightActiveSpecialistMovement(
+    entityId: number,
+    authority: IndividualSpecialistMovementAuthority,
+    requestedGait: IndividualPhysicalGait,
+  ): IndividualPhysicalGait;
+  completeActiveSpecialistMovement(
     entityId: number,
     authority: IndividualSpecialistMovementAuthority,
     requestedGait: IndividualPhysicalGait,
     actualGaitWhenDisplaced: IndividualPhysicalGait,
     producedDisplacement: boolean,
   ): void;
-  recordRespawnEgressMovement(
+  preflightRespawnEgressMovement(entityId: number): IndividualPhysicalGait;
+  completeRespawnEgressMovement(
     entityId: number,
     actualGaitWhenDisplaced: IndividualPhysicalGait,
     producedDisplacement: boolean,
   ): void;
-  recordDraggedPatientMovement(
+  preflightDraggedPatientMovement(entityId: number): IndividualPhysicalGait;
+  completeDraggedPatientMovement(
     entityId: number,
     producedDisplacement: boolean,
   ): void;

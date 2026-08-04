@@ -19,6 +19,7 @@ import {
   INDIVIDUAL_RESPAWN_EGRESS_MAXIMUM_STEP,
 } from "../../src/sim/individualRespawnEgress";
 import { getIndividualEnergyCapabilityInspection } from "../../src/sim/individualEnergyCapability";
+import { getIndividualEnergyActivityInspection } from "../../src/sim/individualEnergyActivity";
 import { submitIndividualExecutionIntent } from "../../src/sim/individualExecutionAction";
 import { hasIndividualMedicalPatientClaim } from "../../src/sim/individualMedicalClaims";
 import { advanceSimulationOneTick, createSimulation } from "../../src/sim/simulation";
@@ -58,6 +59,16 @@ describe("Milestone 6H-2B respawn egress", () => {
       maximumRespawnEgressGait: "walking",
       minimumActiveSpecialistWalkAvailable: false,
       respawnEgressProcedureWalkAvailable: true,
+    });
+    expect(getIndividualEnergyActivityInspection(
+      combat.individualEnergyActivityStore, 0,
+    )).toMatchObject({
+      requestedPhysicalGait: "walking",
+      effectivePhysicalGait: "walking",
+      actualPhysicalGait: "walking",
+      gaitReducedByCapability: false,
+      physicalGaitSource: "respawnEgress",
+      movementExpenditureRequested: 1,
     });
   });
 

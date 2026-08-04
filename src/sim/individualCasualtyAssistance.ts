@@ -686,6 +686,7 @@ export function advanceCasualtyDragGroupsBeforeCombat(
     traumaStore, assistanceStore, groupStore, handStore);
   validateEntityCounts(world.entityCount, presenceStore);
   assertNonNegativeSafeInteger(tick, "tick");
+  gaitAdapter?.validateCurrentTick();
   buffers.cancellationRecords.length = 0;
   buffers.draggingStartedRecords.length = 0;
   buffers.reachedSafetyRecords.length = 0;
@@ -713,6 +714,11 @@ export function advanceCasualtyDragGroupsBeforeCombat(
           const requestedGait = requestedPhysicalGaitForMaximumStep(
             getIndividualConfiguredMaxStep(formationStore, helperId),
           );
+          gaitAdapter?.preflightActiveSpecialistMovement(
+            helperId,
+            "casualtyGathering",
+            requestedGait,
+          );
           const moved = applyIndividualExternalMovementIntent(
             world,
             formationStore,
@@ -721,7 +727,7 @@ export function advanceCasualtyDragGroupsBeforeCombat(
             world.positionsY[group.patientEntityId]!,
             "gatherForCasualty",
           );
-          gaitAdapter?.recordActiveSpecialistMovement(
+          gaitAdapter?.completeActiveSpecialistMovement(
             helperId,
             "casualtyGathering",
             requestedGait,
@@ -760,8 +766,18 @@ export function advanceCasualtyDragGroupsBeforeCombat(
       for (const helperId of group.helperEntityIds) slowestStep = Math.min(slowestStep, getIndividualConfiguredMaxStep(formationStore, helperId));
       const scaled = slowestStep * INITIAL_DRAG_SPEED_FACTOR_NUMERATOR + group.dragSpeedRemainder;
       const maxStep = Math.floor(scaled / INITIAL_DRAG_SPEED_FACTOR_DENOMINATOR);
-      group.dragSpeedRemainder = scaled % INITIAL_DRAG_SPEED_FACTOR_DENOMINATOR;
       const requestedGroupGait = requestedPhysicalGaitForMaximumStep(maxStep);
+      for (let helperIndex = 0;
+        helperIndex < group.helperEntityIds.length;
+        helperIndex += 1) {
+        gaitAdapter?.preflightActiveSpecialistMovement(
+          group.helperEntityIds[helperIndex]!,
+          "activeDragHelper",
+          requestedGroupGait,
+        );
+      }
+      gaitAdapter?.preflightDraggedPatientMovement(patientId);
+      group.dragSpeedRemainder = scaled % INITIAL_DRAG_SPEED_FACTOR_DENOMINATOR;
       const delta = sharedDragDelta(world, group, destinationX, destinationY, maxStep);
       const groupMoved = delta.x !== 0 || delta.y !== 0;
       if (delta.x !== 0 || delta.y !== 0) {
@@ -773,7 +789,7 @@ export function advanceCasualtyDragGroupsBeforeCombat(
       for (let helperIndex = 0;
         helperIndex < group.helperEntityIds.length;
         helperIndex += 1) {
-        gaitAdapter?.recordActiveSpecialistMovement(
+        gaitAdapter?.completeActiveSpecialistMovement(
           group.helperEntityIds[helperIndex]!,
           "activeDragHelper",
           requestedGroupGait,
@@ -781,9 +797,7 @@ export function advanceCasualtyDragGroupsBeforeCombat(
           groupMoved,
         );
       }
-      if (groupMoved) {
-        gaitAdapter?.recordDraggedPatientMovement(patientId, true);
-      }
+      gaitAdapter?.completeDraggedPatientMovement(patientId, groupMoved);
       if (world.positionsX[patientId] === destinationX && world.positionsY[patientId] === destinationY) {
         reachSafety(group, tick, assistance, buffers.reachedSafetyRecords);
       }

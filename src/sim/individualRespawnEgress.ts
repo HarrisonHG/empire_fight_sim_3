@@ -68,6 +68,7 @@ export function advanceIndividualRespawnEgressOneTick(
   if (!Number.isSafeInteger(tick) || tick < 0) {
     throw new RangeError("Respawn egress tick must be a non-negative safe integer.");
   }
+  gaitAdapter?.validateCurrentTick();
   buffers.movementRecords.length = 0;
   buffers.arrivalRecords.length = 0;
   let missingDestinationCount = 0;
@@ -87,6 +88,7 @@ export function advanceIndividualRespawnEgressOneTick(
     if (tick <= getIndividualRespawnEgressStartedTick(presence, entityId)) {
       continue;
     }
+    gaitAdapter?.preflightRespawnEgressMovement(entityId);
     const fromX = world.positionsX[entityId]!;
     const fromY = world.positionsY[entityId]!;
     const deltaX = destinationX - fromX;
@@ -94,6 +96,11 @@ export function advanceIndividualRespawnEgressOneTick(
     const distanceSquared = deltaX * deltaX + deltaY * deltaY;
     if (distanceSquared <= INDIVIDUAL_RESPAWN_EGRESS_ARRIVAL_TOLERANCE ** 2) {
       arrive(lifecycle, presence, entityId, tick, fromX, fromY, buffers);
+      gaitAdapter?.completeRespawnEgressMovement(
+        entityId,
+        "walking",
+        false,
+      );
       continue;
     }
     const distance = Math.sqrt(distanceSquared);
@@ -108,7 +115,6 @@ export function advanceIndividualRespawnEgressOneTick(
     const toY = fromY + moveY;
     world.positionsX[entityId] = toX;
     world.positionsY[entityId] = toY;
-    gaitAdapter?.recordRespawnEgressMovement(entityId, "walking", true);
     recordIndividualRespawnEgressMovement(presence, entityId);
     const remainingX = destinationX - toX;
     const remainingY = destinationY - toY;
@@ -121,8 +127,8 @@ export function advanceIndividualRespawnEgressOneTick(
     });
     if (remainingDistanceSquared <= INDIVIDUAL_RESPAWN_EGRESS_ARRIVAL_TOLERANCE ** 2) {
       arrive(lifecycle, presence, entityId, tick, toX, toY, buffers);
-      continue;
     }
+    gaitAdapter?.completeRespawnEgressMovement(entityId, "walking", true);
   }
   compactCompletedIndividualRespawnEgressEntities(presence);
   return {

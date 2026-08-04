@@ -134,10 +134,10 @@ Do not use floating-point drift, wall time, or `Math.random`.
 Derive bands from current/maximum ratio:
 
 ```text
-fresh:    60%â€“100%
-working:  30%â€“<60%
-winded:   10%â€“<30%
-spent:     0%â€“<10%
+fresh:    60%–100%
+working:  30%–<60%
+winded:   10%–<30%
+spent:     0%–<10%
 ```
 
 Band names are diagnostic and behavioural summaries. The current integer energy remains authoritative.
@@ -436,8 +436,8 @@ This creates the intended interaction:
 
 ```text
 tired fighter
-â†’ pressure dissipates more slowly
-â†’ existing morale system may break them sooner
+→ pressure dissipates more slowly
+→ existing morale system may break them sooner
 ```
 
 Do not create a second fatigue-morale state machine.
@@ -578,7 +578,7 @@ It does not spend or restore individual energy.
 
 # Numbered implementation slices
 
-## 7A â€” Trusted profiles, current-energy store, bands, and inspection
+## 7A — Trusted profiles, current-energy store, bands, and inspection
 
 Deliver:
 
@@ -599,7 +599,7 @@ Tests:
 - exact band thresholds;
 - no inference from experience, faction, nation, role, or equipment;
 - replay determinism;
-- 100â€“2,000 entity structural coverage.
+- 100–2,000 entity structural coverage.
 
 Boundary:
 
@@ -607,7 +607,7 @@ No expenditure, recovery, movement, combat, morale, renderer, or UI integration.
 
 ---
 
-## 7B-1 â€” Authoritative activity classification
+## 7B-1 — Authoritative activity classification
 
 Deliver:
 
@@ -655,7 +655,7 @@ Tests:
 - multiple same-tick defence attempts;
 - caller-owned store reuse, replay, and processing-order independence;
 - production casualty procedure integration with unchanged energy;
-- idle structural coverage at 100â€“2,000 entities.
+- idle structural coverage at 100–2,000 entities.
 
 Boundary:
 
@@ -664,7 +664,7 @@ or alter movement, gait, combat, pressure, morale, renderer, worker, or UI state
 
 ---
 
-## 7B-2 â€” Base expenditure and recovery application
+## 7B-2 — Base expenditure and recovery application
 
 Status: implemented.
 
@@ -717,7 +717,7 @@ Implementation notes:
 
 ---
 
-## 7B-2A â€” Energy authority sequencing and ownership correction
+## 7B-2A — Energy authority sequencing and ownership correction
 
 Status: implemented.
 
@@ -727,9 +727,9 @@ All three begin at `-1`. Production and focused callers must follow:
 
 ```text
 begin observation
-â†’ observe authoritative movement and action evidence
-â†’ classify exactly once
-â†’ apply exactly once
+→ observe authoritative movement and action evidence
+→ classify exactly once
+→ apply exactly once
 ```
 
 Beginning a new observation resets current-tick evidence and application
@@ -752,7 +752,7 @@ the next implementation slice.
 
 ---
 
-## 7C-1 â€” Gait authority and capability projection â€” implemented
+## 7C-1 — Gait authority and capability projection — implemented
 
 - Formation owns ordinary physical gait independently of coordinate correction
   limits and morale or formation style.
@@ -791,7 +791,7 @@ routing, or change combat, casualty, pressure, morale, or specialist movement.
 
 ---
 
-## 7C-2 â€” Formation and routing movement enforcement â€” implemented
+## 7C-2 — Formation and routing movement enforcement — implemented
 
 - Ordinary active formation members apply their effective tick-start gait after
   existing formation, morale, blocker, contact, overtaking and bounds rules.
@@ -857,7 +857,7 @@ movement enforcement belongs to this step.
 
 ---
 
-## 7C-3 â€” Specialist movement enforcement and consolidation â€” in progress; 7C-3a implemented
+## 7C-3 — Specialist movement enforcement and consolidation — in progress; 7C-3a implemented
 
 ### Goal
 
@@ -999,10 +999,10 @@ Drag movement preserves the existing half-speed fixed-point policy:
 
 ```text
 slowest configured helper step
-â†’ existing drag factor and remainder
-â†’ requested group step and requested gait for this tick
-â†’ minimum effective gait across required helpers
-â†’ shared bounded group delta
+→ existing drag factor and remainder
+→ requested group step and requested gait for this tick
+→ minimum effective gait across required helpers
+→ shared bounded group delta
 ```
 
 The minimum, not a median, is authoritative because every required helper must
@@ -1072,7 +1072,7 @@ the evolving `/` scenario must not be neutralised.
 
 ### Ordered implementation slices
 
-#### 7C-3a â€” Shared gait authority and specialist capability contract â€” implemented
+#### 7C-3a — Shared gait authority and specialist capability contract — implemented
 
 Deliver:
 
@@ -1106,7 +1106,7 @@ Boundary:
 No specialist coordinate enforcement, drag change, egress-speed change,
 expenditure tuning, or retained-fixture retuning.
 
-#### 7C-3b â€” Active self-propelled specialist enforcement
+#### 7C-3b — Active self-propelled specialist enforcement
 
 Deliver:
 
@@ -1139,7 +1139,7 @@ Boundary:
 No drag-group movement, respawn egress, treatment recovery, burden, injury
 multiplier, rescue selection, triage, or new medical behaviour.
 
-#### 7C-3c â€” Cooperative drag-group enforcement
+#### 7C-3c — Cooperative drag-group enforcement
 
 Deliver:
 
@@ -1174,7 +1174,7 @@ Boundary:
 No drag surcharge, equipment burden, missing-hit modifier, defence change,
 treatment change, or pathfinding.
 
-#### 7C-3d â€” Respawn egress enforcement and production consolidation
+#### 7C-3d — Respawn egress enforcement and production consolidation
 
 Deliver:
 
@@ -1240,7 +1240,7 @@ rest behaviour, renderer, worker, UI, or content expansion.
 
 ---
 
-## 7D â€” Combat exertion, attack tempo, and guard recovery
+## 7D — Combat exertion, attack tempo, and guard recovery
 
 Deliver:
 
@@ -1269,7 +1269,7 @@ No load burden, casualty work, morale, or resting AI.
 
 ---
 
-## 7E â€” Equipment burden, injury, dragging, medicine, and respawn procedure
+## 7E — Equipment burden, injury, dragging, medicine, and respawn procedure
 
 Deliver:
 
@@ -1304,7 +1304,7 @@ No command, terrain, perception, detailed inventory mass, or respawn re-entry.
 
 ---
 
-## 7F â€” Pressure recovery and unit energy summaries
+## 7F — Pressure recovery and unit energy summaries
 
 Deliver:
 
@@ -1330,7 +1330,7 @@ No rest/disengagement behaviour yet.
 
 ---
 
-## 7G â€” Conservation, safe rest, and re-engagement reluctance
+## 7G — Conservation, safe rest, and re-engagement reluctance
 
 Deliver:
 
@@ -1360,7 +1360,7 @@ No captain-issued relief, rotation, withdrawal orders, communication, or percept
 
 ---
 
-## 7H â€” Production consolidation, soak, and performance
+## 7H — Production consolidation, soak, and performance
 
 Deliver:
 
@@ -1375,7 +1375,7 @@ Representative cases:
 
 ```text
 2,000 entities
-100 units Ã— 20
+100 units × 20
 mixed equipment
 mixed energy profiles
 ordinary combat/casualty population
@@ -1403,7 +1403,7 @@ Prove:
 
 ---
 
-## 7I â€” Retained energy visual suite
+## 7I — Retained energy visual suite
 
 Add:
 
@@ -1461,7 +1461,7 @@ Human questions:
 
 ---
 
-## 7J â€” Main battle integration and milestone acceptance
+## 7J — Main battle integration and milestone acceptance
 
 Update the evolving `/` main battle sandbox to:
 

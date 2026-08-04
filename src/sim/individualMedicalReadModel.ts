@@ -694,12 +694,18 @@ export function advanceIndividualTraumaWithdrawalMovementOneTick(
   gaitAdapter?: IndividualSpecialistPhysicalGaitAdapter,
 ): number {
   const internal = requireUrgencyStore(urgencyStore, world.entityCount);
+  gaitAdapter?.validateCurrentTick();
   let movedCount = 0;
   for (let entityId = 0; entityId < world.entityCount; entityId += 1) {
     if (internal.withdrawingByEntity[entityId] === 0) continue;
     if (isReceivingTreatment(entityId)) continue;
     const requestedGait = requestedPhysicalGaitForMaximumStep(
       getIndividualConfiguredMaxStep(formationStore, entityId),
+    );
+    gaitAdapter?.preflightActiveSpecialistMovement(
+      entityId,
+      "traumaWithdrawal",
+      requestedGait,
     );
     const moved = applyIndividualExternalMovementIntent(
       world,
@@ -709,7 +715,7 @@ export function advanceIndividualTraumaWithdrawalMovementOneTick(
       Math.round(internal.withdrawalGoalYByEntity[entityId]!),
       "withdrawForTreatment",
     );
-    gaitAdapter?.recordActiveSpecialistMovement(
+    gaitAdapter?.completeActiveSpecialistMovement(
       entityId,
       "traumaWithdrawal",
       requestedGait,

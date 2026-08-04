@@ -440,6 +440,9 @@ export function checkpointIndividualEnergyMovementObservation(
 interface InternalSpecialistPhysicalGaitAdapter {
   readonly activity: IndividualEnergyActivityStore;
   readonly capabilities: IndividualEnergyCapabilityStore;
+  readonly pendingSourceByEntity: Int8Array;
+  readonly pendingRequestedGaitByEntity: Uint8Array;
+  readonly pendingEffectiveGaitByEntity: Uint8Array;
   acceptedProjectionTick: number | null;
 }
 
@@ -455,8 +458,12 @@ export function createIndividualSpecialistPhysicalGaitAdapter(
   const internal: InternalSpecialistPhysicalGaitAdapter = {
     activity,
     capabilities,
+    pendingSourceByEntity: new Int8Array(activity.entityCount),
+    pendingRequestedGaitByEntity: new Uint8Array(activity.entityCount),
+    pendingEffectiveGaitByEntity: new Uint8Array(activity.entityCount),
     acceptedProjectionTick: null,
   };
+  internal.pendingSourceByEntity.fill(-1);
   let adapter: IndividualSpecialistPhysicalGaitAdapter;
   adapter = Object.freeze({
     entityCount: activity.entityCount,
@@ -465,13 +472,26 @@ export function createIndividualSpecialistPhysicalGaitAdapter(
     },
     acceptCapabilityProjection: (tick: number) =>
       acceptSpecialistCapabilityProjection(adapter, tick),
-    recordActiveSpecialistMovement: (
+    validateCurrentTick: () => {
+      validateSpecialistAdapterCurrentTick(adapter);
+    },
+    preflightActiveSpecialistMovement: (
+      entityId: number,
+      authority: IndividualSpecialistMovementAuthority,
+      requestedGait: IndividualPhysicalGait,
+    ) => preflightSpecialistMovement(
+      adapter,
+      entityId,
+      authority,
+      requestedGait,
+    ),
+    completeActiveSpecialistMovement: (
       entityId: number,
       authority: IndividualSpecialistMovementAuthority,
       requestedGait: IndividualPhysicalGait,
       actualGaitWhenDisplaced: IndividualPhysicalGait,
       producedDisplacement: boolean,
-    ) => recordSpecialistMovement(
+    ) => completeSpecialistMovement(
       adapter,
       entityId,
       authority,
@@ -480,11 +500,18 @@ export function createIndividualSpecialistPhysicalGaitAdapter(
       producedDisplacement,
       false,
     ),
-    recordRespawnEgressMovement: (
+    preflightRespawnEgressMovement: (entityId: number) =>
+      preflightSpecialistMovement(
+        adapter,
+        entityId,
+        "respawnEgress",
+        "walking",
+      ),
+    completeRespawnEgressMovement: (
       entityId: number,
       actualGaitWhenDisplaced: IndividualPhysicalGait,
       producedDisplacement: boolean,
-    ) => recordSpecialistMovement(
+    ) => completeSpecialistMovement(
       adapter,
       entityId,
       "respawnEgress",
@@ -493,10 +520,17 @@ export function createIndividualSpecialistPhysicalGaitAdapter(
       producedDisplacement,
       false,
     ),
-    recordDraggedPatientMovement: (
+    preflightDraggedPatientMovement: (entityId: number) =>
+      preflightSpecialistMovement(
+        adapter,
+        entityId,
+        "draggedPatient",
+        "stationary",
+      ),
+    completeDraggedPatientMovement: (
       entityId: number,
       producedDisplacement: boolean,
-    ) => recordSpecialistMovement(
+    ) => completeSpecialistMovement(
       adapter,
       entityId,
       "draggedPatient",
@@ -556,29 +590,60 @@ function acceptSpecialistCapabilityProjection(
   internal.acceptedProjectionTick = tick;
 }
 
-function recordSpecialistMovement(
+function validateSpecialistAdapterCurrentTick(
+  adapter: IndividualSpecialistPhysicalGaitAdapter,
+): InternalSpecialistPhysicalGaitAdapter {
+  const internal = requireSpecialistAdapter(adapter);
+  if (adapter.entityCount !== internal.activity.entityCount ||
+      internal.activity.entityCount !== internal.capabilities.entityCount) {
+    throw new RangeError(
+      "Specialist gait adapter dependencies must match entityCount.",
+    );
+  }
+  const activity = requireStore(internal.activity);
+  assertObservationOpen(activity);
+  if (internal.acceptedProjectionTick === null) {
+    throw new Error("Specialist gait capability projection is unaccepted.");
+  }
+  if (activity.observationStartedTick !== internal.acceptedProjectionTick) {
+    throw new Error(
+      "Specialist gait capability requires the accepted current activity tick.",
+    );
+  }
+  const capabilityTick = getIndividualEnergyCapabilityProjectionTick(
+    internal.capabilities,
+  );
+  if (capabilityTick === null) {
+    throw new Error("Specialist gait capability projection is null.");
+  }
+  if (capabilityTick !== internal.acceptedProjectionTick) {
+    throw new Error(
+      `Specialist gait capability projection must match accepted tick ` +
+      `${internal.acceptedProjectionTick}; received ${capabilityTick}.`,
+    );
+  }
+  assertIndividualEnergyCapabilityProjectionTick(
+    internal.capabilities,
+    internal.acceptedProjectionTick,
+  );
+  return internal;
+}
+
+function preflightSpecialistMovement(
   adapter: IndividualSpecialistPhysicalGaitAdapter,
   entityId: number,
   source: IndividualSpecialistMovementAuthority | "respawnEgress" | "draggedPatient",
   requestedGait: IndividualPhysicalGait,
-  actualGaitWhenDisplaced: IndividualPhysicalGait,
-  producedDisplacement: boolean,
-  external: boolean,
-): void {
-  const adapterInternal = requireSpecialistAdapter(adapter);
+): IndividualPhysicalGait {
+  const adapterInternal = validateSpecialistAdapterCurrentTick(adapter);
   const activity = requireStore(adapterInternal.activity);
-  assertObservationOpen(activity);
   assertEntityId(entityId, activity.entityCount);
-  const capabilityTick = getIndividualEnergyCapabilityProjectionTick(
-    adapterInternal.capabilities,
-  );
-  if (adapterInternal.acceptedProjectionTick === null ||
-      capabilityTick !== adapterInternal.acceptedProjectionTick ||
-      activity.observationStartedTick !== adapterInternal.acceptedProjectionTick) {
+  if (adapterInternal.pendingSourceByEntity[entityId] !== -1) {
     throw new Error(
-      "Specialist gait evidence requires the accepted current projection.",
+      "Specialist gait movement already has an incomplete preflight.",
     );
   }
+  const sourceIndex = MOVEMENT_AUTHORITIES.indexOf(source);
   const maximumGait = source === "respawnEgress"
     ? getIndividualMaximumRespawnEgressGait(
         adapterInternal.capabilities,
@@ -591,6 +656,38 @@ function recordSpecialistMovement(
           entityId,
         );
   const effectiveGait = clampPhysicalGait(requestedGait, maximumGait);
+  adapterInternal.pendingSourceByEntity[entityId] = sourceIndex;
+  adapterInternal.pendingRequestedGaitByEntity[entityId] =
+    INTENSITIES.indexOf(requestedGait);
+  adapterInternal.pendingEffectiveGaitByEntity[entityId] =
+    INTENSITIES.indexOf(effectiveGait);
+  return effectiveGait;
+}
+
+function completeSpecialistMovement(
+  adapter: IndividualSpecialistPhysicalGaitAdapter,
+  entityId: number,
+  source: IndividualSpecialistMovementAuthority | "respawnEgress" | "draggedPatient",
+  requestedGait: IndividualPhysicalGait,
+  actualGaitWhenDisplaced: IndividualPhysicalGait,
+  producedDisplacement: boolean,
+  external: boolean,
+): void {
+  const adapterInternal = validateSpecialistAdapterCurrentTick(adapter);
+  const activity = requireStore(adapterInternal.activity);
+  assertEntityId(entityId, activity.entityCount);
+  const sourceIndex = MOVEMENT_AUTHORITIES.indexOf(source);
+  const requestedGaitIndex = INTENSITIES.indexOf(requestedGait);
+  if (adapterInternal.pendingSourceByEntity[entityId] !== sourceIndex ||
+      adapterInternal.pendingRequestedGaitByEntity[entityId] !==
+        requestedGaitIndex) {
+    throw new Error(
+      "Specialist gait completion requires a matching successful preflight.",
+    );
+  }
+  const effectiveGait = INTENSITIES[
+    adapterInternal.pendingEffectiveGaitByEntity[entityId]!
+  ]!;
   activity.movementAuthorityMaskByEntity[entityId] =
     activity.movementAuthorityMaskByEntity[entityId]! | AUTHORITY_BITS[source];
   if (external) activity.externallyMovedByEntity[entityId] = 1;
@@ -603,6 +700,7 @@ function recordSpecialistMovement(
     effectiveGait,
     actualGaitWhenDisplaced,
   );
+  adapterInternal.pendingSourceByEntity[entityId] = -1;
 }
 
 function requireSpecialistAdapter(

@@ -224,6 +224,7 @@ export function advanceIndividualMedicalClaimApproachMovementOneTick(
 ): number {
   validateCounts(world.entityCount, formation, identity, lifecycle, presence, hits,
     profiles, herbs, trauma, limbs, actions, assistance, claims);
+  gaitAdapter?.validateCurrentTick();
   const internal = claims as InternalClaimStore;
   let movedCount = 0;
   for (let physickId = 0; physickId < internal.entityCount; physickId += 1) {
@@ -235,6 +236,11 @@ export function advanceIndividualMedicalClaimApproachMovementOneTick(
     const requestedGait = requestedPhysicalGaitForMaximumStep(
       getIndividualConfiguredMaxStep(formation, physickId),
     );
+    gaitAdapter?.preflightActiveSpecialistMovement(
+      physickId,
+      "medicalApproach",
+      requestedGait,
+    );
     const moved = applyIndividualExternalMovementIntent(
       world,
       formation,
@@ -243,7 +249,7 @@ export function advanceIndividualMedicalClaimApproachMovementOneTick(
       world.positionsY[patientId]!,
       "approachClaimedPatient",
     );
-    gaitAdapter?.recordActiveSpecialistMovement(
+    gaitAdapter?.completeActiveSpecialistMovement(
       physickId,
       "medicalApproach",
       requestedGait,
