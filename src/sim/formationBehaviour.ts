@@ -71,6 +71,20 @@ export interface FormationEnergyGaitTickContext {
   readonly capabilities: FormationEnergyGaitCapabilitySource;
 }
 
+export interface UnitEnergyGaitDiagnostics {
+  readonly requestedUnitPhysicalGait: IndividualPhysicalGait;
+  readonly effectiveAnchorPhysicalGait: IndividualPhysicalGait;
+  readonly eligibleEnergyGaitMemberCount: number;
+  readonly stationaryEffectiveMemberCount: number;
+  readonly walkingEffectiveMemberCount: number;
+  readonly joggingEffectiveMemberCount: number;
+  readonly sprintingEffectiveMemberCount: number;
+  readonly preEnergyAnchorStep: number;
+  readonly postEnergyAnchorStep: number;
+  readonly anchorMovementReducedByEnergy: boolean;
+  readonly anchorEnergyPolicyApplied: boolean;
+}
+
 export interface UnitFormationConfig {
   readonly unitId: UnitId;
   readonly anchorX: number;
@@ -206,6 +220,17 @@ interface InternalFormationBehaviourStore extends FormationBehaviourStore {
   /** Temporary 4E routing intent; never replaces the configured heading. */
   readonly routingHeadingX: Int8Array;
   readonly routingHeadingY: Int8Array;
+  readonly requestedUnitPhysicalGait: IndividualPhysicalGait[];
+  readonly effectiveAnchorPhysicalGait: IndividualPhysicalGait[];
+  readonly eligibleEnergyGaitMemberCount: Int32Array;
+  readonly stationaryEffectiveMemberCount: Int32Array;
+  readonly walkingEffectiveMemberCount: Int32Array;
+  readonly joggingEffectiveMemberCount: Int32Array;
+  readonly sprintingEffectiveMemberCount: Int32Array;
+  readonly preEnergyAnchorStep: Int32Array;
+  readonly postEnergyAnchorStep: Int32Array;
+  readonly anchorMovementReducedByEnergy: Uint8Array;
+  readonly anchorEnergyPolicyApplied: Uint8Array;
 
   readonly roles: IndividualRole[];
   readonly slotRow: Int32Array;
@@ -220,6 +245,11 @@ interface InternalFormationBehaviourStore extends FormationBehaviourStore {
   readonly movementMode: MovementMode[];
   readonly requestedPhysicalGait: IndividualPhysicalGait[];
   readonly effectivePhysicalGait: IndividualPhysicalGait[];
+  readonly preEnergyStepX: Int32Array;
+  readonly preEnergyStepY: Int32Array;
+  readonly postEnergyStepX: Int32Array;
+  readonly postEnergyStepY: Int32Array;
+  readonly movementReducedByEnergy: Uint8Array;
   energyGaitProjectionTickUsed: number | null;
   readonly lastEmittedMovementMode: (MovementMode | null)[];
   readonly lastEmittedUnitStyle: (UnitMovementStyle | null)[];
@@ -335,6 +365,21 @@ export function createFormationBehaviourStore(
     activeBlockerLateralOffset: new Int32Array(unitCount),
     routingHeadingX: new Int8Array(unitCount),
     routingHeadingY: new Int8Array(unitCount),
+    requestedUnitPhysicalGait: new Array<IndividualPhysicalGait>(unitCount).fill(
+      "stationary",
+    ),
+    effectiveAnchorPhysicalGait: new Array<IndividualPhysicalGait>(unitCount).fill(
+      "stationary",
+    ),
+    eligibleEnergyGaitMemberCount: new Int32Array(unitCount),
+    stationaryEffectiveMemberCount: new Int32Array(unitCount),
+    walkingEffectiveMemberCount: new Int32Array(unitCount),
+    joggingEffectiveMemberCount: new Int32Array(unitCount),
+    sprintingEffectiveMemberCount: new Int32Array(unitCount),
+    preEnergyAnchorStep: new Int32Array(unitCount),
+    postEnergyAnchorStep: new Int32Array(unitCount),
+    anchorMovementReducedByEnergy: new Uint8Array(unitCount),
+    anchorEnergyPolicyApplied: new Uint8Array(unitCount),
     roles: new Array<IndividualRole>(config.entityCount).fill("regular"),
     slotRow: new Int32Array(config.entityCount),
     slotCol: new Int32Array(config.entityCount),
@@ -353,6 +398,11 @@ export function createFormationBehaviourStore(
     effectivePhysicalGait: new Array<IndividualPhysicalGait>(
       config.entityCount,
     ).fill("stationary"),
+    preEnergyStepX: new Int32Array(config.entityCount),
+    preEnergyStepY: new Int32Array(config.entityCount),
+    postEnergyStepX: new Int32Array(config.entityCount),
+    postEnergyStepY: new Int32Array(config.entityCount),
+    movementReducedByEnergy: new Uint8Array(config.entityCount),
     energyGaitProjectionTickUsed: null,
     lastEmittedMovementMode: new Array<MovementMode | null>(
       config.entityCount,
@@ -584,6 +634,36 @@ export function getUnitOrdinaryPhysicalGait(
   return internal.ordinaryPhysicalGait[requireUnitIndex(internal, unitId)]!;
 }
 
+export function getUnitEnergyGaitDiagnostics(
+  store: FormationBehaviourStore,
+  unitId: UnitId,
+): UnitEnergyGaitDiagnostics {
+  const internal = asInternal(store);
+  const unitIndex = requireUnitIndex(internal, unitId);
+  return {
+    requestedUnitPhysicalGait:
+      internal.requestedUnitPhysicalGait[unitIndex]!,
+    effectiveAnchorPhysicalGait:
+      internal.effectiveAnchorPhysicalGait[unitIndex]!,
+    eligibleEnergyGaitMemberCount:
+      internal.eligibleEnergyGaitMemberCount[unitIndex]!,
+    stationaryEffectiveMemberCount:
+      internal.stationaryEffectiveMemberCount[unitIndex]!,
+    walkingEffectiveMemberCount:
+      internal.walkingEffectiveMemberCount[unitIndex]!,
+    joggingEffectiveMemberCount:
+      internal.joggingEffectiveMemberCount[unitIndex]!,
+    sprintingEffectiveMemberCount:
+      internal.sprintingEffectiveMemberCount[unitIndex]!,
+    preEnergyAnchorStep: internal.preEnergyAnchorStep[unitIndex]!,
+    postEnergyAnchorStep: internal.postEnergyAnchorStep[unitIndex]!,
+    anchorMovementReducedByEnergy:
+      internal.anchorMovementReducedByEnergy[unitIndex] !== 0,
+    anchorEnergyPolicyApplied:
+      internal.anchorEnergyPolicyApplied[unitIndex] !== 0,
+  };
+}
+
 export function getIndividualRequestedPhysicalGait(
   store: FormationBehaviourStore,
   entityId: number,
@@ -608,6 +688,51 @@ export function getFormationEnergyGaitProjectionTickUsed(
   return asInternal(store).energyGaitProjectionTickUsed;
 }
 
+export function getIndividualPreEnergyStepX(
+  store: FormationBehaviourStore,
+  entityId: number,
+): number {
+  const internal = asInternal(store);
+  assertEntityIdInRange(entityId, internal.entityCount);
+  return internal.preEnergyStepX[entityId]!;
+}
+
+export function getIndividualPreEnergyStepY(
+  store: FormationBehaviourStore,
+  entityId: number,
+): number {
+  const internal = asInternal(store);
+  assertEntityIdInRange(entityId, internal.entityCount);
+  return internal.preEnergyStepY[entityId]!;
+}
+
+export function getIndividualPostEnergyStepX(
+  store: FormationBehaviourStore,
+  entityId: number,
+): number {
+  const internal = asInternal(store);
+  assertEntityIdInRange(entityId, internal.entityCount);
+  return internal.postEnergyStepX[entityId]!;
+}
+
+export function getIndividualPostEnergyStepY(
+  store: FormationBehaviourStore,
+  entityId: number,
+): number {
+  const internal = asInternal(store);
+  assertEntityIdInRange(entityId, internal.entityCount);
+  return internal.postEnergyStepY[entityId]!;
+}
+
+export function getIndividualMovementReducedByEnergy(
+  store: FormationBehaviourStore,
+  entityId: number,
+): boolean {
+  const internal = asInternal(store);
+  assertEntityIdInRange(entityId, internal.entityCount);
+  return internal.movementReducedByEnergy[entityId] !== 0;
+}
+
 export function clampPhysicalGait(
   requested: IndividualPhysicalGait,
   maximum: IndividualPhysicalGait,
@@ -619,6 +744,37 @@ export function clampPhysicalGait(
 
 export function physicalGaitRank(gait: IndividualPhysicalGait): number {
   return gait === "stationary" ? 0 : gait === "walking" ? 1 : gait === "jogging" ? 2 : 3;
+}
+
+/** Per-axis ordinary member ceiling; sprint retains the already-arbitrated step. */
+export function physicalGaitCoordinateCeiling(
+  gait: IndividualPhysicalGait,
+): number | null {
+  if (gait === "stationary") return 0;
+  if (gait === "walking") return 1;
+  if (gait === "jogging") return 2;
+  return null;
+}
+
+export function lowerMedianPhysicalGaitFromCounts(
+  stationaryCount: number,
+  walkingCount: number,
+  joggingCount: number,
+  sprintingCount: number,
+): IndividualPhysicalGait {
+  assertNonNegativeInteger(stationaryCount, "stationary gait count");
+  assertNonNegativeInteger(walkingCount, "walking gait count");
+  assertNonNegativeInteger(joggingCount, "jogging gait count");
+  assertNonNegativeInteger(sprintingCount, "sprinting gait count");
+  const eligibleCount = stationaryCount + walkingCount + joggingCount + sprintingCount;
+  if (eligibleCount === 0) return "stationary";
+  const lowerMedianIndex = Math.floor((eligibleCount - 1) / 2);
+  if (lowerMedianIndex < stationaryCount) return "stationary";
+  if (lowerMedianIndex < stationaryCount + walkingCount) return "walking";
+  if (lowerMedianIndex < stationaryCount + walkingCount + joggingCount) {
+    return "jogging";
+  }
+  return "sprinting";
 }
 
 function effectiveGaitFor(
@@ -847,6 +1003,7 @@ export function advanceFormationOneTick(
       throw new Error("Formation energy gait capability must project the current tick.");
     }
   }
+  resetEnergyMovementDiagnostics(internal);
   internal.energyGaitProjectionTickUsed = energyGaitContext?.tick ?? null;
   internal.routingPassThroughCount = 0;
   const unitIds = getUnitIds(identityStore);
@@ -1113,9 +1270,10 @@ function processUnit(
       continue;
     }
     store.requestedPhysicalGait[entityId] = requestedPhysicalGait;
-    store.effectivePhysicalGait[entityId] = effectiveGaitFor(
+    const effectivePhysicalGait = effectiveGaitFor(
       requestedPhysicalGait, entityId, false, energyGaitContext,
     );
+    store.effectivePhysicalGait[entityId] = effectivePhysicalGait;
     const role = store.roles[entityId]!;
     const slotRow = store.slotRow[entityId]!;
     const slotCol = store.slotCol[entityId]!;
@@ -1300,6 +1458,32 @@ function processUnit(
       }
     }
 
+    if (order === "hold") {
+      stepX = 0;
+      stepY = 0;
+      mode = "holdPosition";
+    } else {
+      store.preEnergyStepX[entityId] = stepX;
+      store.preEnergyStepY[entityId] = stepY;
+      const energyCoordinateCeiling = physicalGaitCoordinateCeiling(
+        effectivePhysicalGait,
+      );
+      if (energyCoordinateCeiling !== null) {
+        const postEnergyStepX = clampComponent(stepX, energyCoordinateCeiling);
+        const postEnergyStepY = clampComponent(stepY, energyCoordinateCeiling);
+        if (postEnergyStepX !== stepX || postEnergyStepY !== stepY) {
+          store.movementReducedByEnergy[entityId] = 1;
+          if (postEnergyStepX === 0 && postEnergyStepY === 0) {
+            mode = "holdPosition";
+          }
+        }
+        stepX = postEnergyStepX;
+        stepY = postEnergyStepY;
+      }
+      store.postEnergyStepX[entityId] = stepX;
+      store.postEnergyStepY[entityId] = stepY;
+    }
+
     world.positionsX[entityId] = posX + stepX;
     world.positionsY[entityId] = posY + stepY;
     store.movementMode[entityId] = mode;
@@ -1333,6 +1517,16 @@ function processUnit(
       }
     }
   }
+}
+
+function resetEnergyMovementDiagnostics(
+  store: InternalFormationBehaviourStore,
+): void {
+  store.preEnergyStepX.fill(0);
+  store.preEnergyStepY.fill(0);
+  store.postEnergyStepX.fill(0);
+  store.postEnergyStepY.fill(0);
+  store.movementReducedByEnergy.fill(0);
 }
 
 interface RoutingHeading {

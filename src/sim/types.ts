@@ -530,6 +530,11 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly formationEffectivePhysicalGait?: IndividualPhysicalGait;
   readonly formationGaitReducedByCapability?: boolean;
   readonly formationEnergyGaitProjectionTickUsed?: number | null;
+  readonly formationPreEnergyStepX?: number;
+  readonly formationPreEnergyStepY?: number;
+  readonly formationPostEnergyStepX?: number;
+  readonly formationPostEnergyStepY?: number;
+  readonly formationMovementReducedByEnergy?: boolean;
   readonly energyActualPhysicalGait?: IndividualPhysicalGait;
   readonly energyPhysicalGaitSource?: IndividualEnergyMovementAuthority | null;
   readonly energyGaitProducedDisplacement?: boolean;

@@ -16,6 +16,11 @@ import {
   getIndividualRequestedPhysicalGait,
   getIndividualEffectivePhysicalGait,
   getFormationEnergyGaitProjectionTickUsed,
+  getIndividualPreEnergyStepX,
+  getIndividualPreEnergyStepY,
+  getIndividualPostEnergyStepX,
+  getIndividualPostEnergyStepY,
+  getIndividualMovementReducedByEnergy,
   physicalGaitRank,
   getIndividualMovementMode,
   getIndividualRole,
@@ -2001,10 +2006,15 @@ export function advanceCombatSandboxOneTick(
         const routing = combatSandbox.moraleMovementStates.get(unitId) === "routing";
         return {
           source: routing ? "routingMovement" : "ordinaryMovement",
-          requestedGait: getIndividualRequestedPhysicalGait(
-            combatSandbox.formationStore,
-            entityId,
-          ),
+          requestedGait: routing
+            ? getIndividualRequestedPhysicalGait(
+                combatSandbox.formationStore,
+                entityId,
+              )
+            : getIndividualEffectivePhysicalGait(
+                combatSandbox.formationStore,
+                entityId,
+              ),
         };
       },
     );
@@ -3294,6 +3304,21 @@ function collectInspectedIndividualSnapshots(
         )),
       formationEnergyGaitProjectionTickUsed:
         getFormationEnergyGaitProjectionTickUsed(combatSandbox.formationStore),
+      formationPreEnergyStepX: getIndividualPreEnergyStepX(
+        combatSandbox.formationStore, entityId,
+      ),
+      formationPreEnergyStepY: getIndividualPreEnergyStepY(
+        combatSandbox.formationStore, entityId,
+      ),
+      formationPostEnergyStepX: getIndividualPostEnergyStepX(
+        combatSandbox.formationStore, entityId,
+      ),
+      formationPostEnergyStepY: getIndividualPostEnergyStepY(
+        combatSandbox.formationStore, entityId,
+      ),
+      formationMovementReducedByEnergy: getIndividualMovementReducedByEnergy(
+        combatSandbox.formationStore, entityId,
+      ),
       energyActualPhysicalGait: energyActivity.actualPhysicalGait,
       energyPhysicalGaitSource: energyActivity.physicalGaitSource,
       energyGaitProducedDisplacement:

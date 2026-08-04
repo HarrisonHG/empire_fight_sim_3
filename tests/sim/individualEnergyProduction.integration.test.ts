@@ -158,7 +158,7 @@ describe("Milestone 7A production energy integration", () => {
     ).projectionTick).toBe(0);
   });
 
-  it("replays deterministically and differing energy values cannot change 7A gameplay", () => {
+  it("replays deterministically while differing energy can now enforce movement", () => {
     const defaultScenario = createSmallBattleScenario({ inspect: false });
     const variedScenario = createSmallBattleScenario({
       inspect: false,
@@ -184,7 +184,7 @@ describe("Milestone 7A production energy integration", () => {
     }
 
     expect(createPositionSnapshot(first)).toEqual(createPositionSnapshot(replay));
-    expect(createPositionSnapshot(varied)).toEqual(createPositionSnapshot(first));
+    expect(createPositionSnapshot(varied)).not.toEqual(createPositionSnapshot(first));
     for (let entityId = 0; entityId < first.world.entityCount; entityId += 1) {
       expect(getIndividualEnergyHistoryInspection(
         first.individualEnergyStore,
@@ -201,7 +201,7 @@ describe("Milestone 7A production energy integration", () => {
         entityId,
       ));
     }
-    expect(gameplayDigest(varied)).toEqual(gameplayDigest(first));
+    expect(gameplayDigest(varied)).not.toEqual(gameplayDigest(first));
     const history = getIndividualEnergyHistoryInspection(
       varied.individualEnergyStore,
       0,
@@ -211,7 +211,7 @@ describe("Milestone 7A production energy integration", () => {
     expect(history.totalEnergySpent).toBeGreaterThan(0);
   });
 
-  it("keeps spent gait projection inspection-only while gameplay and expenditure remain unenforced", () => {
+  it("enforces spent ordinary gait while retaining distinct formation and energy inspection", () => {
     const fresh = createSimulation(createSmallBattleScenario({}));
     const spent = createSimulation(createSmallBattleScenario({
       firstUnitEnergy: {
@@ -234,9 +234,14 @@ describe("Milestone 7A production energy integration", () => {
       formationEffectivePhysicalGait: "walking",
       formationGaitReducedByCapability: true,
       formationEnergyGaitProjectionTickUsed: 0,
-      energyRequestedPhysicalGait: "jogging",
-      energyActualPhysicalGait: "jogging",
-      energyMovementExpenditureRequestedThisTick: 8,
+      formationPreEnergyStepX: expect.any(Number),
+      formationPreEnergyStepY: expect.any(Number),
+      formationPostEnergyStepX: expect.any(Number),
+      formationPostEnergyStepY: expect.any(Number),
+      formationMovementReducedByEnergy: true,
+      energyRequestedPhysicalGait: "walking",
+      energyActualPhysicalGait: "walking",
+      energyMovementExpenditureRequestedThisTick: 1,
     });
     expect(freshInspection).toMatchObject({
       formationRequestedPhysicalGait: "jogging",
@@ -245,9 +250,8 @@ describe("Milestone 7A production energy integration", () => {
       energyActualPhysicalGait: "jogging",
       energyMovementExpenditureRequestedThisTick: 8,
     });
-    expect(Array.from(fresh.world.positionsX)).toEqual(Array.from(spent.world.positionsX));
-    expect(Array.from(fresh.world.positionsY)).toEqual(Array.from(spent.world.positionsY));
-    expect(gameplayDigest(spent)).toEqual(gameplayDigest(fresh));
+    expect(Array.from(fresh.world.positionsX)).not.toEqual(Array.from(spent.world.positionsX));
+    expect(gameplayDigest(spent)).not.toEqual(gameplayDigest(fresh));
     expect(fresh.combatSandbox!.formationEnergyGaitCapabilities).toBe(freshAdapter);
     expect(spent.combatSandbox!.formationEnergyGaitCapabilities).toBe(spentAdapter);
     expect(freshAdapter.entityCount).toBe(4);
@@ -260,6 +264,75 @@ describe("Milestone 7A production energy integration", () => {
     expect(spent.combatSandbox!.formationEnergyGaitCapabilities).toBe(spentAdapter);
     expect(freshAdapter.projectionTick).toBe(1);
     expect(spentAdapter.projectionTick).toBe(1);
+  });
+
+  it("uses following-tick capability for sprint then jog then minimum walk", () => {
+    const source = createSmallBattleScenario({});
+    const combat = source.combatSandbox!;
+    const simulation = createSimulation({
+      ...source,
+      entityCount: 2,
+      combatSandbox: {
+        ...combat,
+        inspectedEntityIds: [0],
+        units: combat.units.map((unit, index) => index === 0
+          ? {
+              ...unit,
+              memberCount: 1,
+              deploymentZone: { minX: 80, maxX: 80, minY: 120, maxY: 120 },
+              anchorX: 80,
+              anchorY: 120,
+              rows: 1,
+              cols: 1,
+              unitSpeed: 4,
+              ordinaryPhysicalGait: "sprinting" as const,
+              memberMaxStep: 4,
+              energyProfile: {
+                maximumEnergy: 60,
+                startingEnergy: 48,
+                safeRestRecoveryPerTick: 0,
+              },
+              ...(unit.memberProfiles === undefined
+                ? {}
+                : { memberProfiles: unit.memberProfiles.slice(0, 1) }),
+            }
+          : {
+              ...unit,
+              memberCount: 1,
+              deploymentZone: { minX: 420, maxX: 420, minY: 120, maxY: 120 },
+              anchorX: 420,
+              anchorY: 120,
+              rows: 1,
+              cols: 1,
+              order: "hold" as const,
+              memberMaxStep: 1,
+              ...(unit.memberProfiles === undefined
+                ? {}
+                : { memberProfiles: unit.memberProfiles.slice(0, 1) }),
+            }),
+      },
+    });
+
+    const expected = [
+      { tick: 0, band: "fresh", gait: "sprinting", cost: 40, step: 4 },
+      { tick: 1, band: "winded", gait: "jogging", cost: 8, step: 2 },
+      { tick: 2, band: "spent", gait: "walking", cost: 1, step: 1 },
+    ] as const;
+    for (const row of expected) {
+      advanceSimulationOneTick(simulation);
+      const inspected = createPositionSnapshot(simulation).combatDebug!
+        .inspectedIndividuals[0]!;
+      expect(inspected).toMatchObject({
+        energyCapabilityProjectionTick: row.tick,
+        energyCapabilitySourceBand: row.band,
+        formationRequestedPhysicalGait: "sprinting",
+        formationEffectivePhysicalGait: row.gait,
+        formationPostEnergyStepX: row.step,
+        energyRequestedPhysicalGait: row.gait,
+        energyActualPhysicalGait: row.gait,
+        energyMovementExpenditureRequestedThisTick: row.cost,
+      });
+    }
   });
 });
 

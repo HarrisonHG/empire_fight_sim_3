@@ -2,7 +2,8 @@
 
 Status: active; 7A and 7B are complete. 7C-1 gait authority and capability
 projection is implemented. 7C-2 formation and routing movement enforcement
-and 7C-3 specialist movement enforcement and consolidation are not started.
+is in progress with ordinary member enforcement; 7C-3 specialist movement
+enforcement and consolidation is not started.
 
 Implementation begins after Milestone 6 is accepted and the post-Milestone-6 main-battle medical integration spike is retained as the evolving `/` scenario.
 
@@ -768,10 +769,11 @@ recovery, or gameplay outcome. Milestone 7B is complete after this correction;
   separate from actual energy-activity gait and expenditure.
 - Focused validation rejects null, stale, future, and mismatched capability
   contexts before formation mutation. Production regressions prove adapter
-  reuse, live metadata, blocked-movement semantics, and projection-only
+  reuse, live metadata, blocked-movement semantics, and the then-projection-only
   fresh-versus-spent equivalence.
 - Semantic actual gait owns energy expenditure while requested and effective
-  formation gait remain diagnostic until movement enforcement begins.
+  formation gait were diagnostic in 7C-1 and become ordinary enforcement input
+  in 7C-2.
 - `memberMaxStep` remains a coordinate slot-correction limit. Low-level
   formation tests may exercise zero correction limits where permitted, while
   authored production scenarios require a positive safe integer.
@@ -788,11 +790,24 @@ routing, or change combat, casualty, pressure, morale, or specialist movement.
 
 ---
 
-## 7C-2 — Formation and routing movement enforcement — not started
+## 7C-2 — Formation and routing movement enforcement — in progress
 
-Planned work includes ordinary and routing coordinate ceilings, minimum-walk
-movement, actual-effective-gait expenditure, sprint exhaustion timing,
-lower-median anchor enforcement, and bounded unit diagnostics.
+- Ordinary active formation members apply their effective tick-start gait after
+  existing formation, morale, blocker, contact, overtaking and bounds rules.
+  Per-axis ceilings are stationary `0`, walking `1`, jogging `2`, while
+  sprinting retains the previously permitted step.
+- Ordinary energy activity now records the effective gait when self-propelled
+  displacement occurs, so movement expenditure follows the enforced gait and
+  remains zero without displacement.
+- Entity-indexed pre/post energy-step diagnostics and reduction flags are
+  overwritten each successful formation tick and exposed only through bounded
+  individual inspection.
+- Spent active members retain minimum walking movement where existing movement
+  authorities permit it. Unit anchors remain unenforced, so tired members may
+  lag without teleportation or catch-up.
+
+Remaining work includes anchor enforcement, lower-median anchor policy, routing
+movement enforcement, bounded unit diagnostics, and final full verification.
 
 No combat-tempo, pressure, equipment-burden, rest-decision, or specialist
 movement enforcement belongs to this step.
