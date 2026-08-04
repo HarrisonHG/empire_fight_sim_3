@@ -31,6 +31,7 @@ import type { UnitMoraleMovementStateSource } from "./moraleMovement";
 import { getUnitIdForEntity, type UnitIdentityStore } from "./unitIdentity";
 import type { WorldState } from "./types";
 import {
+  clampPhysicalGait,
   physicalGaitCoordinateCeiling,
   requestedPhysicalGaitForMaximumStep,
   type IndividualSpecialistPhysicalGaitAdapter,
@@ -779,18 +780,44 @@ export function advanceCasualtyDragGroupsBeforeCombat(
       const scaled = slowestStep * INITIAL_DRAG_SPEED_FACTOR_NUMERATOR + group.dragSpeedRemainder;
       const maxStep = Math.floor(scaled / INITIAL_DRAG_SPEED_FACTOR_DENOMINATOR);
       const requestedGroupGait = requestedPhysicalGaitForMaximumStep(maxStep);
+      let groupEffectiveGait = requestedGroupGait;
       for (let helperIndex = 0;
         helperIndex < group.helperEntityIds.length;
         helperIndex += 1) {
-        gaitAdapter?.preflightActiveSpecialistMovement(
+        const helperEffectiveGait = gaitAdapter?.preflightActiveSpecialistMovement(
           group.helperEntityIds[helperIndex]!,
           "activeDragHelper",
           requestedGroupGait,
+        ) ?? requestedGroupGait;
+        groupEffectiveGait = clampPhysicalGait(
+          groupEffectiveGait,
+          helperEffectiveGait,
+        );
+      }
+      for (let helperIndex = 0;
+        helperIndex < group.helperEntityIds.length;
+        helperIndex += 1) {
+        gaitAdapter?.constrainPreflightedActiveDragHelperGait(
+          group.helperEntityIds[helperIndex]!,
+          requestedGroupGait,
+          groupEffectiveGait,
         );
       }
       gaitAdapter?.preflightDraggedPatientMovement(patientId);
       group.dragSpeedRemainder = scaled % INITIAL_DRAG_SPEED_FACTOR_DENOMINATOR;
-      const delta = sharedDragDelta(world, group, destinationX, destinationY, maxStep);
+      const groupCoordinateCeiling = physicalGaitCoordinateCeiling(
+        groupEffectiveGait,
+      );
+      const finalMaximumStep = groupCoordinateCeiling === null
+        ? maxStep
+        : Math.min(maxStep, groupCoordinateCeiling);
+      const delta = sharedDragDelta(
+        world,
+        group,
+        destinationX,
+        destinationY,
+        finalMaximumStep,
+      );
       const groupMoved = delta.x !== 0 || delta.y !== 0;
       if (delta.x !== 0 || delta.y !== 0) {
         const participants = [patientId, ...group.helperEntityIds];
@@ -805,7 +832,7 @@ export function advanceCasualtyDragGroupsBeforeCombat(
           group.helperEntityIds[helperIndex]!,
           "activeDragHelper",
           requestedGroupGait,
-          "walking",
+          groupEffectiveGait,
           groupMoved,
         );
       }

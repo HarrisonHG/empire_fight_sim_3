@@ -42,6 +42,7 @@ import {
 import {
   clampPhysicalGait,
   INDIVIDUAL_PHYSICAL_GAITS,
+  physicalGaitRank,
   requestedPhysicalGaitForMaximumStep,
   type IndividualPhysicalGait,
   type IndividualSpecialistMovementAuthority,
@@ -485,6 +486,16 @@ export function createIndividualSpecialistPhysicalGaitAdapter(
       authority,
       requestedGait,
     ),
+    constrainPreflightedActiveDragHelperGait: (
+      entityId: number,
+      requestedGait: IndividualPhysicalGait,
+      groupEffectiveGait: IndividualPhysicalGait,
+    ) => constrainPreflightedActiveDragHelperGait(
+      adapter,
+      entityId,
+      requestedGait,
+      groupEffectiveGait,
+    ),
     completeActiveSpecialistMovement: (
       entityId: number,
       authority: IndividualSpecialistMovementAuthority,
@@ -701,6 +712,37 @@ function completeSpecialistMovement(
     actualGaitWhenDisplaced,
   );
   adapterInternal.pendingSourceByEntity[entityId] = -1;
+}
+
+function constrainPreflightedActiveDragHelperGait(
+  adapter: IndividualSpecialistPhysicalGaitAdapter,
+  entityId: number,
+  requestedGait: IndividualPhysicalGait,
+  groupEffectiveGait: IndividualPhysicalGait,
+): void {
+  const adapterInternal = validateSpecialistAdapterCurrentTick(adapter);
+  const activity = requireStore(adapterInternal.activity);
+  assertEntityId(entityId, activity.entityCount);
+  const sourceIndex = MOVEMENT_AUTHORITIES.indexOf("activeDragHelper");
+  const requestedGaitIndex = INTENSITIES.indexOf(requestedGait);
+  if (adapterInternal.pendingSourceByEntity[entityId] !== sourceIndex ||
+      adapterInternal.pendingRequestedGaitByEntity[entityId] !==
+        requestedGaitIndex) {
+    throw new Error(
+      "Specialist drag-group gait requires a matching successful preflight.",
+    );
+  }
+  const preflightEffectiveGait = INTENSITIES[
+    adapterInternal.pendingEffectiveGaitByEntity[entityId]!
+  ]!;
+  if (physicalGaitRank(groupEffectiveGait) >
+      physicalGaitRank(preflightEffectiveGait)) {
+    throw new Error(
+      "Specialist drag-group gait must not promote personal capability.",
+    );
+  }
+  adapterInternal.pendingEffectiveGaitByEntity[entityId] =
+    INTENSITIES.indexOf(groupEffectiveGait);
 }
 
 function requireSpecialistAdapter(
