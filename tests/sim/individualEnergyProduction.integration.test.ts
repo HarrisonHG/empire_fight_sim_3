@@ -977,8 +977,15 @@ describe("Milestone 7B-1 production activity observation", () => {
 
   it("completes observation, classification and application for every combat tick", () => {
     const simulation = createSimulation(createSmallBattleScenario({}));
+    const specialistAdapter = simulation.combatSandbox!
+      .specialistPhysicalGaitAdapter;
+    expect(Object.isFrozen(specialistAdapter)).toBe(true);
+    expect(specialistAdapter.entityCount).toBe(simulation.world.entityCount);
     for (let expectedTick = 0; expectedTick < 5; expectedTick += 1) {
       advanceSimulationOneTick(simulation);
+      expect(simulation.combatSandbox!.specialistPhysicalGaitAdapter)
+        .toBe(specialistAdapter);
+      expect(specialistAdapter.acceptedProjectionTick).toBe(expectedTick);
       const phase = getIndividualEnergyActivityInspection(
         simulation.combatSandbox!.individualEnergyActivityStore,
         0,
@@ -1015,12 +1022,16 @@ describe("Milestone 7B-1 production activity observation", () => {
       energyMovementDistanceSquared: expect.any(Number),
       energyMovementIntensity: expect.any(String),
       energyRequestedPhysicalGait: expect.any(String),
+      energyEffectivePhysicalGait: expect.any(String),
       energyActualPhysicalGait: expect.any(String),
+      energyGaitReducedByCapability: expect.any(Boolean),
       energyCapabilityProjectionTick: expect.any(Number),
       energyCapabilitySourceEnergy: expect.any(Number),
       energyCapabilitySourceBand: expect.any(String),
       energyMaximumOrdinaryGait: expect.any(String),
       energyMaximumRoutingGait: expect.any(String),
+      energyMaximumActiveSpecialistGait: expect.any(String),
+      energyMaximumRespawnEgressGait: expect.any(String),
       energyCanInitiateOrdinarySprintOrCharge: expect.any(Boolean),
       energyMinimumSafeWalkAvailable: expect.any(Boolean),
       energyAttackImpulsesThisTick: expect.any(Number),

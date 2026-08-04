@@ -1,5 +1,13 @@
 import { getIndividualCombatActionState, type IndividualCombatActionStore } from "./individualCombatAction";
-import { applyIndividualExternalMovementIntent, type FormationBehaviourStore } from "./formationBehaviour";
+import {
+  applyIndividualExternalMovementIntent,
+  getIndividualConfiguredMaxStep,
+  type FormationBehaviourStore,
+} from "./formationBehaviour";
+import {
+  requestedPhysicalGaitForMaximumStep,
+  type IndividualSpecialistPhysicalGaitAdapter,
+} from "./individualPhysicalGait";
 import {
   CASUALTY_DRAG_PICKUP_RANGE,
   getActiveCasualtyDragGroups,
@@ -212,6 +220,7 @@ export function advanceIndividualMedicalClaimApproachMovementOneTick(
   claims: IndividualMedicalClaimStore,
   tick: number,
   options: IndividualMedicalClaimCommitmentOptions = {},
+  gaitAdapter?: IndividualSpecialistPhysicalGaitAdapter,
 ): number {
   validateCounts(world.entityCount, formation, identity, lifecycle, presence, hits,
     profiles, herbs, trauma, limbs, actions, assistance, claims);
@@ -223,9 +232,25 @@ export function advanceIndividualMedicalClaimApproachMovementOneTick(
       options)) continue;
     const patientId = internal.patientByPhysick[physickId]!;
     if (isWithinTreatmentTouchRange(world, physickId, patientId)) continue;
-    if (applyIndividualExternalMovementIntent(world, formation, physickId,
-      world.positionsX[patientId]!, world.positionsY[patientId]!,
-      "approachClaimedPatient")) movedCount += 1;
+    const requestedGait = requestedPhysicalGaitForMaximumStep(
+      getIndividualConfiguredMaxStep(formation, physickId),
+    );
+    const moved = applyIndividualExternalMovementIntent(
+      world,
+      formation,
+      physickId,
+      world.positionsX[patientId]!,
+      world.positionsY[patientId]!,
+      "approachClaimedPatient",
+    );
+    gaitAdapter?.recordActiveSpecialistMovement(
+      physickId,
+      "medicalApproach",
+      requestedGait,
+      requestedGait,
+      moved,
+    );
+    if (moved) movedCount += 1;
   }
   return movedCount;
 }

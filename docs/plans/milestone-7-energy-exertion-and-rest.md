@@ -2,8 +2,8 @@
 
 Status: active; 7A and 7B are complete. 7C-1 gait authority and capability
 projection and 7C-2 formation and routing movement enforcement are
-implemented. 7C-3 specialist movement enforcement and consolidation is
-planned; implementation has not started.
+implemented. 7C-3 specialist movement enforcement and consolidation is in
+progress: the 7C-3a shared contract is implemented and 7C-3b is next.
 
 Implementation begins after Milestone 6 is accepted and the post-Milestone-6 main-battle medical integration spike is retained as the evolving `/` scenario.
 
@@ -747,8 +747,8 @@ inspection exposes only a read-model value sourced from that authority.
 
 This correction changes no tuning, activity classification, expenditure,
 recovery, or gameplay outcome. Milestone 7B is complete after this correction;
-7C-1 and 7C-2 are implemented below; 7C-3 remains the next implementation
-slice.
+7C-1 and 7C-2 are implemented below; 7C-3a is implemented and 7C-3b remains
+the next implementation slice.
 
 ---
 
@@ -857,7 +857,7 @@ movement enforcement belongs to this step.
 
 ---
 
-## 7C-3 â€” Specialist movement enforcement and consolidation â€” planned; not started
+## 7C-3 â€” Specialist movement enforcement and consolidation â€” in progress; 7C-3a implemented
 
 ### Goal
 
@@ -1072,7 +1072,7 @@ the evolving `/` scenario must not be neutralised.
 
 ### Ordered implementation slices
 
-#### 7C-3a â€” Shared gait authority and specialist capability contract
+#### 7C-3a â€” Shared gait authority and specialist capability contract â€” implemented
 
 Deliver:
 

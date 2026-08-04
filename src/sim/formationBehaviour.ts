@@ -30,7 +30,18 @@ import {
   isIndividualOrdinaryParticipationEligible,
   type IndividualOrdinaryParticipationSnapshot,
 } from "./individualOrdinaryParticipation";
-import type { IndividualPhysicalGait } from "./individualEnergyActivity";
+import {
+  clampPhysicalGait,
+  physicalGaitCoordinateCeiling,
+  requestedPhysicalGaitForMaximumStep,
+  type IndividualPhysicalGait,
+} from "./individualPhysicalGait";
+
+export {
+  clampPhysicalGait,
+  physicalGaitCoordinateCeiling,
+  physicalGaitRank,
+} from "./individualPhysicalGait";
 
 export const FORMATION_REFORMATION_PHYSICAL_GAIT: IndividualPhysicalGait =
   "walking";
@@ -736,29 +747,6 @@ export function getIndividualMovementReducedByEnergy(
   return internal.movementReducedByEnergy[entityId] !== 0;
 }
 
-export function clampPhysicalGait(
-  requested: IndividualPhysicalGait,
-  maximum: IndividualPhysicalGait,
-): IndividualPhysicalGait {
-  return physicalGaitRank(requested) <= physicalGaitRank(maximum)
-    ? requested
-    : maximum;
-}
-
-export function physicalGaitRank(gait: IndividualPhysicalGait): number {
-  return gait === "stationary" ? 0 : gait === "walking" ? 1 : gait === "jogging" ? 2 : 3;
-}
-
-/** Per-axis ordinary member ceiling; sprint retains the already-arbitrated step. */
-export function physicalGaitCoordinateCeiling(
-  gait: IndividualPhysicalGait,
-): number | null {
-  if (gait === "stationary") return 0;
-  if (gait === "walking") return 1;
-  if (gait === "jogging") return 2;
-  return null;
-}
-
 export function lowerMedianPhysicalGaitFromCounts(
   stationaryCount: number,
   walkingCount: number,
@@ -797,10 +785,7 @@ export function defaultOrdinaryPhysicalGaitForUnitSpeed(
   unitSpeed: number,
 ): IndividualPhysicalGait {
   assertNonNegativeInteger(unitSpeed, "unitSpeed");
-  if (unitSpeed === 0) return "stationary";
-  if (unitSpeed === 1) return "walking";
-  if (unitSpeed === 2) return "jogging";
-  return "sprinting";
+  return requestedPhysicalGaitForMaximumStep(unitSpeed);
 }
 
 export function getIndividualConfidence(

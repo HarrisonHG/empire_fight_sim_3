@@ -12,6 +12,7 @@ import {
   type IndividualPlayerPresenceStore,
 } from "./individualCasualtyLifecycle";
 import type { WorldState } from "./types";
+import type { IndividualSpecialistPhysicalGaitAdapter } from "./individualPhysicalGait";
 
 export const INDIVIDUAL_RESPAWN_EGRESS_MAXIMUM_STEP = 4;
 export const INDIVIDUAL_RESPAWN_EGRESS_ARRIVAL_TOLERANCE = 0;
@@ -59,6 +60,7 @@ export function advanceIndividualRespawnEgressOneTick(
   presence: IndividualPlayerPresenceStore,
   tick: number,
   buffers: IndividualRespawnEgressBuffers,
+  gaitAdapter?: IndividualSpecialistPhysicalGaitAdapter,
 ): IndividualRespawnEgressResult {
   if (world.entityCount !== lifecycle.entityCount || world.entityCount !== presence.entityCount) {
     throw new RangeError("Respawn egress dependencies must match entity count.");
@@ -106,6 +108,7 @@ export function advanceIndividualRespawnEgressOneTick(
     const toY = fromY + moveY;
     world.positionsX[entityId] = toX;
     world.positionsY[entityId] = toY;
+    gaitAdapter?.recordRespawnEgressMovement(entityId, "walking", true);
     recordIndividualRespawnEgressMovement(presence, entityId);
     const remainingX = destinationX - toX;
     const remainingY = destinationY - toY;

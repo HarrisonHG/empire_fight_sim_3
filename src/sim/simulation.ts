@@ -12,7 +12,6 @@ import {
   advanceFormationOneTick,
   applyIndividualExternalMovementIntentWithAnchor,
   createFormationBehaviourStore,
-  getIndividualConfiguredMaxStep,
   getIndividualRequestedPhysicalGait,
   getIndividualEffectivePhysicalGait,
   getFormationEnergyGaitProjectionTickUsed,
@@ -21,8 +20,6 @@ import {
   getIndividualPostEnergyStepX,
   getIndividualPostEnergyStepY,
   getIndividualMovementReducedByEnergy,
-  physicalGaitRank,
-  getIndividualMovementMode,
   getIndividualRole,
   type FormationTickDiagnostics,
   getUnitCohesion,
@@ -231,12 +228,13 @@ import {
   applyIndividualEnergyActivityOneTick,
   classifyIndividualEnergyActivityOneTick,
   createIndividualEnergyActivityStore,
+  createIndividualSpecialistPhysicalGaitAdapter,
+  checkpointIndividualEnergyMovementObservation,
   getIndividualEnergyActivityInspection,
   initializeIndividualEnergyActivityApplicationState,
-  observeIndividualEnergyCasualtyMovement,
   observeIndividualEnergyMovementAuthority,
-  requestedGaitForMaximumStep,
 } from "./individualEnergyActivity";
+import { physicalGaitRank } from "./individualPhysicalGait";
 import {
   assertIndividualEnergyCapabilityProjectionTick,
   createIndividualEnergyCapabilityStore,
@@ -862,6 +860,11 @@ function createCombatSandbox(
     getMinimumSafeWalkAvailable: (entityId: number) =>
       getIndividualMinimumSafeWalkAvailable(individualEnergyCapabilityStore, entityId),
   };
+  const specialistPhysicalGaitAdapter =
+    createIndividualSpecialistPhysicalGaitAdapter(
+      individualEnergyActivityStore,
+      individualEnergyCapabilityStore,
+    );
   const individualDefenceHandAvailabilitySource =
     createPrioritizedIndividualDefenceHandAvailabilitySource(
       individualDragHandCommitmentStore,
@@ -906,6 +909,7 @@ function createCombatSandbox(
     individualEnergyActivityStore,
     individualEnergyCapabilityStore,
     formationEnergyGaitCapabilities,
+    specialistPhysicalGaitAdapter,
     individualCasualtyProcedureProfileStore,
     individualCasualtyLifecycleStore,
     individualPlayerPresenceStore,
@@ -1885,6 +1889,7 @@ export function advanceCombatSandboxOneTick(
     combatSandbox.individualEnergyCapabilityStore,
     tick,
   );
+  combatSandbox.specialistPhysicalGaitAdapter.acceptCapabilityProjection(tick);
 
   applyRetainedCasualtyVisualFixturePreCombatInputs(
     world,
@@ -2029,13 +2034,12 @@ export function advanceCombatSandboxOneTick(
         tick,
         combatSandbox.casualtyDragMovementBuffers,
         combatSandbox.individualPlayerPresenceStore,
+        combatSandbox.specialistPhysicalGaitAdapter,
       ),
     );
-    observeIndividualEnergyCasualtyMovement(
+    checkpointIndividualEnergyMovementObservation(
       combatSandbox.individualEnergyActivityStore,
       world,
-      combatSandbox.casualtyDragGroupStore,
-      combatSandbox.formationStore,
     );
     advanceIndividualMedicalClaimApproachMovementOneTick(
       world,
@@ -2064,24 +2068,11 @@ export function advanceCombatSandboxOneTick(
         ),
         isUnavailable: isExecutionCommitted,
       },
+      combatSandbox.specialistPhysicalGaitAdapter,
     );
-    observeIndividualEnergyMovementAuthority(
+    checkpointIndividualEnergyMovementObservation(
       combatSandbox.individualEnergyActivityStore,
       world,
-      (entityId) => getIndividualMovementMode(
-        combatSandbox.formationStore,
-        entityId,
-      ) === "approachClaimedPatient"
-        ? {
-            source: "medicalApproach",
-            requestedGait: requestedGaitForMaximumStep(
-              getIndividualConfiguredMaxStep(
-                combatSandbox.formationStore,
-                entityId,
-              ),
-            ),
-          }
-        : undefined,
     );
     advanceIndividualTraumaWithdrawalMovementOneTick(
       world,
@@ -2091,6 +2082,11 @@ export function advanceCombatSandboxOneTick(
         combatSandbox.individualTreatmentActionStore,
         entityId,
       ),
+      combatSandbox.specialistPhysicalGaitAdapter,
+    );
+    checkpointIndividualEnergyMovementObservation(
+      combatSandbox.individualEnergyActivityStore,
+      world,
     );
     return result;
   });
@@ -2230,24 +2226,6 @@ export function advanceCombatSandboxOneTick(
           isTerminalAwaitingComfort,
         },
       ),
-    );
-    observeIndividualEnergyMovementAuthority(
-      combatSandbox.individualEnergyActivityStore,
-      world,
-      (entityId) => getIndividualMovementMode(
-        combatSandbox.formationStore,
-        entityId,
-      ) === "withdrawForTreatment"
-        ? {
-            source: "traumaWithdrawal",
-            requestedGait: requestedGaitForMaximumStep(
-              getIndividualConfiguredMaxStep(
-                combatSandbox.formationStore,
-                entityId,
-              ),
-            ),
-          }
-        : undefined,
     );
     combatSandbox.individualTreatmentActionResult = runCasualtyStage(
       "treatmentAndComfort",
@@ -2463,13 +2441,12 @@ export function advanceCombatSandboxOneTick(
         combatSandbox.individualPlayerPresenceStore,
         tick,
         combatSandbox.individualRespawnEgressBuffers,
+        combatSandbox.specialistPhysicalGaitAdapter,
       ),
     );
-    observeIndividualEnergyMovementAuthority(
+    checkpointIndividualEnergyMovementObservation(
       combatSandbox.individualEnergyActivityStore,
       world,
-      "respawnEgress",
-      "walking",
     );
     for (const arrival of combatSandbox.individualRespawnEgressResult.arrivalRecords) {
       clearIncompatibleIndividualCasualtyAssistance(
@@ -3310,6 +3287,9 @@ function collectInspectedIndividualSnapshots(
         energyActivity.actualMovementDistanceSquared,
       energyMovementIntensity: energyActivity.movementIntensity,
       energyRequestedPhysicalGait: energyActivity.requestedPhysicalGait,
+      energyEffectivePhysicalGait: energyActivity.effectivePhysicalGait,
+      energyGaitReducedByCapability:
+        energyActivity.gaitReducedByCapability,
       formationRequestedPhysicalGait: getIndividualRequestedPhysicalGait(
         combatSandbox.formationStore, entityId,
       ),
@@ -3348,6 +3328,10 @@ function collectInspectedIndividualSnapshots(
       energyCapabilitySourceBand: energyCapability.sourceEnergyBand,
       energyMaximumOrdinaryGait: energyCapability.maximumOrdinaryGait,
       energyMaximumRoutingGait: energyCapability.maximumRoutingGait,
+      energyMaximumActiveSpecialistGait:
+        energyCapability.maximumActiveSpecialistGait,
+      energyMaximumRespawnEgressGait:
+        energyCapability.maximumRespawnEgressGait,
       energyCanInitiateOrdinarySprintOrCharge:
         energyCapability.canInitiateOrdinarySprintOrCharge,
       energyMinimumSafeWalkAvailable:

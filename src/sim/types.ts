@@ -40,8 +40,11 @@ import type {
   IndividualEnergyActivityStore,
   IndividualEnergyMovementIntensity,
   IndividualEnergyMovementAuthority,
-  IndividualPhysicalGait,
 } from "./individualEnergyActivity";
+import type {
+  IndividualPhysicalGait,
+  IndividualSpecialistPhysicalGaitAdapter,
+} from "./individualPhysicalGait";
 import type { IndividualEnergyCapabilityStore } from "./individualEnergyCapability";
 import type {
   CasualtyProcedureKind,
@@ -537,6 +540,8 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly energyMovementDistanceSquared?: number;
   readonly energyMovementIntensity?: IndividualEnergyMovementIntensity;
   readonly energyRequestedPhysicalGait?: IndividualPhysicalGait;
+  readonly energyEffectivePhysicalGait?: IndividualPhysicalGait;
+  readonly energyGaitReducedByCapability?: boolean;
   readonly formationRequestedPhysicalGait?: IndividualPhysicalGait;
   readonly formationEffectivePhysicalGait?: IndividualPhysicalGait;
   readonly formationGaitReducedByCapability?: boolean;
@@ -554,6 +559,8 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly energyCapabilitySourceBand?: IndividualEnergyBand;
   readonly energyMaximumOrdinaryGait?: IndividualPhysicalGait;
   readonly energyMaximumRoutingGait?: IndividualPhysicalGait;
+  readonly energyMaximumActiveSpecialistGait?: IndividualPhysicalGait;
+  readonly energyMaximumRespawnEgressGait?: IndividualPhysicalGait;
   readonly energyCanInitiateOrdinarySprintOrCharge?: boolean;
   readonly energyMinimumSafeWalkAvailable?: boolean;
   readonly energyAttackImpulsesThisTick?: number;
@@ -772,6 +779,7 @@ export interface CombatSandboxSimulationState {
   readonly individualEnergyActivityStore: IndividualEnergyActivityStore;
   readonly individualEnergyCapabilityStore: IndividualEnergyCapabilityStore;
   readonly formationEnergyGaitCapabilities: FormationEnergyGaitCapabilitySource;
+  readonly specialistPhysicalGaitAdapter: IndividualSpecialistPhysicalGaitAdapter;
   readonly individualCasualtyProcedureProfileStore: IndividualCasualtyProcedureProfileStore;
   readonly individualCasualtyLifecycleStore: IndividualCasualtyLifecycleStore;
   readonly individualPlayerPresenceStore: IndividualPlayerPresenceStore;

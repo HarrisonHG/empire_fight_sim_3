@@ -1,4 +1,6 @@
 import {
+  getIndividualRespawnEgressStartedTick,
+  hasIndividualRespawnDestination,
   getIndividualCharacterLifecycleState,
   getIndividualPlayerPresenceState,
   type IndividualCasualtyLifecycleStore,
@@ -10,7 +12,10 @@ import {
   type IndividualEnergyBand,
   type IndividualEnergyStore,
 } from "./individualEnergy";
-import type { IndividualPhysicalGait } from "./individualEnergyActivity";
+import {
+  INDIVIDUAL_PHYSICAL_GAITS,
+  type IndividualPhysicalGait,
+} from "./individualPhysicalGait";
 
 export interface IndividualEnergyCapabilityStore {
   readonly entityCount: number;
@@ -22,8 +27,12 @@ export interface IndividualEnergyCapabilityInspection {
   readonly sourceEnergyBand: IndividualEnergyBand;
   readonly maximumOrdinaryGait: IndividualPhysicalGait;
   readonly maximumRoutingGait: IndividualPhysicalGait;
+  readonly maximumActiveSpecialistGait: IndividualPhysicalGait;
+  readonly maximumRespawnEgressGait: IndividualPhysicalGait;
   readonly canInitiateOrdinarySprintOrCharge: boolean;
   readonly minimumSafeWalkAvailable: boolean;
+  readonly minimumActiveSpecialistWalkAvailable: boolean;
+  readonly respawnEgressProcedureWalkAvailable: boolean;
 }
 
 interface InternalIndividualEnergyCapabilityStore
@@ -32,16 +41,17 @@ interface InternalIndividualEnergyCapabilityStore
   readonly sourceBandByEntity: Uint8Array;
   readonly ordinaryMaximumGaitByEntity: Uint8Array;
   readonly routingMaximumGaitByEntity: Uint8Array;
+  readonly activeSpecialistMaximumGaitByEntity: Uint8Array;
+  readonly respawnEgressMaximumGaitByEntity: Uint8Array;
   readonly canInitiateSprintByEntity: Uint8Array;
   readonly minimumSafeWalkByEntity: Uint8Array;
+  readonly minimumActiveSpecialistWalkByEntity: Uint8Array;
+  readonly respawnEgressProcedureWalkByEntity: Uint8Array;
   projectionTick: number | null;
 }
 
 const BANDS: readonly IndividualEnergyBand[] = Object.freeze([
   "fresh", "working", "winded", "spent",
-]);
-const GAITS: readonly IndividualPhysicalGait[] = Object.freeze([
-  "stationary", "walking", "jogging", "sprinting",
 ]);
 const capabilityStoreInternals = new WeakMap<
   IndividualEnergyCapabilityStore,
@@ -66,11 +76,15 @@ export function createIndividualEnergyCapabilityStore(
     sourceBandByEntity: new Uint8Array(entityCount),
     ordinaryMaximumGaitByEntity: new Uint8Array(entityCount),
     routingMaximumGaitByEntity: new Uint8Array(entityCount),
+    activeSpecialistMaximumGaitByEntity: new Uint8Array(entityCount),
+    respawnEgressMaximumGaitByEntity: new Uint8Array(entityCount),
     canInitiateSprintByEntity: new Uint8Array(entityCount),
     minimumSafeWalkByEntity: new Uint8Array(entityCount),
+    minimumActiveSpecialistWalkByEntity: new Uint8Array(entityCount),
+    respawnEgressProcedureWalkByEntity: new Uint8Array(entityCount),
     projectionTick: null,
   });
-  populateCapabilities(store, energy, lifecycle, presence);
+  populateCapabilities(store, energy, lifecycle, presence, null);
   return store;
 }
 
@@ -94,7 +108,7 @@ export function projectIndividualEnergyCapabilitiesOneTick(
     throw new Error("Energy capability already projected for this tick.");
   }
 
-  populateCapabilities(store, energy, lifecycle, presence);
+  populateCapabilities(store, energy, lifecycle, presence, tick);
   internal.projectionTick = tick;
   return store;
 }
@@ -104,6 +118,7 @@ function populateCapabilities(
   energy: IndividualEnergyStore,
   lifecycle: IndividualCasualtyLifecycleStore,
   presence: IndividualPlayerPresenceStore,
+  projectionTick: number | null,
 ): void {
   const internal = requireStore(store, energy.entityCount);
   if (lifecycle.entityCount !== internal.entityCount ||
@@ -117,13 +132,31 @@ function populateCapabilities(
         "active" &&
       getIndividualPlayerPresenceState(presence, entityId) === "activePresence";
     const maximumGait = mobile ? maximumGaitForBand(band) : "stationary";
+    const presenceState = getIndividualPlayerPresenceState(presence, entityId);
+    const respawnEgressWalkAvailable =
+      projectionTick !== null &&
+      getIndividualCharacterLifecycleState(lifecycle, entityId) === "terminal" &&
+      presenceState === "respawnEgress" &&
+      hasIndividualRespawnDestination(presence, entityId) &&
+      projectionTick > getIndividualRespawnEgressStartedTick(presence, entityId);
     internal.sourceEnergyByEntity[entityId] = currentEnergy;
     internal.sourceBandByEntity[entityId] = BANDS.indexOf(band);
-    internal.ordinaryMaximumGaitByEntity[entityId] = GAITS.indexOf(maximumGait);
-    internal.routingMaximumGaitByEntity[entityId] = GAITS.indexOf(maximumGait);
+    internal.ordinaryMaximumGaitByEntity[entityId] =
+      INDIVIDUAL_PHYSICAL_GAITS.indexOf(maximumGait);
+    internal.routingMaximumGaitByEntity[entityId] =
+      INDIVIDUAL_PHYSICAL_GAITS.indexOf(maximumGait);
+    internal.activeSpecialistMaximumGaitByEntity[entityId] =
+      INDIVIDUAL_PHYSICAL_GAITS.indexOf(maximumGait);
+    internal.respawnEgressMaximumGaitByEntity[entityId] =
+      INDIVIDUAL_PHYSICAL_GAITS.indexOf(
+        respawnEgressWalkAvailable ? "walking" : "stationary",
+      );
     internal.canInitiateSprintByEntity[entityId] =
       mobile && (band === "fresh" || band === "working") ? 1 : 0;
     internal.minimumSafeWalkByEntity[entityId] = mobile ? 1 : 0;
+    internal.minimumActiveSpecialistWalkByEntity[entityId] = mobile ? 1 : 0;
+    internal.respawnEgressProcedureWalkByEntity[entityId] =
+      respawnEgressWalkAvailable ? 1 : 0;
   }
 }
 
@@ -152,13 +185,25 @@ export function getIndividualEnergyCapabilityInspection(
     sourceEnergy: internal.sourceEnergyByEntity[entityId]!,
     sourceEnergyBand: BANDS[internal.sourceBandByEntity[entityId]!]!,
     maximumOrdinaryGait:
-      GAITS[internal.ordinaryMaximumGaitByEntity[entityId]!]!,
+      INDIVIDUAL_PHYSICAL_GAITS[internal.ordinaryMaximumGaitByEntity[entityId]!]!,
     maximumRoutingGait:
-      GAITS[internal.routingMaximumGaitByEntity[entityId]!]!,
+      INDIVIDUAL_PHYSICAL_GAITS[internal.routingMaximumGaitByEntity[entityId]!]!,
+    maximumActiveSpecialistGait:
+      INDIVIDUAL_PHYSICAL_GAITS[
+        internal.activeSpecialistMaximumGaitByEntity[entityId]!
+      ]!,
+    maximumRespawnEgressGait:
+      INDIVIDUAL_PHYSICAL_GAITS[
+        internal.respawnEgressMaximumGaitByEntity[entityId]!
+      ]!,
     canInitiateOrdinarySprintOrCharge:
       internal.canInitiateSprintByEntity[entityId] !== 0,
     minimumSafeWalkAvailable:
       internal.minimumSafeWalkByEntity[entityId] !== 0,
+    minimumActiveSpecialistWalkAvailable:
+      internal.minimumActiveSpecialistWalkByEntity[entityId] !== 0,
+    respawnEgressProcedureWalkAvailable:
+      internal.respawnEgressProcedureWalkByEntity[entityId] !== 0,
   };
 }
 
@@ -174,7 +219,9 @@ export function getIndividualMaximumOrdinaryGait(
 ): IndividualPhysicalGait {
   const internal = requireStore(store);
   assertEntityId(entityId, internal.entityCount);
-  return GAITS[internal.ordinaryMaximumGaitByEntity[entityId]!]!;
+  return INDIVIDUAL_PHYSICAL_GAITS[
+    internal.ordinaryMaximumGaitByEntity[entityId]!
+  ]!;
 }
 
 export function getIndividualMaximumRoutingGait(
@@ -183,7 +230,31 @@ export function getIndividualMaximumRoutingGait(
 ): IndividualPhysicalGait {
   const internal = requireStore(store);
   assertEntityId(entityId, internal.entityCount);
-  return GAITS[internal.routingMaximumGaitByEntity[entityId]!]!;
+  return INDIVIDUAL_PHYSICAL_GAITS[
+    internal.routingMaximumGaitByEntity[entityId]!
+  ]!;
+}
+
+export function getIndividualMaximumActiveSpecialistGait(
+  store: IndividualEnergyCapabilityStore,
+  entityId: number,
+): IndividualPhysicalGait {
+  const internal = requireStore(store);
+  assertEntityId(entityId, internal.entityCount);
+  return INDIVIDUAL_PHYSICAL_GAITS[
+    internal.activeSpecialistMaximumGaitByEntity[entityId]!
+  ]!;
+}
+
+export function getIndividualMaximumRespawnEgressGait(
+  store: IndividualEnergyCapabilityStore,
+  entityId: number,
+): IndividualPhysicalGait {
+  const internal = requireStore(store);
+  assertEntityId(entityId, internal.entityCount);
+  return INDIVIDUAL_PHYSICAL_GAITS[
+    internal.respawnEgressMaximumGaitByEntity[entityId]!
+  ]!;
 }
 
 export function getIndividualMinimumSafeWalkAvailable(

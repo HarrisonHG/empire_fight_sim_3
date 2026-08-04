@@ -1,0 +1,79 @@
+export type IndividualPhysicalGait =
+  | "stationary"
+  | "walking"
+  | "jogging"
+  | "sprinting";
+
+export type IndividualSpecialistMovementAuthority =
+  | "casualtyGathering"
+  | "activeDragHelper"
+  | "medicalApproach"
+  | "traumaWithdrawal";
+
+export const INDIVIDUAL_PHYSICAL_GAITS:
+  readonly IndividualPhysicalGait[] = Object.freeze([
+    "stationary", "walking", "jogging", "sprinting",
+  ]);
+
+export function physicalGaitRank(gait: IndividualPhysicalGait): number {
+  return gait === "stationary"
+    ? 0
+    : gait === "walking"
+      ? 1
+      : gait === "jogging"
+        ? 2
+        : 3;
+}
+
+export function clampPhysicalGait(
+  requested: IndividualPhysicalGait,
+  maximum: IndividualPhysicalGait,
+): IndividualPhysicalGait {
+  return physicalGaitRank(requested) <= physicalGaitRank(maximum)
+    ? requested
+    : maximum;
+}
+
+/** Sprinting retains the movement authority's already-selected step. */
+export function physicalGaitCoordinateCeiling(
+  gait: IndividualPhysicalGait,
+): number | null {
+  if (gait === "stationary") return 0;
+  if (gait === "walking") return 1;
+  if (gait === "jogging") return 2;
+  return null;
+}
+
+export function requestedPhysicalGaitForMaximumStep(
+  maximumStep: number,
+): IndividualPhysicalGait {
+  if (!Number.isSafeInteger(maximumStep) || maximumStep < 0) {
+    throw new RangeError("Physical gait maximum step must be non-negative.");
+  }
+  if (maximumStep === 0) return "stationary";
+  if (maximumStep === 1) return "walking";
+  if (maximumStep === 2) return "jogging";
+  return "sprinting";
+}
+
+export interface IndividualSpecialistPhysicalGaitAdapter {
+  readonly entityCount: number;
+  readonly acceptedProjectionTick: number | null;
+  acceptCapabilityProjection(tick: number): void;
+  recordActiveSpecialistMovement(
+    entityId: number,
+    authority: IndividualSpecialistMovementAuthority,
+    requestedGait: IndividualPhysicalGait,
+    actualGaitWhenDisplaced: IndividualPhysicalGait,
+    producedDisplacement: boolean,
+  ): void;
+  recordRespawnEgressMovement(
+    entityId: number,
+    actualGaitWhenDisplaced: IndividualPhysicalGait,
+    producedDisplacement: boolean,
+  ): void;
+  recordDraggedPatientMovement(
+    entityId: number,
+    producedDisplacement: boolean,
+  ): void;
+}

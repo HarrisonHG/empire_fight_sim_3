@@ -54,8 +54,12 @@ describe("individual tick-start energy capability", () => {
       sourceEnergyBand: "fresh",
       maximumOrdinaryGait: "sprinting",
       maximumRoutingGait: "sprinting",
+      maximumActiveSpecialistGait: "sprinting",
+      maximumRespawnEgressGait: "stationary",
       canInitiateOrdinarySprintOrCharge: true,
       minimumSafeWalkAvailable: true,
+      minimumActiveSpecialistWalkAvailable: true,
+      respawnEgressProcedureWalkAvailable: false,
     });
     expect(getIndividualEnergyCapabilityInspection(capability, 1))
       .toMatchObject({
@@ -68,6 +72,7 @@ describe("individual tick-start energy capability", () => {
         sourceEnergyBand: "winded",
         maximumOrdinaryGait: "jogging",
         maximumRoutingGait: "jogging",
+        maximumActiveSpecialistGait: "jogging",
         canInitiateOrdinarySprintOrCharge: false,
       });
     expect(getIndividualEnergyCapabilityInspection(capability, 3))
@@ -75,8 +80,10 @@ describe("individual tick-start energy capability", () => {
         sourceEnergyBand: "spent",
         maximumOrdinaryGait: "walking",
         maximumRoutingGait: "walking",
+        maximumActiveSpecialistGait: "walking",
         canInitiateOrdinarySprintOrCharge: false,
         minimumSafeWalkAvailable: true,
+        minimumActiveSpecialistWalkAvailable: true,
       });
   });
 
@@ -145,8 +152,12 @@ describe("individual tick-start energy capability", () => {
         sourceEnergy: 100,
         maximumOrdinaryGait: "stationary",
         maximumRoutingGait: "stationary",
+        maximumActiveSpecialistGait: "stationary",
+        maximumRespawnEgressGait: "stationary",
         canInitiateOrdinarySprintOrCharge: false,
         minimumSafeWalkAvailable: false,
+        minimumActiveSpecialistWalkAvailable: false,
+        respawnEgressProcedureWalkAvailable: false,
       });
   });
 

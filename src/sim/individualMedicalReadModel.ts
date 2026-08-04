@@ -34,12 +34,17 @@ import {
 } from "./individualLimbDisability";
 import {
   applyIndividualExternalMovementIntent,
+  getIndividualConfiguredMaxStep,
   getIndividualPressure,
   getIndividualRole,
   getUnitHeading,
   type FormationBehaviourStore,
 } from "./formationBehaviour";
 import type { UnitMoraleMovementStateSource } from "./moraleMovement";
+import {
+  requestedPhysicalGaitForMaximumStep,
+  type IndividualSpecialistPhysicalGaitAdapter,
+} from "./individualPhysicalGait";
 import {
   buildSpatialGrid,
   createSpatialGrid,
@@ -686,20 +691,32 @@ export function advanceIndividualTraumaWithdrawalMovementOneTick(
   formationStore: FormationBehaviourStore,
   urgencyStore: IndividualMedicalUrgencyStore,
   isReceivingTreatment: (entityId: number) => boolean = () => false,
+  gaitAdapter?: IndividualSpecialistPhysicalGaitAdapter,
 ): number {
   const internal = requireUrgencyStore(urgencyStore, world.entityCount);
   let movedCount = 0;
   for (let entityId = 0; entityId < world.entityCount; entityId += 1) {
     if (internal.withdrawingByEntity[entityId] === 0) continue;
     if (isReceivingTreatment(entityId)) continue;
-    if (applyIndividualExternalMovementIntent(
+    const requestedGait = requestedPhysicalGaitForMaximumStep(
+      getIndividualConfiguredMaxStep(formationStore, entityId),
+    );
+    const moved = applyIndividualExternalMovementIntent(
       world,
       formationStore,
       entityId,
       Math.round(internal.withdrawalGoalXByEntity[entityId]!),
       Math.round(internal.withdrawalGoalYByEntity[entityId]!),
       "withdrawForTreatment",
-    )) movedCount += 1;
+    );
+    gaitAdapter?.recordActiveSpecialistMovement(
+      entityId,
+      "traumaWithdrawal",
+      requestedGait,
+      requestedGait,
+      moved,
+    );
+    if (moved) movedCount += 1;
   }
   return movedCount;
 }

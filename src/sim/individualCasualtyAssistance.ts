@@ -30,6 +30,10 @@ import { getIndividualTraumaticWoundInspection, type IndividualTraumaticWoundSto
 import type { UnitMoraleMovementStateSource } from "./moraleMovement";
 import { getUnitIdForEntity, type UnitIdentityStore } from "./unitIdentity";
 import type { WorldState } from "./types";
+import {
+  requestedPhysicalGaitForMaximumStep,
+  type IndividualSpecialistPhysicalGaitAdapter,
+} from "./individualPhysicalGait";
 
 export type IndividualCasualtyAssistanceState =
   | "none"
@@ -676,6 +680,7 @@ export function advanceCasualtyDragGroupsBeforeCombat(
   tick: number,
   buffers: CasualtyDragMovementBuffers,
   presenceStore: IndividualPlayerPresenceStore,
+  gaitAdapter?: IndividualSpecialistPhysicalGaitAdapter,
 ): CasualtyDragMovementResult {
   validateEntityCounts(world.entityCount, identityStore, formationStore, lifecycleStore,
     traumaStore, assistanceStore, groupStore, handStore);
@@ -705,8 +710,25 @@ export function advanceCasualtyDragGroupsBeforeCombat(
       for (let helperIndex = 0; helperIndex < group.helperEntityIds.length; helperIndex += 1) {
         const helperId = group.helperEntityIds[helperIndex]!;
         if (!withinPickupRange(world, helperId, group.patientEntityId)) {
-          if (applyIndividualExternalMovementIntent(world, formationStore, helperId,
-            world.positionsX[group.patientEntityId]!, world.positionsY[group.patientEntityId]!, "gatherForCasualty")) movedParticipantCount += 1;
+          const requestedGait = requestedPhysicalGaitForMaximumStep(
+            getIndividualConfiguredMaxStep(formationStore, helperId),
+          );
+          const moved = applyIndividualExternalMovementIntent(
+            world,
+            formationStore,
+            helperId,
+            world.positionsX[group.patientEntityId]!,
+            world.positionsY[group.patientEntityId]!,
+            "gatherForCasualty",
+          );
+          gaitAdapter?.recordActiveSpecialistMovement(
+            helperId,
+            "casualtyGathering",
+            requestedGait,
+            requestedGait,
+            moved,
+          );
+          if (moved) movedParticipantCount += 1;
         }
         if (!withinPickupRange(world, helperId, group.patientEntityId)) allReady = false;
       }
@@ -739,12 +761,28 @@ export function advanceCasualtyDragGroupsBeforeCombat(
       const scaled = slowestStep * INITIAL_DRAG_SPEED_FACTOR_NUMERATOR + group.dragSpeedRemainder;
       const maxStep = Math.floor(scaled / INITIAL_DRAG_SPEED_FACTOR_DENOMINATOR);
       group.dragSpeedRemainder = scaled % INITIAL_DRAG_SPEED_FACTOR_DENOMINATOR;
+      const requestedGroupGait = requestedPhysicalGaitForMaximumStep(maxStep);
       const delta = sharedDragDelta(world, group, destinationX, destinationY, maxStep);
+      const groupMoved = delta.x !== 0 || delta.y !== 0;
       if (delta.x !== 0 || delta.y !== 0) {
         const participants = [patientId, ...group.helperEntityIds];
         for (const entityId of participants) {
           if (applyIndividualExternalSharedMovementDelta(world, formationStore, entityId, delta.x, delta.y, "dragCasualty")) movedParticipantCount += 1;
         }
+      }
+      for (let helperIndex = 0;
+        helperIndex < group.helperEntityIds.length;
+        helperIndex += 1) {
+        gaitAdapter?.recordActiveSpecialistMovement(
+          group.helperEntityIds[helperIndex]!,
+          "activeDragHelper",
+          requestedGroupGait,
+          "walking",
+          groupMoved,
+        );
+      }
+      if (groupMoved) {
+        gaitAdapter?.recordDraggedPatientMovement(patientId, true);
       }
       if (world.positionsX[patientId] === destinationX && world.positionsY[patientId] === destinationY) {
         reachSafety(group, tick, assistance, buffers.reachedSafetyRecords);

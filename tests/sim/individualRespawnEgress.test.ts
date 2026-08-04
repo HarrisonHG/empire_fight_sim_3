@@ -18,6 +18,7 @@ import { getIndividualCasualtyHistoryInspection as getConsolidatedCasualtyHistor
 import {
   INDIVIDUAL_RESPAWN_EGRESS_MAXIMUM_STEP,
 } from "../../src/sim/individualRespawnEgress";
+import { getIndividualEnergyCapabilityInspection } from "../../src/sim/individualEnergyCapability";
 import { submitIndividualExecutionIntent } from "../../src/sim/individualExecutionAction";
 import { hasIndividualMedicalPatientClaim } from "../../src/sim/individualMedicalClaims";
 import { advanceSimulationOneTick, createSimulation } from "../../src/sim/simulation";
@@ -30,6 +31,36 @@ import type {
 import type { IndividualMeleeDefenceRecord } from "../../src/sim/individualMeleeDefence";
 
 describe("Milestone 6H-2B respawn egress", () => {
+  it("projects procedure walking only after egress has started", () => {
+    const simulation = createSimulation(scenario(20, { x: 0, y: 60 }, [0]));
+    const combat = requireCombat(simulation);
+    terminalize(simulation, 0, 0);
+
+    advanceSimulationOneTick(simulation);
+    expect(getIndividualEnergyCapabilityInspection(
+      combat.individualEnergyCapabilityStore, 0,
+    )).toMatchObject({
+      projectionTick: 0,
+      maximumOrdinaryGait: "stationary",
+      maximumActiveSpecialistGait: "stationary",
+      maximumRespawnEgressGait: "stationary",
+      minimumActiveSpecialistWalkAvailable: false,
+      respawnEgressProcedureWalkAvailable: false,
+    });
+
+    advanceSimulationOneTick(simulation);
+    expect(getIndividualEnergyCapabilityInspection(
+      combat.individualEnergyCapabilityStore, 0,
+    )).toMatchObject({
+      projectionTick: 1,
+      maximumOrdinaryGait: "stationary",
+      maximumActiveSpecialistGait: "stationary",
+      maximumRespawnEgressGait: "walking",
+      minimumActiveSpecialistWalkAvailable: false,
+      respawnEgressProcedureWalkAvailable: true,
+    });
+  });
+
   it("starts after classification, moves by its own bounded constant and arrives exactly once", () => {
     const simulation = createSimulation(scenario(20, { x: 0, y: 60 }, [0]));
     const combat = requireCombat(simulation);
@@ -107,6 +138,12 @@ describe("Milestone 6H-2B respawn egress", () => {
     expect(combat.individualRespawnEgressResult.arrivalRecords).toEqual([]);
     expect(simulation.world.positionsX[0]).toBe(arrivalX);
     expect(simulation.world.positionsY[0]).toBe(arrivalY);
+    expect(getIndividualEnergyCapabilityInspection(
+      combat.individualEnergyCapabilityStore, 0,
+    )).toMatchObject({
+      maximumRespawnEgressGait: "stationary",
+      respawnEgressProcedureWalkAvailable: false,
+    });
   });
 
   it("keeps a missing destination stationary and emits no guessed movement or transition", () => {
@@ -129,6 +166,12 @@ describe("Milestone 6H-2B respawn egress", () => {
     });
     expect(combat.individualRespawnEgressResult.movementRecords).toEqual([]);
     expect(combat.individualRespawnEgressResult.arrivalRecords).toEqual([]);
+    expect(getIndividualEnergyCapabilityInspection(
+      combat.individualEnergyCapabilityStore, 0,
+    )).toMatchObject({
+      maximumRespawnEgressGait: "stationary",
+      respawnEgressProcedureWalkAvailable: false,
+    });
   });
 
   it("rejects citizen destinations and out-of-bounds destinations", () => {
