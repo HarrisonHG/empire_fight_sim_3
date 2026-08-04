@@ -413,6 +413,112 @@ describe("Milestone 7A production energy integration", () => {
       });
     }
   });
+
+  it("enforces and charges the following-tick routing gait through sprint, jog and walk", () => {
+    const createRoutingSimulation = (startingEnergy: number) => {
+      const source = createSmallBattleScenario({});
+      const combat = source.combatSandbox!;
+      return createSimulation({
+        ...source,
+        entityCount: 2,
+        combatSandbox: {
+          ...combat,
+          inspectedEntityIds: [0],
+          units: combat.units.map((unit, unitIndex) => unitIndex === 0
+            ? {
+                ...unit,
+                memberCount: 1,
+                deploymentZone: { minX: 80, maxX: 80, minY: 120, maxY: 120 },
+                anchorX: 80,
+                anchorY: 120,
+                rows: 1,
+                cols: 1,
+                unitSpeed: 4,
+                ordinaryPhysicalGait: "sprinting" as const,
+                memberMaxStep: 4,
+                energyProfile: {
+                  maximumEnergy: 60,
+                  startingEnergy,
+                  safeRestRecoveryPerTick: 0,
+                },
+                ...(unit.memberProfiles === undefined
+                  ? {}
+                  : { memberProfiles: unit.memberProfiles.slice(0, 1) }),
+              }
+            : {
+                ...unit,
+                memberCount: 1,
+                deploymentZone: { minX: 420, maxX: 420, minY: 120, maxY: 120 },
+                anchorX: 420,
+                anchorY: 120,
+                rows: 1,
+                cols: 1,
+                order: "hold" as const,
+                memberMaxStep: 1,
+                ...(unit.memberProfiles === undefined
+                  ? {}
+                  : { memberProfiles: unit.memberProfiles.slice(0, 1) }),
+              }),
+        },
+      });
+    };
+
+    const simulation = createRoutingSimulation(48);
+    for (const expected of [
+      { tick: 0, band: "fresh", gait: "sprinting", step: 4, cost: 40 },
+      { tick: 1, band: "winded", gait: "jogging", step: 2, cost: 8 },
+      { tick: 2, band: "spent", gait: "walking", step: 1, cost: 1 },
+    ] as const) {
+      simulation.combatSandbox!.moraleMovementStates.set(1, "routing");
+      advanceSimulationOneTick(simulation);
+      const snapshot = createPositionSnapshot(simulation).combatDebug!;
+      const inspected = snapshot.inspectedIndividuals[0]!;
+      expect(inspected).toMatchObject({
+        energyCapabilityProjectionTick: expected.tick,
+        energyCapabilitySourceBand: expected.band,
+        formationRequestedPhysicalGait: "sprinting",
+        formationEffectivePhysicalGait: expected.gait,
+        formationPostEnergyStepX: -expected.step,
+        energyRequestedPhysicalGait: expected.gait,
+        energyActualPhysicalGait: expected.gait,
+        energyPhysicalGaitSource: "routingMovement",
+        energyMovementExpenditureRequestedThisTick: expected.cost,
+      });
+      expect(snapshot.units[0]).toMatchObject({
+        requestedUnitPhysicalGait: "sprinting",
+        effectiveAnchorPhysicalGait: expected.gait,
+        postEnergyAnchorStep: expected.step,
+        anchorEnergyPolicyApplied: true,
+      });
+    }
+
+    const working = createRoutingSimulation(30);
+    working.combatSandbox!.moraleMovementStates.set(1, "routing");
+    advanceSimulationOneTick(working);
+    expect(createPositionSnapshot(working).combatDebug!.inspectedIndividuals[0])
+      .toMatchObject({
+        energyCapabilitySourceBand: "working",
+        formationRequestedPhysicalGait: "sprinting",
+        formationEffectivePhysicalGait: "sprinting",
+        energyActualPhysicalGait: "sprinting",
+        energyMovementExpenditureRequestedThisTick: 40,
+      });
+
+    const empty = createRoutingSimulation(0);
+    empty.combatSandbox!.moraleMovementStates.set(1, "routing");
+    const beforeX = empty.world.positionsX[0]!;
+    advanceSimulationOneTick(empty);
+    const inspected = createPositionSnapshot(empty).combatDebug!
+      .inspectedIndividuals[0]!;
+    expect(empty.world.positionsX[0]).toBe(beforeX - 1);
+    expect(inspected).toMatchObject({
+      formationRequestedPhysicalGait: "sprinting",
+      formationEffectivePhysicalGait: "walking",
+      energyRequestedPhysicalGait: "walking",
+      energyActualPhysicalGait: "walking",
+      energyMovementExpenditureRequestedThisTick: 1,
+    });
+  });
 });
 
 describe("Milestone 7B-1 production activity observation", () => {

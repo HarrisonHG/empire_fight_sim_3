@@ -21,6 +21,8 @@ import {
   getUnitOrder,
   getUnitOrdinaryPhysicalGait,
   getUnitEnergyGaitDiagnostics,
+  getUnitHeading,
+  getUnitRoutingHeading,
   clampPhysicalGait,
   lowerMedianPhysicalGaitFromCounts,
   physicalGaitRank,
@@ -365,6 +367,7 @@ function createEnergyEnforcementHarness(options: {
 
 function createAnchorEnergyHarness(options: {
   readonly maximumGaits: readonly IndividualPhysicalGait[];
+  readonly routingMaximumGaits?: readonly IndividualPhysicalGait[];
   readonly requestedGait?: IndividualPhysicalGait;
   readonly unitSpeed?: number;
   readonly memberMaxStep?: number;
@@ -414,6 +417,7 @@ function createAnchorEnergyHarness(options: {
   });
   let tick = 0;
   let ordinaryCapabilityReadCount = 0;
+  let routingCapabilityReadCount = 0;
   const capabilities = {
     entityCount: memberCount,
     get projectionTick() { return tick; },
@@ -421,13 +425,17 @@ function createAnchorEnergyHarness(options: {
       ordinaryCapabilityReadCount += 1;
       return options.maximumGaits[entityId]!;
     },
-    getMaximumRoutingGait: () => "walking" as const,
+    getMaximumRoutingGait: (entityId: number) => {
+      routingCapabilityReadCount += 1;
+      return options.routingMaximumGaits?.[entityId] ?? "walking";
+    },
     getMinimumSafeWalkAvailable: () => true,
   };
   return {
     ...harness,
     capabilities,
     get ordinaryCapabilityReadCount() { return ordinaryCapabilityReadCount; },
+    get routingCapabilityReadCount() { return routingCapabilityReadCount; },
     advance(moraleMovementStates?: Map<number, "steady" | "shaken" | "wavering" | "routing">,
       participation?: ReturnType<typeof createIndividualOrdinaryParticipationSnapshot>) {
       advanceFormationOneTick(
@@ -437,6 +445,66 @@ function createAnchorEnergyHarness(options: {
       tick += 1;
     },
   };
+}
+
+function runRoutingPassThroughEnergyHarness(
+  routingMaximumGait: IndividualPhysicalGait,
+  options: {
+    readonly nearUnitX?: number;
+    readonly nearUnitFactionId?: number;
+    readonly primaryHostileX?: number;
+  } = {},
+) {
+  const nearUnitX = options.nearUnitX ?? 83;
+  const primaryHostileX = options.primaryHostileX ?? 130;
+  const harness = createTestHarness({
+    entityCount: 3,
+    identity: {
+      entityCount: 3,
+      units: [
+        { unitId: 1, factionId: 1, memberEntityIds: [0] },
+        { unitId: 2, factionId: options.nearUnitFactionId ?? 1, memberEntityIds: [1] },
+        { unitId: 3, factionId: 2, memberEntityIds: [2] },
+      ],
+    },
+    formation: {
+      entityCount: 3,
+      rngSeed: 0x7c_0204,
+      units: [
+        { unitId: 1, anchorX: 100, anchorY: 100, headingX: 1, headingY: 0,
+          spacing: 4, rows: 1, cols: 1, unitSpeed: 5,
+          ordinaryPhysicalGait: "sprinting", order: "advance" },
+        { unitId: 2, anchorX: nearUnitX, anchorY: 100, headingX: 1, headingY: 0,
+          spacing: 4, rows: 1, cols: 1, unitSpeed: 0, order: "hold" },
+        { unitId: 3, anchorX: primaryHostileX, anchorY: 100, headingX: -1, headingY: 0,
+          spacing: 4, rows: 1, cols: 1, unitSpeed: 0, order: "hold" },
+      ],
+      individuals: [
+        { entityId: 0, role: "regular", slotRow: 0, slotCol: 0, memberMaxStep: 5 },
+        { entityId: 1, role: "regular", slotRow: 0, slotCol: 0, memberMaxStep: 0 },
+        { entityId: 2, role: "regular", slotRow: 0, slotCol: 0, memberMaxStep: 0 },
+      ],
+    },
+    initialPositions: [
+      { entityId: 0, x: 100, y: 100 },
+      { entityId: 1, x: nearUnitX, y: 100 },
+      { entityId: 2, x: primaryHostileX, y: 100 },
+    ],
+  });
+  const capabilities = {
+    entityCount: 3,
+    projectionTick: 0,
+    getMaximumOrdinaryGait: () => "stationary" as const,
+    getMaximumRoutingGait: (entityId: number) =>
+      entityId === 0 ? routingMaximumGait : "stationary",
+    getMinimumSafeWalkAvailable: () => true,
+  };
+  const result = advanceFormationOneTick(
+    harness.world, harness.identity, harness.store,
+    new Map([[1, "routing"]]), undefined, undefined, undefined,
+    { tick: 0, capabilities },
+  );
+  return { ...harness, result };
 }
 
 describe("formation behaviour: physical gait authority", () => {
@@ -617,7 +685,7 @@ describe("formation behaviour: physical gait authority", () => {
     });
   });
 
-  it("leaves routing anchor and member movement unenforced", () => {
+  it("enforces routing anchor and member movement from one capability projection", () => {
     const harness = createAnchorEnergyHarness({
       maximumGaits: ["walking"],
       unitSpeed: 4,
@@ -626,16 +694,184 @@ describe("formation behaviour: physical gait authority", () => {
     const anchorBefore = getUnitAnchor(harness.store, 1);
     const memberBefore = harness.world.positionsX[0]!;
     harness.advance(new Map([[1, "routing"]]));
-    expect(getUnitAnchor(harness.store, 1).x).toBe(anchorBefore.x - 4);
-    expect(Math.abs(harness.world.positionsX[0]! - memberBefore)).toBe(4);
+    expect(getUnitAnchor(harness.store, 1).x).toBe(anchorBefore.x - 1);
+    expect(Math.abs(harness.world.positionsX[0]! - memberBefore)).toBe(1);
+    expect(harness.routingCapabilityReadCount).toBe(1);
     expect(getIndividualEffectivePhysicalGait(harness.store, 0)).toBe("walking");
     expect(getUnitEnergyGaitDiagnostics(harness.store, 1)).toMatchObject({
       requestedUnitPhysicalGait: "sprinting",
+      effectiveAnchorPhysicalGait: "walking",
       preEnergyAnchorStep: 4,
-      postEnergyAnchorStep: 4,
-      anchorMovementReducedByEnergy: false,
-      anchorEnergyPolicyApplied: false,
+      postEnergyAnchorStep: 1,
+      anchorMovementReducedByEnergy: true,
+      anchorEnergyPolicyApplied: true,
     });
+    expect({
+      preX: getIndividualPreEnergyStepX(harness.store, 0),
+      postX: getIndividualPostEnergyStepX(harness.store, 0),
+      reduced: getIndividualMovementReducedByEnergy(harness.store, 0),
+    }).toEqual({ preX: -4, postX: -1, reduced: true });
+  });
+
+  it("applies exact routing gait ceilings without changing routing authority", () => {
+    for (const [effectiveGait, expectedStep] of [
+      ["stationary", 0],
+      ["walking", 1],
+      ["jogging", 2],
+      ["sprinting", 4],
+    ] as const) {
+      const harness = createAnchorEnergyHarness({
+        maximumGaits: ["sprinting"],
+        routingMaximumGaits: [effectiveGait],
+        unitSpeed: 4,
+        memberMaxStep: 4,
+      });
+      harness.advance(new Map([[1, "routing"]]));
+      expect(getIndividualRequestedPhysicalGait(harness.store, 0))
+        .toBe("sprinting");
+      expect(getIndividualEffectivePhysicalGait(harness.store, 0))
+        .toBe(effectiveGait);
+      expect(getUnitAnchor(harness.store, 1).x).toBe(100 - expectedStep);
+      expect(Math.abs(getIndividualPostEnergyStepX(harness.store, 0)))
+        .toBe(expectedStep);
+      expect(getUnitEnergyGaitDiagnostics(harness.store, 1)).toMatchObject({
+        requestedUnitPhysicalGait: "sprinting",
+        effectiveAnchorPhysicalGait: effectiveGait,
+        preEnergyAnchorStep: 4,
+        postEnergyAnchorStep: expectedStep,
+        anchorEnergyPolicyApplied: true,
+      });
+      expect(getUnitOrder(harness.store, 1)).toBe("advance");
+      expect(getUnitHeading(harness.store, 1)).toEqual({ x: 1, y: 0 });
+      expect(getUnitRoutingHeading(harness.store, 1)).toEqual({ x: -1, y: 0 });
+    }
+  });
+
+  it("uses the lower median for routing anchors independent of member order", () => {
+    for (const [maximumGaits, expectedGait, expectedStep] of [
+      [["walking", "sprinting", "sprinting"], "sprinting", 4],
+      [["walking", "walking", "sprinting", "sprinting"], "walking", 1],
+      [["jogging", "jogging", "sprinting", "sprinting"], "jogging", 2],
+    ] as const) {
+      const run = (reversed: boolean) => {
+        const memberEntityIds = Array.from(
+          { length: maximumGaits.length },
+          (_, entityId) => entityId,
+        );
+        if (reversed) memberEntityIds.reverse();
+        const harness = createAnchorEnergyHarness({
+          maximumGaits,
+          routingMaximumGaits: maximumGaits,
+          memberEntityIds,
+          unitSpeed: 4,
+          memberMaxStep: 4,
+        });
+        harness.advance(new Map([[1, "routing"]]));
+        return {
+          anchor: getUnitAnchor(harness.store, 1),
+          diagnostics: getUnitEnergyGaitDiagnostics(harness.store, 1),
+          effective: maximumGaits.map((_, entityId) =>
+            getIndividualEffectivePhysicalGait(harness.store, entityId)),
+        };
+      };
+      expect(run(true)).toEqual(run(false));
+      expect(run(false).diagnostics).toMatchObject({
+        effectiveAnchorPhysicalGait: expectedGait,
+        postEnergyAnchorStep: expectedStep,
+      });
+    }
+  });
+
+  it("keeps an unobstructed spent router mobile and makes no-participant routing stationary", () => {
+    const spent = createAnchorEnergyHarness({
+      maximumGaits: ["sprinting"],
+      routingMaximumGaits: ["walking"],
+      unitSpeed: 4,
+      memberMaxStep: 4,
+    });
+    spent.advance(new Map([[1, "routing"]]));
+    expect(getIndividualPostEnergyStepX(spent.store, 0)).toBe(-1);
+    expect(getIndividualMovementMode(spent.store, 0)).toBe("advanceWithUnit");
+
+    const excluded = createAnchorEnergyHarness({
+      maximumGaits: ["sprinting"],
+      routingMaximumGaits: ["sprinting"],
+    });
+    const participation = createIndividualOrdinaryParticipationSnapshot(1);
+    setIndividualOrdinaryParticipationEligible(participation, 0, false);
+    excluded.advance(new Map([[1, "routing"]]), participation);
+    expect(getUnitAnchor(excluded.store, 1)).toEqual({ x: 100, y: 100 });
+    expect(getUnitEnergyGaitDiagnostics(excluded.store, 1)).toMatchObject({
+      requestedUnitPhysicalGait: "sprinting",
+      effectiveAnchorPhysicalGait: "stationary",
+      eligibleEnergyGaitMemberCount: 0,
+      preEnergyAnchorStep: 0,
+      postEnergyAnchorStep: 0,
+      anchorEnergyPolicyApplied: true,
+    });
+  });
+
+  it("preserves a smaller routing world-bound member displacement", () => {
+    const harness = createAnchorEnergyHarness({
+      maximumGaits: ["sprinting"],
+      routingMaximumGaits: ["jogging"],
+      unitSpeed: 4,
+      memberMaxStep: 4,
+    });
+    harness.world.positionsX[0] = 1;
+    harness.advance(new Map([[1, "routing"]]));
+    expect(getIndividualPreEnergyStepX(harness.store, 0)).toBe(-1);
+    expect(getIndividualPostEnergyStepX(harness.store, 0)).toBe(-1);
+    expect(getIndividualMovementReducedByEnergy(harness.store, 0)).toBe(false);
+    expect(harness.world.positionsX[0]).toBe(0);
+  });
+
+  it("records routing pass-through only for post-energy movement", () => {
+    const sprinting = runRoutingPassThroughEnergyHarness("sprinting");
+    expect(sprinting.world.positionsX[0]).toBe(95);
+    expect(sprinting.result.routingPassThroughInteractions).toEqual([
+      { routerUnitId: 1, targetUnitId: 2 },
+    ]);
+
+    const walking = runRoutingPassThroughEnergyHarness("walking");
+    expect(walking.world.positionsX[0]).toBe(99);
+    expect(getIndividualPreEnergyStepX(walking.store, 0)).toBe(-5);
+    expect(getIndividualPostEnergyStepX(walking.store, 0)).toBe(-1);
+    expect(walking.result.routingPassThroughInteractions).toEqual([]);
+  });
+
+  it("preserves a smaller hostile-contact routing limit", () => {
+    const harness = runRoutingPassThroughEnergyHarness("jogging", {
+      nearUnitX: 96,
+      nearUnitFactionId: 2,
+      primaryHostileX: 101,
+    });
+    expect(getUnitRoutingHeading(harness.store, 1)).toEqual({ x: -1, y: 0 });
+    expect(getUnitEnergyGaitDiagnostics(harness.store, 1)).toMatchObject({
+      effectiveAnchorPhysicalGait: "jogging",
+      preEnergyAnchorStep: 1,
+      postEnergyAnchorStep: 1,
+      anchorMovementReducedByEnergy: false,
+    });
+    expect(getIndividualPreEnergyStepX(harness.store, 0)).toBe(-1);
+    expect(getIndividualPostEnergyStepX(harness.store, 0)).toBe(-1);
+  });
+
+  it("overwrites prior ordinary diagnostics with routing diagnostics", () => {
+    const harness = createAnchorEnergyHarness({
+      maximumGaits: ["jogging"],
+      routingMaximumGaits: ["walking"],
+      unitSpeed: 4,
+      memberMaxStep: 4,
+    });
+    harness.advance();
+    expect(getIndividualPostEnergyStepX(harness.store, 0)).toBe(2);
+    const morale = new Map([[1, "routing" as const]]);
+    harness.advance(morale);
+    expect(morale.get(1)).toBe("routing");
+    expect(getIndividualPreEnergyStepX(harness.store, 0)).toBe(-4);
+    expect(getIndividualPostEnergyStepX(harness.store, 0)).toBe(-1);
+    expect(getIndividualMovementReducedByEnergy(harness.store, 0)).toBe(true);
   });
 
   it("allows limited anchors and members to separate only by bounded movement", () => {

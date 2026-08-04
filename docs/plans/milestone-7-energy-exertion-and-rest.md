@@ -2,7 +2,7 @@
 
 Status: active; 7A and 7B are complete. 7C-1 gait authority and capability
 projection is implemented. 7C-2 formation and routing movement enforcement
-is in progress with ordinary member and unit-anchor enforcement; 7C-3 specialist movement
+is in progress with ordinary and routing formation enforcement; 7C-3 specialist movement
 enforcement and consolidation is not started.
 
 Implementation begins after Milestone 6 is accepted and the post-Milestone-6 main-battle medical integration spike is retained as the evolving `/` scenario.
@@ -815,12 +815,23 @@ routing, or change combat, casualty, pressure, morale, or specialist movement.
   formed-detour direction remain owned by their existing policies.
 - Bounded unit diagnostics expose the requested unit gait, effective anchor
   gait, eligible/rank counts, pre/post energy step, reduction flag and whether
-  ordinary anchor energy policy applied. Routing explicitly reports the policy
-  as not applied and remains unenforced.
+  anchor energy policy applied.
+- Routing pre-projects sprint requests through each eligible member's routing
+  capability exactly once, reuses the effective member gait, and derives its
+  anchor gait through the same fixed-count lower median.
+- Existing routing contact, pass-through, direction and world-bound authorities
+  determine permitted anchor/member movement first. Gait ceilings then reduce
+  the bounded displacement without increasing either component. Pass-through
+  records use only the post-energy segment.
+- Routing energy activity consumes effective gait: displaced fresh/working,
+  winded and spent routers spend sprint, jog and walking cost respectively;
+  blocked routing remains stationary and free. Current-tick expenditure affects
+  capability only on the following tick, and zero-energy active routers retain
+  minimum walking movement where existing authorities permit it.
 
-Remaining work includes routing movement enforcement and final full
-verification. The pre-existing ordinary-member world-bound question remains
-deferred to final 7C consolidation.
+Remaining 7C-2 work is final consolidation and full verification. The
+pre-existing ordinary-member world-bound question remains deferred to that
+consolidation.
 
 No combat-tempo, pressure, equipment-burden, rest-decision, or specialist
 movement enforcement belongs to this step.

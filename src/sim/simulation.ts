@@ -2007,15 +2007,10 @@ export function advanceCombatSandboxOneTick(
         const routing = combatSandbox.moraleMovementStates.get(unitId) === "routing";
         return {
           source: routing ? "routingMovement" : "ordinaryMovement",
-          requestedGait: routing
-            ? getIndividualRequestedPhysicalGait(
-                combatSandbox.formationStore,
-                entityId,
-              )
-            : getIndividualEffectivePhysicalGait(
-                combatSandbox.formationStore,
-                entityId,
-              ),
+          requestedGait: getIndividualEffectivePhysicalGait(
+            combatSandbox.formationStore,
+            entityId,
+          ),
         };
       },
     );

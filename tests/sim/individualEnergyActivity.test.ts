@@ -543,6 +543,72 @@ describe("individual energy base expenditure and recovery", () => {
       });
   });
 
+  it("charges routing movement from its effective gait evidence", () => {
+    for (const [gait, expectedCost] of [
+      ["walking", INDIVIDUAL_ENERGY_WALKING_COST_PER_TICK],
+      ["jogging", INDIVIDUAL_ENERGY_JOGGING_COST_PER_TICK],
+      ["sprinting", INDIVIDUAL_ENERGY_SPRINTING_COST_PER_TICK],
+    ] as const) {
+      const harness = createEnergyHarness({ startingEnergy: 100 });
+      beginIndividualEnergyActivityObservation(
+        harness.fixture.activity, harness.fixture.world, 0,
+      );
+      harness.fixture.world.positionsX[0] = 1;
+      observeIndividualEnergyMovementAuthority(
+        harness.fixture.activity,
+        harness.fixture.world,
+        "routingMovement",
+        gait,
+      );
+      classifyIndividualEnergyActivityOneTick(
+        harness.fixture.activity,
+        dependencies(harness.fixture, 0),
+      );
+      applyIndividualEnergyActivityOneTick(
+        harness.fixture.activity,
+        harness.profiles,
+        harness.energy,
+        0,
+      );
+      expect(getIndividualEnergyActivityInspection(harness.fixture.activity, 0))
+        .toMatchObject({
+          requestedPhysicalGait: gait,
+          actualPhysicalGait: gait,
+          physicalGaitSource: "routingMovement",
+          movementExpenditureRequested: expectedCost,
+        });
+    }
+  });
+
+  it("keeps blocked effective routing gait stationary and free", () => {
+    const harness = createEnergyHarness({ startingEnergy: 100 });
+    beginIndividualEnergyActivityObservation(
+      harness.fixture.activity, harness.fixture.world, 0,
+    );
+    observeIndividualEnergyMovementAuthority(
+      harness.fixture.activity,
+      harness.fixture.world,
+      () => ({ source: "routingMovement", requestedGait: "walking" }),
+    );
+    classifyIndividualEnergyActivityOneTick(
+      harness.fixture.activity,
+      dependencies(harness.fixture, 0),
+    );
+    applyIndividualEnergyActivityOneTick(
+      harness.fixture.activity,
+      harness.profiles,
+      harness.energy,
+      0,
+    );
+    expect(getIndividualEnergyActivityInspection(harness.fixture.activity, 0))
+      .toMatchObject({
+        requestedPhysicalGait: "walking",
+        actualPhysicalGait: "stationary",
+        gaitProducedDisplacement: false,
+        movementExpenditureRequested: 0,
+      });
+  });
+
   it("keeps no-movement, dragged and externally relocated gait stationary", () => {
     for (const source of [
       "ordinaryMovement", "draggedPatient", "externalDisplacement",
