@@ -9,6 +9,7 @@ import {
   getIndividualEnergyHistoryInspection,
   getIndividualEnergyInspection,
   getTrustedIndividualEnergyProfile,
+  setIndividualCurrentEnergyForTrustedSetup,
 } from "../../src/sim/individualEnergy";
 import { getIndividualEnergyActivityInspection } from "../../src/sim/individualEnergyActivity";
 import { getIndividualEnergyCapabilityInspection } from "../../src/sim/individualEnergyCapability";
@@ -264,6 +265,84 @@ describe("Milestone 7A production energy integration", () => {
     expect(spent.combatSandbox!.formationEnergyGaitCapabilities).toBe(spentAdapter);
     expect(freshAdapter.projectionTick).toBe(1);
     expect(spentAdapter.projectionTick).toBe(1);
+  });
+
+  it("uses the lower median for a mixed-energy production formation anchor", () => {
+    const source = createSmallBattleScenario({});
+    const combat = source.combatSandbox!;
+    const scenario: SimulationScenario = {
+      ...source,
+      entityCount: 5,
+      combatSandbox: {
+        ...combat,
+        inspectedEntityIds: [0, 1, 2, 3],
+        units: combat.units.map((unit, unitIndex) => unitIndex === 0
+          ? {
+              ...unit,
+              memberCount: 4,
+              rows: 1,
+              cols: 4,
+              unitSpeed: 2,
+              ordinaryPhysicalGait: "jogging" as const,
+              memberMaxStep: 2,
+              ...(unit.memberProfiles === undefined
+                ? {}
+                : {
+                    memberProfiles: Array.from(
+                      { length: 4 },
+                      (_, memberIndex) => unit.memberProfiles![
+                        memberIndex % unit.memberProfiles!.length
+                      ]!,
+                    ),
+                  }),
+            }
+          : {
+              ...unit,
+              memberCount: 1,
+              rows: 1,
+              cols: 1,
+              order: "hold" as const,
+              ...(unit.memberProfiles === undefined
+                ? {}
+                : { memberProfiles: unit.memberProfiles.slice(0, 1) }),
+            }),
+      },
+    };
+    const run = (spentEntityIds: readonly number[]) => {
+      const simulation = createSimulation(scenario);
+      for (const entityId of spentEntityIds) {
+        setIndividualCurrentEnergyForTrustedSetup(
+          simulation.individualEnergyStore,
+          entityId,
+          0,
+        );
+      }
+      advanceSimulationOneTick(simulation);
+      return createPositionSnapshot(simulation).combatDebug!.units[0]!;
+    };
+
+    expect(run([0])).toMatchObject({
+      requestedUnitPhysicalGait: "jogging",
+      effectiveAnchorPhysicalGait: "jogging",
+      eligibleEnergyGaitMemberCount: 4,
+      walkingEffectiveMemberCount: 1,
+      joggingEffectiveMemberCount: 3,
+      preEnergyAnchorStep: 2,
+      postEnergyAnchorStep: 2,
+      anchorMovementReducedByEnergy: false,
+      anchorEnergyPolicyApplied: true,
+    });
+    expect(run([0, 1])).toMatchObject({
+      requestedUnitPhysicalGait: "jogging",
+      effectiveAnchorPhysicalGait: "walking",
+      eligibleEnergyGaitMemberCount: 4,
+      walkingEffectiveMemberCount: 2,
+      joggingEffectiveMemberCount: 2,
+      preEnergyAnchorStep: 2,
+      postEnergyAnchorStep: 1,
+      anchorMovementReducedByEnergy: true,
+      anchorEnergyPolicyApplied: true,
+    });
   });
 
   it("uses following-tick capability for sprint then jog then minimum walk", () => {

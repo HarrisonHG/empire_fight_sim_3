@@ -415,6 +415,17 @@ export interface LiveCombatDebugUnitSnapshot {
   readonly factionId: number;
   readonly memberCount: number;
   readonly movementStyle: UnitMovementStyle;
+  readonly requestedUnitPhysicalGait?: IndividualPhysicalGait;
+  readonly effectiveAnchorPhysicalGait?: IndividualPhysicalGait;
+  readonly eligibleEnergyGaitMemberCount?: number;
+  readonly stationaryEffectiveMemberCount?: number;
+  readonly walkingEffectiveMemberCount?: number;
+  readonly joggingEffectiveMemberCount?: number;
+  readonly sprintingEffectiveMemberCount?: number;
+  readonly preEnergyAnchorStep?: number;
+  readonly postEnergyAnchorStep?: number;
+  readonly anchorMovementReducedByEnergy?: boolean;
+  readonly anchorEnergyPolicyApplied?: boolean;
   readonly assessmentPressureAverage: number;
   readonly assessmentMoraleState: CombatMoraleState;
   /** Persistent Milestone 4 interpretation consumed by next tick's movement. */

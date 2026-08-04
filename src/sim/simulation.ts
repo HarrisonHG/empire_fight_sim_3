@@ -26,6 +26,7 @@ import {
   getIndividualRole,
   type FormationTickDiagnostics,
   getUnitCohesion,
+  getUnitEnergyGaitDiagnostics,
   getUnitMovementStyle,
 } from "./formationBehaviour";
 import { moveWorldOneTick } from "./movement";
@@ -2973,12 +2974,36 @@ function createCombatDebugSnapshot(
     ) {
       throw new Error("Live combat individual summaries are out of sync.");
     }
+    const energyGaitDiagnostics = getUnitEnergyGaitDiagnostics(
+      combatSandbox.formationStore,
+      unitId,
+    );
     units.push({
       unitId,
       label: combatSandbox.unitLabels.get(unitId) ?? `Unit ${unitId}`,
       factionId: getFactionIdForUnit(combatSandbox.identityStore, unitId),
       memberCount: getUnitMembers(combatSandbox.identityStore, unitId).length,
       movementStyle: getUnitMovementStyle(combatSandbox.formationStore, unitId),
+      requestedUnitPhysicalGait:
+        energyGaitDiagnostics.requestedUnitPhysicalGait,
+      effectiveAnchorPhysicalGait:
+        energyGaitDiagnostics.effectiveAnchorPhysicalGait,
+      eligibleEnergyGaitMemberCount:
+        energyGaitDiagnostics.eligibleEnergyGaitMemberCount,
+      stationaryEffectiveMemberCount:
+        energyGaitDiagnostics.stationaryEffectiveMemberCount,
+      walkingEffectiveMemberCount:
+        energyGaitDiagnostics.walkingEffectiveMemberCount,
+      joggingEffectiveMemberCount:
+        energyGaitDiagnostics.joggingEffectiveMemberCount,
+      sprintingEffectiveMemberCount:
+        energyGaitDiagnostics.sprintingEffectiveMemberCount,
+      preEnergyAnchorStep: energyGaitDiagnostics.preEnergyAnchorStep,
+      postEnergyAnchorStep: energyGaitDiagnostics.postEnergyAnchorStep,
+      anchorMovementReducedByEnergy:
+        energyGaitDiagnostics.anchorMovementReducedByEnergy,
+      anchorEnergyPolicyApplied:
+        energyGaitDiagnostics.anchorEnergyPolicyApplied,
       assessmentPressureAverage: moraleAssessment.pressureAverage,
       assessmentMoraleState: moraleAssessment.moraleState,
       persistentMoraleState: persistentMorale.state,

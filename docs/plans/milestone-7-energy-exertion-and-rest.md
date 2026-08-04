@@ -2,7 +2,7 @@
 
 Status: active; 7A and 7B are complete. 7C-1 gait authority and capability
 projection is implemented. 7C-2 formation and routing movement enforcement
-is in progress with ordinary member enforcement; 7C-3 specialist movement
+is in progress with ordinary member and unit-anchor enforcement; 7C-3 specialist movement
 enforcement and consolidation is not started.
 
 Implementation begins after Milestone 6 is accepted and the post-Milestone-6 main-battle medical integration spike is retained as the evolving `/` scenario.
@@ -803,11 +803,24 @@ routing, or change combat, casualty, pressure, morale, or specialist movement.
   overwritten each successful formation tick and exposed only through bounded
   individual inspection.
 - Spent active members retain minimum walking movement where existing movement
-  authorities permit it. Unit anchors remain unenforced, so tired members may
-  lag without teleportation or catch-up.
+  authorities permit it, so tired members may lag without teleportation or
+  catch-up.
+- Before ordinary anchor movement, formation projects each eligible member's
+  requested/effective gait exactly once. Fixed gait-rank counts select the
+  lower median at `floor((eligibleCount - 1) / 2)` without per-tick sorting or
+  allocation; non-participants do not contribute.
+- After existing unit-speed, morale-scale and fixed-point-remainder authority,
+  ordinary anchor steps are capped at stationary `0`, walking `1`, jogging `2`,
+  while sprinting preserves the previously permitted step. Give-ground and
+  formed-detour direction remain owned by their existing policies.
+- Bounded unit diagnostics expose the requested unit gait, effective anchor
+  gait, eligible/rank counts, pre/post energy step, reduction flag and whether
+  ordinary anchor energy policy applied. Routing explicitly reports the policy
+  as not applied and remains unenforced.
 
-Remaining work includes anchor enforcement, lower-median anchor policy, routing
-movement enforcement, bounded unit diagnostics, and final full verification.
+Remaining work includes routing movement enforcement and final full
+verification. The pre-existing ordinary-member world-bound question remains
+deferred to final 7C consolidation.
 
 No combat-tempo, pressure, equipment-burden, rest-decision, or specialist
 movement enforcement belongs to this step.

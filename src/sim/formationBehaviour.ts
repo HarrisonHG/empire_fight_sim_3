@@ -1091,7 +1091,18 @@ function processUnit(
   energyGaitContext: FormationEnergyGaitTickContext | undefined,
 ): void {
   const unitMembers = getUnitMembers(identityStore, unitId);
+  const storedOrder = store.orders[unitIndex]!;
+  // 4G recovery preserves but temporarily suspends the configured order.
+  const order: UnitOrder =
+    moraleMovementState === "recovering" ? "hold" : storedOrder;
   if (!hasFormationParticipant(unitMembers, lifecycleStore, ordinaryParticipation)) {
+    store.requestedUnitPhysicalGait[unitIndex] = moraleMovementState === "routing"
+      ? "sprinting"
+      : order === "hold"
+        ? "stationary"
+        : store.ordinaryPhysicalGait[unitIndex]!;
+    store.effectiveAnchorPhysicalGait[unitIndex] = "stationary";
+    store.anchorEnergyPolicyApplied[unitIndex] = moraleMovementState === "routing" ? 0 : 1;
     store.anchorMovementRemainder[unitIndex] = 0;
     store.routingHeadingX[unitIndex] = 0;
     store.routingHeadingY[unitIndex] = 0;
@@ -1105,10 +1116,6 @@ function processUnit(
     }
     return;
   }
-  const storedOrder = store.orders[unitIndex]!;
-  // 4G recovery preserves but temporarily suspends the configured order.
-  const order: UnitOrder =
-    moraleMovementState === "recovering" ? "hold" : storedOrder;
   const headingX = store.headingX[unitIndex]!;
   const headingY = store.headingY[unitIndex]!;
   const unitSpeed = store.unitSpeed[unitIndex]!;
@@ -1141,6 +1148,15 @@ function processUnit(
   const requestedPhysicalGait = order === "hold"
     ? "stationary"
     : store.ordinaryPhysicalGait[unitIndex]!;
+  projectOrdinaryUnitPhysicalGaits(
+    store,
+    unitMembers,
+    unitIndex,
+    requestedPhysicalGait,
+    lifecycleStore,
+    ordinaryParticipation,
+    energyGaitContext,
+  );
   const anchorMovementScale = anchorMovementScaleForMorale(
     moraleMovementState,
   );
@@ -1177,11 +1193,16 @@ function processUnit(
   }
 
   if (style === "giveGround") {
-    const effectiveUnitSpeed = scaleMovementStepWithRemainder(
+    const preEnergyUnitSpeed = scaleMovementStepWithRemainder(
       unitSpeed,
       WAVERING_GIVE_GROUND_SCALE,
       store.anchorMovementRemainder,
       unitIndex,
+    );
+    const effectiveUnitSpeed = clampOrdinaryAnchorStepByEnergy(
+      store,
+      unitIndex,
+      preEnergyUnitSpeed,
     );
     moveAnchorBackward(
       world,
@@ -1192,22 +1213,32 @@ function processUnit(
       headingY,
     );
   } else if (shouldAdvanceUnitAnchor(isAdvancing, style)) {
-    const effectiveUnitSpeed = scaleMovementStepWithRemainder(
+    const preEnergyUnitSpeed = scaleMovementStepWithRemainder(
       unitSpeed,
       anchorMovementScale,
       store.anchorMovementRemainder,
       unitIndex,
+    );
+    const effectiveUnitSpeed = clampOrdinaryAnchorStepByEnergy(
+      store,
+      unitIndex,
+      preEnergyUnitSpeed,
     );
     store.anchorX[unitIndex] =
       store.anchorX[unitIndex]! + headingX * effectiveUnitSpeed;
     store.anchorY[unitIndex] =
       store.anchorY[unitIndex]! + headingY * effectiveUnitSpeed;
   } else if (isAdvancing && style === "formedDetour") {
-    const effectiveUnitSpeed = scaleMovementStepWithRemainder(
+    const preEnergyUnitSpeed = scaleMovementStepWithRemainder(
       unitSpeed,
       anchorMovementScale,
       store.anchorMovementRemainder,
       unitIndex,
+    );
+    const effectiveUnitSpeed = clampOrdinaryAnchorStepByEnergy(
+      store,
+      unitIndex,
+      preEnergyUnitSpeed,
     );
     sidestepFormedDetourAnchor(
       world,
@@ -1269,11 +1300,7 @@ function processUnit(
       store.isStuck[entityId] = 0;
       continue;
     }
-    store.requestedPhysicalGait[entityId] = requestedPhysicalGait;
-    const effectivePhysicalGait = effectiveGaitFor(
-      requestedPhysicalGait, entityId, false, energyGaitContext,
-    );
-    store.effectivePhysicalGait[entityId] = effectivePhysicalGait;
+    const effectivePhysicalGait = store.effectivePhysicalGait[entityId]!;
     const role = store.roles[entityId]!;
     const slotRow = store.slotRow[entityId]!;
     const slotCol = store.slotCol[entityId]!;
@@ -1527,6 +1554,88 @@ function resetEnergyMovementDiagnostics(
   store.postEnergyStepX.fill(0);
   store.postEnergyStepY.fill(0);
   store.movementReducedByEnergy.fill(0);
+  store.requestedUnitPhysicalGait.fill("stationary");
+  store.effectiveAnchorPhysicalGait.fill("stationary");
+  store.eligibleEnergyGaitMemberCount.fill(0);
+  store.stationaryEffectiveMemberCount.fill(0);
+  store.walkingEffectiveMemberCount.fill(0);
+  store.joggingEffectiveMemberCount.fill(0);
+  store.sprintingEffectiveMemberCount.fill(0);
+  store.preEnergyAnchorStep.fill(0);
+  store.postEnergyAnchorStep.fill(0);
+  store.anchorMovementReducedByEnergy.fill(0);
+  store.anchorEnergyPolicyApplied.fill(0);
+}
+
+function projectOrdinaryUnitPhysicalGaits(
+  store: InternalFormationBehaviourStore,
+  members: readonly number[],
+  unitIndex: number,
+  requestedPhysicalGait: IndividualPhysicalGait,
+  lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
+  ordinaryParticipation: IndividualOrdinaryParticipationSnapshot | undefined,
+  energyGaitContext: FormationEnergyGaitTickContext | undefined,
+): void {
+  let stationaryCount = 0;
+  let walkingCount = 0;
+  let joggingCount = 0;
+  let sprintingCount = 0;
+
+  store.requestedUnitPhysicalGait[unitIndex] = requestedPhysicalGait;
+  store.anchorEnergyPolicyApplied[unitIndex] = 1;
+  for (let memberIndex = 0; memberIndex < members.length; memberIndex += 1) {
+    const entityId = members[memberIndex]!;
+    if (!isFormationParticipant(lifecycleStore, entityId, ordinaryParticipation)) {
+      store.requestedPhysicalGait[entityId] = "stationary";
+      store.effectivePhysicalGait[entityId] = "stationary";
+      continue;
+    }
+
+    store.requestedPhysicalGait[entityId] = requestedPhysicalGait;
+    const effectivePhysicalGait = effectiveGaitFor(
+      requestedPhysicalGait,
+      entityId,
+      false,
+      energyGaitContext,
+    );
+    store.effectivePhysicalGait[entityId] = effectivePhysicalGait;
+    if (effectivePhysicalGait === "stationary") stationaryCount += 1;
+    else if (effectivePhysicalGait === "walking") walkingCount += 1;
+    else if (effectivePhysicalGait === "jogging") joggingCount += 1;
+    else sprintingCount += 1;
+  }
+
+  store.stationaryEffectiveMemberCount[unitIndex] = stationaryCount;
+  store.walkingEffectiveMemberCount[unitIndex] = walkingCount;
+  store.joggingEffectiveMemberCount[unitIndex] = joggingCount;
+  store.sprintingEffectiveMemberCount[unitIndex] = sprintingCount;
+  store.eligibleEnergyGaitMemberCount[unitIndex] =
+    stationaryCount + walkingCount + joggingCount + sprintingCount;
+  store.effectiveAnchorPhysicalGait[unitIndex] =
+    lowerMedianPhysicalGaitFromCounts(
+      stationaryCount,
+      walkingCount,
+      joggingCount,
+      sprintingCount,
+    );
+}
+
+function clampOrdinaryAnchorStepByEnergy(
+  store: InternalFormationBehaviourStore,
+  unitIndex: number,
+  preEnergyAnchorStep: number,
+): number {
+  const ceiling = physicalGaitCoordinateCeiling(
+    store.effectiveAnchorPhysicalGait[unitIndex]!,
+  );
+  const postEnergyAnchorStep = ceiling === null
+    ? preEnergyAnchorStep
+    : Math.min(preEnergyAnchorStep, ceiling);
+  store.preEnergyAnchorStep[unitIndex] = preEnergyAnchorStep;
+  store.postEnergyAnchorStep[unitIndex] = postEnergyAnchorStep;
+  store.anchorMovementReducedByEnergy[unitIndex] =
+    postEnergyAnchorStep < preEnergyAnchorStep ? 1 : 0;
+  return postEnergyAnchorStep;
 }
 
 interface RoutingHeading {
@@ -1723,6 +1832,10 @@ function processRoutingUnit(
   const perpX = -routeHeadingY;
   const perpY = routeHeadingX;
 
+  store.requestedUnitPhysicalGait[unitIndex] = "sprinting";
+  store.effectiveAnchorPhysicalGait[unitIndex] = "sprinting";
+  store.anchorEnergyPolicyApplied[unitIndex] = 0;
+
   store.styleCommitmentTicksRemaining[unitIndex] = 0;
   store.blockerReleaseTicksRemaining[unitIndex] = 0;
   clearActiveBlocker(store, unitIndex);
@@ -1750,6 +1863,8 @@ function processRoutingUnit(
     lifecycleStore,
     ordinaryParticipation,
   );
+  store.preEnergyAnchorStep[unitIndex] = anchorForwardStep;
+  store.postEnergyAnchorStep[unitIndex] = anchorForwardStep;
   store.anchorX[unitIndex] = clampWorldCoordinate(
     store.anchorX[unitIndex]! + routeHeadingX * anchorForwardStep,
     world.bounds.width,
