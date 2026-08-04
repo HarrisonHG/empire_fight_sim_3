@@ -1,9 +1,9 @@
 # Milestone 7: Energy, Exertion, and Rest
 
 Status: active; 7A and 7B are complete. 7C-1 gait authority and capability
-projection is implemented. 7C-2 formation and routing movement enforcement
-is in progress with ordinary and routing formation enforcement; 7C-3 specialist movement
-enforcement and consolidation is not started.
+projection and 7C-2 formation and routing movement enforcement are
+implemented. 7C-3 specialist movement enforcement and consolidation is not
+started.
 
 Implementation begins after Milestone 6 is accepted and the post-Milestone-6 main-battle medical integration spike is retained as the evolving `/` scenario.
 
@@ -747,7 +747,8 @@ inspection exposes only a read-model value sourced from that authority.
 
 This correction changes no tuning, activity classification, expenditure,
 recovery, or gameplay outcome. Milestone 7B is complete after this correction;
-7C-1 is implemented below and 7C-2 remains the next implementation slice.
+7C-1 and 7C-2 are implemented below; 7C-3 remains the next implementation
+slice.
 
 ---
 
@@ -790,7 +791,7 @@ routing, or change combat, casualty, pressure, morale, or specialist movement.
 
 ---
 
-## 7C-2 — Formation and routing movement enforcement — in progress
+## 7C-2 — Formation and routing movement enforcement — implemented
 
 - Ordinary active formation members apply their effective tick-start gait after
   existing formation, morale, blocker, contact, overtaking and bounds rules.
@@ -828,10 +829,19 @@ routing, or change combat, casualty, pressure, morale, or specialist movement.
   blocked routing remains stationary and free. Current-tick expenditure affects
   capability only on the following tick, and zero-energy active routers retain
   minimum walking movement where existing authorities permit it.
-
-Remaining 7C-2 work is final consolidation and full verification. The
-pre-existing ordinary-member world-bound question remains deferred to that
-consolidation.
+- Ordinary anchor and member movement now applies existing world bounds before
+  energy ceilings. Bounds-only blocking retains requested/effective gait while
+  actual gait is stationary and free, and fixed-point remainders remain owned
+  by the existing movement policy.
+- Consolidation regressions cover ordinary and routing requested/effective/
+  actual gait separation, lower-median anchor policy, diagnostic overwrite,
+  following-tick capability changes, and post-energy pass-through segments.
+- A deterministic mixed-band production run verifies identical positions,
+  anchors, gait diagnostics, energy, events, pass-through, morale and casualty
+  lifecycle results across repeated runs.
+- Structural performance coverage exercises 100, 500, 1,000 and 2,000 entities,
+  including 100 units of 20 at 2,000 entities, without timing thresholds or
+  inspection-object use in the hot formation path.
 
 No combat-tempo, pressure, equipment-burden, rest-decision, or specialist
 movement enforcement belongs to this step.

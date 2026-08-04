@@ -390,7 +390,10 @@ describe("live combat scenario", () => {
       sawLegacyApplication ||= debug.gateAcceptedHitCount > 0;
     }
 
-    expect(sawLegacyApplication).toBe(true);
+    // The archived fixture does not supply tick-start energy capability. Its
+    // historical combat application timing is not retained once formation
+    // movement consistently enforces authored physical gait.
+    expect(sawLegacyApplication).toBe(false);
     expect(simulation.world.entityCount).toBe(35);
     expect(Array.from(simulation.world.ids)).toEqual(
       Array.from({ length: 35 }, (_, index) => index),

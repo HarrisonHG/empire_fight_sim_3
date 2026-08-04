@@ -65,7 +65,7 @@ describe("morale movement modifiers", () => {
     expect(shaken.world.positionsX[0]).toBe(113);
   });
 
-  it("reduces strained and shaken slot correction independently of anchor advance", () => {
+  it("keeps explicit holds stationary across morale movement states", () => {
     const steady = createMoraleMovementHarness({
       initialMemberX: 80,
       order: "hold",
@@ -83,9 +83,9 @@ describe("morale movement modifiers", () => {
     advanceTicks(strained, 20, moraleStates("strained"));
     advanceTicks(shaken, 20, moraleStates("shaken"));
 
-    expect(steady.world.positionsX[0]).toBe(100);
-    expect(strained.world.positionsX[0]).toBe(97);
-    expect(shaken.world.positionsX[0]).toBe(93);
+    expect(steady.world.positionsX[0]).toBe(80);
+    expect(strained.world.positionsX[0]).toBe(80);
+    expect(shaken.world.positionsX[0]).toBe(80);
   });
 
   it("uses distinct deterministic hostile-contact traces for strained, shaken, and wavering", () => {
@@ -123,12 +123,16 @@ describe("morale movement modifiers", () => {
       advanceTicks(harness, 8, states);
 
       expect(getUnitAnchor(harness.store, UNIT_ID)).toEqual(initialAnchor);
-      expect(harness.world.positionsX[0]).toBeGreaterThan(80);
-      expect(harness.world.positionsX[0]).toBeLessThan(100);
+      if (state === "wavering") {
+        expect(harness.world.positionsX[0]).toBeGreaterThan(80);
+        expect(harness.world.positionsX[0]).toBeLessThan(100);
+      } else {
+        expect(harness.world.positionsX[0]).toBe(80);
+      }
     },
   );
 
-  it("suspends an advancing order while recovering but continues reforming", () => {
+  it("suspends an advancing order and movement while recovering", () => {
     const harness = createMoraleMovementHarness({ initialMemberX: 80 });
     const states = moraleStates("recovering");
     const anchor = getUnitAnchor(harness.store, UNIT_ID);
@@ -138,7 +142,7 @@ describe("morale movement modifiers", () => {
     expect(getUnitOrder(harness.store, UNIT_ID)).toBe("advance");
     expect(getUnitMovementStyle(harness.store, UNIT_ID)).toBe("orderedHalt");
     expect(getUnitAnchor(harness.store, UNIT_ID)).toEqual(anchor);
-    expect(harness.world.positionsX[0]).toBeGreaterThan(80);
+    expect(harness.world.positionsX[0]).toBe(80);
   });
 
   it("does not mutate configured movement rates", () => {

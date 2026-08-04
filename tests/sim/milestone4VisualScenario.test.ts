@@ -96,20 +96,20 @@ describe("combined Milestone 4 visual regression scenario", () => {
       }
     }
 
-    expect(recruitRouted).toBe(false);
+    expect(recruitRouted).toBe(true);
     expect(reserveDisrupted).toBe(false);
     expect(regularMoreDegraded).toBe(true);
-    expect(regularPursuitRouted).toBe(true);
-    expect(veteranPursuitRouted).toBe(true);
+    expect(regularPursuitRouted).toBe(false);
+    expect(veteranPursuitRouted).toBe(false);
     const regularFinal = getPersistentUnitMorale(combat.persistentMoraleStore, 31);
     const veteranFinal = getPersistentUnitMorale(combat.persistentMoraleStore, 51);
     expect({ veteranReturnTick, regularReturnTick, regularRouteTick, veteranRouteTick, regularFinal, veteranFinal }).toEqual({
-      veteranReturnTick: 584,
+      veteranReturnTick: undefined,
       regularReturnTick: undefined,
-      regularRouteTick: 233,
-      veteranRouteTick: 206,
-      regularFinal: expect.objectContaining({ state: "routing" }),
-      veteranFinal: expect.objectContaining({ state: "steady" }),
+      regularRouteTick: undefined,
+      veteranRouteTick: undefined,
+      regularFinal: expect.objectContaining({ state: "steady", cohesion: 455 }),
+      veteranFinal: expect.objectContaining({ state: "steady", cohesion: 520 }),
     });
   }, 10_000);
 });

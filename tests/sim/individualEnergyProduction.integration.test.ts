@@ -20,6 +20,11 @@ import {
 import { getIndividualCurrentGlobalHits } from "../../src/sim/individualGlobalHits";
 import { getIndividualCombatPressureInspection } from "../../src/sim/combatPressure";
 import {
+  getUnitAnchor,
+  type FormationTickResult,
+} from "../../src/sim/formationBehaviour";
+import {
+  advanceCombatSandboxOneTick,
   advanceSimulationOneTick,
   createInitialSnapshot,
   createPositionSnapshot,
@@ -519,6 +524,191 @@ describe("Milestone 7A production energy integration", () => {
       energyMovementExpenditureRequestedThisTick: 1,
     });
   });
+
+  it("replays mixed ordinary, routing, energy and world-edge enforcement canonically", () => {
+    const sourceUnits = MAIN_BATTLE_MEDICAL_SCENARIO.combatSandbox!.units;
+    const memberProfiles = (
+      source: CombatSandboxUnitScenario,
+      steps: readonly number[],
+    ) => Array.from({ length: 4 }, (_, memberIndex) => ({
+      ...(source.memberProfiles?.[
+        memberIndex % (source.memberProfiles?.length ?? 1)
+      ] ?? {}),
+      memberMaxStep: steps[memberIndex]!,
+    }));
+    const scenario: SimulationScenario = {
+      seed: 0x7c_02ff,
+      entityCount: 8,
+      bounds: { width: 180, height: 80 },
+      minSpeedUnitsPerTick: 1,
+      maxSpeedUnitsPerTick: 1,
+      energyProfile: {
+        maximumEnergy: 100,
+        startingEnergy: 100,
+        safeRestRecoveryPerTick: 0,
+      },
+      combatSandbox: {
+        kind: "liveCombatSandbox",
+        appliedDamagePressureScale: 1,
+        inspectedEntityIds: [0, 1, 2, 3, 4, 5, 6, 7],
+        units: [
+          {
+            ...sourceUnits[0]!,
+            unitId: 1,
+            factionId: 1,
+            memberCount: 4,
+            deploymentZone: { minX: 0, maxX: 0, minY: 28, maxY: 40 },
+            anchorX: 0,
+            anchorY: 36,
+            headingX: -1,
+            headingY: 0,
+            rows: 2,
+            cols: 2,
+            spacing: 4,
+            unitSpeed: 4,
+            ordinaryPhysicalGait: "sprinting",
+            order: "advance",
+            memberMaxStep: 4,
+            energyProfile: {
+              maximumEnergy: 100,
+              startingEnergy: 100,
+              safeRestRecoveryPerTick: 0,
+            },
+            memberProfiles: memberProfiles(sourceUnits[0]!, [1, 2, 3, 4]),
+          },
+          {
+            ...sourceUnits[2]!,
+            unitId: 2,
+            factionId: 2,
+            memberCount: 4,
+            deploymentZone: { minX: 160, maxX: 160, minY: 28, maxY: 40 },
+            anchorX: 160,
+            anchorY: 36,
+            headingX: 1,
+            headingY: 0,
+            rows: 2,
+            cols: 2,
+            spacing: 4,
+            unitSpeed: 4,
+            ordinaryPhysicalGait: "sprinting",
+            order: "advance",
+            memberMaxStep: 4,
+            energyProfile: {
+              maximumEnergy: 100,
+              startingEnergy: 100,
+              safeRestRecoveryPerTick: 0,
+            },
+            memberProfiles: memberProfiles(sourceUnits[2]!, [4, 3, 2, 1]),
+            casualtyProcedure: {
+              procedureKind: "citizen",
+              deathCountPolicy: { kind: "normalFortitude" },
+            },
+          },
+        ],
+      },
+    };
+
+    const run = () => {
+      const simulation = createSimulation(scenario);
+      for (let unitOffset = 0; unitOffset < 2; unitOffset += 1) {
+        for (const [memberIndex, currentEnergy] of [100, 45, 20, 5].entries()) {
+          setIndividualCurrentEnergyForTrustedSetup(
+            simulation.individualEnergyStore,
+            unitOffset * 4 + memberIndex,
+            currentEnergy,
+          );
+        }
+      }
+      const ticks: unknown[] = [];
+      for (let tick = 0; tick < 8; tick += 1) {
+        const combat = simulation.combatSandbox!;
+        combat.moraleMovementStates.set(2, "routing");
+        let formationResult: FormationTickResult | undefined;
+        advanceCombatSandboxOneTick(
+          simulation.world,
+          combat,
+          simulation.tick,
+          {
+            runStage<T>(stage: string, execute: () => T): T {
+              const result = execute();
+              if (stage === "formation") {
+                formationResult = result as FormationTickResult;
+              }
+              return result;
+            },
+          },
+        );
+        simulation.tick += 1;
+        const snapshot = createPositionSnapshot(simulation).combatDebug!;
+        ticks.push({
+          positionsX: Array.from(simulation.world.positionsX),
+          positionsY: Array.from(simulation.world.positionsY),
+          anchors: [getUnitAnchor(combat.formationStore, 1),
+            getUnitAnchor(combat.formationStore, 2)],
+          units: snapshot.units.map((unit) => ({
+            movementStyle: unit.movementStyle,
+            requested: unit.requestedUnitPhysicalGait,
+            effective: unit.effectiveAnchorPhysicalGait,
+            pre: unit.preEnergyAnchorStep,
+            post: unit.postEnergyAnchorStep,
+            reduced: unit.anchorMovementReducedByEnergy,
+          })),
+          individuals: snapshot.inspectedIndividuals.map((individual) => ({
+            id: individual.entityId,
+            requested: individual.formationRequestedPhysicalGait,
+            effective: individual.formationEffectivePhysicalGait,
+            actual: individual.energyActualPhysicalGait,
+            preX: individual.formationPreEnergyStepX,
+            preY: individual.formationPreEnergyStepY,
+            postX: individual.formationPostEnergyStepX,
+            postY: individual.formationPostEnergyStepY,
+            expenditure: individual.energyMovementExpenditureRequestedThisTick,
+            energy: individual.currentEnergy,
+            band: individual.energyBand,
+            capabilityBand: individual.energyCapabilitySourceBand,
+          })),
+          formationEvents: formationResult?.events.map((event) => ({ ...event })),
+          passThrough: formationResult?.routingPassThroughInteractions.map(
+            (interaction) => ({ ...interaction }),
+          ),
+          morale: [...combat.moraleMovementStates.entries()]
+            .sort((left, right) => left[0] - right[0]),
+          lifecycle: Array.from(
+            { length: simulation.world.entityCount },
+            (_, entityId) => getIndividualCharacterLifecycleState(
+              combat.individualCasualtyLifecycleStore,
+              entityId,
+            ),
+          ),
+          casualty: combat.individualCasualtyUnitSummaries.map(
+            (summary) => ({ ...summary }),
+          ),
+        });
+      }
+      return ticks;
+    };
+
+    const first = run();
+    expect(first).toEqual(run());
+    expect(first).toHaveLength(8);
+    const canonical = first as Array<{
+      readonly individuals: ReadonlyArray<{
+        readonly id: number;
+        readonly band: string | undefined;
+        readonly capabilityBand: string | undefined;
+      }>;
+    }>;
+    const observedBands = new Set(
+      canonical.flatMap((tick) => tick.individuals.map((individual) =>
+        individual.capabilityBand)),
+    );
+    expect(observedBands).toEqual(new Set([
+      "fresh", "working", "winded", "spent",
+    ]));
+    expect(new Set(canonical.map((tick) =>
+      tick.individuals.find((individual) => individual.id === 4)?.band,
+    )).size).toBeGreaterThan(1);
+  });
 });
 
 describe("Milestone 7B-1 production activity observation", () => {
@@ -591,6 +781,63 @@ describe("Milestone 7B-1 production activity observation", () => {
     expect(activity.actualPhysicalGait).toBe("stationary");
     expect(activity.gaitProducedDisplacement).toBe(false);
     expect(activity.movementExpenditureRequested).toBe(0);
+  });
+
+  it("keeps an outward ordinary advance bounded and uncharged", () => {
+    const source = createSmallBattleScenario({});
+    const combat = source.combatSandbox!;
+    const simulation = createSimulation({
+      ...source,
+      entityCount: 2,
+      combatSandbox: {
+        ...combat,
+        inspectedEntityIds: [0],
+        units: combat.units.map((unit, unitIndex) => unitIndex === 0
+          ? {
+              ...unit,
+              memberCount: 1,
+              deploymentZone: { minX: 0, maxX: 0, minY: 120, maxY: 120 },
+              anchorX: 0,
+              anchorY: 120,
+              headingX: -1,
+              rows: 1,
+              cols: 1,
+              unitSpeed: 2,
+              ordinaryPhysicalGait: "jogging" as const,
+              memberMaxStep: 2,
+              ...(unit.memberProfiles === undefined
+                ? {}
+                : { memberProfiles: unit.memberProfiles.slice(0, 1) }),
+            }
+          : {
+              ...unit,
+              memberCount: 1,
+              deploymentZone: { minX: 420, maxX: 420, minY: 120, maxY: 120 },
+              anchorX: 420,
+              anchorY: 120,
+              rows: 1,
+              cols: 1,
+              order: "hold" as const,
+              ...(unit.memberProfiles === undefined
+                ? {}
+                : { memberProfiles: unit.memberProfiles.slice(0, 1) }),
+            }),
+      },
+    });
+    advanceSimulationOneTick(simulation);
+
+    expect(simulation.world.positionsX[0]).toBe(0);
+    expect(createPositionSnapshot(simulation).combatDebug!.inspectedIndividuals[0])
+      .toMatchObject({
+        formationRequestedPhysicalGait: "jogging",
+        formationEffectivePhysicalGait: "jogging",
+        formationPreEnergyStepX: 0,
+        formationPostEnergyStepX: 0,
+        energyRequestedPhysicalGait: "jogging",
+        energyActualPhysicalGait: "stationary",
+        energyGaitProducedDisplacement: false,
+        energyMovementExpenditureRequestedThisTick: 0,
+      });
   });
 
   it("applies final current-tick activity without feeding energy back into behaviour", () => {

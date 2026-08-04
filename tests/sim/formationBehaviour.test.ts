@@ -507,7 +507,172 @@ function runRoutingPassThroughEnergyHarness(
   return { ...harness, result };
 }
 
+function createOrdinaryBoundaryHarness(options: {
+  readonly bounds: { readonly width: number; readonly height: number };
+  readonly anchorX: number;
+  readonly anchorY: number;
+  readonly headingX: -1 | 0 | 1;
+  readonly headingY: -1 | 0 | 1;
+  readonly positionX?: number;
+  readonly positionY?: number;
+  readonly requestedGait?: IndividualPhysicalGait;
+  readonly maximumGait?: IndividualPhysicalGait;
+  readonly unitSpeed?: number;
+  readonly cols?: number;
+  readonly slotCol?: number;
+}) {
+  const harness = createTestHarness({
+    bounds: options.bounds,
+    entityCount: 1,
+    identity: {
+      entityCount: 1,
+      units: [{ unitId: 1, factionId: 1, memberEntityIds: [0] }],
+    },
+    formation: {
+      entityCount: 1,
+      rngSeed: 0x7c_0205,
+      units: [{
+        unitId: 1,
+        anchorX: options.anchorX,
+        anchorY: options.anchorY,
+        headingX: options.headingX,
+        headingY: options.headingY,
+        spacing: 4,
+        rows: 1,
+        cols: options.cols ?? 1,
+        unitSpeed: options.unitSpeed ?? 4,
+        ordinaryPhysicalGait: options.requestedGait ?? "sprinting",
+        order: "advance",
+      }],
+      individuals: [{
+        entityId: 0,
+        role: "regular",
+        slotRow: 0,
+        slotCol: options.slotCol ?? 0,
+        memberMaxStep: 4,
+      }],
+    },
+    initialPositions: [{
+      entityId: 0,
+      x: options.positionX ?? options.anchorX,
+      y: options.positionY ?? options.anchorY,
+    }],
+  });
+  let tick = 0;
+  const capabilities = {
+    entityCount: 1,
+    get projectionTick() { return tick; },
+    getMaximumOrdinaryGait: () => options.maximumGait ?? "sprinting",
+    getMaximumRoutingGait: () => "sprinting" as const,
+    getMinimumSafeWalkAvailable: () => true,
+  };
+  return {
+    ...harness,
+    advance() {
+      advanceFormationOneTick(
+        harness.world, harness.identity, harness.store, undefined, undefined,
+        undefined, undefined, { tick, capabilities },
+      );
+      tick += 1;
+    },
+  };
+}
+
 describe("formation behaviour: physical gait authority", () => {
+  it("bounds ordinary anchors and members at every outward world edge", () => {
+    for (const edge of [
+      { anchorX: 0, anchorY: 2, headingX: -1 as const, headingY: 0 as const },
+      { anchorX: 4, anchorY: 2, headingX: 1 as const, headingY: 0 as const },
+      { anchorX: 2, anchorY: 0, headingX: 0 as const, headingY: -1 as const },
+      { anchorX: 2, anchorY: 4, headingX: 0 as const, headingY: 1 as const },
+    ]) {
+      const harness = createOrdinaryBoundaryHarness({
+        bounds: { width: 5, height: 5 },
+        ...edge,
+        requestedGait: "sprinting",
+        maximumGait: "sprinting",
+      });
+      for (let tick = 0; tick < 4; tick += 1) harness.advance();
+      expect(getUnitAnchor(harness.store, 1)).toEqual({
+        x: edge.anchorX,
+        y: edge.anchorY,
+      });
+      expect({
+        x: harness.world.positionsX[0],
+        y: harness.world.positionsY[0],
+      }).toEqual({ x: edge.anchorX, y: edge.anchorY });
+      expect(getIndividualRequestedPhysicalGait(harness.store, 0))
+        .toBe("sprinting");
+      expect(getIndividualEffectivePhysicalGait(harness.store, 0))
+        .toBe("sprinting");
+      expect(getIndividualMovementMode(harness.store, 0)).toBe("advanceWithUnit");
+      expect(getIndividualPreEnergyStepX(harness.store, 0)).toBe(0);
+      expect(getIndividualPreEnergyStepY(harness.store, 0)).toBe(0);
+    }
+  });
+
+  it("applies ordinary bounds before walking and jogging ceilings", () => {
+    const boundsSmaller = createOrdinaryBoundaryHarness({
+      bounds: { width: 5, height: 5 },
+      anchorX: 3,
+      anchorY: 2,
+      headingX: 1,
+      headingY: 0,
+      requestedGait: "sprinting",
+      maximumGait: "jogging",
+    });
+    boundsSmaller.advance();
+    expect(getUnitAnchor(boundsSmaller.store, 1)).toEqual({ x: 4, y: 2 });
+    expect(getUnitEnergyGaitDiagnostics(boundsSmaller.store, 1))
+      .toMatchObject({ preEnergyAnchorStep: 1, postEnergyAnchorStep: 1 });
+    expect(getIndividualPreEnergyStepX(boundsSmaller.store, 0)).toBe(1);
+    expect(getIndividualPostEnergyStepX(boundsSmaller.store, 0)).toBe(1);
+
+    const energySmaller = createOrdinaryBoundaryHarness({
+      bounds: { width: 10, height: 10 },
+      anchorX: 3,
+      anchorY: 5,
+      headingX: 1,
+      headingY: 0,
+      positionX: 0,
+      positionY: 5,
+      requestedGait: "sprinting",
+      maximumGait: "walking",
+    });
+    energySmaller.advance();
+    expect(getUnitAnchor(energySmaller.store, 1)).toEqual({ x: 4, y: 5 });
+    expect(getUnitEnergyGaitDiagnostics(energySmaller.store, 1))
+      .toMatchObject({ preEnergyAnchorStep: 4, postEnergyAnchorStep: 1 });
+    expect(getIndividualPreEnergyStepX(energySmaller.store, 0)).toBe(4);
+    expect(getIndividualPostEnergyStepX(energySmaller.store, 0)).toBe(1);
+  });
+
+  it("bounds diagonal ordinary member correction near a corner", () => {
+    const harness = createOrdinaryBoundaryHarness({
+      bounds: { width: 5, height: 5 },
+      anchorX: 4,
+      anchorY: 0,
+      headingX: 1,
+      headingY: 0,
+      positionX: 3,
+      positionY: 1,
+      requestedGait: "sprinting",
+      maximumGait: "jogging",
+      cols: 2,
+      slotCol: 0,
+    });
+    harness.advance();
+    expect(getUnitAnchor(harness.store, 1)).toEqual({ x: 4, y: 0 });
+    expect([harness.world.positionsX[0], harness.world.positionsY[0]])
+      .toEqual([4, 0]);
+    expect([
+      getIndividualPreEnergyStepX(harness.store, 0),
+      getIndividualPreEnergyStepY(harness.store, 0),
+      getIndividualPostEnergyStepX(harness.store, 0),
+      getIndividualPostEnergyStepY(harness.store, 0),
+    ]).toEqual([1, -1, 1, -1]);
+  });
+
   it("orders and clamps physical gait without promotion", () => {
     const orderedGaits: readonly IndividualPhysicalGait[] = [
       "stationary", "walking", "jogging", "sprinting",

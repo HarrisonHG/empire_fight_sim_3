@@ -1193,11 +1193,19 @@ function processUnit(
   }
 
   if (style === "giveGround") {
-    const preEnergyUnitSpeed = scaleMovementStepWithRemainder(
+    const moralePermittedUnitSpeed = scaleMovementStepWithRemainder(
       unitSpeed,
       WAVERING_GIVE_GROUND_SCALE,
       store.anchorMovementRemainder,
       unitIndex,
+    );
+    const preEnergyUnitSpeed = boundedAnchorStep(
+      world,
+      store,
+      unitIndex,
+      -headingX,
+      -headingY,
+      moralePermittedUnitSpeed,
     );
     const effectiveUnitSpeed = clampAnchorStepByEnergy(
       store,
@@ -1213,11 +1221,19 @@ function processUnit(
       headingY,
     );
   } else if (shouldAdvanceUnitAnchor(isAdvancing, style)) {
-    const preEnergyUnitSpeed = scaleMovementStepWithRemainder(
+    const moralePermittedUnitSpeed = scaleMovementStepWithRemainder(
       unitSpeed,
       anchorMovementScale,
       store.anchorMovementRemainder,
       unitIndex,
+    );
+    const preEnergyUnitSpeed = boundedAnchorStep(
+      world,
+      store,
+      unitIndex,
+      headingX,
+      headingY,
+      moralePermittedUnitSpeed,
     );
     const effectiveUnitSpeed = clampAnchorStepByEnergy(
       store,
@@ -1490,6 +1506,16 @@ function processUnit(
       stepY = 0;
       mode = "holdPosition";
     } else {
+      const boundedNextX = clampWorldCoordinate(
+        posX + stepX,
+        world.bounds.width,
+      );
+      const boundedNextY = clampWorldCoordinate(
+        posY + stepY,
+        world.bounds.height,
+      );
+      stepX = boundedNextX - posX;
+      stepY = boundedNextY - posY;
       store.preEnergyStepX[entityId] = stepX;
       store.preEnergyStepY[entityId] = stepY;
       const energyCoordinateCeiling = physicalGaitCoordinateCeiling(
@@ -1688,6 +1714,27 @@ function clampAnchorStepByEnergy(
   store.anchorMovementReducedByEnergy[unitIndex] =
     postEnergyAnchorStep < preEnergyAnchorStep ? 1 : 0;
   return postEnergyAnchorStep;
+}
+
+function boundedAnchorStep(
+  world: WorldState,
+  store: InternalFormationBehaviourStore,
+  unitIndex: number,
+  directionX: number,
+  directionY: number,
+  requestedStep: number,
+): number {
+  const currentX = store.anchorX[unitIndex]!;
+  const currentY = store.anchorY[unitIndex]!;
+  const boundedX = clampWorldCoordinate(
+    currentX + directionX * requestedStep,
+    world.bounds.width,
+  );
+  const boundedY = clampWorldCoordinate(
+    currentY + directionY * requestedStep,
+    world.bounds.height,
+  );
+  return Math.max(Math.abs(boundedX - currentX), Math.abs(boundedY - currentY));
 }
 
 interface RoutingHeading {
