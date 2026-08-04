@@ -2,8 +2,8 @@
 
 Status: active; 7A and 7B are complete. 7C-1 gait authority and capability
 projection and 7C-2 formation and routing movement enforcement are
-implemented. 7C-3 specialist movement enforcement and consolidation is not
-started.
+implemented. 7C-3 specialist movement enforcement and consolidation is
+planned; implementation has not started.
 
 Implementation begins after Milestone 6 is accepted and the post-Milestone-6 main-battle medical integration spike is retained as the evolving `/` scenario.
 
@@ -134,10 +134,10 @@ Do not use floating-point drift, wall time, or `Math.random`.
 Derive bands from current/maximum ratio:
 
 ```text
-fresh:    60%–100%
-working:  30%–<60%
-winded:   10%–<30%
-spent:     0%–<10%
+fresh:    60%â€“100%
+working:  30%â€“<60%
+winded:   10%â€“<30%
+spent:     0%â€“<10%
 ```
 
 Band names are diagnostic and behavioural summaries. The current integer energy remains authoritative.
@@ -436,8 +436,8 @@ This creates the intended interaction:
 
 ```text
 tired fighter
-→ pressure dissipates more slowly
-→ existing morale system may break them sooner
+â†’ pressure dissipates more slowly
+â†’ existing morale system may break them sooner
 ```
 
 Do not create a second fatigue-morale state machine.
@@ -578,7 +578,7 @@ It does not spend or restore individual energy.
 
 # Numbered implementation slices
 
-## 7A — Trusted profiles, current-energy store, bands, and inspection
+## 7A â€” Trusted profiles, current-energy store, bands, and inspection
 
 Deliver:
 
@@ -599,7 +599,7 @@ Tests:
 - exact band thresholds;
 - no inference from experience, faction, nation, role, or equipment;
 - replay determinism;
-- 100–2,000 entity structural coverage.
+- 100â€“2,000 entity structural coverage.
 
 Boundary:
 
@@ -607,7 +607,7 @@ No expenditure, recovery, movement, combat, morale, renderer, or UI integration.
 
 ---
 
-## 7B-1 — Authoritative activity classification
+## 7B-1 â€” Authoritative activity classification
 
 Deliver:
 
@@ -655,7 +655,7 @@ Tests:
 - multiple same-tick defence attempts;
 - caller-owned store reuse, replay, and processing-order independence;
 - production casualty procedure integration with unchanged energy;
-- idle structural coverage at 100–2,000 entities.
+- idle structural coverage at 100â€“2,000 entities.
 
 Boundary:
 
@@ -664,7 +664,7 @@ or alter movement, gait, combat, pressure, morale, renderer, worker, or UI state
 
 ---
 
-## 7B-2 — Base expenditure and recovery application
+## 7B-2 â€” Base expenditure and recovery application
 
 Status: implemented.
 
@@ -717,7 +717,7 @@ Implementation notes:
 
 ---
 
-## 7B-2A — Energy authority sequencing and ownership correction
+## 7B-2A â€” Energy authority sequencing and ownership correction
 
 Status: implemented.
 
@@ -727,9 +727,9 @@ All three begin at `-1`. Production and focused callers must follow:
 
 ```text
 begin observation
-→ observe authoritative movement and action evidence
-→ classify exactly once
-→ apply exactly once
+â†’ observe authoritative movement and action evidence
+â†’ classify exactly once
+â†’ apply exactly once
 ```
 
 Beginning a new observation resets current-tick evidence and application
@@ -752,7 +752,7 @@ slice.
 
 ---
 
-## 7C-1 — Gait authority and capability projection — implemented
+## 7C-1 â€” Gait authority and capability projection â€” implemented
 
 - Formation owns ordinary physical gait independently of coordinate correction
   limits and morale or formation style.
@@ -791,7 +791,7 @@ routing, or change combat, casualty, pressure, morale, or specialist movement.
 
 ---
 
-## 7C-2 — Formation and routing movement enforcement — implemented
+## 7C-2 â€” Formation and routing movement enforcement â€” implemented
 
 - Ordinary active formation members apply their effective tick-start gait after
   existing formation, morale, blocker, contact, overtaking and bounds rules.
@@ -857,14 +857,390 @@ movement enforcement belongs to this step.
 
 ---
 
-## 7C-3 — Specialist movement enforcement and consolidation — not started
+## 7C-3 â€” Specialist movement enforcement and consolidation â€” planned; not started
 
-Planned work includes casualty, medical, trauma-withdrawal and respawn-egress
-enforcement, followed by gait-summary and diagnostic consolidation.
+### Goal
+
+Apply the accepted tick-start physical-gait capability to every existing
+specialist movement authority without moving destination choice, lifecycle
+policy, rescue policy, medical policy, or player-presence policy into energy.
+
+This slice covers only movement already implemented by Milestone 6:
+
+- helpers gathering to a casualty;
+- helpers dragging a casualty while the patient is externally displaced;
+- a claimed Physick approaching a patient;
+- an active mobile traumatic-wound patient withdrawing for treatment;
+- barbarian `respawnEgress` movement;
+- scenario-forced or otherwise externally imposed displacement only far enough
+  to prove that it remains external and is not energy-clamped or charged as
+  self-propelled movement.
+
+Terminal-citizen movement to the Sentinel Gate does not exist yet and remains
+Milestone 9 work. It is not part of 7C-3.
+
+### Architecture and ownership decisions
+
+#### Existing systems continue to choose movement
+
+The existing specialist authorities retain ownership of:
+
+- whether an entity participates;
+- the selected patient, helper, claim, withdrawal goal, drag destination, or
+  respawn destination;
+- cancellation, hand commitment, treatment range, arrival, lifecycle, and
+  player-presence transitions;
+- world-bound handling and the existing drag-speed remainder.
+
+Energy receives the already-selected movement request and may only reduce its
+physical gait. It must never create a request, redirect it, select a different
+goal, make an ineligible entity mobile, or revive a terminal battlefield
+character.
+
+Specialist movement ownership must not be moved into `formationBehaviour.ts`.
+The existing formation-owned bounded individual movement functions may accept
+a caller-supplied final step ceiling, but they must not learn casualty,
+medicine, trauma, egress, or energy policy.
+
+#### One narrow shared physical-gait boundary
+
+Create a small allocation-free shared physical-gait module rather than adding
+more gait helpers to `formationBehaviour.ts` or creating a generic movement
+framework.
+
+The shared boundary owns only:
+
+- the `stationary < walking < jogging < sprinting` ordering;
+- deterministic gait clamping;
+- the existing per-axis coordinate ceilings (`0`, `1`, `2`, and unbounded by
+  gait for sprinting, while the movement authority's configured limit remains
+  authoritative);
+- deterministic mapping from an already-selected non-negative maximum step to
+  requested gait;
+- the narrow current-tick specialist capability/evidence contract.
+
+Move or re-export existing generic gait helpers so formation, activity
+classification, and specialist movement use one definition. Do not leave
+competing gait ranks, step mappings, or ceilings in several files.
+
+The specialist capability adapter is created once with caller-owned storage
+and reads the existing `IndividualEnergyCapabilityStore`. It must validate the
+current projection tick and entity count before any specialist movement
+mutation. It must not allocate an options object, result object, or array per
+entity or movement request.
+
+#### Capability categories remain explicit
+
+Tick-start projection exposes separate read-only limits for:
+
+```text
+ordinary/routing active movement
+active self-propelled specialist movement
+respawn-egress procedure movement
+```
+
+Active gathering, medical-approach, and trauma-withdrawal movement use the
+same energy-band maximum gait and minimum-safe-walk rule as other active
+self-propelled movement.
+
+Dragging helpers are also active self-propelled movers. The dragged patient is
+externally displaced and contributes no gait capability to the group.
+
+`respawnEgress` is a separate player-presence procedure. It requests walking
+only. A terminal barbarian in `respawnEgress` therefore receives an explicit
+procedure-walking capability while remaining terminal, non-combatant,
+non-formation, and ineligible for ordinary active movement. Do not broaden the
+meaning of `active`, `activePresence`, or the existing ordinary
+`minimumSafeWalkAvailable` field to achieve this.
+
+Missing respawn destination, a not-yet-started egress tick, arrival, waiting at
+respawn, terminal citizen presence, removed presence, and every other
+non-moving presence remain stationary.
+
+#### Requested, effective, and actual gait
+
+For each authority:
+
+```text
+requested gait = gait selected by the existing movement policy
+effective gait = requested gait clamped by the relevant tick-start capability
+actual gait    = effective gait when self-propelled displacement occurred,
+                 otherwise stationary
+```
+
+Rules:
+
+- capability from energy spent during the current tick applies only on the
+  following tick;
+- existing lifecycle, participation, condition, commitment, timing, goal, and
+  world-bound rules run as their authorities require;
+- energy is a final non-increasing magnitude ceiling and cannot turn a blocked
+  or bounded request into movement;
+- a permitted active mover at zero energy retains walking where its specialist
+  authority still permits movement;
+- no displacement means stationary actual gait and no movement expenditure,
+  even when requested and effective gait were non-stationary;
+- self-propelled displacement records effective gait as actual gait;
+- dragged patients and scenario-forced entities record external displacement,
+  stationary self-propelled gait, and no personal movement expenditure;
+- several movement authorities observed in one tick still produce one final
+  tick-start-to-final displacement and at most one base movement charge;
+- an invalid, inactive, terminal, waiting, or otherwise disallowed
+  self-propelled request must remain stationary rather than being rescued by
+  minimum-walk policy.
+
+#### Authority-specific requested gait
+
+Casualty gathering, claimed-patient approach, and trauma withdrawal preserve
+their current configured maximum-step request. The shared maximum-step mapping
+turns that request into physical gait before capability clamping.
+
+Drag movement preserves the existing half-speed fixed-point policy:
+
+```text
+slowest configured helper step
+â†’ existing drag factor and remainder
+â†’ requested group step and requested gait for this tick
+â†’ minimum effective gait across required helpers
+â†’ shared bounded group delta
+```
+
+The minimum, not a median, is authoritative because every required helper must
+remain attached to the same drag group. The patient does not participate in
+the minimum. Energy clamping must not consume, refund, or rewrite the existing
+drag-speed remainder. All participants retain one identical final delta.
+
+Respawn egress requests walking regardless of the old Milestone 6 maximum-step
+constant. Its existing destination and arrival rules remain unchanged.
+
+#### Diagnostics and observation
+
+The bounded energy-activity inspection becomes the cross-authority individual
+summary and exposes:
+
+```text
+movement authority
+requested physical gait
+effective physical gait
+actual physical gait
+whether energy reduced the gait
+whether self-propelled displacement occurred
+whether external displacement occurred
+final tick displacement
+movement expenditure requested/applied
+```
+
+Do not infer specialist requested gait after movement from
+`FormationBehaviourStore.movementMode`. A bounded or blocked request may
+legitimately produce no displacement and overwrite that mode with
+`holdPosition`. Each specialist authority must provide its decision/result to
+the shared evidence boundary directly.
+
+Formation retains formation-specific member and anchor diagnostics. Drag,
+medical, trauma, and egress authorities retain their existing domain records.
+The activity store does not replace those authorities; it supplies the one
+cross-authority gait/expenditure view.
+
+Move movement observation immediately beside the authority it observes where
+practical. Final activity classification still calculates exact net
+tick-start-to-final displacement once, so checkpoint observation cannot double
+charge an entity.
+
+### Expected files and layer impact
+
+Expected simulation files:
+
+```text
+src/sim/individualPhysicalGait.ts                         new shared primitives
+src/sim/individualEnergyCapability.ts                    specialist/egress read limits
+src/sim/individualEnergyActivity.ts                      final gait evidence/inspection
+src/sim/formationBehaviour.ts                            import shared primitives and accept a bounded caller ceiling only
+src/sim/individualCasualtyAssistance.ts                  gather/drag enforcement
+src/sim/individualMedicalClaims.ts                       claimed-patient approach enforcement
+src/sim/individualMedicalReadModel.ts                    trauma-withdrawal enforcement
+src/sim/individualRespawnEgress.ts                       walking procedure enforcement
+src/sim/simulation.ts                                    canonical adapter wiring and observation order
+```
+
+Expected tests are the focused counterparts for those authorities plus
+production integration and structural performance coverage.
+
+No worker, renderer, UI, or content change is expected. A retained fixture may
+receive an explicit finite energy profile only if an existing named
+pre-energy observation otherwise becomes impossible; production defaults and
+the evolving `/` scenario must not be neutralised.
+
+### Ordered implementation slices
+
+#### 7C-3a â€” Shared gait authority and specialist capability contract
+
+Deliver:
+
+- extract the shared gait type, ordering, clamp, coordinate ceiling, and
+  maximum-step mapping from their current mixed owners;
+- preserve formation and activity public semantics while migrating imports;
+- extend tick-start capability with explicit active-specialist and
+  respawn-egress limits without changing production positions;
+- add the allocation-free current-tick specialist capability/evidence adapter;
+- add effective gait and energy-reduction state to bounded activity inspection;
+- keep existing formation-specific diagnostics intact;
+- make no production specialist movement behave differently yet.
+
+Tests:
+
+- exact gait ordering, clamping, coordinate ceilings, and maximum-step mapping;
+- fresh/working/winded/spent active-specialist limits;
+- minimum walk for active spent specialists;
+- non-active self-propelled specialist limits remain stationary;
+- `respawnEgress` projects procedure walking without becoming active or
+  combat-eligible;
+- waiting, missing/other presence, and terminal citizens do not receive egress
+  walking;
+- stale, future, null, mismatched, duplicate, and backwards projection use is
+  rejected before mutation;
+- existing formation, routing, energy-activity, replay, and production tests
+  remain unchanged in outcome.
+
+Boundary:
+
+No specialist coordinate enforcement, drag change, egress-speed change,
+expenditure tuning, or retained-fixture retuning.
+
+#### 7C-3b â€” Active self-propelled specialist enforcement
+
+Deliver:
+
+- enforce tick-start gait for casualty gathering;
+- enforce tick-start gait for a claimed Physick approaching a patient;
+- enforce tick-start gait for active trauma withdrawal;
+- pass only a final non-increasing step ceiling through the existing bounded
+  individual movement path;
+- emit direct requested/effective/actual gait evidence for attempted,
+  displaced, bounded, and blocked movement;
+- preserve all existing commitment, target, goal, treatment-range, withdrawal,
+  lifecycle, participation, movement-mode, and world-bound rules.
+
+Tests for each authority:
+
+- fresh movement preserves the existing request;
+- winded/spent capability reduces it deterministically;
+- zero-energy active movement retains walking;
+- current-tick expenditure changes capability only next tick;
+- already-at-goal, world-bounded, and zero-displacement requests are free;
+- inactive, dying, terminal, receiving-treatment, cancelled, or otherwise
+  authority-ineligible entities remain stationary under their existing rule;
+- requested/effective/actual gait and reduction diagnostics are exact;
+- ordinary formation movement for non-participants remains unchanged;
+- repeated runs produce identical positions, decisions, diagnostics, energy,
+  and events.
+
+Boundary:
+
+No drag-group movement, respawn egress, treatment recovery, burden, injury
+multiplier, rescue selection, triage, or new medical behaviour.
+
+#### 7C-3c â€” Cooperative drag-group enforcement
+
+Deliver:
+
+- derive the requested group gait from the existing slowest-helper drag step
+  and remainder;
+- clamp it to the minimum effective gait of all required helpers;
+- apply one coherent post-energy delta to helpers and patient;
+- keep the patient externally displaced, stationary for personal gait, and
+  free of base movement expenditure;
+- keep helper activity self-propelled and record its effective gait;
+- preserve group formation, cancellation, hand commitment, destination,
+  reached-safety, and history policy.
+
+Tests:
+
+- one Physick and two-fighter groups remain coherent;
+- the slowest energy-limited required helper controls the whole group;
+- helper ordering does not change the result;
+- a spent/zero-energy valid helper still permits minimum walking;
+- the patient never limits the group and never pays personal movement cost;
+- existing drag-speed remainder is deterministic and unchanged by energy
+  reduction or bounds;
+- no participant teleports, exceeds its permitted shared delta, or diverges;
+- blocked/bounded groups remain free for base movement and retain inspectable
+  requested/effective/actual gait;
+- cancellation and reached-safety semantics remain exactly once;
+- repeated runs produce identical group state, positions, diagnostics, energy,
+  and records.
+
+Boundary:
+
+No drag surcharge, equipment burden, missing-hit modifier, defence change,
+treatment change, or pathfinding.
+
+#### 7C-3d â€” Respawn egress enforcement and production consolidation
+
+Deliver:
+
+- replace the old fast egress step with explicit procedure walking through the
+  shared gait boundary;
+- retain the post-classification start delay, destination, missing-destination,
+  arrival, compaction, `waitingAtRespawn`, terminal lifecycle, and non-combat
+  rules;
+- place all specialist movement observations beside their authorities;
+- remove superseded post-hoc gait inference and duplicate shared gait helpers;
+- finalise requested/effective/actual/reduced diagnostics across formation,
+  gathering, dragging, medical approach, trauma withdrawal, egress, dragged
+  patients, and external displacement;
+- add production determinism and structural performance coverage for the full
+  7C movement boundary.
+
+Tests:
+
+- egress begins only after its existing start tick and advances at walking
+  gait;
+- all energy bands, including zero energy, retain procedure walking because
+  walking is the only requested egress gait;
+- missing destination, arrival, and waiting remain stationary and free;
+- egress never reactivates lifecycle, hits, combat, formation, morale, rescue,
+  or targeting participation;
+- externally forced fixture displacement is not clamped or personally charged;
+- source precedence and one-base-charge semantics remain deterministic when
+  several movement checkpoints occur in one tick;
+- a mixed production run repeats with identical positions, claims, drag state,
+  trauma state, presence, gait diagnostics, energy, combat, morale, events, and
+  final snapshot;
+- retained Milestone 3, 4, and 6 scenarios preserve their named observations;
+- structural cases cover 100, 500, 1,000, and 2,000 entities, including a
+  representative small specialist population, without timing thresholds or
+  hot-path inspection-object creation.
+
+Boundary:
+
+No citizen Sentinel Gate egress, barbarian batching/re-entry, scenario clock,
+combat-tempo effects, burden, injury modifiers, drag surcharge, treatment or
+waiting recovery, terminal-energy freeze, unit summaries, pressure recovery,
+rest behaviour, renderer, worker, UI, or content expansion.
+
+### 7C-3 done criteria
+
+7C-3 is complete only when:
+
+- every existing Milestone 6 self-propelled movement authority consumes the
+  current tick-start gait capability;
+- every permitted zero-energy mover can still walk where its authority permits;
+- no inactive entity gains movement from energy policy;
+- dragged and externally moved entities remain externally displaced and free
+  of personal base movement cost;
+- respawn egress walks without making a terminal barbarian active;
+- requested, effective, and actual gait are distinct and inspectable;
+- actual displacement continues to own expenditure and is charged at most
+  once;
+- no specialist ownership has moved into formation or energy;
+- no new per-entity hot-path allocations or all-entity pair scans exist;
+- focused, full headless, replay, typecheck, build, and performance suites pass;
+- no 7D, 7E, lifecycle, command, perception, terrain, or Milestone 9 behaviour
+  was implemented early.
 
 ---
 
-## 7D — Combat exertion, attack tempo, and guard recovery
+## 7D â€” Combat exertion, attack tempo, and guard recovery
 
 Deliver:
 
@@ -893,7 +1269,7 @@ No load burden, casualty work, morale, or resting AI.
 
 ---
 
-## 7E — Equipment burden, injury, dragging, medicine, and respawn procedure
+## 7E â€” Equipment burden, injury, dragging, medicine, and respawn procedure
 
 Deliver:
 
@@ -928,7 +1304,7 @@ No command, terrain, perception, detailed inventory mass, or respawn re-entry.
 
 ---
 
-## 7F — Pressure recovery and unit energy summaries
+## 7F â€” Pressure recovery and unit energy summaries
 
 Deliver:
 
@@ -954,7 +1330,7 @@ No rest/disengagement behaviour yet.
 
 ---
 
-## 7G — Conservation, safe rest, and re-engagement reluctance
+## 7G â€” Conservation, safe rest, and re-engagement reluctance
 
 Deliver:
 
@@ -984,7 +1360,7 @@ No captain-issued relief, rotation, withdrawal orders, communication, or percept
 
 ---
 
-## 7H — Production consolidation, soak, and performance
+## 7H â€” Production consolidation, soak, and performance
 
 Deliver:
 
@@ -999,7 +1375,7 @@ Representative cases:
 
 ```text
 2,000 entities
-100 units × 20
+100 units Ã— 20
 mixed equipment
 mixed energy profiles
 ordinary combat/casualty population
@@ -1027,7 +1403,7 @@ Prove:
 
 ---
 
-## 7I — Retained energy visual suite
+## 7I â€” Retained energy visual suite
 
 Add:
 
@@ -1085,7 +1461,7 @@ Human questions:
 
 ---
 
-## 7J — Main battle integration and milestone acceptance
+## 7J â€” Main battle integration and milestone acceptance
 
 Update the evolving `/` main battle sandbox to:
 
