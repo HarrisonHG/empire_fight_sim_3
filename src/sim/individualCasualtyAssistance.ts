@@ -31,6 +31,7 @@ import type { UnitMoraleMovementStateSource } from "./moraleMovement";
 import { getUnitIdForEntity, type UnitIdentityStore } from "./unitIdentity";
 import type { WorldState } from "./types";
 import {
+  physicalGaitCoordinateCeiling,
   requestedPhysicalGaitForMaximumStep,
   type IndividualSpecialistPhysicalGaitAdapter,
 } from "./individualPhysicalGait";
@@ -711,14 +712,24 @@ export function advanceCasualtyDragGroupsBeforeCombat(
       for (let helperIndex = 0; helperIndex < group.helperEntityIds.length; helperIndex += 1) {
         const helperId = group.helperEntityIds[helperIndex]!;
         if (!withinPickupRange(world, helperId, group.patientEntityId)) {
-          const requestedGait = requestedPhysicalGaitForMaximumStep(
-            getIndividualConfiguredMaxStep(formationStore, helperId),
+          const configuredMaximumStep = getIndividualConfiguredMaxStep(
+            formationStore,
+            helperId,
           );
-          gaitAdapter?.preflightActiveSpecialistMovement(
+          const requestedGait = requestedPhysicalGaitForMaximumStep(
+            configuredMaximumStep,
+          );
+          const effectiveGait = gaitAdapter?.preflightActiveSpecialistMovement(
             helperId,
             "casualtyGathering",
             requestedGait,
+          ) ?? requestedGait;
+          const gaitCoordinateCeiling = physicalGaitCoordinateCeiling(
+            effectiveGait,
           );
+          const finalMaximumStep = gaitCoordinateCeiling === null
+            ? configuredMaximumStep
+            : Math.min(configuredMaximumStep, gaitCoordinateCeiling);
           const moved = applyIndividualExternalMovementIntent(
             world,
             formationStore,
@@ -726,12 +737,13 @@ export function advanceCasualtyDragGroupsBeforeCombat(
             world.positionsX[group.patientEntityId]!,
             world.positionsY[group.patientEntityId]!,
             "gatherForCasualty",
+            finalMaximumStep,
           );
           gaitAdapter?.completeActiveSpecialistMovement(
             helperId,
             "casualtyGathering",
             requestedGait,
-            requestedGait,
+            effectiveGait,
             moved,
           );
           if (moved) movedParticipantCount += 1;

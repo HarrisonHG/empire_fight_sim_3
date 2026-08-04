@@ -823,6 +823,7 @@ export function applyIndividualExternalMovementIntent(
   goalX: number,
   goalY: number,
   mode: MovementMode,
+  maximumStepCeiling?: number,
 ): boolean {
   const internal = asInternal(store);
   if (world.entityCount !== internal.entityCount) {
@@ -832,9 +833,18 @@ export function applyIndividualExternalMovementIntent(
   if (!Number.isFinite(goalX) || !Number.isFinite(goalY)) {
     throw new RangeError("External movement goal must be finite.");
   }
+  if (maximumStepCeiling !== undefined &&
+      (!Number.isSafeInteger(maximumStepCeiling) || maximumStepCeiling < 0)) {
+    throw new RangeError(
+      "External movement maximum-step ceiling must be a non-negative safe integer.",
+    );
+  }
   const currentX = world.positionsX[entityId]!;
   const currentY = world.positionsY[entityId]!;
-  const maxStep = internal.memberMaxStep[entityId]!;
+  const configuredMaxStep = internal.memberMaxStep[entityId]!;
+  const maxStep = maximumStepCeiling === undefined
+    ? configuredMaxStep
+    : Math.min(configuredMaxStep, maximumStepCeiling);
   const nextX = clampWorldCoordinate(
     currentX + clampComponent(goalX - currentX, maxStep),
     world.bounds.width,

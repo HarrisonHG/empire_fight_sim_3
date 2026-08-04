@@ -5,6 +5,7 @@ import {
   type FormationBehaviourStore,
 } from "./formationBehaviour";
 import {
+  physicalGaitCoordinateCeiling,
   requestedPhysicalGaitForMaximumStep,
   type IndividualSpecialistPhysicalGaitAdapter,
 } from "./individualPhysicalGait";
@@ -233,14 +234,22 @@ export function advanceIndividualMedicalClaimApproachMovementOneTick(
       options)) continue;
     const patientId = internal.patientByPhysick[physickId]!;
     if (isWithinTreatmentTouchRange(world, physickId, patientId)) continue;
-    const requestedGait = requestedPhysicalGaitForMaximumStep(
-      getIndividualConfiguredMaxStep(formation, physickId),
+    const configuredMaximumStep = getIndividualConfiguredMaxStep(
+      formation,
+      physickId,
     );
-    gaitAdapter?.preflightActiveSpecialistMovement(
+    const requestedGait = requestedPhysicalGaitForMaximumStep(
+      configuredMaximumStep,
+    );
+    const effectiveGait = gaitAdapter?.preflightActiveSpecialistMovement(
       physickId,
       "medicalApproach",
       requestedGait,
-    );
+    ) ?? requestedGait;
+    const gaitCoordinateCeiling = physicalGaitCoordinateCeiling(effectiveGait);
+    const finalMaximumStep = gaitCoordinateCeiling === null
+      ? configuredMaximumStep
+      : Math.min(configuredMaximumStep, gaitCoordinateCeiling);
     const moved = applyIndividualExternalMovementIntent(
       world,
       formation,
@@ -248,12 +257,13 @@ export function advanceIndividualMedicalClaimApproachMovementOneTick(
       world.positionsX[patientId]!,
       world.positionsY[patientId]!,
       "approachClaimedPatient",
+      finalMaximumStep,
     );
     gaitAdapter?.completeActiveSpecialistMovement(
       physickId,
       "medicalApproach",
       requestedGait,
-      requestedGait,
+      effectiveGait,
       moved,
     );
     if (moved) movedCount += 1;
