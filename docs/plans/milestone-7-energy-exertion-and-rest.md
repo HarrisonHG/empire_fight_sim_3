@@ -2,8 +2,8 @@
 
 Status: active; 7A and 7B are complete. 7C-1 gait authority and capability
 projection and 7C-2 formation and routing movement enforcement are
-implemented. 7C specialist movement enforcement and consolidation is complete;
-7D is next.
+implemented. 7C specialist movement enforcement and consolidation is complete.
+7D combat exertion, attack tempo, and guard recovery is planned; 7D-1 is next.
 
 Implementation begins after Milestone 6 is accepted and the post-Milestone-6 main-battle medical integration spike is retained as the evolving `/` scenario.
 
@@ -747,7 +747,7 @@ inspection exposes only a read-model value sourced from that authority.
 
 This correction changes no tuning, activity classification, expenditure,
 recovery, or gameplay outcome. Milestone 7B is complete after this correction;
-7C-1, 7C-2, and 7C-3 are implemented below; 7C is complete and 7D is next.
+7C-1, 7C-2, and 7C-3 are implemented below; 7C is complete and 7D-1 is next.
 
 ---
 
@@ -1239,32 +1239,407 @@ rest behaviour, renderer, worker, UI, or content expansion.
 
 ---
 
-## 7D — Combat exertion, attack tempo, and guard recovery
+## 7D — Combat exertion, attack tempo, and guard recovery — planned; 7D-1 next
+
+### Goal
+
+Make prolonged combat physically expensive and make low energy reduce combat
+tempo through the two existing recovery authorities:
+
+- attack recovery after a committed melee attempt;
+- persistent guard-readiness recovery before incoming attempts are resolved.
+
+Energy does not make an attack weaker and does not directly make a block roll
+fail. It changes how quickly the fighter can attack again and how quickly spent
+guard readiness returns.
+
+### Existing authority remains authoritative
+
+`individualCombatAction.ts` continues to own:
+
+- selected-target consumption;
+- attack commitment, facing lock, and commitment duration;
+- committed attempt resolution and invalidation reason;
+- the transition to `recoveringAttack` and return to `ready`;
+- weapon-specific base recovery timing.
+
+`individualMeleeDefence.ts` continues to own:
+
+- canonical incoming-attempt ordering;
+- active defence source, hand, arc, action-state, and eligibility checks;
+- persistent stored guard readiness;
+- experience-based base readiness recovery;
+- readiness spending for every valid incoming defence attempt;
+- equipment minimum chance, full-readiness ceiling, rear desperate defence,
+  deterministic roll identity, and defence outcome.
+
+`individualEnergyActivity.ts` already owns the production attack and defence
+impulses implemented by 7B:
+
+- every canonical emitted attack-attempt record costs one attack impulse,
+  including an attempt whose outcome is `invalidated` after commitment;
+- every canonical defence record costs one defence impulse, regardless of
+  success or failure;
+- several valid incoming attempts in one tick stack defence impulses;
+- no attempt record means no action impulse;
+- expenditure is applied after combat and affects capability only from the
+  following tick.
+
+7D must consume and verify these records. It must not create a second combat
+expenditure store, infer exertion from final damage, or charge from intentions
+that emitted no canonical record.
+
+### Tick-start combat capability
+
+Extend the existing `IndividualEnergyCapabilityStore` with two read-only values
+derived from its already-authoritative source energy band:
+
+```text
+              attack-recovery duration   guard-readiness recovery
+fresh                  100%                        100%
+working                110%                         90%
+winded                 135%                         70%
+spent                  175%                         50%
+```
+
+Use an integer percentage scale of `100`. The percentages are named tuning
+constants, validated as positive safe integers, stored in entity-indexed typed
+arrays, and exposed through primitive getters plus bounded capability
+inspection.
+
+These values do not grant combat eligibility. Inactive, dying, terminal,
+egressing, waiting, treatment-committed, execution-committed, drag-committed,
+or otherwise excluded entities remain governed by the existing lifecycle,
+ordinary-participation, hand-commitment, and combat-eligibility authorities.
+
+Production combat receives the existing capability store and current tick. It
+must validate entity count and exact projection tick before mutating combat
+buffers, action state, recovery counters, guard readiness, or diagnostics.
+Low-level combat callers may omit energy capability and retain the accepted
+pre-energy `100%` behaviour. Production must not omit it.
+
+Do not add another broad combat adapter or allocate a per-entity capability
+object. Combat reads the two primitive values directly from the existing
+capability store.
+
+### Attack-recovery semantics
+
+Energy affects recovery only when a committed attack resolves into an emitted
+attempt record.
+
+At that instant:
+
+```text
+weapon base recovery ticks
+× tick-start attack-recovery percentage
+→ ceiling division by 100
+→ assigned recovery ticks
+```
+
+Exact rules:
+
+- zero base recovery remains zero;
+- otherwise use deterministic ceiling division so energy can never shorten the
+  weapon's accepted base recovery;
+- sample the multiplier once on the resolution tick and retain the assigned
+  countdown for that recovery episode;
+- current-tick movement, attack, or defence expenditure does not alter that
+  assignment;
+- later energy recovery does not rewrite an already-assigned countdown;
+- commitment duration is unchanged;
+- both `attempted` and committed `invalidated` records receive the same
+  energy-derived assignment for the same weapon and band;
+- existing early cancellation which emits no attempt remains unchanged and
+  receives no attack impulse or recovery assignment;
+- zero energy does not forbid attacking; it uses the spent multiplier.
+
+The existing attack record field `recoveryDurationTicks` remains the
+weapon-base timing and must not change meaning. The deterministic defence-roll
+hash already consumes that field, so replacing it with the energy-adjusted
+duration would silently change roll identity.
+
+Add separate bounded evidence for:
+
+```text
+base recovery ticks
+attack-recovery multiplier percentage
+assigned recovery ticks
+energy capability projection tick used
+```
+
+The action store's remaining recovery counter uses the assigned duration. The
+attempt record and bounded action inspection may expose the new evidence, but
+the original base field and every pre-energy attack-identity input remain
+stable.
+
+### Guard-readiness recovery semantics
+
+Guard readiness keeps its existing persistent meter and existing recovery-then-
+attempt order.
+
+For every entity on each defence tick:
+
+```text
+experience base recovery
+× tick-start guard-recovery percentage
+→ floor division by 100
+→ requested readiness recovery
+→ clamp to GUARD_READINESS_MAX
+```
+
+The accepted base rates remain:
+
+```text
+recruit:    50 readiness per tick
+regular:   100 readiness per tick
+veteran:   150 readiness per tick
+```
+
+Energy multiplies those rates; it does not replace them. With the initial
+percentages, a spent recruit/regular/veteran therefore requests `25/50/75`
+readiness respectively.
+
+Exact rules:
+
+- use the current tick's projected energy band every tick, so later energy
+  expenditure or recovery changes guard recovery only on the following tick;
+- retain recovery before canonical incoming attempts are processed;
+- retain recovery of stored readiness underneath offensive suppression;
+- retain readiness spending of `2,000` for every valid incoming defence
+  attempt;
+- a failed defence, successful parry/block, and desperate rear attempt remain
+  equally valid defence exertion records;
+- no active defence source and every existing non-attempt path retain their
+  accepted readiness/exertion behaviour;
+- clamp only at the existing readiness maximum;
+- do not create a new defence cooldown or use the obsolete recovery-tick API.
+
+Keep existing `readinessRecoveryPerTick` record semantics as the experience
+base. Add separate evidence for:
+
+```text
+guard-recovery multiplier percentage
+energy-adjusted requested recovery
+actual recovery after maximum clamp
+energy capability projection tick used
+```
+
+This allows a reviewer to distinguish experience, energy, and maximum-clamp
+effects without reconstructing them from the final readiness value.
+
+### Defence probability and damage invariants
+
+Energy must not directly change:
+
+- equipment coverage tier or equipment minimum chance;
+- the `9,500 / 10,000` full-readiness ceiling;
+- the `500 / 10,000` rear desperate-defence chance;
+- active defence source choice, hand requirements, or defence arcs;
+- `2,000` readiness spending per incoming attempt;
+- attack commitment or base weapon timing;
+- deterministic defence roll identity or canonical attempt order;
+- one-hit damage;
+- the one-second landed-hit gate;
+- global-hit application or zero-hit consequences;
+- attack, defence, hit, or pressure impulses.
+
+Energy may indirectly lower later defence chance because slower recovery leaves
+less stored readiness. That is the intended tempo effect and must remain
+separate from a hidden energy modifier to chance.
+
+### Diagnostics and production order
+
+Bounded individual inspection must make the following separable:
+
+- tick-start source energy and band;
+- attack base/multiplier/assigned recovery;
+- current attack recovery ticks remaining;
+- guard experience base/multiplier/requested/actual recovery;
+- stored and effective guard readiness;
+- readiness spent this tick;
+- attack and defence impulse counts and requested/applied energy;
+- the projection, activity, and application tick identities.
+
+The production order remains:
+
+```text
+tick-start energy capability projection
+→ attack action advancement and attempt records
+→ guard recovery and defence resolution
+→ landed-hit gate and global hits
+→ final activity classification from canonical records
+→ energy expenditure/recovery application
+```
+
+No current-tick combat result may cause capability reprojection.
+
+### Expected files and layer impact
+
+Expected simulation files:
+
+```text
+src/sim/individualEnergyCapability.ts
+src/sim/individualCombatAction.ts
+src/sim/individualMeleeDefence.ts
+src/sim/individualCombatPipeline.ts
+src/sim/individualEnergyActivity.ts          verification/diagnostics only if needed
+src/sim/simulation.ts                        production capability wiring
+```
+
+Expected tests are the focused counterparts for capability, action, defence,
+energy production, combat-pipeline integration, deterministic replay, retained
+combat scenarios, and structural performance.
+
+No worker, renderer, UI, or content change is expected. Retained pre-energy
+combat fixtures may continue using their existing finite isolation profile;
+do not add a production exception or neutralise the evolving `/` scenario.
+
+### Ordered implementation slices
+
+#### 7D-1 — Combat capability projection and contract
 
 Deliver:
 
-- attack and defence impulses integrated with production combat;
-- energy-band attack-recovery multipliers;
-- energy-band guard-readiness recovery multipliers;
-- committed-invalid attacks still cost energy;
-- no direct defence-chance, damage, or hit changes;
-- exact interaction with existing experience-based readiness recovery.
+- add the named integer attack-recovery and guard-recovery percentage tables;
+- project both values from the existing tick-start source band into the current
+  capability store;
+- expose allocation-free primitive getters and bounded inspection;
+- establish the narrow optional combat capability input used by later slices;
+- retain current combat positions, attempts, defence records, readiness,
+  damage, cadence, energy expenditure, and snapshots exactly.
 
 Tests:
 
-- repeated attacks drain energy;
-- repeated blocks drain energy;
-- low energy slows attack cadence;
-- low energy slows readiness recovery;
-- equipment minimum and 95% ceiling remain intact;
-- rear 5% defence unchanged;
-- one-second damage gate unchanged;
-- recruit/regular/veteran readiness differences remain separate from energy;
-- deterministic roll identity unchanged.
+- exact multiplier values for all four bands;
+- projection uses current/maximum ratio boundaries already owned by energy;
+- zero energy projects the spent multipliers;
+- profile capacity and absolute energy do not matter when the ratio band is the
+  same;
+- lifecycle and presence do not grant or remove these numeric multipliers;
+- projection tick, entity-count, null/stale/future/backwards use, and bounded
+  inspection follow the existing capability contract;
+- existing combat action, defence, pipeline, replay, energy, and retained
+  scenario outcomes remain byte-for-byte or structurally unchanged where
+  appropriate;
+- no per-tick capability object or inspection-object use enters production hot
+  loops.
 
 Boundary:
 
-No load burden, casualty work, morale, or resting AI.
+Projection and contract only. Do not alter recovery counters, readiness,
+attack cadence, defence chance, action impulses, damage, or production combat
+outcomes.
+
+#### 7D-2 — Attack-recovery enforcement and impulse hardening
+
+Deliver:
+
+- wire the current capability store through the production combat pipeline to
+  attack actions;
+- validate the projection before action-store or output-buffer mutation;
+- assign energy-scaled recovery on emitted committed attempts using the
+  accepted ceiling rule;
+- retain weapon base recovery separately and preserve defence-roll identity;
+- expose base, multiplier, assigned, remaining, and projection-tick evidence;
+- verify the existing production attack impulse consumes both attempted and
+  committed-invalid records exactly once.
+
+Tests:
+
+- fresh recovery is identical to the accepted weapon base for every melee
+  weapon category;
+- working, winded, and spent assignments use exact ceiling results;
+- zero base recovery remains zero;
+- commitment duration and tick of attempt emission are unchanged;
+- attempted and committed-invalid records receive identical recovery and
+  attack impulses for equal weapon/band input;
+- early cancellation/no-record paths remain free and retain current state
+  transitions;
+- current-tick attack expenditure does not rewrite the just-assigned recovery;
+- a later attack after a band transition uses the following tick's capability;
+- low energy slows repeated attack cadence without forbidding attacks;
+- deterministic defence-roll fixed point is identical when only the assigned
+  recovery duration differs;
+- invalid, null, stale, future, or mismatched capability input is rejected
+  before action or buffer mutation;
+- repeated runs preserve exact action states, records, energy, hits, events,
+  and snapshots.
+
+Boundary:
+
+No guard-readiness multiplier yet. Do not change target selection, commitment,
+facing, invalidation policy, attack damage, defence probability, pressure,
+movement, burden, injury, casualty, morale, recovery AI, worker, renderer, UI,
+or content.
+
+#### 7D-3 — Guard-readiness enforcement and full combat boundary
+
+Deliver:
+
+- wire the current capability store to guard-readiness recovery;
+- validate it before defence-store or output-buffer mutation;
+- multiply the existing recruit/regular/veteran base by the current energy
+  percentage using the accepted floor rule;
+- retain recovery-before-attempt order, offensive suppression, canonical
+  attempt order, readiness spending, chance calculation, and deterministic
+  roll identity;
+- expose base, multiplier, requested, actual, stored, effective, spent, and
+  projection-tick evidence;
+- complete production integration, determinism, retained-scenario, and
+  structural-performance coverage for the full 7D boundary.
+
+Tests:
+
+- fresh recruit/regular/veteran recovery remains `50/100/150`;
+- working, winded, and spent recovery is exact for every role;
+- spent recovery remains positive and clamps only at full readiness;
+- current-tick defence expenditure changes the multiplier only next tick;
+- stored readiness continues recovering underneath attack commitment/recovery;
+- repeated valid incoming attempts spend readiness and energy once per record;
+- successful and failed defences have identical exertion semantics;
+- full readiness still calculates the 95% ceiling at every energy band;
+- equipment minimums remain exact when effective readiness is zero;
+- rear desperate defence remains exactly 5%;
+- canonical attempt order and deterministic rolls remain identical;
+- the one-second landed-hit gate, hit applications, zero-hit consequences,
+  pressure impulses, and attacker frustration remain unchanged;
+- recruit/regular/veteran recovery differences remain visible inside every
+  energy band;
+- invalid capability input is rejected before any readiness, record-buffer, or
+  event-buffer mutation;
+- a deterministic production exchange crosses energy bands and repeats with
+  identical attempts, defence records, readiness, action cadence, energy,
+  gate decisions, hits, pressure, morale, events, and snapshots;
+- structural cases cover 100, 500, 1,000, and 2,000 entities without timing
+  thresholds, new per-entity hot-path allocations, or all-entity pair scans.
+
+Boundary:
+
+No equipment burden, injury exertion, drag/medical surcharge, treatment or
+respawn recovery, pressure-recovery multiplier, unit energy summaries, rest
+decisions, re-engagement policy, lifecycle policy, morale rule, worker,
+renderer, UI, or content work.
+
+### 7D done criteria
+
+7D is complete only when:
+
+- production attack and defence records still drive exactly one canonical
+  energy impulse each;
+- attack recovery consumes the resolution tick's capability and never changes
+  commitment, base timing, roll identity, damage, or invalidation policy;
+- guard recovery composes experience base and current tick-start energy without
+  changing readiness spending or adding a direct chance modifier;
+- current-tick expenditure affects both systems only on later ticks;
+- every multiplier and applied result is bounded and inspectable;
+- ordinary combat callers without energy retain accepted compatibility while
+  production cannot silently omit capability;
+- retained combat, morale, casualty, and evolving main-battle observations
+  remain valid;
+- no new hot-path allocations or all-entity pair scans exist;
+- focused, full headless, replay, typecheck, build, and performance suites pass;
+- no 7E, 7F, 7G, lifecycle, command, terrain, perception, Milestone 8, or
+  Milestone 9 behaviour was implemented early.
 
 ---
 
