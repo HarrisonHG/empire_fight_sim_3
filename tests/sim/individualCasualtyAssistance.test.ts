@@ -626,6 +626,94 @@ describe("individual casualty assistance and sparse drag groups", () => {
     expect(hands.getFreeHands(1)).toBe(0);
   });
 
+  it.each([
+    [100, 4, "sprinting", 40],
+    [20, 2, "jogging", 8],
+    [0, 1, "walking", 1],
+  ] as const)(
+    "enforces gathering capability from starting energy %i",
+    (startingEnergy, expectedStep, expectedEffectiveGait, expectedCost) => {
+      const simulation = createSimulation(scenario([
+        unit(1, 1, 100),
+        {
+          ...unit(2, 1, 140),
+          memberMaxStep: 4,
+          medicalProfile: physick(),
+          energyProfile: {
+            maximumEnergy: 100,
+            startingEnergy,
+            safeRestRecoveryPerTick: 0,
+          },
+        },
+        unit(3, 2, 230),
+      ], [1]));
+      const combat = requireCombat(simulation);
+      down(simulation, 0, 0);
+      decide(simulation, 0);
+      advanceSimulationOneTick(simulation);
+      const beforeX = simulation.world.positionsX[1]!;
+
+      advanceSimulationOneTick(simulation);
+
+      expect(beforeX - simulation.world.positionsX[1]!).toBe(expectedStep);
+      expect(getIndividualEnergyActivityInspection(
+        combat.individualEnergyActivityStore, 1,
+      )).toMatchObject({
+        requestedPhysicalGait: "sprinting",
+        effectivePhysicalGait: expectedEffectiveGait,
+        actualPhysicalGait: expectedEffectiveGait,
+        gaitReducedByCapability: expectedEffectiveGait !== "sprinting",
+        physicalGaitSource: "casualtyGathering",
+        movementExpenditureRequested: expectedCost,
+        expenditureApplied: Math.min(startingEnergy, expectedCost),
+      });
+      expect(getIndividualMovementMode(combat.formationStore, 1))
+        .toBe("gatherForCasualty");
+    },
+  );
+
+  it("keeps the gathering tick-start projection after same-tick exhaustion", () => {
+    const simulation = createSimulation(scenario([
+      unit(1, 1, 100),
+      {
+        ...unit(2, 1, 160),
+        memberMaxStep: 4,
+        medicalProfile: physick(),
+        energyProfile: {
+          maximumEnergy: 100,
+          startingEnergy: 30,
+          safeRestRecoveryPerTick: 0,
+        },
+      },
+      unit(3, 2, 230),
+    ], [1]));
+    const combat = requireCombat(simulation);
+    down(simulation, 0, 0);
+    decide(simulation, 0);
+    advanceSimulationOneTick(simulation);
+
+    advanceSimulationOneTick(simulation);
+    expect(getIndividualEnergyActivityInspection(
+      combat.individualEnergyActivityStore, 1,
+    )).toMatchObject({
+      effectivePhysicalGait: "sprinting",
+      actualPhysicalGait: "sprinting",
+      movementExpenditureRequested: 40,
+    });
+    const beforeNextX = simulation.world.positionsX[1]!;
+
+    advanceSimulationOneTick(simulation);
+    expect(beforeNextX - simulation.world.positionsX[1]!).toBe(1);
+    expect(getIndividualEnergyActivityInspection(
+      combat.individualEnergyActivityStore, 1,
+    )).toMatchObject({
+      requestedPhysicalGait: "sprinting",
+      effectivePhysicalGait: "walking",
+      actualPhysicalGait: "walking",
+      movementExpenditureRequested: 1,
+    });
+  });
+
   it("translates dragging participants coherently and cancels once on an accepted helper hit", () => {
     const simulation = createSimulation(scenario([
       unit(1, 1, 100), { ...unit(2, 1, 104), medicalProfile: physick() }, unit(3, 2, 150),

@@ -264,6 +264,52 @@ describe("current-tick specialist physical-gait adapter", () => {
     )).toThrow(/incomplete preflight/);
     expect(getIndividualEnergyActivityInspection(harness.activity, 0)).toEqual(before);
   });
+
+  it("does not publish activity evidence from a successful preflight alone", () => {
+    const harness = fixture(20);
+    beginIndividualEnergyActivityObservation(harness.activity, harness.world, 7);
+    projectIndividualEnergyCapabilitiesOneTick(
+      harness.capability, harness.energy, harness.lifecycle, harness.presence, 7,
+    );
+    harness.adapter.acceptCapabilityProjection(7);
+    const before = getIndividualEnergyActivityInspection(harness.activity, 0);
+
+    expect(harness.adapter.preflightActiveSpecialistMovement(
+      0, "medicalApproach", "sprinting",
+    )).toBe("jogging");
+
+    expect(getIndividualEnergyActivityInspection(harness.activity, 0)).toEqual(before);
+  });
+
+  it("clears completed pending state and applies deterministic source precedence", () => {
+    const harness = fixture(100);
+    beginIndividualEnergyActivityObservation(harness.activity, harness.world, 7);
+    projectIndividualEnergyCapabilitiesOneTick(
+      harness.capability, harness.energy, harness.lifecycle, harness.presence, 7,
+    );
+    harness.adapter.acceptCapabilityProjection(7);
+
+    expect(harness.adapter.preflightActiveSpecialistMovement(
+      0, "medicalApproach", "jogging",
+    )).toBe("jogging");
+    harness.adapter.completeActiveSpecialistMovement(
+      0, "medicalApproach", "jogging", "jogging", true,
+    );
+    expect(harness.adapter.preflightActiveSpecialistMovement(
+      0, "casualtyGathering", "walking",
+    )).toBe("walking");
+    harness.adapter.completeActiveSpecialistMovement(
+      0, "casualtyGathering", "walking", "walking", true,
+    );
+
+    expect(getIndividualEnergyActivityInspection(harness.activity, 0)).toMatchObject({
+      physicalGaitSource: "casualtyGathering",
+      requestedPhysicalGait: "walking",
+      effectivePhysicalGait: "walking",
+      actualPhysicalGait: "walking",
+      gaitProducedDisplacement: true,
+    });
+  });
 });
 
 function fixture(startingEnergy: number) {
