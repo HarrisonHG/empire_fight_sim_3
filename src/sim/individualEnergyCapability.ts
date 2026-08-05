@@ -22,6 +22,7 @@ export interface IndividualEnergyCapabilityStore {
 }
 
 export const INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_SCALE = 100;
+export const INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_STORAGE_MAX = 0xffff;
 export const INDIVIDUAL_ATTACK_RECOVERY_PERCENT_BY_ENERGY_BAND = Object.freeze({
   fresh: 100,
   working: 110,
@@ -39,6 +40,26 @@ export const INDIVIDUAL_GUARD_READINESS_RECOVERY_PERCENT_BY_ENERGY_BAND =
 export interface IndividualCombatEnergyCapabilityInput {
   readonly capabilities: IndividualEnergyCapabilityStore;
   readonly tick: number;
+}
+
+export function assertIndividualCombatEnergyCapabilityInput(
+  input: IndividualCombatEnergyCapabilityInput | null | undefined,
+  entityCount: number,
+): asserts input is IndividualCombatEnergyCapabilityInput | undefined {
+  if (input === null) {
+    throw new TypeError("Individual combat energy capability input cannot be null.");
+  }
+  if (input === undefined) return;
+  if (typeof input !== "object" || input.capabilities === null ||
+      typeof input.capabilities !== "object") {
+    throw new TypeError("Invalid individual combat energy capability input.");
+  }
+  if (input.capabilities.entityCount !== entityCount) {
+    throw new RangeError(
+      "Individual combat energy capabilities must match world entity count.",
+    );
+  }
+  assertIndividualEnergyCapabilityProjectionTick(input.capabilities, input.tick);
 }
 
 export interface IndividualEnergyCapabilityInspection {
@@ -329,9 +350,11 @@ function validateCombatCapabilityPercentTable(
 ): void {
   for (let index = 0; index < BANDS.length; index += 1) {
     const percent = table[BANDS[index]!];
-    if (!Number.isSafeInteger(percent) || percent <= 0) {
+    if (!Number.isSafeInteger(percent) || percent <= 0 ||
+        percent > INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_STORAGE_MAX) {
       throw new RangeError(
-        "Combat energy capability percentages must be positive safe integers.",
+        "Combat energy capability percentages must be positive safe integers " +
+        "representable by Uint16 storage.",
       );
     }
   }

@@ -17,6 +17,12 @@ import {
   type IndividualCombatEligibilitySnapshot,
 } from "./individualCombatEligibility";
 import {
+  INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_SCALE,
+  assertIndividualCombatEnergyCapabilityInput,
+  getIndividualAttackRecoveryDurationPercent,
+  type IndividualCombatEnergyCapabilityInput,
+} from "./individualEnergyCapability";
+import {
   NO_INDIVIDUAL_TARGET,
   type IndividualSelectedTargetRecord,
 } from "./individualMeleeTargetSelection";
@@ -61,6 +67,14 @@ export interface IndividualCombatActionStateEvent {
   readonly actionState: IndividualCombatActionState;
 }
 
+export interface IndividualAttackRecoveryInspection {
+  readonly weaponBaseRecoveryTicks: number;
+  readonly attackRecoveryMultiplierPercent: number;
+  readonly assignedRecoveryTicks: number;
+  readonly remainingRecoveryTicks: number;
+  readonly capabilityProjectionTickUsed: number | null;
+}
+
 interface IndividualMeleeAttackAttemptRecordBase {
   readonly attackerEntityId: number;
   readonly targetEntityId: number;
@@ -102,6 +116,10 @@ interface InternalIndividualCombatActionStore
   readonly lockedTargetByEntity: Int32Array;
   readonly commitmentTicksRemainingByEntity: Int16Array;
   readonly recoveryTicksRemainingByEntity: Int16Array;
+  readonly weaponBaseRecoveryTicksByEntity: Int16Array;
+  readonly attackRecoveryMultiplierPercentByEntity: Uint16Array;
+  readonly assignedRecoveryTicksByEntity: Int16Array;
+  readonly recoveryCapabilityTickByEntity: Float64Array;
   readonly activeWeaponByEntity: IndividualWeaponCategory[];
   readonly lastEmittedActionStateByEntity: IndividualCombatActionState[];
   readonly selectedTargetScratch: Int32Array;
@@ -141,6 +159,14 @@ export function createIndividualCombatActionStore(
   lockedTargetByEntity.fill(NO_INDIVIDUAL_TARGET);
   const commitmentTicksRemainingByEntity = new Int16Array(config.entityCount);
   const recoveryTicksRemainingByEntity = new Int16Array(config.entityCount);
+  const attackRecoveryMultiplierPercentByEntity = new Uint16Array(
+    config.entityCount,
+  );
+  attackRecoveryMultiplierPercentByEntity.fill(
+    INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_SCALE,
+  );
+  const recoveryCapabilityTickByEntity = new Float64Array(config.entityCount);
+  recoveryCapabilityTickByEntity.fill(-1);
   const activeWeaponByEntity = new Array<IndividualWeaponCategory>(
     config.entityCount,
   );
@@ -165,6 +191,10 @@ export function createIndividualCombatActionStore(
     lockedTargetByEntity,
     commitmentTicksRemainingByEntity,
     recoveryTicksRemainingByEntity,
+    weaponBaseRecoveryTicksByEntity: new Int16Array(config.entityCount),
+    attackRecoveryMultiplierPercentByEntity,
+    assignedRecoveryTicksByEntity: new Int16Array(config.entityCount),
+    recoveryCapabilityTickByEntity,
     activeWeaponByEntity,
     lastEmittedActionStateByEntity,
     selectedTargetScratch: new Int32Array(config.entityCount),
@@ -220,6 +250,26 @@ export function getAttackRecoveryTicksRemaining(
   return internal.recoveryTicksRemainingByEntity[entityId]!;
 }
 
+export function getIndividualAttackRecoveryInspection(
+  store: IndividualCombatActionStore,
+  entityId: number,
+): IndividualAttackRecoveryInspection {
+  const internal = asInternal(store);
+  assertEntityId(entityId, internal.entityCount);
+  const capabilityTick = internal.recoveryCapabilityTickByEntity[entityId]!;
+  return {
+    weaponBaseRecoveryTicks:
+      internal.weaponBaseRecoveryTicksByEntity[entityId]!,
+    attackRecoveryMultiplierPercent:
+      internal.attackRecoveryMultiplierPercentByEntity[entityId]!,
+    assignedRecoveryTicks: internal.assignedRecoveryTicksByEntity[entityId]!,
+    remainingRecoveryTicks:
+      internal.recoveryTicksRemainingByEntity[entityId]!,
+    capabilityProjectionTickUsed:
+      capabilityTick < 0 ? null : capabilityTick,
+  };
+}
+
 export function getActiveMeleeWeaponCategory(
   store: IndividualCombatActionStore,
   entityId: number,
@@ -239,6 +289,7 @@ export function advanceIndividualCombatActions(
   attackAttemptsOut: IndividualMeleeAttackAttemptRecord[] = [],
   actionStateEventsOut: IndividualCombatActionStateEvent[] = [],
   eligibility?: IndividualCombatEligibilitySnapshot,
+  energyCapabilityInput?: IndividualCombatEnergyCapabilityInput | null,
 ): IndividualCombatActionTickResult {
   validateWorldAndStores(
     world,
@@ -255,6 +306,10 @@ export function advanceIndividualCombatActions(
       "Individual combat action eligibility must match world entity count.",
     );
   }
+  assertIndividualCombatEnergyCapabilityInput(
+    energyCapabilityInput,
+    world.entityCount,
+  );
   const internal = asInternal(store);
   prepareSelectedTargets(internal, selectedTargetRecords);
   attackAttemptsOut.length = 0;
@@ -298,6 +353,7 @@ export function advanceIndividualCombatActions(
         attackAttemptsOut,
         actionStateEventsOut,
         eligibility,
+        energyCapabilityInput,
       );
     } else {
       advanceRecovery(internal, entityId, actionStateEventsOut);
@@ -389,6 +445,7 @@ function advanceCommitment(
   attackAttemptsOut: IndividualMeleeAttackAttemptRecord[],
   eventsOut: IndividualCombatActionStateEvent[],
   eligibility: IndividualCombatEligibilitySnapshot | undefined,
+  energyCapabilityInput: IndividualCombatEnergyCapabilityInput | undefined,
 ): void {
   const remaining = store.commitmentTicksRemainingByEntity[entityId]!;
   if (remaining > 1) {
@@ -412,9 +469,36 @@ function advanceCommitment(
     eligibility,
   );
   attackAttemptsOut.push(resolved);
+  const multiplierPercent = energyCapabilityInput === undefined
+    ? INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_SCALE
+    : getIndividualAttackRecoveryDurationPercent(
+        energyCapabilityInput.capabilities,
+        entityId,
+      );
+  const assignedRecoveryTicks = calculateIndividualAttackRecoveryTicks(
+    timing.recoveryTicks,
+    multiplierPercent,
+  );
   store.lockedTargetByEntity[entityId] = NO_INDIVIDUAL_TARGET;
-  store.recoveryTicksRemainingByEntity[entityId] = timing.recoveryTicks;
+  store.weaponBaseRecoveryTicksByEntity[entityId] = timing.recoveryTicks;
+  store.attackRecoveryMultiplierPercentByEntity[entityId] = multiplierPercent;
+  store.assignedRecoveryTicksByEntity[entityId] = assignedRecoveryTicks;
+  store.recoveryCapabilityTickByEntity[entityId] =
+    energyCapabilityInput?.tick ?? -1;
+  store.recoveryTicksRemainingByEntity[entityId] = assignedRecoveryTicks;
   transitionState(store, entityId, "recoveringAttack", eventsOut);
+}
+
+export function calculateIndividualAttackRecoveryTicks(
+  baseRecoveryTicks: number,
+  multiplierPercent: number,
+): number {
+  if (baseRecoveryTicks === 0) return 0;
+  const assigned = Math.ceil(
+    baseRecoveryTicks * multiplierPercent /
+      INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_SCALE,
+  );
+  return Math.max(baseRecoveryTicks, assigned);
 }
 
 function advanceRecovery(

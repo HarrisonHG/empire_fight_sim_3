@@ -9,10 +9,12 @@ import {
 } from "../../src/sim/formationBehaviour";
 import {
   advanceIndividualCombatActions,
+  calculateIndividualAttackRecoveryTicks,
   createIndividualCombatActionStore,
   getActiveMeleeWeaponCategory,
   getAttackCommitmentTicksRemaining,
   getAttackRecoveryTicksRemaining,
+  getIndividualAttackRecoveryInspection,
   getIndividualCombatActionState,
   getIndividualCombatFacing,
   getLockedAttackTargetEntityId,
@@ -21,6 +23,20 @@ import {
   type IndividualCombatActionStore,
   type IndividualMeleeAttackAttemptRecord,
 } from "../../src/sim/individualCombatAction";
+import {
+  createIndividualCasualtyLifecycleStore,
+  createIndividualPlayerPresenceStore,
+} from "../../src/sim/individualCasualtyLifecycle";
+import {
+  createIndividualEnergyStore,
+  createTrustedIndividualEnergyProfileStore,
+  spendIndividualEnergy,
+} from "../../src/sim/individualEnergy";
+import {
+  createIndividualEnergyCapabilityStore,
+  projectIndividualEnergyCapabilitiesOneTick,
+  type IndividualCombatEnergyCapabilityInput,
+} from "../../src/sim/individualEnergyCapability";
 import {
   createIndividualCombatProfileStore,
   type IndividualAttackMode,
@@ -416,6 +432,227 @@ describe("individual combat action lifecycle", () => {
   });
 });
 
+describe("7D-2 attack recovery capability", () => {
+  const meleeWeapons = [
+    "dagger", "oneHanded", "greatWeapon", "polearm",
+    "pike", "thrown", "rod", "staff",
+  ] as const;
+
+  it.each(meleeWeapons)("keeps fresh %s recovery at its weapon base", (weapon) => {
+    const harness = createHarness([
+      entity(100, 100, 1, weapon, 1),
+      entity(106, 100, 2, "oneHanded", -1),
+    ]);
+    const energy = combatEnergyCapability(harness.world.entityCount, 100, 0);
+    advanceActionsWithCapability(harness, [selectedRecord(0, 1)], energy.input);
+    const attempt = advanceUntilAttemptWithCapability(
+      harness, [selectedRecord(0, 1)], energy.input,
+    );
+    const base = INDIVIDUAL_COMBAT_ACTION_TIMING[weapon].recoveryTicks;
+    expect(attempt.recoveryDurationTicks).toBe(base);
+    expect(getIndividualAttackRecoveryInspection(harness.actions, 0)).toEqual({
+      weaponBaseRecoveryTicks: base,
+      attackRecoveryMultiplierPercent: 100,
+      assignedRecoveryTicks: base,
+      remainingRecoveryTicks: base,
+      capabilityProjectionTickUsed: 0,
+    });
+  });
+
+  it.each([
+    [50, 110, 4],
+    [20, 135, 5],
+    [5, 175, 6],
+    [0, 175, 6],
+  ] as const)(
+    "assigns exact ceiling recovery at energy %i",
+    (startingEnergy, multiplier, assigned) => {
+      const harness = createHarness([
+        entity(100, 100, 1, "oneHanded", 1),
+        entity(108, 100, 2, "oneHanded", -1),
+      ]);
+      const energy = combatEnergyCapability(
+        harness.world.entityCount, startingEnergy, 7,
+      );
+      advanceActionsWithCapability(harness, [selectedRecord(0, 1)], energy.input);
+      const attempt = advanceUntilAttemptWithCapability(
+        harness, [selectedRecord(0, 1)], energy.input,
+      );
+      expect(attempt.recoveryDurationTicks).toBe(3);
+      expect(getIndividualAttackRecoveryInspection(harness.actions, 0))
+        .toEqual({
+          weaponBaseRecoveryTicks: 3,
+          attackRecoveryMultiplierPercent: multiplier,
+          assignedRecoveryTicks: assigned,
+          remainingRecoveryTicks: assigned,
+          capabilityProjectionTickUsed: 7,
+        });
+    },
+  );
+
+  it("keeps zero base recovery at zero", () => {
+    expect(calculateIndividualAttackRecoveryTicks(0, 175)).toBe(0);
+  });
+
+  it("samples once and does not rewrite an active recovery after expenditure", () => {
+    const harness = createHarness([
+      entity(100, 100, 1, "oneHanded", 1),
+      entity(108, 100, 2, "oneHanded", -1),
+    ]);
+    const energy = combatEnergyCapability(harness.world.entityCount, 100, 0);
+    advanceActionsWithCapability(harness, [selectedRecord(0, 1)], energy.input);
+    spendIndividualEnergy(energy.energy, 0, 95, 0);
+    advanceUntilAttemptWithCapability(
+      harness, [selectedRecord(0, 1)], energy.input,
+    );
+    expect(getIndividualAttackRecoveryInspection(harness.actions, 0))
+      .toMatchObject({
+        attackRecoveryMultiplierPercent: 100,
+        assignedRecoveryTicks: 3,
+        remainingRecoveryTicks: 3,
+      });
+    projectIndividualEnergyCapabilitiesOneTick(
+      energy.capabilities, energy.energy, energy.lifecycle, energy.presence, 1,
+    );
+    const nextInput = { capabilities: energy.capabilities, tick: 1 } as const;
+    advanceActionsWithCapability(harness, [], nextInput);
+    expect(getIndividualAttackRecoveryInspection(harness.actions, 0))
+      .toMatchObject({
+        attackRecoveryMultiplierPercent: 100,
+        assignedRecoveryTicks: 3,
+        remainingRecoveryTicks: 2,
+        capabilityProjectionTickUsed: 0,
+      });
+  });
+
+  it("preserves the canonical attempt and defence-roll identity inputs when assigned recovery differs", () => {
+    const run = (startingEnergy: number) => {
+      const harness = createHarness([
+        entity(100, 100, 1, "oneHanded", 1),
+        entity(108, 100, 2, "oneHanded", -1),
+      ]);
+      const energy = combatEnergyCapability(
+        harness.world.entityCount, startingEnergy, 2,
+      );
+      advanceActionsWithCapability(harness, [selectedRecord(0, 1)], energy.input);
+      const attempt = advanceUntilAttemptWithCapability(
+        harness, [selectedRecord(0, 1)], energy.input,
+      );
+      return {
+        attempt,
+        recovery: getIndividualAttackRecoveryInspection(harness.actions, 0),
+      };
+    };
+    const fresh = run(100);
+    const spent = run(0);
+    expect(spent.attempt).toEqual(fresh.attempt);
+    expect(fresh.attempt.recoveryDurationTicks).toBe(3);
+    expect(fresh.recovery.assignedRecoveryTicks).toBe(3);
+    expect(spent.recovery.assignedRecoveryTicks).toBe(6);
+  });
+
+  it("assigns equal recovery to attempted and committed-invalidated outcomes", () => {
+    const run = (invalidate: boolean) => {
+      const harness = createHarness([
+        entity(100, 100, 1, "oneHanded", 1),
+        entity(108, 100, 2, "oneHanded", -1),
+      ]);
+      const energy = combatEnergyCapability(harness.world.entityCount, 20, 3);
+      advanceActionsWithCapability(harness, [selectedRecord(0, 1)], energy.input);
+      if (invalidate) harness.world.positionsX[1] = 140;
+      const attempt = advanceUntilAttemptWithCapability(
+        harness, [selectedRecord(0, 1)], energy.input,
+      );
+      return {
+        outcome: attempt.outcome,
+        base: attempt.recoveryDurationTicks,
+        recovery: getIndividualAttackRecoveryInspection(harness.actions, 0),
+      };
+    };
+    expect(run(false)).toEqual({
+      outcome: "attempted",
+      base: 3,
+      recovery: {
+        weaponBaseRecoveryTicks: 3,
+        attackRecoveryMultiplierPercent: 135,
+        assignedRecoveryTicks: 5,
+        remainingRecoveryTicks: 5,
+        capabilityProjectionTickUsed: 3,
+      },
+    });
+    expect(run(true)).toEqual({
+      outcome: "invalidated",
+      base: 3,
+      recovery: {
+        weaponBaseRecoveryTicks: 3,
+        attackRecoveryMultiplierPercent: 135,
+        assignedRecoveryTicks: 5,
+        remainingRecoveryTicks: 5,
+        capabilityProjectionTickUsed: 3,
+      },
+    });
+  });
+
+  it("slows repeated cadence at spent energy without preventing attacks", () => {
+    const ticksForTwoAttempts = (startingEnergy: number) => {
+      const harness = createHarness([
+        entity(100, 100, 1, "dagger", 1),
+        entity(106, 100, 2, "oneHanded", -1),
+      ]);
+      const energy = combatEnergyCapability(
+        harness.world.entityCount, startingEnergy, 0,
+      );
+      let attempts = 0;
+      for (let tick = 0; tick < 30; tick += 1) {
+        attempts += advanceActionsWithCapability(
+          harness, [selectedRecord(0, 1)], energy.input,
+        ).attackAttempts.length;
+        if (attempts === 2) return tick;
+      }
+      throw new Error("Expected two attacks within cadence window.");
+    };
+    expect(ticksForTwoAttempts(0)).toBeGreaterThan(ticksForTwoAttempts(100));
+  });
+
+  it.each([null, "forged", "mismatched", "stale", "future"] as const)(
+    "rejects %s capability before state or seeded-buffer mutation",
+    (kind) => {
+      const harness = createHarness([
+        entity(100, 100, 1, "oneHanded", 1),
+        entity(108, 100, 2, "oneHanded", -1),
+      ]);
+      const valid = combatEnergyCapability(harness.world.entityCount, 100, 4);
+      const mismatched = combatEnergyCapability(1, 100, 4);
+      const input = kind === null ? null
+        : kind === "forged" ? ({ capabilities: { entityCount: 2 }, tick: 4 } as never)
+        : kind === "mismatched" ? mismatched.input
+        : kind === "stale" ? { capabilities: valid.capabilities, tick: 3 }
+        : { capabilities: valid.capabilities, tick: 5 };
+      const attempts: IndividualMeleeAttackAttemptRecord[] = [{
+        attackerEntityId: 77, targetEntityId: 78, weaponCategory: "dagger",
+        commitmentDurationTicks: 2, recoveryDurationTicks: 2,
+        distanceSquaredAtResolution: 1, threatDistance: 8,
+        preferredMinimumDistance: 0, awkwardDistance: false,
+        facingX: 1, facingY: 0, outcome: "attempted",
+      }];
+      const events: IndividualCombatActionStateEvent[] = [{
+        entityId: 77, previousState: "ready", actionState: "committingAttack",
+      }];
+      const before = getIndividualAttackRecoveryInspection(harness.actions, 0);
+      expect(() => advanceIndividualCombatActions(
+        harness.world, harness.identity, harness.formation, harness.profiles,
+        [selectedRecord(0, 1)], harness.actions, attempts, events, undefined,
+        input,
+      )).toThrow();
+      expect(attempts).toHaveLength(1);
+      expect(events).toHaveLength(1);
+      expect(getIndividualCombatActionState(harness.actions, 0)).toBe("ready");
+      expect(getIndividualAttackRecoveryInspection(harness.actions, 0))
+        .toEqual(before);
+    },
+  );
+});
+
 interface EntityDefinition {
   readonly x: number;
   readonly y: number;
@@ -634,6 +871,66 @@ function advanceActions(
     harness.lastAttempts,
     harness.lastEvents,
   );
+}
+
+function advanceActionsWithCapability(
+  harness: ActionHarness,
+  selectedRecords: readonly IndividualSelectedTargetRecord[],
+  input: IndividualCombatEnergyCapabilityInput,
+) {
+  return advanceIndividualCombatActions(
+    harness.world,
+    harness.identity,
+    harness.formation,
+    harness.profiles,
+    selectedRecords,
+    harness.actions,
+    harness.lastAttempts,
+    harness.lastEvents,
+    undefined,
+    input,
+  );
+}
+
+function advanceUntilAttemptWithCapability(
+  harness: ActionHarness,
+  selectedRecords: readonly IndividualSelectedTargetRecord[],
+  input: IndividualCombatEnergyCapabilityInput,
+): IndividualMeleeAttackAttemptRecord {
+  for (let tick = 0; tick < 16; tick += 1) {
+    const result = advanceActionsWithCapability(harness, selectedRecords, input);
+    if (result.attackAttempts.length > 0) return result.attackAttempts[0]!;
+  }
+  throw new Error("Expected energy-capability attack attempt.");
+}
+
+function combatEnergyCapability(
+  entityCount: number,
+  startingEnergy: number,
+  tick: number,
+) {
+  const profiles = createTrustedIndividualEnergyProfileStore({
+    entityCount,
+    profiles: Array.from({ length: entityCount }, (_, entityId) => ({
+      entityId, maximumEnergy: 100, startingEnergy,
+    })),
+  });
+  const energy = createIndividualEnergyStore(profiles);
+  const lifecycle = createIndividualCasualtyLifecycleStore(entityCount);
+  const presence = createIndividualPlayerPresenceStore(entityCount);
+  const capabilities = createIndividualEnergyCapabilityStore(
+    entityCount, energy, lifecycle, presence,
+  );
+  projectIndividualEnergyCapabilitiesOneTick(
+    capabilities, energy, lifecycle, presence, tick,
+  );
+  return {
+    energy,
+    lifecycle,
+    presence,
+    capabilities,
+    input: { capabilities, tick } as IndividualCombatEnergyCapabilityInput,
+  };
 }
 
 function advanceUntilAttempt(

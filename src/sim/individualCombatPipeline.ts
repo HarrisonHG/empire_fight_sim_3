@@ -67,6 +67,10 @@ import {
 import type { FormationBehaviourStore } from "./formationBehaviour";
 import type { IndividualCasualtyLifecycleStore } from "./individualCasualtyLifecycle";
 import type { IndividualOrdinaryParticipationSnapshot } from "./individualOrdinaryParticipation";
+import {
+  assertIndividualCombatEnergyCapabilityInput,
+  type IndividualCombatEnergyCapabilityInput,
+} from "./individualEnergyCapability";
 import type { WorldState } from "./types";
 import {
   getUnitIds,
@@ -170,6 +174,7 @@ export interface IndividualCombatPipelineAdvanceOptions {
   readonly lifecycleStore?: IndividualCasualtyLifecycleStore;
   readonly ordinaryParticipation?: IndividualOrdinaryParticipationSnapshot;
   readonly defenceHandAvailability?: IndividualDefenceHandAvailabilitySource;
+  readonly energyCapabilities?: IndividualCombatEnergyCapabilityInput | null;
 }
 
 export interface IndividualCombatExchangeTickResult {
@@ -270,6 +275,10 @@ export function advanceIndividualCombatExchangeOneTick(
   currentTick: number,
   options: IndividualCombatPipelineAdvanceOptions = {},
 ): IndividualCombatExchangeTickResult {
+  assertIndividualCombatEnergyCapabilityInput(
+    options.energyCapabilities,
+    world.entityCount,
+  );
   const runStage = options.runStage ?? runStageDirectly;
   const eligibilityResult = runStage("eligibility", () =>
     projectIndividualCombatEligibilityFromHits(
@@ -302,6 +311,7 @@ export function advanceIndividualCombatExchangeOneTick(
       buffers.attackAttempts,
       buffers.actionStateEvents,
       stores.eligibilitySnapshot,
+      options.energyCapabilities,
     ),
   );
   const defenceResult = runStage("defence", () =>

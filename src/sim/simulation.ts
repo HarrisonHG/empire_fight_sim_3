@@ -2104,6 +2104,10 @@ export function advanceCombatSandboxOneTick(
           combatSandbox.individualOrdinaryParticipationSnapshot,
         defenceHandAvailability:
           combatSandbox.individualDefenceHandAvailabilitySource,
+        energyCapabilities: {
+          capabilities: combatSandbox.individualEnergyCapabilityStore,
+          tick,
+        },
       },
     );
     individualCombatExchange = applyRetainedCasualtyVisualFixtureHitInputs(

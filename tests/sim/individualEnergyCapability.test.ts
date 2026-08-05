@@ -1,11 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  applyIndividualTerminalPresenceTransitions,
   applyIndividualZeroHitLifecycleTransitions,
   createIndividualCasualtyLifecycleStore,
   createIndividualPlayerPresenceStore,
+  getIndividualCharacterLifecycleState,
+  getIndividualPlayerPresenceState,
+  transitionIndividualDyingToTerminal,
 } from "../../src/sim/individualCasualtyLifecycle";
 import { createIndividualCasualtyProcedureProfileStore } from "../../src/sim/individualCasualtyProcedureProfile";
+import {
+  advanceIndividualRespawnEgressOneTick,
+  createIndividualRespawnEgressBuffers,
+} from "../../src/sim/individualRespawnEgress";
 import {
   createIndividualEnergyStore,
   createTrustedIndividualEnergyProfileStore,
@@ -14,6 +22,7 @@ import {
 import {
   INDIVIDUAL_ATTACK_RECOVERY_PERCENT_BY_ENERGY_BAND,
   INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_SCALE,
+  INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_STORAGE_MAX,
   INDIVIDUAL_GUARD_READINESS_RECOVERY_PERCENT_BY_ENERGY_BAND,
   assertIndividualEnergyCapabilityProjectionTick,
   createIndividualEnergyCapabilityStore,
@@ -102,6 +111,19 @@ describe("individual tick-start energy capability", () => {
     expect(INDIVIDUAL_GUARD_READINESS_RECOVERY_PERCENT_BY_ENERGY_BAND).toEqual({
       fresh: 100, working: 90, winded: 70, spent: 50,
     });
+    for (const table of [
+      INDIVIDUAL_ATTACK_RECOVERY_PERCENT_BY_ENERGY_BAND,
+      INDIVIDUAL_GUARD_READINESS_RECOVERY_PERCENT_BY_ENERGY_BAND,
+    ]) {
+      for (const value of Object.values(table)) {
+        expect(Number.isSafeInteger(value)).toBe(true);
+        expect(value).toBeGreaterThan(0);
+        expect(value).toBeLessThanOrEqual(
+          INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_STORAGE_MAX,
+        );
+        expect(new Uint16Array([value])[0]).toBe(value);
+      }
+    }
     const profiles = createTrustedIndividualEnergyProfileStore({
       entityCount: 4,
       profiles: [100, 50, 20, 0].map((startingEnergy, entityId) => ({
@@ -241,6 +263,81 @@ describe("individual tick-start energy capability", () => {
         attackRecoveryDurationPercent: 100,
         guardReadinessRecoveryPercent: 100,
       });
+  });
+
+  it("projects equal combat multipliers across lifecycle and presence states", () => {
+    const entityCount = 5;
+    const profiles = createTrustedIndividualEnergyProfileStore({
+      entityCount,
+      profiles: Array.from({ length: entityCount }, (_, entityId) => ({
+        entityId, maximumEnergy: 100, startingEnergy: 20,
+      })),
+    });
+    const energy = createIndividualEnergyStore(profiles);
+    const lifecycle = createIndividualCasualtyLifecycleStore(entityCount);
+    const presence = createIndividualPlayerPresenceStore({
+      entityCount, worldWidth: 100, worldHeight: 100,
+      procedures: Array.from({ length: entityCount }, (_, entityId) => ({
+        entityId,
+        procedureKind: entityId < 3 ? "citizen" as const : "barbarian" as const,
+        ...(entityId < 3 ? {} : {
+          respawnDestination: { x: entityId === 3 ? 10 : 0, y: 0 },
+        }),
+      })),
+    });
+    const procedures = createIndividualCasualtyProcedureProfileStore({
+      entityCount,
+      profiles: Array.from({ length: entityCount }, (_, entityId) => ({
+        entityId,
+        procedureKind: entityId < 3 ? "citizen" as const : "barbarian" as const,
+        deathCountPolicy: { kind: "fixedTicks" as const, durationTicks: 1 },
+      })),
+    });
+    const world = worldFor(entityCount);
+    const down = applyIndividualZeroHitLifecycleTransitions(
+      lifecycle, presence, procedures, world,
+      [1, 2, 3, 4].map((entityId) => ({
+        entityId, attackerEntityId: 0, previousHits: 1,
+      })),
+      0,
+    ).transitions;
+    for (const entityId of [2, 3, 4]) {
+      transitionIndividualDyingToTerminal(lifecycle, entityId, 0, "execution");
+    }
+    applyIndividualTerminalPresenceTransitions(
+      lifecycle, presence, procedures,
+      down.filter((record) => record.entityId >= 2).map((record) => ({
+        entityId: record.entityId,
+        tick: 0,
+        previousLifecycleState: "dying" as const,
+        lifecycleState: "terminal" as const,
+        cause: "execution" as const,
+        terminalX: record.downX,
+        terminalY: record.downY,
+      })),
+    );
+    advanceIndividualRespawnEgressOneTick(
+      world, lifecycle, presence, 1, createIndividualRespawnEgressBuffers(),
+    );
+    const capability = createIndividualEnergyCapabilityStore(
+      entityCount, energy, lifecycle, presence,
+    );
+    projectIndividualEnergyCapabilitiesOneTick(
+      capability, energy, lifecycle, presence, 2,
+    );
+
+    expect([0, 1, 2, 3, 4].map((entityId) => ({
+      lifecycle: getIndividualCharacterLifecycleState(lifecycle, entityId),
+      presence: getIndividualPlayerPresenceState(presence, entityId),
+      attack: getIndividualAttackRecoveryDurationPercent(capability, entityId),
+      guard: getIndividualGuardReadinessRecoveryPercent(capability, entityId),
+    }))).toEqual([
+      { lifecycle: "active", presence: "activePresence", attack: 135, guard: 70 },
+      { lifecycle: "dying", presence: "downedPresence", attack: 135, guard: 70 },
+      { lifecycle: "terminal", presence: "terminalAwaitingComfort", attack: 135, guard: 70 },
+      { lifecycle: "terminal", presence: "respawnEgress", attack: 135, guard: 70 },
+      { lifecycle: "terminal", presence: "waitingAtRespawn", attack: 135, guard: 70 },
+    ]);
   });
 
   it("rejects duplicate, backwards and stale projection use", () => {

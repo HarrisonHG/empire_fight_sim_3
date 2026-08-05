@@ -748,7 +748,8 @@ inspection exposes only a read-model value sourced from that authority.
 
 This correction changes no tuning, activity classification, expenditure,
 recovery, or gameplay outcome. Milestone 7B is complete after this correction;
-7C-1, 7C-2, and 7C-3 are implemented below; 7C is complete and 7D-1 is next.
+7C-1, 7C-2, and 7C-3 are implemented below; 7C and 7D-1 are complete and 7D-2
+is next.
 
 ---
 
