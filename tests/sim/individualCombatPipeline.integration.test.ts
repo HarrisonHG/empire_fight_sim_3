@@ -4,8 +4,17 @@ import { LIVE_COMBAT_SCENARIO } from "../../src/content/liveCombatScenario";
 import { getUnitCohesion } from "../../src/sim/formationBehaviour";
 import {
   getIndividualCombatActionState,
+  getAttackRecoveryTicksRemaining,
+  getIndividualAttackRecoveryInspection,
   getLockedAttackTargetEntityId,
 } from "../../src/sim/individualCombatAction";
+import {
+  advanceIndividualCombatExchangeOneTick,
+} from "../../src/sim/individualCombatPipeline";
+import {
+  createIndividualEnergyCapabilityStore,
+  projectIndividualEnergyCapabilitiesOneTick,
+} from "../../src/sim/individualEnergyCapability";
 import { getIndividualCombatProfile } from "../../src/sim/individualCombatProfile";
 import {
   applyIndividualLandedHits,
@@ -15,7 +24,10 @@ import {
   createIndividualCombatConsequenceProjectionStore,
   projectIndividualCombatConsequences,
 } from "../../src/sim/individualCombatConsequences";
-import type { IndividualMeleeDefenceRecord } from "../../src/sim/individualMeleeDefence";
+import {
+  getStoredGuardReadinessFixedPoint,
+  type IndividualMeleeDefenceRecord,
+} from "../../src/sim/individualMeleeDefence";
 import { getSelectedTargetEntityId } from "../../src/sim/individualMeleeTargetSelection";
 import { getPersistentUnitMorale } from "../../src/sim/persistentMorale";
 import {
@@ -30,6 +42,94 @@ import type {
 import { getUnitIds, getUnitMembers } from "../../src/sim/unitIdentity";
 
 describe("integrated individual combat authority pipeline", () => {
+  it.each([
+    [4, 5, "stale"],
+    [6, 5, "future"],
+  ] as const)(
+    "rejects a self-consistent %s capability before every pipeline stage and mutation",
+    (projectionTick, pipelineTick, _kind) => {
+      const simulation = createSimulation(closeMeleeScenario());
+      const combat = requireCombatSandbox(simulation);
+      const capabilities = createIndividualEnergyCapabilityStore(
+        simulation.world.entityCount,
+        combat.individualEnergyStore,
+        combat.individualCasualtyLifecycleStore,
+        combat.individualPlayerPresenceStore,
+      );
+      projectIndividualEnergyCapabilitiesOneTick(
+        capabilities,
+        combat.individualEnergyStore,
+        combat.individualCasualtyLifecycleStore,
+        combat.individualPlayerPresenceStore,
+        projectionTick,
+      );
+      const buffers = combat.individualCombatPipelineBuffers;
+      for (const [name, buffer] of Object.entries(buffers)) {
+        buffer.push({ sentinel: name } as never);
+      }
+      const buffersBefore = JSON.stringify(buffers);
+      const stateBefore = {
+        targets: Array.from({ length: simulation.world.entityCount }, (_, id) =>
+          getSelectedTargetEntityId(combat.individualTargetSelectionStore, id)),
+        actions: Array.from({ length: simulation.world.entityCount }, (_, id) =>
+          getIndividualCombatActionState(combat.individualCombatActionStore, id)),
+        attackRecovery: Array.from(
+          { length: simulation.world.entityCount },
+          (_, id) => getAttackRecoveryTicksRemaining(
+            combat.individualCombatActionStore, id,
+          ),
+        ),
+        defenceReadiness: Array.from(
+          { length: simulation.world.entityCount },
+          (_, id) => getStoredGuardReadinessFixedPoint(
+            combat.individualMeleeDefenceStore, id,
+          ),
+        ),
+        hits: Array.from({ length: simulation.world.entityCount }, (_, id) =>
+          getIndividualCurrentGlobalHits(combat.individualGlobalHitStore, id)),
+      };
+      const stages: string[] = [];
+
+      expect(() => advanceIndividualCombatExchangeOneTick(
+        simulation.world,
+        combat.identityStore,
+        combat.formationStore,
+        combat.individualCombatPipelineStores,
+        buffers,
+        pipelineTick,
+        {
+          energyCapabilities: { capabilities, tick: projectionTick },
+          runStage: (stage, run) => {
+            stages.push(stage);
+            return run();
+          },
+        },
+      )).toThrow(/match pipeline tick/);
+
+      expect(stages).toEqual([]);
+      expect(JSON.stringify(buffers)).toBe(buffersBefore);
+      expect({
+        targets: Array.from({ length: simulation.world.entityCount }, (_, id) =>
+          getSelectedTargetEntityId(combat.individualTargetSelectionStore, id)),
+        actions: Array.from({ length: simulation.world.entityCount }, (_, id) =>
+          getIndividualCombatActionState(combat.individualCombatActionStore, id)),
+        attackRecovery: Array.from(
+          { length: simulation.world.entityCount },
+          (_, id) => getAttackRecoveryTicksRemaining(
+            combat.individualCombatActionStore, id,
+          ),
+        ),
+        defenceReadiness: Array.from(
+          { length: simulation.world.entityCount },
+          (_, id) => getStoredGuardReadinessFixedPoint(
+            combat.individualMeleeDefenceStore, id,
+          ),
+        ),
+        hits: Array.from({ length: simulation.world.entityCount }, (_, id) =>
+          getIndividualCurrentGlobalHits(combat.individualGlobalHitStore, id)),
+      }).toEqual(stateBefore);
+    },
+  );
   it("initialises all individual stores and reusable buffers with matching entity counts", () => {
     const simulation = createSimulation(LIVE_COMBAT_SCENARIO);
     const combat = requireCombatSandbox(simulation);
@@ -198,6 +298,61 @@ describe("integrated individual combat authority pipeline", () => {
     expect("survivabilityStore" in combat).toBe(false);
     expect("pipelineOutput" in combat).toBe(false);
     expect("consequenceApplications" in combat).toBe(false);
+  });
+
+  it("production attack recovery always records the current capability tick", () => {
+    const simulation = createSimulation(closeMeleeScenario());
+    const combat = requireCombatSandbox(simulation);
+    let attackerEntityId = -1;
+    for (let count = 0; count < 20 && attackerEntityId < 0; count += 1) {
+      advanceSimulationOneTick(simulation);
+      attackerEntityId = combat.individualCombatPipelineBuffers.attackAttempts[0]
+        ?.attackerEntityId ?? -1;
+    }
+    expect(attackerEntityId).toBeGreaterThanOrEqual(0);
+    expect(getIndividualAttackRecoveryInspection(
+      combat.individualCombatActionStore,
+      attackerEntityId,
+    )).toMatchObject({
+      attackRecoveryMultiplierPercent: 100,
+      capabilityProjectionTickUsed: simulation.tick - 1,
+    });
+  });
+
+  it("keeps fresh and spent defence-roll evidence identical while assigned recovery differs", () => {
+    const run = (startingEnergy: number) => {
+      const scenario: SimulationScenario = {
+        ...closeMeleeScenario(),
+        energyProfile: {
+          maximumEnergy: 100,
+          startingEnergy,
+          safeRestRecoveryPerTick: 0,
+        },
+      };
+      const simulation = createSimulation(scenario);
+      const combat = requireCombatSandbox(simulation);
+      for (let count = 0; count < 20; count += 1) {
+        advanceSimulationOneTick(simulation);
+        const defence = combat.individualCombatPipelineBuffers.defenceRecords[0];
+        if (defence !== undefined) {
+          return {
+            defence: { ...defence },
+            recovery: getIndividualAttackRecoveryInspection(
+              combat.individualCombatActionStore,
+              defence.attackerEntityId,
+            ),
+          };
+        }
+      }
+      throw new Error("Expected a production defence record.");
+    };
+    const fresh = run(100);
+    const spent = run(0);
+    expect(spent.defence).toEqual(fresh.defence);
+    expect(spent.defence.deterministicDefenceRollFixedPoint)
+      .toBe(fresh.defence.deterministicDefenceRollFixedPoint);
+    expect(fresh.recovery.assignedRecoveryTicks).toBe(3);
+    expect(spent.recovery.assignedRecoveryTicks).toBe(6);
   });
 
   it("holds the one-second relationship gate under the integrated tick counter", () => {

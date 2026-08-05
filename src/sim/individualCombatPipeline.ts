@@ -279,6 +279,13 @@ export function advanceIndividualCombatExchangeOneTick(
     options.energyCapabilities,
     world.entityCount,
   );
+  if (options.energyCapabilities !== undefined &&
+      options.energyCapabilities !== null &&
+      options.energyCapabilities.tick !== currentTick) {
+    throw new Error(
+      `Combat energy capability tick must match pipeline tick ${currentTick}.`,
+    );
+  }
   const runStage = options.runStage ?? runStageDirectly;
   const eligibilityResult = runStage("eligibility", () =>
     projectIndividualCombatEligibilityFromHits(

@@ -30,6 +30,7 @@ import {
 import {
   createIndividualEnergyStore,
   createTrustedIndividualEnergyProfileStore,
+  setIndividualCurrentEnergyForTrustedSetup,
   spendIndividualEnergy,
 } from "../../src/sim/individualEnergy";
 import {
@@ -612,6 +613,69 @@ describe("7D-2 attack recovery capability", () => {
       throw new Error("Expected two attacks within cadence window.");
     };
     expect(ticksForTwoAttempts(0)).toBeGreaterThan(ticksForTwoAttempts(100));
+  });
+
+  it("retains each recovery episode and samples a changed band only for a later attack", () => {
+    const harness = createHarness([
+      entity(100, 100, 1, "oneHanded", 1),
+      entity(108, 100, 2, "oneHanded", -1),
+    ]);
+    const energy = combatEnergyCapability(harness.world.entityCount, 100, 0);
+    let tick = 0;
+    const advanceAtTick = () => {
+      if (tick > 0) {
+        projectIndividualEnergyCapabilitiesOneTick(
+          energy.capabilities,
+          energy.energy,
+          energy.lifecycle,
+          energy.presence,
+          tick,
+        );
+      }
+      const result = advanceActionsWithCapability(
+        harness,
+        [selectedRecord(0, 1)],
+        { capabilities: energy.capabilities, tick },
+      );
+      tick += 1;
+      return result;
+    };
+
+    advanceAtTick();
+    while (advanceAtTick().attackAttempts.length === 0) { /* commit */ }
+    expect(getIndividualAttackRecoveryInspection(harness.actions, 0))
+      .toMatchObject({
+        attackRecoveryMultiplierPercent: 100,
+        assignedRecoveryTicks: 3,
+      });
+
+    setIndividualCurrentEnergyForTrustedSetup(energy.energy, 0, 0, tick);
+    advanceAtTick();
+    expect(getIndividualAttackRecoveryInspection(harness.actions, 0))
+      .toMatchObject({
+        attackRecoveryMultiplierPercent: 100,
+        assignedRecoveryTicks: 3,
+        remainingRecoveryTicks: 2,
+      });
+    while (getIndividualCombatActionState(harness.actions, 0) !== "ready") {
+      advanceAtTick();
+    }
+    advanceAtTick();
+    while (advanceAtTick().attackAttempts.length === 0) { /* commit */ }
+    expect(getIndividualAttackRecoveryInspection(harness.actions, 0))
+      .toMatchObject({
+        attackRecoveryMultiplierPercent: 175,
+        assignedRecoveryTicks: 6,
+      });
+
+    setIndividualCurrentEnergyForTrustedSetup(energy.energy, 0, 100, tick);
+    advanceAtTick();
+    expect(getIndividualAttackRecoveryInspection(harness.actions, 0))
+      .toMatchObject({
+        attackRecoveryMultiplierPercent: 175,
+        assignedRecoveryTicks: 6,
+        remainingRecoveryTicks: 5,
+      });
   });
 
   it.each([null, "forged", "mismatched", "stale", "future"] as const)(
