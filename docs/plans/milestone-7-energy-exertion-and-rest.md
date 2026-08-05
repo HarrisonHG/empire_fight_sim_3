@@ -1646,36 +1646,426 @@ renderer, UI, or content work.
 
 ## 7E — Equipment burden, injury, dragging, medicine, and respawn procedure
 
+### Goal
+
+Make the same physical work cost more for broadly burdened or wounded people,
+then complete the already-classified casualty, treatment, and respawn energy
+contexts without moving ownership out of Milestone 6.
+
+7E changes expenditure and recovery only. It does not change who moves, who
+helps, who is treated, who dies, who enters respawn egress, or who waits.
+
+### Existing authorities remain authoritative
+
+`individualCombatProfile.ts` continues to own authored equipment:
+
+- armour category;
+- primary weapon category;
+- shield category and whether the shield is held or slung.
+
+`individualGlobalHits.ts` continues to own current and maximum global hits.
+Energy derives missing hits from that store; it does not add an injury state or
+change hit loss, maximum hits, conditions, or treatment consequences.
+
+`individualEnergyActivity.ts` continues to own:
+
+- the one dominant activity context;
+- actual-gait movement expenditure;
+- attack and defence impulses from canonical records;
+- suppression of recovery whenever expenditure is requested;
+- final spend/recovery application and bounded inspection.
+
+Milestone 6 stores continue to own gathering, dragging, medical approach,
+treatment, dying, terminal state, respawn egress, waiting, and presence.
+
+### Tick-start exertion modifiers
+
+Add one narrow, read-only exertion-modifier projection. Production projects it
+from authoritative equipment and tick-start global hits before movement or
+combat. Energy activity consumes that exact projection after activity is
+classified.
+
+The projection contains entity-indexed primitive values for:
+
+```text
+armour burden points
+held-shield burden points
+primary-weapon burden points
+total burden points
+burden expenditure multiplier percentage
+missing global hits
+injury expenditure multiplier percentage
+projection tick
+```
+
+It grants no movement, combat, treatment, lifecycle, or presence eligibility.
+Current-tick hit loss changes the injury multiplier only on the following tick;
+it must not retroactively make movement or attacks earlier in the same tick
+more expensive.
+
+Low-level energy-application callers may omit this projection and retain 100%
+burden and injury multipliers. Production must supply it. Explicit null is
+invalid. A supplied projection must be genuine, entity-count matched,
+projected, wrapper/store tick matched, and exactly current for the application
+tick before any energy or diagnostic mutation.
+
+Do not extend the combat-capability store into a generic physical-state object.
+Combat capability answers what can be done; this exertion projection answers
+what completed work costs.
+
+### Broad equipment burden
+
+Use the accepted burden-point tables:
+
+```text
+Armour:
+none            0
+light           1
+mageArmour      1
+medium          2
+heavy           4
+
+Held shield:
+none/slung      0
+buckler held    1
+shield held     2
+
+Primary weapon:
+unarmed/dagger  0
+oneHanded/rod   1
+greatWeapon     2
+polearm/pike    2
+ranged          2
+staff           2
+thrown          1
+```
+
+Add the three components. The initial maximum is therefore `8` points.
+
+Convert burden to an integer percentage:
+
+```text
+burden multiplier = 100 + (10 × total burden points)
+```
+
+The initial range is `100%` to `180%`. Validate all tables, totals, and
+percentages against their typed-array storage. A slung shield has no first-pass
+movement burden because the accepted table explicitly models held shield work;
+do not infer carried inventory mass.
+
+Burden modifies self-propelled movement and drag-helper expenditure only. It
+does not modify attack or defence impulses, recovery, damage, hits, pressure,
+morale, gait capability, drag speed, or treatment outcome.
+
+### Bounded missing-hit modifier
+
+Derive:
+
+```text
+missing hits = maximum global hits - current global hits
+injury multiplier = min(150, 100 + (10 × missing hits))
+```
+
+The initial range is `100%` to `150%`. This deliberately broad modifier makes
+physical work somewhat harder without duplicating limb conditions, trauma,
+pressure, or morale.
+
+The injury multiplier applies to:
+
+- self-propelled movement expenditure, including gathering, medical approach,
+  trauma withdrawal, drag helping, and respawn egress;
+- canonical attack impulses;
+- canonical defence impulses.
+
+It does not apply to recovery. It does not change damage, hit capacity,
+conditions, gait, action eligibility, attack timing, defence chance, readiness,
+pressure impulses, or morale.
+
+### Expenditure composition
+
+Use integer percentage scale `100` and deterministic ceiling division.
+
+For ordinary self-propelled movement:
+
+```text
+actual-gait base cost
+× burden multiplier
+× injury multiplier
+→ ceiling division by 10,000
+→ adjusted movement expenditure
+```
+
+For an actively moving drag helper:
+
+```text
+actual-gait base cost + 12 drag surcharge
+× burden multiplier
+× injury multiplier
+→ ceiling division by 10,000
+→ adjusted drag-helper movement expenditure
+```
+
+For combat impulses:
+
+```text
+canonical attack count × 80 × injury multiplier
+→ ceiling division by 100
+
+canonical defence count × 50 × injury multiplier
+→ ceiling division by 100
+```
+
+Exact rules:
+
+- zero base cost remains zero;
+- adjusted positive work must not become cheaper than its accepted base;
+- validate every entity's complete request before mutating any current energy;
+- several defence records still stack before the single injury adjustment;
+- burden and injury are sampled once from the supplied tick-start projection;
+- current-tick expenditure or hit loss does not reproject either multiplier;
+- requested expenditure still suppresses all same-tick recovery even when
+  current energy clamps the applied amount to zero;
+- resting recovery is never multiplied by burden or injury;
+- externally displaced and dragged patients pay no personal movement cost;
+- scenario-forced displacement remains free unless an accepted personal
+  movement authority also completed movement;
+- no fractional-energy remainder, floating-point accumulation, per-entity
+  object, or second energy store is introduced.
+
+Bounded inspection must separate:
+
+```text
+base gait expenditure
+drag surcharge
+burden components, total, and multiplier
+missing hits and injury multiplier
+adjusted movement expenditure
+base and adjusted attack expenditure
+base and adjusted defence expenditure
+total requested and applied expenditure
+modifier projection tick used
+```
+
+### Casualty, treatment, and respawn recovery
+
+Retain the accepted context precedence and complete these values:
+
+```text
+downedRest:          +4 per tick
+underTreatment:      +3 per tick
+waitingAtRespawn:    +5 per tick
+treating:             0 per tick
+executionCommitment:  0 per tick
+inactiveTerminal:     0 per tick
+```
+
+Existing safe stationary profile recovery and alert stationary `+2` remain
+unchanged.
+
+Exact rules:
+
+- any expenditure request suppresses recovery;
+- a dying/downed person may recover energy while remaining dying/downed;
+- a stationary patient under active treatment uses `+3`, not safe-rest
+  recovery;
+- a healer actively treating and an executor committed to execution remain
+  neutral unless another canonical exertion exists;
+- treatment completion changes only the existing treatment/hit/lifecycle
+  authorities and never resets, fills, or otherwise rewrites energy;
+- revival retains whatever energy exists after prior recovery and expenditure;
+- terminal citizens remain frozen at their current energy because they cannot
+  return in the battle;
+- terminal barbarians in actual respawn egress pay adjusted walking cost only
+  when they move;
+- missing destination, not-yet-started egress, arrived egress, and stationary
+  egress request no expenditure;
+- `waitingAtRespawn` barbarians recover `+5` for later Milestone 9 policy but do
+  not re-enter or reactivate;
+- citizens never receive barbarian waiting recovery;
+- no recovery path restores global hits.
+
+### Expected files and layer impact
+
+Expected simulation files:
+
+```text
+src/sim/individualEnergyExertionModifier.ts          new narrow projection
+src/sim/individualEnergyActivity.ts                  cost composition/recovery
+src/sim/simulation.ts                                production order/wiring
+src/sim/types.ts                                     bounded debug evidence
+```
+
+Focused tests should cover the new projection, activity application, treatment
+continuity, respawn procedure, production determinism, retained scenarios, and
+structural performance.
+
+No worker, renderer, UI, or content change is expected. No Milestone 6
+selection, movement, treatment, lifecycle, or presence authority should need a
+production change; modify one only if a focused regression exposes incorrect
+existing evidence.
+
+### Ordered implementation slices
+
+#### 7E-1 — Exertion-modifier projection and contract
+
 Deliver:
 
-- broad equipment-burden derivation;
-- movement/drag expenditure modifier;
-- bounded missing-hit exertion modifier;
-- gather/drag/helper energy costs;
-- medical-approach cost;
-- treatment/downed recovery;
-- respawn-egress expenditure;
-- waiting-at-respawn recovery;
-- terminal-citizen freeze;
-- no lifecycle or treatment ownership changes.
+- add the exact burden component tables and total derivation;
+- add the exact `100% + 10% per missing hit`, capped at `150%`, injury rule;
+- project equipment and tick-start hit evidence into entity-indexed typed
+  arrays;
+- expose allocation-free primitive getters and bounded inspection;
+- establish the narrow optional application input used by later 7E slices;
+- wire production projection at tick start, but do not consume the modifiers.
 
 Tests:
 
-- heavy kit costs more than light kit for equal movement;
-- shield/weapon burden is broad and deterministic;
-- burden does not alter rest recovery or damage;
-- drag helper costs exceed ordinary walking;
-- patient pays no drag movement cost;
-- solo Physick and two-fighter drag costs are inspectable;
-- treatment does not reset energy;
-- revived character keeps current energy;
-- dying recovery can matter after revival;
-- egress consumes and waiting restores;
-- citizens do not use barbarian waiting recovery.
+- every armour, held/slung shield, and primary-weapon value;
+- total burden range `0..8` and multiplier range `100..180`;
+- no double-counting of backup weapons, qualifications, helmet, or authored hit
+  modifiers;
+- exact missing-hit values and `100/110/120/130/140/150` capped multipliers;
+- current hits may not exceed maximum and missing hits may not become negative;
+- same equipment yields equal burden across faction, role, energy, lifecycle,
+  and presence;
+- same current/maximum hits yields equal injury multiplier across equipment and
+  energy profiles;
+- current-tick hit changes require a following projection;
+- genuine-store, entity-count, projection-tick, null, stale, future, and
+  backwards-use validation;
+- bounded inspection and structural storage assertions;
+- all current energy expenditure, recovery, movement, combat, casualty,
+  treatment, egress, waiting, snapshots, and replay remain unchanged.
 
 Boundary:
 
-No command, terrain, perception, detailed inventory mass, or respawn re-entry.
+Projection and contract only. Do not change any expenditure, recovery, energy,
+movement, attack, defence, hit, casualty, treatment, presence, or lifecycle
+outcome.
+
+#### 7E-2 — Burden, injury, and drag expenditure enforcement
+
+Deliver:
+
+- supply the current exertion projection to production energy application;
+- validate it before any energy or diagnostic mutation;
+- apply exact burden and injury composition to completed self-propelled
+  movement;
+- apply the `12`-energy drag surcharge to moving helpers before modifiers;
+- apply injury only to canonical attack and defence impulses;
+- expose complete base, modifier, adjusted, total, applied, clamp, and tick
+  evidence.
+
+Tests:
+
+- equal jogging/sprinting work costs more in heavy kit than light kit;
+- burden-free and fully burdened exact ceiling cases;
+- wounded and fully injured exact ceiling cases;
+- combined burden/injury composition uses one final ceiling;
+- walking remains possible and costs at least its accepted base;
+- gathering, medical approach, trauma withdrawal, and egress use their actual
+  gait cost with modifiers and no extra named surcharge;
+- moving drag helpers pay gait plus surcharge with modifiers;
+- stationary drag helpers pay no movement or drag surcharge;
+- the patient remains free of personal movement expenditure;
+- one helper and two helpers each pay their own exact cost without charging the
+  patient or multiplying surcharge by group size;
+- canonical attacks and defences retain exact record-count impulses with injury
+  but without equipment burden;
+- current-tick damage affects expenditure only after the following projection;
+- burden/injury never alters gait, coordinates, attack/defence identity,
+  damage, readiness, pressure, morale, or recovery;
+- omitted input preserves legacy low-level values;
+- invalid input preserves energy, complete diagnostics, and seeded outputs;
+- production cannot silently omit the current projection.
+
+Boundary:
+
+Do not implement treatment or waiting recovery. Do not alter Milestone 6
+movement/selection, combat capability, attack/guard recovery, or pressure.
+
+#### 7E-3 — Treatment, downed, terminal, and respawn continuity
+
+Deliver:
+
+- enable stationary `underTreatment +3` recovery;
+- retain and harden `downedRest +4`;
+- enable barbarian `waitingAtRespawn +5` recovery;
+- preserve neutral treating/execution and frozen inactive-terminal contexts;
+- prove respawn egress pays adjusted walking only on actual movement;
+- prove treatment, revival, egress arrival, and waiting preserve one continuous
+  energy value.
+
+Tests:
+
+- under-treatment recovery is exact and is suppressed by any expenditure;
+- healer treatment and execution commitment remain neutral;
+- dying/downed recovery can contribute to a later revived character;
+- treatment completion and revival never reset energy;
+- terminal citizens remain frozen;
+- moving egress spends exact adjusted walking energy;
+- delayed, missing-destination, arrived, and stationary egress remain free;
+- waiting barbarians recover with maximum clamp and remain terminal/non-combat;
+- citizens never receive waiting-at-respawn recovery;
+- no path restores hits or changes lifecycle/presence timing.
+
+Boundary:
+
+No respawn batching/re-entry, citizen Gate egress, treatment policy, new medical
+selection, or safe-rest decision AI.
+
+#### 7E-4 — Full 7E integration, determinism, and performance
+
+Deliver:
+
+- deterministic production coverage crossing equipment, hit, drag, treatment,
+  egress, and waiting states;
+- complete bounded inspection and energy-history evidence;
+- retained Milestone 3, 4, 6, energy, and evolving main-battle coverage;
+- structural performance cases at `100`, `500`, `1,000`, and `2,000` entities
+  with representative burden and a sparse casualty population.
+
+Prove repeated runs retain exact:
+
+- positions, gaits, drag groups, treatment and presence transitions;
+- attack and defence records, rolls, hits, pressure, and morale;
+- modifier projections and activity contexts;
+- base, adjusted, requested, applied, clamp, and recovery diagnostics;
+- current energy, history, events, and inspected snapshots.
+
+Use structural assertions only:
+
+- no new timing threshold;
+- no all-entity pair scan;
+- no per-entity hot-path allocation;
+- no production inspection-object creation.
+
+### 7E done criteria
+
+7E is complete only when:
+
+- burden comes only from the approved broad authoritative equipment fields;
+- missing-hit exertion is bounded, tick-start sampled, and never becomes a
+  second injury or condition authority;
+- self-propelled movement, drag surcharge, and combat impulses compose exactly
+  once without double charging displacement or records;
+- externally moved patients remain free;
+- recovery remains separate from burden/injury and is suppressed by exertion;
+- treatment/revival never resets energy;
+- terminal citizens freeze while egressing/waiting barbarians retain continuous
+  energy without reactivation;
+- all modifiers, base values, adjusted values, applied values, and ticks are
+  bounded and inspectable;
+- retained combat, morale, casualty, treatment, respawn, and main-battle
+  observations remain valid;
+- focused, full headless, replay, typecheck, build, and performance suites pass;
+- no 7F, 7G, command, terrain, perception, respawn re-entry, Milestone 8, or
+  Milestone 9 behaviour was implemented early.
+
+Boundary:
+
+No command, terrain, perception, detailed inventory mass, citizen Gate egress,
+or barbarian respawn batching/re-entry.
 
 ---
 
