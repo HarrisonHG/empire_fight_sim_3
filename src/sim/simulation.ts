@@ -20,7 +20,6 @@ import {
   getIndividualPostEnergyStepX,
   getIndividualPostEnergyStepY,
   getIndividualMovementReducedByEnergy,
-  getIndividualRole,
   type FormationTickDiagnostics,
   getUnitCohesion,
   getUnitEnergyGaitDiagnostics,
@@ -199,7 +198,7 @@ import {
   getReadinessRecoveredThisTick,
   getReadinessSpentThisTick,
   getStoredGuardReadinessFixedPoint,
-  GUARD_READINESS_RECOVERY,
+  getIndividualGuardRecoveryInspection,
   getIndividualGuardState,
   type IndividualMeleeDefenceRecord,
 } from "./individualMeleeDefence";
@@ -3142,6 +3141,10 @@ function collectInspectedIndividualSnapshots(
       combatSandbox.individualEnergyCapabilityStore,
       entityId,
     );
+    const guardRecovery = getIndividualGuardRecoveryInspection(
+      combatSandbox.individualMeleeDefenceStore,
+      entityId,
+    );
     const traumaticWound = getIndividualTraumaticWoundInspection(
       combatSandbox.individualTraumaticWoundStore,
       entityId,
@@ -3504,9 +3507,15 @@ function collectInspectedIndividualSnapshots(
             )
           : 0),
       guardReadinessRecoveryPerTick:
-        GUARD_READINESS_RECOVERY[
-          getIndividualRole(combatSandbox.formationStore, entityId)
-        ],
+        guardRecovery.experienceBaseRecovery,
+      guardReadinessRecoveryMultiplierPercent:
+        guardRecovery.guardRecoveryMultiplierPercent,
+      guardReadinessRequestedRecovery:
+        guardRecovery.energyAdjustedRequestedRecovery,
+      guardReadinessActualRecoveryAfterClamp:
+        guardRecovery.actualRecoveryAfterClamp,
+      guardReadinessCapabilityProjectionTickUsed:
+        guardRecovery.capabilityProjectionTickUsed,
       guardReadinessSpentThisTick: getReadinessSpentThisTick(
         combatSandbox.individualMeleeDefenceStore,
         entityId,

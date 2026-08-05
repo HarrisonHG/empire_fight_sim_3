@@ -335,6 +335,7 @@ export function advanceIndividualCombatExchangeOneTick(
       stores.eligibilitySnapshot,
       currentTick,
       options.defenceHandAvailability,
+      options.energyCapabilities,
     ),
   );
   const gateResult = runStage("gate", () =>

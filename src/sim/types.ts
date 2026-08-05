@@ -646,6 +646,10 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly storedGuardReadinessFixedPoint: number;
   readonly effectiveGuardReadinessFixedPoint: number;
   readonly guardReadinessRecoveryPerTick: number;
+  readonly guardReadinessRecoveryMultiplierPercent?: number;
+  readonly guardReadinessRequestedRecovery?: number;
+  readonly guardReadinessActualRecoveryAfterClamp?: number;
+  readonly guardReadinessCapabilityProjectionTickUsed?: number | null;
   readonly guardReadinessSpentThisTick: number;
   readonly guardReadinessRecoveredThisTick: number;
   readonly guardReadinessOffensivelySuppressed: boolean;

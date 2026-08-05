@@ -25,6 +25,12 @@ import {
   isIndividualCombatEligible,
   type IndividualCombatEligibilitySnapshot,
 } from "./individualCombatEligibility";
+import {
+  INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_SCALE,
+  assertIndividualCombatEnergyCapabilityInput,
+  getIndividualGuardReadinessRecoveryPercent,
+  type IndividualCombatEnergyCapabilityInput,
+} from "./individualEnergyCapability";
 import type { WorldState } from "./types";
 import {
   getIndividualRole,
@@ -112,6 +118,10 @@ interface IndividualMeleeDefenceRecordBase {
   readonly readinessRecoveryPerTick?: number;
   readonly readinessSpentThisTick?: number;
   readonly readinessRecoveredThisTick?: number;
+  readonly guardRecoveryMultiplierPercent?: number;
+  readonly energyAdjustedRequestedReadinessRecovery?: number;
+  readonly actualReadinessRecoveryAfterClamp?: number;
+  readonly energyCapabilityProjectionTickUsed?: number | null;
   readonly offensivelySuppressed?: boolean;
   readonly rearDesperateDefenceApplied?: boolean;
   readonly calculatedDefenceChanceFixedPoint?: number;
@@ -146,6 +156,17 @@ export interface IndividualMeleeDefenceTickResult {
   readonly rearDefenceAttempts: number;
 }
 
+export interface IndividualGuardRecoveryInspection {
+  readonly experienceBaseRecovery: number;
+  readonly guardRecoveryMultiplierPercent: number;
+  readonly energyAdjustedRequestedRecovery: number;
+  readonly actualRecoveryAfterClamp: number;
+  readonly storedReadiness: number;
+  readonly effectiveReadiness: number;
+  readonly readinessSpentThisTick: number;
+  readonly capabilityProjectionTickUsed: number | null;
+}
+
 export interface IndividualDefenceHandAvailabilitySource {
   readonly entityCount: number;
   /** Undefined means the entity is not subject to an external hand commitment. */
@@ -172,6 +193,10 @@ interface InternalIndividualMeleeDefenceStore
   readonly guardReadinessByEntity: Int16Array;
   readonly readinessSpentThisTickByEntity: Int16Array;
   readonly readinessRecoveredThisTickByEntity: Int16Array;
+  readonly experienceBaseRecoveryByEntity: Uint16Array;
+  readonly guardRecoveryMultiplierPercentByEntity: Uint16Array;
+  readonly requestedReadinessRecoveryByEntity: Uint16Array;
+  readonly recoveryCapabilityTickByEntity: Float64Array;
   readonly lastEmittedGuardStateByEntity: IndividualGuardState[];
   readonly snapshottedActionStateByEntity: IndividualCombatActionState[];
   readonly snapshottedFacingXByEntity: Int8Array;
@@ -247,6 +272,14 @@ export function createIndividualMeleeDefenceStore(
   const battleSeed = config.battleSeed ?? 0;
   assertNonNegativeSafeInteger(battleSeed, "battleSeed");
 
+  const guardRecoveryMultiplierPercentByEntity = new Uint16Array(
+    config.entityCount,
+  );
+  guardRecoveryMultiplierPercentByEntity.fill(
+    INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_SCALE,
+  );
+  const recoveryCapabilityTickByEntity = new Float64Array(config.entityCount);
+  recoveryCapabilityTickByEntity.fill(-1);
   return {
     entityCount: config.entityCount,
     guardReadinessByEntity: new Int16Array(config.entityCount).fill(
@@ -254,6 +287,10 @@ export function createIndividualMeleeDefenceStore(
     ),
     readinessSpentThisTickByEntity: new Int16Array(config.entityCount),
     readinessRecoveredThisTickByEntity: new Int16Array(config.entityCount),
+    experienceBaseRecoveryByEntity: new Uint16Array(config.entityCount),
+    guardRecoveryMultiplierPercentByEntity,
+    requestedReadinessRecoveryByEntity: new Uint16Array(config.entityCount),
+    recoveryCapabilityTickByEntity,
     lastEmittedGuardStateByEntity: new Array<IndividualGuardState>(
       config.entityCount,
     ).fill("ready"),
@@ -314,6 +351,33 @@ export function getReadinessRecoveredThisTick(
   return internal.readinessRecoveredThisTickByEntity[entityId]!;
 }
 
+export function getIndividualGuardRecoveryInspection(
+  store: IndividualMeleeDefenceStore,
+  entityId: number,
+): IndividualGuardRecoveryInspection {
+  const internal = asInternal(store);
+  assertEntityId(entityId, internal.entityCount);
+  const storedReadiness = internal.guardReadinessByEntity[entityId]!;
+  const capabilityTick = internal.recoveryCapabilityTickByEntity[entityId]!;
+  return {
+    experienceBaseRecovery: internal.experienceBaseRecoveryByEntity[entityId]!,
+    guardRecoveryMultiplierPercent:
+      internal.guardRecoveryMultiplierPercentByEntity[entityId]!,
+    energyAdjustedRequestedRecovery:
+      internal.requestedReadinessRecoveryByEntity[entityId]!,
+    actualRecoveryAfterClamp:
+      internal.readinessRecoveredThisTickByEntity[entityId]!,
+    storedReadiness,
+    effectiveReadiness:
+      internal.snapshottedActionStateByEntity[entityId] === "ready"
+        ? storedReadiness
+        : 0,
+    readinessSpentThisTick:
+      internal.readinessSpentThisTickByEntity[entityId]!,
+    capabilityProjectionTickUsed: capabilityTick < 0 ? null : capabilityTick,
+  };
+}
+
 export function getDefenceRecoveryTicksRemaining(
   store: IndividualMeleeDefenceStore,
   entityId: number,
@@ -336,6 +400,7 @@ export function resolveIndividualMeleeDefences(
   eligibility?: IndividualCombatEligibilitySnapshot,
   currentTick = 0,
   handAvailability?: IndividualDefenceHandAvailabilitySource,
+  energyCapabilityInput?: IndividualCombatEnergyCapabilityInput | null,
 ): IndividualMeleeDefenceTickResult {
   validateStores(
     world,
@@ -356,11 +421,26 @@ export function resolveIndividualMeleeDefences(
   if (handAvailability !== undefined && handAvailability.entityCount !== world.entityCount) {
     throw new RangeError("Defence hand availability must match world entity count.");
   }
+  assertIndividualCombatEnergyCapabilityInput(
+    energyCapabilityInput,
+    world.entityCount,
+  );
+  if (energyCapabilityInput !== undefined && energyCapabilityInput !== null &&
+      energyCapabilityInput.tick !== currentTick) {
+    throw new Error(
+      `Defence energy capability tick must match defence tick ${currentTick}.`,
+    );
+  }
   const internal = asInternal(defenceStore);
   recordsOut.length = 0;
   guardStateEventsOut.length = 0;
 
-  recoverGuardReadiness(formationStore, internal, guardStateEventsOut);
+  recoverGuardReadiness(
+    formationStore,
+    internal,
+    guardStateEventsOut,
+    energyCapabilityInput,
+  );
   snapshotDefenders(actionStore, profileStore, internal);
   prepareCanonicalAttempts(internal, attackAttempts, eligibility);
 
@@ -369,7 +449,6 @@ export function resolveIndividualMeleeDefences(
     recordsOut.push(
       resolveAttempt(
         world,
-        formationStore,
         profileStore,
         internal,
         attempt,
@@ -426,7 +505,6 @@ export function resolveIndividualMeleeDefences(
 
 function resolveAttempt(
   world: WorldState,
-  formationStore: FormationBehaviourStore,
   profileStore: IndividualCombatProfileStore,
   store: InternalIndividualMeleeDefenceStore,
   attempt: IndividualMeleeAttackAttemptRecord,
@@ -493,6 +571,20 @@ function resolveAttempt(
     incomingDirectionName: incomingDirection.name,
     incomingDirectionOctantIndex: incomingDirection.octantIndex,
     awkwardDistance: attempt.awkwardDistance,
+    readinessRecoveryPerTick:
+      store.experienceBaseRecoveryByEntity[defenderEntityId]!,
+    guardRecoveryMultiplierPercent:
+      store.guardRecoveryMultiplierPercentByEntity[defenderEntityId]!,
+    energyAdjustedRequestedReadinessRecovery:
+      store.requestedReadinessRecoveryByEntity[defenderEntityId]!,
+    actualReadinessRecoveryAfterClamp:
+      store.readinessRecoveredThisTickByEntity[defenderEntityId]!,
+    readinessRecoveredThisTick:
+      store.readinessRecoveredThisTickByEntity[defenderEntityId]!,
+    energyCapabilityProjectionTickUsed:
+      store.recoveryCapabilityTickByEntity[defenderEntityId]! < 0
+        ? null
+        : store.recoveryCapabilityTickByEntity[defenderEntityId]!,
   };
 
   if (!isIndividualCombatEligible(eligibility, defenderEntityId) && externallyAvailableHands === undefined) {
@@ -524,18 +616,12 @@ function resolveAttempt(
     availableDefence,
   );
   spendGuardReadiness(store, defenderEntityId, eventsOut);
-  const readinessRecoveryPerTick = readinessRecoveryForRole(
-    getIndividualRole(formationStore, defenderEntityId),
-  );
   const diagnostic = {
     defenceCoverageTier: coverageTier,
     defenceReadinessFixedPoint: effectiveReadiness,
     storedGuardReadinessFixedPoint: storedReadiness,
     effectiveGuardReadinessFixedPoint: effectiveReadiness,
-    readinessRecoveryPerTick,
     readinessSpentThisTick: GUARD_READINESS_COST_PER_ATTEMPT,
-    readinessRecoveredThisTick:
-      store.readinessRecoveredThisTickByEntity[defenderEntityId]!,
     offensivelySuppressed,
     rearDesperateDefenceApplied: rearDesperateDefence,
     calculatedDefenceChanceFixedPoint: chanceFixedPoint,
@@ -866,16 +952,32 @@ function recoverGuardReadiness(
   formationStore: FormationBehaviourStore,
   store: InternalIndividualMeleeDefenceStore,
   eventsOut: IndividualGuardStateEvent[],
+  energyCapabilityInput: IndividualCombatEnergyCapabilityInput | undefined,
 ): void {
   store.readinessSpentThisTickByEntity.fill(0);
   store.readinessRecoveredThisTickByEntity.fill(0);
   for (let entityId = 0; entityId < store.entityCount; entityId += 1) {
     const before = store.guardReadinessByEntity[entityId]!;
-    const recovery = readinessRecoveryForRole(
+    const baseRecovery = readinessRecoveryForRole(
       getIndividualRole(formationStore, entityId),
     );
-    const after = Math.min(GUARD_READINESS_MAX, before + recovery);
+    const multiplierPercent = energyCapabilityInput === undefined
+      ? INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_SCALE
+      : getIndividualGuardReadinessRecoveryPercent(
+          energyCapabilityInput.capabilities,
+          entityId,
+        );
+    const requestedRecovery = Math.floor(
+      baseRecovery * multiplierPercent /
+        INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_SCALE,
+    );
+    const after = Math.min(GUARD_READINESS_MAX, before + requestedRecovery);
     store.guardReadinessByEntity[entityId] = after;
+    store.experienceBaseRecoveryByEntity[entityId] = baseRecovery;
+    store.guardRecoveryMultiplierPercentByEntity[entityId] = multiplierPercent;
+    store.requestedReadinessRecoveryByEntity[entityId] = requestedRecovery;
+    store.recoveryCapabilityTickByEntity[entityId] =
+      energyCapabilityInput?.tick ?? -1;
     store.readinessRecoveredThisTickByEntity[entityId] = after - before;
     emitGuardStateTransition(store, entityId, before, after, eventsOut);
   }

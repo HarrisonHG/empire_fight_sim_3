@@ -15,6 +15,20 @@ import {
   type IndividualMeleeAttackAttemptRecord,
 } from "../../src/sim/individualCombatAction";
 import {
+  createIndividualCasualtyLifecycleStore,
+  createIndividualPlayerPresenceStore,
+} from "../../src/sim/individualCasualtyLifecycle";
+import {
+  createIndividualEnergyStore,
+  createTrustedIndividualEnergyProfileStore,
+  setIndividualCurrentEnergyForTrustedSetup,
+} from "../../src/sim/individualEnergy";
+import {
+  createIndividualEnergyCapabilityStore,
+  projectIndividualEnergyCapabilitiesOneTick,
+  type IndividualCombatEnergyCapabilityInput,
+} from "../../src/sim/individualEnergyCapability";
+import {
   createIndividualCombatProfileStore,
   type IndividualCombatProfileConfig,
   type IndividualCombatProfileStore,
@@ -27,6 +41,7 @@ import {
   createIndividualMeleeDefenceStore,
   getDefenceRecoveryTicksRemaining,
   getIndividualGuardState,
+  getIndividualGuardRecoveryInspection,
   getStoredGuardReadinessFixedPoint,
   GUARD_READINESS_COST_PER_ATTEMPT,
   GUARD_READINESS_MAX,
@@ -150,6 +165,224 @@ describe("individual melee defence resolution", () => {
     expect(getIndividualGuardState(harness.defence, 1)).toBe("ready");
     expect(getStoredGuardReadinessFixedPoint(harness.defence, 1)).toBe(10000);
   });
+
+  it.each([
+    ["recruit", 100, 100, 50],
+    ["regular", 100, 100, 100],
+    ["veteran", 100, 100, 150],
+    ["recruit", 50, 90, 45],
+    ["regular", 50, 90, 90],
+    ["veteran", 50, 90, 135],
+    ["recruit", 20, 70, 35],
+    ["regular", 20, 70, 70],
+    ["veteran", 20, 70, 105],
+    ["recruit", 5, 50, 25],
+    ["regular", 5, 50, 50],
+    ["veteran", 5, 50, 75],
+    ["recruit", 0, 50, 25],
+    ["regular", 0, 50, 50],
+    ["veteran", 0, 50, 75],
+  ] as const)(
+    "projects %s energy %i guard recovery at %i%% to %i",
+    (role, startingEnergy, multiplier, expectedRecovery) => {
+      const harness = createHarness([
+        entity(92, 100, 1, "oneHanded", 1),
+        entity(100, 100, 2, "oneHanded", -1, "none", "none", role),
+      ]);
+      resolve(harness, [attempt(0, 1)]);
+      const capability = defenceEnergyCapability(
+        harness.world.entityCount, startingEnergy, 1,
+      );
+      resolveWithCapability(harness, [], 1, capability.input);
+
+      expect(getIndividualGuardRecoveryInspection(harness.defence, 1))
+        .toEqual({
+          experienceBaseRecovery:
+            role === "recruit" ? 50 : role === "regular" ? 100 : 150,
+          guardRecoveryMultiplierPercent: multiplier,
+          energyAdjustedRequestedRecovery: expectedRecovery,
+          actualRecoveryAfterClamp: expectedRecovery,
+          storedReadiness: 8_000 + expectedRecovery,
+          effectiveReadiness: 8_000 + expectedRecovery,
+          readinessSpentThisTick: 0,
+          capabilityProjectionTickUsed: 1,
+        });
+    },
+  );
+
+  it("distinguishes requested recovery from maximum-clamped actual recovery", () => {
+    const harness = createHarness([
+      entity(92, 100, 1, "oneHanded", 1),
+      entity(100, 100, 2, "oneHanded", -1),
+    ]);
+    const capability = defenceEnergyCapability(harness.world.entityCount, 100, 2);
+    resolveWithCapability(harness, [], 2, capability.input);
+    expect(getIndividualGuardRecoveryInspection(harness.defence, 1)).toEqual({
+      experienceBaseRecovery: 100,
+      guardRecoveryMultiplierPercent: 100,
+      energyAdjustedRequestedRecovery: 100,
+      actualRecoveryAfterClamp: 0,
+      storedReadiness: 10_000,
+      effectiveReadiness: 10_000,
+      readinessSpentThisTick: 0,
+      capabilityProjectionTickUsed: 2,
+    });
+  });
+
+  it("exposes legacy 100% recovery without a capability projection", () => {
+    const harness = createHarness([
+      entity(92, 100, 1, "oneHanded", 1),
+      entity(100, 100, 2, "oneHanded", -1),
+    ]);
+    resolve(harness, [attempt(0, 1)]);
+    resolve(harness, []);
+    expect(getIndividualGuardRecoveryInspection(harness.defence, 1))
+      .toMatchObject({
+        experienceBaseRecovery: 100,
+        guardRecoveryMultiplierPercent: 100,
+        energyAdjustedRequestedRecovery: 100,
+        actualRecoveryAfterClamp: 100,
+        capabilityProjectionTickUsed: null,
+      });
+  });
+
+  it("reports one recovery calculation before canonically ordered repeated attempts", () => {
+    const harness = createHarness([
+      entity(92, 100, 1, "oneHanded", 1),
+      entity(100, 100, 2, "oneHanded", -1),
+      entity(92, 104, 1, "oneHanded", 1),
+    ]);
+    resolve(harness, [attempt(0, 1)]);
+    const capability = defenceEnergyCapability(harness.world.entityCount, 20, 1);
+    const result = resolveWithCapability(
+      harness, [attempt(0, 1), attempt(2, 1)], 1, capability.input,
+    );
+    expect(result.records.map((record) => ({
+      attacker: record.attackerEntityId,
+      base: record.readinessRecoveryPerTick,
+      multiplier: record.guardRecoveryMultiplierPercent,
+      requested: record.energyAdjustedRequestedReadinessRecovery,
+      actual: record.actualReadinessRecoveryAfterClamp,
+      projectionTick: record.energyCapabilityProjectionTickUsed,
+      stored: record.storedGuardReadinessFixedPoint,
+      effective: record.effectiveGuardReadinessFixedPoint,
+      spent: record.readinessSpentThisTick,
+    }))).toEqual([
+      {
+        attacker: 0, base: 100, multiplier: 70, requested: 70, actual: 70,
+        projectionTick: 1, stored: 8_070, effective: 8_070, spent: 2_000,
+      },
+      {
+        attacker: 2, base: 100, multiplier: 70, requested: 70, actual: 70,
+        projectionTick: 1, stored: 6_070, effective: 6_070, spent: 2_000,
+      },
+    ]);
+    expect(getIndividualGuardRecoveryInspection(harness.defence, 1))
+      .toMatchObject({
+        actualRecoveryAfterClamp: 70,
+        storedReadiness: 4_070,
+        readinessSpentThisTick: 4_000,
+      });
+  });
+
+  it.each([100, 50, 20, 0])(
+    "retains full-readiness 95 percent chance and roll identity at energy %i",
+    (startingEnergy) => {
+      const harness = createHarness([
+        entity(92, 100, 1, "oneHanded", 1),
+        entity(100, 100, 2, "oneHanded", -1),
+      ], 0x713);
+      const capability = defenceEnergyCapability(
+        harness.world.entityCount, startingEnergy, 3,
+      );
+      const record = resolveWithCapability(
+        harness, [attempt(0, 1)], 3, capability.input,
+      ).records[0]!;
+      expect(record.calculatedDefenceChanceFixedPoint).toBe(9_500);
+      expect(record.deterministicDefenceRollFixedPoint).toBe(
+        resolveWithCapability(
+          createHarness([
+            entity(92, 100, 1, "oneHanded", 1),
+            entity(100, 100, 2, "oneHanded", -1),
+          ], 0x713),
+          [attempt(0, 1)],
+          3,
+          defenceEnergyCapability(2, 100, 3).input,
+        ).records[0]!.deterministicDefenceRollFixedPoint,
+      );
+    },
+  );
+
+  it("uses the tick-start multiplier until a following projection observes expenditure", () => {
+    const harness = createHarness([
+      entity(92, 100, 1, "oneHanded", 1),
+      entity(100, 100, 2, "oneHanded", -1),
+    ]);
+    resolve(harness, [attempt(0, 1)]);
+    const energy = defenceEnergyCapability(harness.world.entityCount, 100, 4);
+    setIndividualCurrentEnergyForTrustedSetup(energy.energy, 1, 0, 4);
+    resolveWithCapability(harness, [], 4, energy.input);
+    expect(getIndividualGuardRecoveryInspection(harness.defence, 1))
+      .toMatchObject({
+        guardRecoveryMultiplierPercent: 100,
+        energyAdjustedRequestedRecovery: 100,
+      });
+    projectIndividualEnergyCapabilitiesOneTick(
+      energy.capabilities, energy.energy, energy.lifecycle, energy.presence, 5,
+    );
+    resolveWithCapability(
+      harness, [], 5, { capabilities: energy.capabilities, tick: 5 },
+    );
+    expect(getIndividualGuardRecoveryInspection(harness.defence, 1))
+      .toMatchObject({
+        guardRecoveryMultiplierPercent: 50,
+        energyAdjustedRequestedRecovery: 50,
+      });
+  });
+
+  it.each([null, "forged", "mismatched", "unprojected", "wrapper", "stale", "future"] as const)(
+    "rejects %s energy capability before defence state and buffer mutation",
+    (kind) => {
+      const harness = createHarness([
+        entity(92, 100, 1, "oneHanded", 1),
+        entity(100, 100, 2, "oneHanded", -1),
+      ]);
+      resolve(harness, [attempt(0, 1)]);
+      const valid = defenceEnergyCapability(harness.world.entityCount, 20, 4);
+      const mismatch = defenceEnergyCapability(1, 20, 4);
+      const unprojected = unprojectedDefenceEnergyCapability(
+        harness.world.entityCount, 20,
+      );
+      const input = kind === null ? null
+        : kind === "forged" ? ({ capabilities: { entityCount: 2 }, tick: 4 } as never)
+        : kind === "mismatched" ? mismatch.input
+        : kind === "unprojected" ? { capabilities: unprojected.capabilities, tick: 4 }
+        : kind === "wrapper" ? { capabilities: valid.capabilities, tick: 3 }
+        : { capabilities: valid.capabilities, tick: 4 };
+      const currentTick = kind === "stale" ? 5 : kind === "future" ? 3 : 4;
+      harness.records.push({ sentinel: "record" } as never);
+      harness.events.push({
+        entityId: 99, previousGuardState: "ready", guardState: "recovering",
+      });
+      const before = {
+        readiness: getStoredGuardReadinessFixedPoint(harness.defence, 1),
+        diagnostic: getIndividualGuardRecoveryInspection(harness.defence, 1),
+        records: JSON.stringify(harness.records),
+        events: JSON.stringify(harness.events),
+      };
+      expect(() => resolveIndividualMeleeDefences(
+        harness.world, harness.identity, harness.formation, harness.actions,
+        harness.profiles, harness.defence, [attempt(0, 1)], harness.records,
+        harness.events, undefined, currentTick, undefined, input,
+      )).toThrow();
+      expect({
+        readiness: getStoredGuardReadinessFixedPoint(harness.defence, 1),
+        diagnostic: getIndividualGuardRecoveryInspection(harness.defence, 1),
+        records: JSON.stringify(harness.records),
+        events: JSON.stringify(harness.events),
+      }).toEqual(before);
+    },
+  );
 
   it("uses held bucklers for buckler blocks", () => {
     const harness = createHarness([
@@ -853,6 +1086,76 @@ function resolve(
     harness.records,
     harness.events,
   );
+}
+
+function resolveWithCapability(
+  harness: DefenceHarness,
+  attempts: readonly IndividualMeleeAttackAttemptRecord[],
+  tick: number,
+  input: IndividualCombatEnergyCapabilityInput,
+) {
+  return resolveIndividualMeleeDefences(
+    harness.world,
+    harness.identity,
+    harness.formation,
+    harness.actions,
+    harness.profiles,
+    harness.defence,
+    attempts,
+    harness.records,
+    harness.events,
+    undefined,
+    tick,
+    undefined,
+    input,
+  );
+}
+
+function defenceEnergyCapability(
+  entityCount: number,
+  startingEnergy: number,
+  tick: number,
+) {
+  const fixture = unprojectedDefenceEnergyCapability(
+    entityCount, startingEnergy,
+  );
+  projectIndividualEnergyCapabilitiesOneTick(
+    fixture.capabilities,
+    fixture.energy,
+    fixture.lifecycle,
+    fixture.presence,
+    tick,
+  );
+  return {
+    ...fixture,
+    input: {
+      capabilities: fixture.capabilities,
+      tick,
+    } as IndividualCombatEnergyCapabilityInput,
+  };
+}
+
+function unprojectedDefenceEnergyCapability(
+  entityCount: number,
+  startingEnergy: number,
+) {
+  const profiles = createTrustedIndividualEnergyProfileStore({
+    entityCount,
+    profiles: Array.from({ length: entityCount }, (_, entityId) => ({
+      entityId, maximumEnergy: 100, startingEnergy,
+    })),
+  });
+  const energy = createIndividualEnergyStore(profiles);
+  const lifecycle = createIndividualCasualtyLifecycleStore(entityCount);
+  const presence = createIndividualPlayerPresenceStore(entityCount);
+  return {
+    energy,
+    lifecycle,
+    presence,
+    capabilities: createIndividualEnergyCapabilityStore(
+      entityCount, energy, lifecycle, presence,
+    ),
+  };
 }
 
 function attempt(

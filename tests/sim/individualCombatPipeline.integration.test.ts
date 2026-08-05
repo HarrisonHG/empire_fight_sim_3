@@ -4,7 +4,6 @@ import { LIVE_COMBAT_SCENARIO } from "../../src/content/liveCombatScenario";
 import { getUnitCohesion } from "../../src/sim/formationBehaviour";
 import {
   getIndividualCombatActionState,
-  getAttackRecoveryTicksRemaining,
   getIndividualAttackRecoveryInspection,
   getLockedAttackTargetEntityId,
 } from "../../src/sim/individualCombatAction";
@@ -13,8 +12,11 @@ import {
 } from "../../src/sim/individualCombatPipeline";
 import {
   createIndividualEnergyCapabilityStore,
+  getIndividualEnergyCapabilityInspection,
   projectIndividualEnergyCapabilitiesOneTick,
 } from "../../src/sim/individualEnergyCapability";
+import { getIndividualEnergyHistoryInspection } from "../../src/sim/individualEnergy";
+import { getIndividualEnergyActivityInspection } from "../../src/sim/individualEnergyActivity";
 import { getIndividualCombatProfile } from "../../src/sim/individualCombatProfile";
 import {
   applyIndividualLandedHits,
@@ -26,12 +28,14 @@ import {
 } from "../../src/sim/individualCombatConsequences";
 import {
   getStoredGuardReadinessFixedPoint,
+  getIndividualGuardRecoveryInspection,
   type IndividualMeleeDefenceRecord,
 } from "../../src/sim/individualMeleeDefence";
 import { getSelectedTargetEntityId } from "../../src/sim/individualMeleeTargetSelection";
 import { getPersistentUnitMorale } from "../../src/sim/persistentMorale";
 import {
   advanceSimulationOneTick,
+  createPositionSnapshot,
   createSimulation,
 } from "../../src/sim/simulation";
 import type {
@@ -75,13 +79,19 @@ describe("integrated individual combat authority pipeline", () => {
           getIndividualCombatActionState(combat.individualCombatActionStore, id)),
         attackRecovery: Array.from(
           { length: simulation.world.entityCount },
-          (_, id) => getAttackRecoveryTicksRemaining(
+          (_, id) => getIndividualAttackRecoveryInspection(
             combat.individualCombatActionStore, id,
           ),
         ),
         defenceReadiness: Array.from(
           { length: simulation.world.entityCount },
           (_, id) => getStoredGuardReadinessFixedPoint(
+            combat.individualMeleeDefenceStore, id,
+          ),
+        ),
+        guardRecovery: Array.from(
+          { length: simulation.world.entityCount },
+          (_, id) => getIndividualGuardRecoveryInspection(
             combat.individualMeleeDefenceStore, id,
           ),
         ),
@@ -115,13 +125,19 @@ describe("integrated individual combat authority pipeline", () => {
           getIndividualCombatActionState(combat.individualCombatActionStore, id)),
         attackRecovery: Array.from(
           { length: simulation.world.entityCount },
-          (_, id) => getAttackRecoveryTicksRemaining(
+          (_, id) => getIndividualAttackRecoveryInspection(
             combat.individualCombatActionStore, id,
           ),
         ),
         defenceReadiness: Array.from(
           { length: simulation.world.entityCount },
           (_, id) => getStoredGuardReadinessFixedPoint(
+            combat.individualMeleeDefenceStore, id,
+          ),
+        ),
+        guardRecovery: Array.from(
+          { length: simulation.world.entityCount },
+          (_, id) => getIndividualGuardRecoveryInspection(
             combat.individualMeleeDefenceStore, id,
           ),
         ),
@@ -319,6 +335,18 @@ describe("integrated individual combat authority pipeline", () => {
     });
   });
 
+  it("production guard recovery always records the current capability tick", () => {
+    const simulation = createSimulation(closeMeleeScenario());
+    const combat = requireCombatSandbox(simulation);
+    advanceSimulationOneTick(simulation);
+    for (let entityId = 0; entityId < simulation.world.entityCount; entityId += 1) {
+      expect(getIndividualGuardRecoveryInspection(
+        combat.individualMeleeDefenceStore,
+        entityId,
+      ).capabilityProjectionTickUsed).toBe(simulation.tick - 1);
+    }
+  });
+
   it("keeps fresh and spent defence-roll evidence identical while assigned recovery differs", () => {
     const run = (startingEnergy: number) => {
       const scenario: SimulationScenario = {
@@ -348,7 +376,17 @@ describe("integrated individual combat authority pipeline", () => {
     };
     const fresh = run(100);
     const spent = run(0);
-    expect(spent.defence).toEqual(fresh.defence);
+    const {
+      guardRecoveryMultiplierPercent: _freshMultiplier,
+      energyAdjustedRequestedReadinessRecovery: _freshRequested,
+      ...freshIdentity
+    } = fresh.defence;
+    const {
+      guardRecoveryMultiplierPercent: _spentMultiplier,
+      energyAdjustedRequestedReadinessRecovery: _spentRequested,
+      ...spentIdentity
+    } = spent.defence;
+    expect(spentIdentity).toEqual(freshIdentity);
     expect(spent.defence.deterministicDefenceRollFixedPoint)
       .toBe(fresh.defence.deterministicDefenceRollFixedPoint);
     expect(fresh.recovery.assignedRecoveryTicks).toBe(3);
@@ -692,6 +730,76 @@ describe("integrated individual combat authority pipeline", () => {
     expect(first.combatSandbox?.totalIndividualSelectedTargetCount).toBeGreaterThan(0);
     expect(first.combatSandbox?.totalIndividualActiveCommitmentCount)
       .toBeGreaterThan(0);
+  });
+
+  it("replays a production exchange across energy bands with the full 7D evidence", () => {
+    const run = () => {
+      const base = closeMeleeScenario();
+      const simulation = createSimulation({
+        ...base,
+        energyProfile: {
+          maximumEnergy: 500,
+          startingEnergy: 310,
+          safeRestRecoveryPerTick: 0,
+        },
+        combatSandbox: {
+          ...base.combatSandbox!,
+          inspectedEntityIds: [0, 1, 2],
+        },
+      });
+      const combat = requireCombatSandbox(simulation);
+      const bands = new Set<string>();
+      const trace = [];
+      for (let count = 0; count < 40; count += 1) {
+        advanceSimulationOneTick(simulation);
+        const entityEvidence = [0, 1, 2].map((entityId) => {
+          const capability = getIndividualEnergyCapabilityInspection(
+            combat.individualEnergyCapabilityStore, entityId,
+          );
+          bands.add(capability.sourceEnergyBand);
+          return {
+            entityId,
+            capability,
+            actionState: getIndividualCombatActionState(
+              combat.individualCombatActionStore, entityId,
+            ),
+            attackRecovery: getIndividualAttackRecoveryInspection(
+              combat.individualCombatActionStore, entityId,
+            ),
+            guardRecovery: getIndividualGuardRecoveryInspection(
+              combat.individualMeleeDefenceStore, entityId,
+            ),
+            activity: getIndividualEnergyActivityInspection(
+              combat.individualEnergyActivityStore, entityId,
+            ),
+            energyHistory: getIndividualEnergyHistoryInspection(
+              combat.individualEnergyStore, entityId,
+            ),
+          };
+        });
+        trace.push({
+          tick: simulation.tick,
+          attempts: combat.individualCombatPipelineBuffers.attackAttempts.map(
+            (record) => ({ ...record }),
+          ),
+          defences: combat.individualCombatPipelineBuffers.defenceRecords.map(
+            (record) => ({ ...record }),
+          ),
+          gate: combat.individualCombatPipelineBuffers.gateDecisions.map(
+            (record) => ({ ...record }),
+          ),
+          hits: combat.individualCombatPipelineBuffers.hitApplications.map(
+            (record) => ({ ...record }),
+          ),
+          entityEvidence,
+          snapshot: createPositionSnapshot(simulation),
+        });
+      }
+      return { bands: [...bands].sort(), trace };
+    };
+    const first = run();
+    expect(run()).toEqual(first);
+    expect(first.bands.length).toBeGreaterThan(1);
   });
 
   it("replays the integrated authority state deterministically without deferred outcome fields", () => {
