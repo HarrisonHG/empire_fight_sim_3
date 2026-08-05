@@ -195,6 +195,46 @@ describe("Milestone 6H-2B respawn egress", () => {
     });
   });
 
+  it("charges one walking base cost on the final moving arrival coordinate, then waits free", () => {
+    const simulation = createSimulation(scenario(20, { x: 19, y: 60 }, [0]));
+    const combat = requireCombat(simulation);
+    terminalize(simulation, 0, 0);
+
+    advanceSimulationOneTick(simulation);
+    advanceSimulationOneTick(simulation);
+
+    expect(simulation.world.positionsX[0]).toBe(19);
+    expect(combat.individualRespawnEgressResult.movementRecords).toHaveLength(1);
+    expect(combat.individualRespawnEgressResult.arrivalRecords).toHaveLength(1);
+    expect(getIndividualPlayerPresenceState(
+      combat.individualPlayerPresenceStore, 0,
+    )).toBe("waitingAtRespawn");
+    expect(getIndividualEnergyActivityInspection(
+      combat.individualEnergyActivityStore, 0,
+    )).toMatchObject({
+      requestedPhysicalGait: "walking",
+      effectivePhysicalGait: "walking",
+      actualPhysicalGait: "walking",
+      gaitReducedByCapability: false,
+      physicalGaitSource: "respawnEgress",
+      movementExpenditureRequested: 1,
+      expenditureApplied: 1,
+    });
+
+    advanceSimulationOneTick(simulation);
+    expect(combat.individualRespawnEgressResult.arrivalRecords).toEqual([]);
+    expect(combat.individualRespawnEgressResult.movementRecords).toEqual([]);
+    expect(getIndividualEnergyActivityInspection(
+      combat.individualEnergyActivityStore, 0,
+    )).toMatchObject({
+      requestedPhysicalGait: "stationary",
+      effectivePhysicalGait: "stationary",
+      actualPhysicalGait: "stationary",
+      movementExpenditureRequested: 0,
+      expenditureApplied: 0,
+    });
+  });
+
   it("keeps a missing destination stationary and emits no guessed movement or transition", () => {
     const simulation = createSimulation(scenario(20, undefined, [0]));
     const combat = requireCombat(simulation);

@@ -12,9 +12,14 @@ import {
   spendIndividualEnergy,
 } from "../../src/sim/individualEnergy";
 import {
+  INDIVIDUAL_ATTACK_RECOVERY_PERCENT_BY_ENERGY_BAND,
+  INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_SCALE,
+  INDIVIDUAL_GUARD_READINESS_RECOVERY_PERCENT_BY_ENERGY_BAND,
   assertIndividualEnergyCapabilityProjectionTick,
   createIndividualEnergyCapabilityStore,
+  getIndividualAttackRecoveryDurationPercent,
   getIndividualEnergyCapabilityInspection,
+  getIndividualGuardReadinessRecoveryPercent,
   projectIndividualEnergyCapabilitiesOneTick,
 } from "../../src/sim/individualEnergyCapability";
 import type { WorldState } from "../../src/sim/types";
@@ -60,6 +65,8 @@ describe("individual tick-start energy capability", () => {
       minimumSafeWalkAvailable: true,
       minimumActiveSpecialistWalkAvailable: true,
       respawnEgressProcedureWalkAvailable: false,
+      attackRecoveryDurationPercent: 100,
+      guardReadinessRecoveryPercent: 100,
     });
     expect(getIndividualEnergyCapabilityInspection(capability, 1))
       .toMatchObject({
@@ -85,6 +92,79 @@ describe("individual tick-start energy capability", () => {
         minimumSafeWalkAvailable: true,
         minimumActiveSpecialistWalkAvailable: true,
       });
+  });
+
+  it("projects the exact named combat multipliers for every energy band", () => {
+    expect(INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_SCALE).toBe(100);
+    expect(INDIVIDUAL_ATTACK_RECOVERY_PERCENT_BY_ENERGY_BAND).toEqual({
+      fresh: 100, working: 110, winded: 135, spent: 175,
+    });
+    expect(INDIVIDUAL_GUARD_READINESS_RECOVERY_PERCENT_BY_ENERGY_BAND).toEqual({
+      fresh: 100, working: 90, winded: 70, spent: 50,
+    });
+    const profiles = createTrustedIndividualEnergyProfileStore({
+      entityCount: 4,
+      profiles: [100, 50, 20, 0].map((startingEnergy, entityId) => ({
+        entityId, maximumEnergy: 100, startingEnergy,
+      })),
+    });
+    const energy = createIndividualEnergyStore(profiles);
+    const lifecycle = createIndividualCasualtyLifecycleStore(4);
+    const presence = createIndividualPlayerPresenceStore(4);
+    const capability = createIndividualEnergyCapabilityStore(
+      4, energy, lifecycle, presence,
+    );
+    projectIndividualEnergyCapabilitiesOneTick(
+      capability, energy, lifecycle, presence, 4,
+    );
+
+    expect([0, 1, 2, 3].map((entityId) =>
+      getIndividualAttackRecoveryDurationPercent(capability, entityId),
+    )).toEqual([100, 110, 135, 175]);
+    expect([0, 1, 2, 3].map((entityId) =>
+      getIndividualGuardReadinessRecoveryPercent(capability, entityId),
+    )).toEqual([100, 90, 70, 50]);
+    expect(getIndividualEnergyCapabilityInspection(capability, 3))
+      .toMatchObject({
+        sourceEnergy: 0,
+        sourceEnergyBand: "spent",
+        attackRecoveryDurationPercent: 175,
+        guardReadinessRecoveryPercent: 50,
+      });
+  });
+
+  it("uses ratio boundaries and ignores absolute capacity for equal ratios", () => {
+    const energies = [60, 59, 30, 29, 10, 9, 600, 6];
+    const maxima = [100, 100, 100, 100, 100, 100, 1_000, 10];
+    const profiles = createTrustedIndividualEnergyProfileStore({
+      entityCount: energies.length,
+      profiles: energies.map((startingEnergy, entityId) => ({
+        entityId, startingEnergy, maximumEnergy: maxima[entityId]!,
+      })),
+    });
+    const energy = createIndividualEnergyStore(profiles);
+    const lifecycle = createIndividualCasualtyLifecycleStore(energies.length);
+    const presence = createIndividualPlayerPresenceStore(energies.length);
+    const capability = createIndividualEnergyCapabilityStore(
+      energies.length, energy, lifecycle, presence,
+    );
+    projectIndividualEnergyCapabilitiesOneTick(
+      capability, energy, lifecycle, presence, 0,
+    );
+
+    expect(energies.map((_, entityId) =>
+      getIndividualEnergyCapabilityInspection(capability, entityId)
+        .sourceEnergyBand,
+    )).toEqual([
+      "fresh", "working", "working", "winded",
+      "winded", "spent", "fresh", "fresh",
+    ]);
+    expect(getIndividualAttackRecoveryDurationPercent(capability, 0))
+      .toBe(getIndividualAttackRecoveryDurationPercent(capability, 6));
+    expect(getIndividualAttackRecoveryDurationPercent(capability, 0))
+      .toBe(getIndividualAttackRecoveryDurationPercent(capability, 7));
+    expect(getIndividualGuardReadinessRecoveryPercent(capability, 0))
+      .toBe(getIndividualGuardReadinessRecoveryPercent(capability, 7));
   });
 
   it("does not feed same-tick expenditure back into an existing projection", () => {
@@ -158,6 +238,8 @@ describe("individual tick-start energy capability", () => {
         minimumSafeWalkAvailable: false,
         minimumActiveSpecialistWalkAvailable: false,
         respawnEgressProcedureWalkAvailable: false,
+        attackRecoveryDurationPercent: 100,
+        guardReadinessRecoveryPercent: 100,
       });
   });
 
@@ -165,6 +247,9 @@ describe("individual tick-start energy capability", () => {
     const fixture = capabilityFixture(100);
     expect(() => assertIndividualEnergyCapabilityProjectionTick(
       fixture.capability, 0,
+    )).toThrow(/stale/);
+    expect(() => assertIndividualEnergyCapabilityProjectionTick(
+      fixture.capability, 1,
     )).toThrow(/stale/);
     projectIndividualEnergyCapabilitiesOneTick(
       fixture.capability,
@@ -195,6 +280,27 @@ describe("individual tick-start energy capability", () => {
       fixture.presence,
       1,
     )).toThrow(/cannot move backwards/);
+    expect(() => assertIndividualEnergyCapabilityProjectionTick(
+      fixture.capability, 3,
+    )).toThrow(/stale/);
+    expect(() => getIndividualAttackRecoveryDurationPercent(
+      fixture.capability, 1,
+    )).toThrow(/Invalid energy capability entity ID/);
+    expect(() => getIndividualGuardReadinessRecoveryPercent(
+      fixture.capability, -1,
+    )).toThrow(/Invalid energy capability entity ID/);
+  });
+
+  it("retains entity-count validation for combat capability projection", () => {
+    const fixture = capabilityFixture(100);
+    const mismatchedLifecycle = createIndividualCasualtyLifecycleStore(2);
+    expect(() => projectIndividualEnergyCapabilitiesOneTick(
+      fixture.capability,
+      fixture.energy,
+      mismatchedLifecycle,
+      fixture.presence,
+      0,
+    )).toThrow(/match entityCount/);
   });
 });
 

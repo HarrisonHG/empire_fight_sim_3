@@ -21,6 +21,26 @@ export interface IndividualEnergyCapabilityStore {
   readonly entityCount: number;
 }
 
+export const INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_SCALE = 100;
+export const INDIVIDUAL_ATTACK_RECOVERY_PERCENT_BY_ENERGY_BAND = Object.freeze({
+  fresh: 100,
+  working: 110,
+  winded: 135,
+  spent: 175,
+} satisfies Readonly<Record<IndividualEnergyBand, number>>);
+export const INDIVIDUAL_GUARD_READINESS_RECOVERY_PERCENT_BY_ENERGY_BAND =
+  Object.freeze({
+    fresh: 100,
+    working: 90,
+    winded: 70,
+    spent: 50,
+  } satisfies Readonly<Record<IndividualEnergyBand, number>>);
+
+export interface IndividualCombatEnergyCapabilityInput {
+  readonly capabilities: IndividualEnergyCapabilityStore;
+  readonly tick: number;
+}
+
 export interface IndividualEnergyCapabilityInspection {
   readonly projectionTick: number | null;
   readonly sourceEnergy: number;
@@ -33,6 +53,8 @@ export interface IndividualEnergyCapabilityInspection {
   readonly minimumSafeWalkAvailable: boolean;
   readonly minimumActiveSpecialistWalkAvailable: boolean;
   readonly respawnEgressProcedureWalkAvailable: boolean;
+  readonly attackRecoveryDurationPercent: number;
+  readonly guardReadinessRecoveryPercent: number;
 }
 
 interface InternalIndividualEnergyCapabilityStore
@@ -47,12 +69,20 @@ interface InternalIndividualEnergyCapabilityStore
   readonly minimumSafeWalkByEntity: Uint8Array;
   readonly minimumActiveSpecialistWalkByEntity: Uint8Array;
   readonly respawnEgressProcedureWalkByEntity: Uint8Array;
+  readonly attackRecoveryDurationPercentByEntity: Uint16Array;
+  readonly guardReadinessRecoveryPercentByEntity: Uint16Array;
   projectionTick: number | null;
 }
 
 const BANDS: readonly IndividualEnergyBand[] = Object.freeze([
   "fresh", "working", "winded", "spent",
 ]);
+validateCombatCapabilityPercentTable(
+  INDIVIDUAL_ATTACK_RECOVERY_PERCENT_BY_ENERGY_BAND,
+);
+validateCombatCapabilityPercentTable(
+  INDIVIDUAL_GUARD_READINESS_RECOVERY_PERCENT_BY_ENERGY_BAND,
+);
 const capabilityStoreInternals = new WeakMap<
   IndividualEnergyCapabilityStore,
   InternalIndividualEnergyCapabilityStore
@@ -82,6 +112,8 @@ export function createIndividualEnergyCapabilityStore(
     minimumSafeWalkByEntity: new Uint8Array(entityCount),
     minimumActiveSpecialistWalkByEntity: new Uint8Array(entityCount),
     respawnEgressProcedureWalkByEntity: new Uint8Array(entityCount),
+    attackRecoveryDurationPercentByEntity: new Uint16Array(entityCount),
+    guardReadinessRecoveryPercentByEntity: new Uint16Array(entityCount),
     projectionTick: null,
   });
   populateCapabilities(store, energy, lifecycle, presence, null);
@@ -157,6 +189,10 @@ function populateCapabilities(
     internal.minimumActiveSpecialistWalkByEntity[entityId] = mobile ? 1 : 0;
     internal.respawnEgressProcedureWalkByEntity[entityId] =
       respawnEgressWalkAvailable ? 1 : 0;
+    internal.attackRecoveryDurationPercentByEntity[entityId] =
+      INDIVIDUAL_ATTACK_RECOVERY_PERCENT_BY_ENERGY_BAND[band];
+    internal.guardReadinessRecoveryPercentByEntity[entityId] =
+      INDIVIDUAL_GUARD_READINESS_RECOVERY_PERCENT_BY_ENERGY_BAND[band];
   }
 }
 
@@ -204,6 +240,10 @@ export function getIndividualEnergyCapabilityInspection(
       internal.minimumActiveSpecialistWalkByEntity[entityId] !== 0,
     respawnEgressProcedureWalkAvailable:
       internal.respawnEgressProcedureWalkByEntity[entityId] !== 0,
+    attackRecoveryDurationPercent:
+      internal.attackRecoveryDurationPercentByEntity[entityId]!,
+    guardReadinessRecoveryPercent:
+      internal.guardReadinessRecoveryPercentByEntity[entityId]!,
   };
 }
 
@@ -264,6 +304,37 @@ export function getIndividualMinimumSafeWalkAvailable(
   const internal = requireStore(store);
   assertEntityId(entityId, internal.entityCount);
   return internal.minimumSafeWalkByEntity[entityId] !== 0;
+}
+
+export function getIndividualAttackRecoveryDurationPercent(
+  store: IndividualEnergyCapabilityStore,
+  entityId: number,
+): number {
+  const internal = requireStore(store);
+  assertEntityId(entityId, internal.entityCount);
+  return internal.attackRecoveryDurationPercentByEntity[entityId]!;
+}
+
+export function getIndividualGuardReadinessRecoveryPercent(
+  store: IndividualEnergyCapabilityStore,
+  entityId: number,
+): number {
+  const internal = requireStore(store);
+  assertEntityId(entityId, internal.entityCount);
+  return internal.guardReadinessRecoveryPercentByEntity[entityId]!;
+}
+
+function validateCombatCapabilityPercentTable(
+  table: Readonly<Record<IndividualEnergyBand, number>>,
+): void {
+  for (let index = 0; index < BANDS.length; index += 1) {
+    const percent = table[BANDS[index]!];
+    if (!Number.isSafeInteger(percent) || percent <= 0) {
+      throw new RangeError(
+        "Combat energy capability percentages must be positive safe integers.",
+      );
+    }
+  }
 }
 
 function maximumGaitForBand(

@@ -3,7 +3,8 @@
 Status: active; 7A and 7B are complete. 7C-1 gait authority and capability
 projection and 7C-2 formation and routing movement enforcement are
 implemented. 7C specialist movement enforcement and consolidation is complete.
-7D combat exertion, attack tempo, and guard recovery is planned; 7D-1 is next.
+7D combat exertion, attack tempo, and guard recovery is in progress; 7D-1 is
+implemented and 7D-2 is next.
 
 Implementation begins after Milestone 6 is accepted and the post-Milestone-6 main-battle medical integration spike is retained as the evolving `/` scenario.
 
@@ -1239,7 +1240,7 @@ rest behaviour, renderer, worker, UI, or content expansion.
 
 ---
 
-## 7D — Combat exertion, attack tempo, and guard recovery — planned; 7D-1 next
+## 7D — Combat exertion, attack tempo, and guard recovery — in progress; 7D-1 implemented, 7D-2 next
 
 ### Goal
 
@@ -1496,7 +1497,7 @@ do not add a production exception or neutralise the evolving `/` scenario.
 
 ### Ordered implementation slices
 
-#### 7D-1 — Combat capability projection and contract
+#### 7D-1 — Combat capability projection and contract — implemented
 
 Deliver:
 

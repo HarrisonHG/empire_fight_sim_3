@@ -19,9 +19,11 @@ import {
 } from "../../src/sim/individualEnergyActivity";
 import {
   createIndividualEnergyCapabilityStore,
+  getIndividualAttackRecoveryDurationPercent,
   getIndividualEnergyCapabilityInspection,
   projectIndividualEnergyCapabilitiesOneTick,
   getIndividualEnergyCapabilityProjectionTick,
+  getIndividualGuardReadinessRecoveryPercent,
   getIndividualMaximumOrdinaryGait,
   getIndividualMaximumRoutingGait,
   getIndividualMinimumSafeWalkAvailable,
@@ -134,6 +136,7 @@ describe("individual energy structural performance", () => {
         2,
       );
       let capabilityChecksum = 0;
+      let combatCapabilityChecksum = 0;
       for (let entityId = 0; entityId < entityCount; entityId += 1) {
         const capability = getIndividualEnergyCapabilityInspection(
           capabilityStore,
@@ -141,6 +144,12 @@ describe("individual energy structural performance", () => {
         );
         capabilityChecksum += capability.sourceEnergy +
           (capability.canInitiateOrdinarySprintOrCharge ? 1 : 0);
+        combatCapabilityChecksum +=
+          getIndividualAttackRecoveryDurationPercent(
+            capabilityStore, entityId,
+          ) + getIndividualGuardReadinessRecoveryPercent(
+            capabilityStore, entityId,
+          );
       }
       const capabilityMilliseconds = performance.now() - capabilityStart;
 
@@ -151,6 +160,8 @@ describe("individual energy structural performance", () => {
       expect(inspectionFieldCount).toBeLessThanOrEqual(16);
       expect(Number.isSafeInteger(inspectionChecksum)).toBe(true);
       expect(Number.isSafeInteger(capabilityChecksum)).toBe(true);
+      expect(Number.isSafeInteger(combatCapabilityChecksum)).toBe(true);
+      expect(combatCapabilityChecksum).toBeGreaterThan(0);
       expect(Object.keys(capabilityStore)).toEqual(["entityCount"]);
       expect(Object.keys(profiles)).toEqual(["entityCount"]);
       expect(Object.keys(energy)).toEqual(["entityCount"]);
@@ -165,6 +176,8 @@ describe("individual energy structural performance", () => {
         bandCounts,
         inspectionFieldCount,
         storageShape: "entity-indexed typed arrays behind opaque stores",
+        combatCapabilityHotPath:
+          "allocation-free primitive getters; bounded inspection excluded",
         timingPolicy: "Structural assertions only; no machine timing threshold.",
       }, null, 2));
     });
