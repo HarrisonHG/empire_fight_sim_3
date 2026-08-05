@@ -34,7 +34,6 @@ import {
   NO_INDIVIDUAL_TARGET,
 } from "../../src/sim/individualMeleeTargetSelection";
 import { isIndividualCombatEligible } from "../../src/sim/individualCombatEligibility";
-import { getIndividualEnergyActivityInspection } from "../../src/sim/individualEnergyActivity";
 import {
   advanceSimulationOneTick,
   createSimulation,
@@ -295,128 +294,6 @@ describe("individual medical urgency and prepared discovery", () => {
 });
 
 describe("production trauma withdrawal", () => {
-  it.each([
-    [100, 4, "sprinting", 40],
-    [20, 2, "jogging", 8],
-    [0, 1, "walking", 1],
-  ] as const)(
-    "enforces withdrawal capability from starting energy %i",
-    (startingEnergy, expectedStep, expectedEffectiveGait, expectedCost) => {
-      const patient = {
-        ...unit(1, 1, 40, "none", "regular", "oneHanded"),
-        memberMaxStep: 4,
-        energyProfile: {
-          maximumEnergy: 100,
-          startingEnergy,
-          safeRestRecoveryPerTick: 0,
-        },
-      };
-      const healer = {
-        ...unit(2, 1, 100, "none", "regular"),
-        medicalProfile: physick(),
-      };
-      const hostile = unit(3, 2, 220, "none", "regular", "oneHanded", -1);
-      const simulation = createSimulation(medicalScenario(
-        [patient, healer, hostile],
-        [0],
-      ));
-      const combat = requireCombat(simulation);
-      applyTrauma(combat, 0);
-      const beforeX = simulation.world.positionsX[0]!;
-
-      advanceSimulationOneTick(simulation);
-
-      expect(simulation.world.positionsX[0]! - beforeX).toBe(expectedStep);
-      expect(getIndividualEnergyActivityInspection(
-        combat.individualEnergyActivityStore, 0,
-      )).toMatchObject({
-        requestedPhysicalGait: "sprinting",
-        effectivePhysicalGait: expectedEffectiveGait,
-        actualPhysicalGait: expectedEffectiveGait,
-        gaitReducedByCapability: expectedEffectiveGait !== "sprinting",
-        physicalGaitSource: "traumaWithdrawal",
-        movementExpenditureRequested: expectedCost,
-        expenditureApplied: Math.min(startingEnergy, expectedCost),
-      });
-      expect(getIndividualMovementMode(combat.formationStore, 0))
-        .toBe("withdrawForTreatment");
-    },
-  );
-
-  it("uses following-tick capability after withdrawal exhausts working energy", () => {
-    const patient = {
-      ...unit(1, 1, 40, "none", "regular", "oneHanded"),
-      memberMaxStep: 4,
-      energyProfile: {
-        maximumEnergy: 100,
-        startingEnergy: 30,
-        safeRestRecoveryPerTick: 0,
-      },
-    };
-    const healer = {
-      ...unit(2, 1, 120, "none", "regular"),
-      medicalProfile: physick(),
-    };
-    const simulation = createSimulation(medicalScenario([
-      patient,
-      healer,
-      unit(3, 2, 220, "none", "regular", "oneHanded", -1),
-    ], [0]));
-    const combat = requireCombat(simulation);
-    applyTrauma(combat, 0);
-
-    advanceSimulationOneTick(simulation);
-    expect(getIndividualEnergyActivityInspection(
-      combat.individualEnergyActivityStore, 0,
-    )).toMatchObject({
-      effectivePhysicalGait: "sprinting",
-      actualPhysicalGait: "sprinting",
-      movementExpenditureRequested: 40,
-    });
-    const beforeNextX = simulation.world.positionsX[0]!;
-
-    advanceSimulationOneTick(simulation);
-    expect(simulation.world.positionsX[0]! - beforeNextX).toBe(1);
-    expect(getIndividualEnergyActivityInspection(
-      combat.individualEnergyActivityStore, 0,
-    )).toMatchObject({
-      requestedPhysicalGait: "sprinting",
-      effectivePhysicalGait: "walking",
-      actualPhysicalGait: "walking",
-      movementExpenditureRequested: 1,
-    });
-  });
-
-  it("keeps a world-bounded withdrawal attempt stationary and free", () => {
-    const patient = {
-      ...unit(1, 1, 0, "none", "regular", "oneHanded"),
-      memberMaxStep: 4,
-    };
-    const hostile = unit(2, 2, 10, "none", "regular", "oneHanded", -1);
-    const simulation = createSimulation(medicalScenario(
-      [patient, hostile],
-      [0],
-    ));
-    const combat = requireCombat(simulation);
-    applyTrauma(combat, 0);
-
-    advanceSimulationOneTick(simulation);
-
-    expect(simulation.world.positionsX[0]).toBe(0);
-    expect(getIndividualEnergyActivityInspection(
-      combat.individualEnergyActivityStore, 0,
-    )).toMatchObject({
-      requestedPhysicalGait: "sprinting",
-      effectivePhysicalGait: "sprinting",
-      actualPhysicalGait: "stationary",
-      gaitProducedDisplacement: false,
-      movementExpenditureRequested: 0,
-      expenditureApplied: 0,
-    });
-    expect(getIndividualMovementMode(combat.formationStore, 0))
-      .toBe("holdPosition");
-  });
-
   it("withdraws on the next decision tick, seeks an available Physick, and remains targetable", () => {
     const patient = unit(1, 1, 50, "none", "regular", "oneHanded");
     const healer = {

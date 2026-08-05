@@ -66,11 +66,6 @@ export interface IndividualSpecialistPhysicalGaitAdapter {
     authority: IndividualSpecialistMovementAuthority,
     requestedGait: IndividualPhysicalGait,
   ): IndividualPhysicalGait;
-  constrainPreflightedActiveDragHelperGait(
-    entityId: number,
-    requestedGait: IndividualPhysicalGait,
-    groupEffectiveGait: IndividualPhysicalGait,
-  ): void;
   completeActiveSpecialistMovement(
     entityId: number,
     authority: IndividualSpecialistMovementAuthority,

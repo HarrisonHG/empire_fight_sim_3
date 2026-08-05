@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   advanceFormationOneTick,
-  applyIndividualExternalMovementIntent,
   computeSlotWorldPosition,
   createFormationBehaviourStore,
   getIndividualPressure,
@@ -580,43 +579,6 @@ function createOrdinaryBoundaryHarness(options: {
 }
 
 describe("formation behaviour: physical gait authority", () => {
-  it("applies a caller ceiling without allowing it to increase configured movement", () => {
-    const bounded = createEnergyEnforcementHarness({
-      requestedGait: "sprinting",
-      memberMaxStep: 4,
-    });
-    const startX = bounded.world.positionsX[0]!;
-    expect(applyIndividualExternalMovementIntent(
-      bounded.world, bounded.store, 0, 500, 95, "approachClaimedPatient", 2,
-    )).toBe(true);
-    expect(bounded.world.positionsX[0]).toBe(startX + 2);
-
-    const defensive = createEnergyEnforcementHarness({
-      requestedGait: "walking",
-      memberMaxStep: 1,
-    });
-    const defensiveStartX = defensive.world.positionsX[0]!;
-    applyIndividualExternalMovementIntent(
-      defensive.world,
-      defensive.store,
-      0,
-      500,
-      95,
-      "approachClaimedPatient",
-      20,
-    );
-    expect(defensive.world.positionsX[0]).toBe(defensiveStartX + 1);
-    expect(() => applyIndividualExternalMovementIntent(
-      defensive.world,
-      defensive.store,
-      0,
-      500,
-      95,
-      "approachClaimedPatient",
-      -1,
-    )).toThrow(/non-negative safe integer/);
-  });
-
   it("bounds ordinary anchors and members at every outward world edge", () => {
     for (const edge of [
       { anchorX: 0, anchorY: 2, headingX: -1 as const, headingY: 0 as const },

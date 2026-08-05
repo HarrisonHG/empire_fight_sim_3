@@ -58,8 +58,6 @@ import {
 import { advanceSimulationOneTick, createSimulation } from "../../src/sim/simulation";
 import { getIndividualCasualtyHistoryInspection as getConsolidatedCasualtyHistory } from "../../src/sim/individualCasualtyConsolidation";
 import { submitIndividualExecutionIntent } from "../../src/sim/individualExecutionAction";
-import { getIndividualEnergyActivityInspection } from "../../src/sim/individualEnergyActivity";
-import { setIndividualCurrentEnergyForTrustedSetup } from "../../src/sim/individualEnergy";
 import type { IndividualMeleeAttackAttemptRecord } from "../../src/sim/individualCombatAction";
 import type { IndividualLandedHitGateDecisionRecord } from "../../src/sim/individualLandedHitGate";
 import {
@@ -807,109 +805,6 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
     );
   });
 
-  it.each([
-    [100, 4, "sprinting", 40],
-    [20, 2, "jogging", 8],
-    [0, 1, "walking", 1],
-  ] as const)(
-    "enforces claimed-Physick approach capability from energy %i",
-    (currentEnergy, expectedStep, expectedEffectiveGait, expectedCost) => {
-      const simulation = createClaimCommitmentSimulation(
-        undefined,
-        { memberMaxStep: 4, order: "hold", healerX: 160 },
-      );
-      const combat = requireCombat(simulation);
-      down(simulation, 0, 0);
-      advanceUntilClaimCreated(simulation, 0, 3);
-      setIndividualCurrentEnergyForTrustedSetup(
-        simulation.individualEnergyStore, 3, currentEnergy,
-      );
-      const beforeX = simulation.world.positionsX[3]!;
-
-      advanceSimulationOneTick(simulation);
-
-      expect(beforeX - simulation.world.positionsX[3]!).toBe(expectedStep);
-      expect(getIndividualEnergyActivityInspection(
-        combat.individualEnergyActivityStore, 3,
-      )).toMatchObject({
-        requestedPhysicalGait: "sprinting",
-        effectivePhysicalGait: expectedEffectiveGait,
-        actualPhysicalGait: expectedEffectiveGait,
-        gaitReducedByCapability: expectedEffectiveGait !== "sprinting",
-        physicalGaitSource: "medicalApproach",
-        movementExpenditureRequested: expectedCost,
-        expenditureApplied: Math.min(currentEnergy, expectedCost),
-      });
-      expect(getIndividualMovementMode(combat.formationStore, 3))
-        .toBe("approachClaimedPatient");
-      expect(isIndividualOrdinaryParticipationEligible(
-        combat.individualOrdinaryParticipationSnapshot, 3,
-      )).toBe(false);
-    },
-  );
-
-  it("uses following-tick capability after medical approach exhausts energy", () => {
-    const simulation = createClaimCommitmentSimulation(
-      undefined,
-      { memberMaxStep: 4, order: "hold", healerX: 170 },
-    );
-    const combat = requireCombat(simulation);
-    down(simulation, 0, 0);
-    advanceUntilClaimCreated(simulation, 0, 3);
-    setIndividualCurrentEnergyForTrustedSetup(
-      simulation.individualEnergyStore, 3, 30,
-    );
-
-    advanceSimulationOneTick(simulation);
-    expect(getIndividualEnergyActivityInspection(
-      combat.individualEnergyActivityStore, 3,
-    )).toMatchObject({
-      effectivePhysicalGait: "sprinting",
-      actualPhysicalGait: "sprinting",
-      movementExpenditureRequested: 40,
-      expenditureApplied: 30,
-    });
-    const beforeNextX = simulation.world.positionsX[3]!;
-
-    advanceSimulationOneTick(simulation);
-    expect(beforeNextX - simulation.world.positionsX[3]!).toBe(1);
-    expect(getIndividualEnergyActivityInspection(
-      combat.individualEnergyActivityStore, 3,
-    )).toMatchObject({
-      requestedPhysicalGait: "sprinting",
-      effectivePhysicalGait: "walking",
-      actualPhysicalGait: "walking",
-      movementExpenditureRequested: 1,
-    });
-  });
-
-  it("keeps an already-in-range claimed Physick stationary and free", () => {
-    const simulation = createClaimCommitmentSimulation(
-      undefined,
-      { memberMaxStep: 4, order: "hold" },
-    );
-    const combat = requireCombat(simulation);
-    down(simulation, 0, 0);
-    advanceUntilClaimCreated(simulation, 0, 3);
-    simulation.world.positionsX[3] = simulation.world.positionsX[0]! +
-      INDIVIDUAL_TREATMENT_TOUCH_RANGE;
-    simulation.world.positionsY[3] = simulation.world.positionsY[0]!;
-    const beforeX = simulation.world.positionsX[3]!;
-
-    advanceSimulationOneTick(simulation);
-
-    expect(simulation.world.positionsX[3]).toBe(beforeX);
-    expect(getIndividualEnergyActivityInspection(
-      combat.individualEnergyActivityStore, 3,
-    )).toMatchObject({
-      requestedPhysicalGait: "stationary",
-      effectivePhysicalGait: "stationary",
-      actualPhysicalGait: "stationary",
-      movementExpenditureRequested: 0,
-      expenditureApplied: 0,
-    });
-  });
-
   it("does not commit toward a terminal patient and clears the stale claim later that tick", () => {
     const simulation = createClaimCommitmentSimulation();
     const combat = requireCombat(simulation);
@@ -1581,11 +1476,6 @@ function createClaimCommitmentSimulation(
     readonly weaponCategory: "unarmed" | "oneHanded";
     readonly shieldClass: "none" | "shield";
   } = { weaponCategory: "unarmed", shieldClass: "none" },
-  movement: {
-    readonly memberMaxStep?: number;
-    readonly order?: "hold" | "advance";
-    readonly healerX?: number;
-  } = {},
 ): SimulationState {
   return createSimulation({
     seed: 0x6e_04,
@@ -1599,20 +1489,10 @@ function createClaimCommitmentSimulation(
       units: [
         unit(1, 1, 100, 3),
         {
-          ...unit(2, 1, movement.healerX ?? 130, 1),
+          ...unit(2, 1, 130, 1),
           headingX: -1,
-          order: movement.order ?? "advance",
+          order: "advance",
           unitSpeed: 1,
-          memberMaxStep: movement.memberMaxStep ?? 1,
-          ...(movement.memberMaxStep === undefined
-            ? {}
-            : {
-                energyProfile: {
-                  maximumEnergy: 100,
-                  startingEnergy: 100,
-                  safeRestRecoveryPerTick: 0,
-                },
-              }),
           weaponCategory: equipment.weaponCategory,
           shieldClass: equipment.shieldClass,
           medicalProfile: {

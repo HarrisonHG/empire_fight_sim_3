@@ -42,7 +42,6 @@ import {
 } from "./formationBehaviour";
 import type { UnitMoraleMovementStateSource } from "./moraleMovement";
 import {
-  physicalGaitCoordinateCeiling,
   requestedPhysicalGaitForMaximumStep,
   type IndividualSpecialistPhysicalGaitAdapter,
 } from "./individualPhysicalGait";
@@ -700,22 +699,14 @@ export function advanceIndividualTraumaWithdrawalMovementOneTick(
   for (let entityId = 0; entityId < world.entityCount; entityId += 1) {
     if (internal.withdrawingByEntity[entityId] === 0) continue;
     if (isReceivingTreatment(entityId)) continue;
-    const configuredMaximumStep = getIndividualConfiguredMaxStep(
-      formationStore,
-      entityId,
-    );
     const requestedGait = requestedPhysicalGaitForMaximumStep(
-      configuredMaximumStep,
+      getIndividualConfiguredMaxStep(formationStore, entityId),
     );
-    const effectiveGait = gaitAdapter?.preflightActiveSpecialistMovement(
+    gaitAdapter?.preflightActiveSpecialistMovement(
       entityId,
       "traumaWithdrawal",
       requestedGait,
-    ) ?? requestedGait;
-    const gaitCoordinateCeiling = physicalGaitCoordinateCeiling(effectiveGait);
-    const finalMaximumStep = gaitCoordinateCeiling === null
-      ? configuredMaximumStep
-      : Math.min(configuredMaximumStep, gaitCoordinateCeiling);
+    );
     const moved = applyIndividualExternalMovementIntent(
       world,
       formationStore,
@@ -723,13 +714,12 @@ export function advanceIndividualTraumaWithdrawalMovementOneTick(
       Math.round(internal.withdrawalGoalXByEntity[entityId]!),
       Math.round(internal.withdrawalGoalYByEntity[entityId]!),
       "withdrawForTreatment",
-      finalMaximumStep,
     );
     gaitAdapter?.completeActiveSpecialistMovement(
       entityId,
       "traumaWithdrawal",
       requestedGait,
-      effectiveGait,
+      requestedGait,
       moved,
     );
     if (moved) movedCount += 1;
