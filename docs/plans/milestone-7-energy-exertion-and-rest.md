@@ -2,8 +2,8 @@
 
 Status: active; 7A and 7B are complete. 7C-1 gait authority and capability
 projection and 7C-2 formation and routing movement enforcement are
-implemented. 7C-3 specialist movement enforcement and consolidation is in
-progress: 7C-3a, 7C-3b, and 7C-3c are implemented and 7C-3d is next.
+implemented. 7C specialist movement enforcement and consolidation is complete;
+7D is next.
 
 Implementation begins after Milestone 6 is accepted and the post-Milestone-6 main-battle medical integration spike is retained as the evolving `/` scenario.
 
@@ -747,8 +747,7 @@ inspection exposes only a read-model value sourced from that authority.
 
 This correction changes no tuning, activity classification, expenditure,
 recovery, or gameplay outcome. Milestone 7B is complete after this correction;
-7C-1, 7C-2, 7C-3a, 7C-3b, and 7C-3c are implemented below; 7C-3d remains the next
-implementation slice.
+7C-1, 7C-2, and 7C-3 are implemented below; 7C is complete and 7D is next.
 
 ---
 
@@ -857,7 +856,7 @@ movement enforcement belongs to this step.
 
 ---
 
-## 7C-3 — Specialist movement enforcement and consolidation — in progress; 7C-3a, 7C-3b, and 7C-3c implemented
+## 7C-3 — Specialist movement enforcement and consolidation — complete
 
 ### Goal
 
@@ -1174,7 +1173,7 @@ Boundary:
 No drag surcharge, equipment burden, missing-hit modifier, defence change,
 treatment change, or pathfinding.
 
-#### 7C-3d — Respawn egress enforcement and production consolidation
+#### 7C-3d — Respawn egress enforcement and production consolidation — implemented
 
 Deliver:
 

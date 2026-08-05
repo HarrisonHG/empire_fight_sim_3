@@ -928,7 +928,7 @@ describe("individual casualty lifecycle structural performance", () => {
 
   it.each([
     { entityCount: 2_000, egressCount: 20, startX: 100, arrivalCount: 0, label: "sparse" },
-    { entityCount: 2_000, egressCount: 2_000, startX: 4, arrivalCount: 2_000, label: "casualty-heavy same-tick arrival" },
+    { entityCount: 2_000, egressCount: 2_000, startX: 1, arrivalCount: 2_000, label: "casualty-heavy same-tick arrival" },
   ])("advances $label respawn egress with one bounded record per active presence", ({
     entityCount, egressCount, startX, arrivalCount,
   }) => {

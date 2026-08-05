@@ -789,7 +789,7 @@ describe("individual casualty assistance and sparse drag groups", () => {
   });
 
   it("uses the slowest helper capability for the coherent two-fighter drag group regardless of helper order", () => {
-    const run = (limitedHelperEntityId: 1 | 2) => {
+    const run = (reverseActiveHelpers: boolean) => {
       const simulation = createSimulation(scenario([
         {
           ...multiUnit(1, 1, 100, 3),
@@ -808,7 +808,7 @@ describe("individual casualty assistance and sparse drag groups", () => {
       simulation.world.positionsX[2] = 104;
       spendIndividualEnergy(
         simulation.individualEnergyStore,
-        limitedHelperEntityId,
+        1,
         100,
         0,
       );
@@ -824,6 +824,10 @@ describe("individual casualty assistance and sparse drag groups", () => {
       };
       group.destinationX = 20;
       group.destinationY = 60;
+      if (reverseActiveHelpers) {
+        (group as { helperEntityIds: readonly number[] }).helperEntityIds =
+          Object.freeze([...group.helperEntityIds].reverse());
+      }
       const beforeX = Array.from(simulation.world.positionsX);
 
       advanceSimulationOneTick(simulation);
@@ -858,11 +862,17 @@ describe("individual casualty assistance and sparse drag groups", () => {
         ).sort((left, right) => left - right),
         remainder: group.dragSpeedRemainder,
         movementResult: combat.casualtyDragMovementResult,
+        groupState: {
+          phase: group.phase,
+          helperEntityIds: [...group.helperEntityIds].sort((left, right) => left - right),
+          destinationX: group.destinationX,
+          destinationY: group.destinationY,
+        },
       };
     };
 
-    const canonical = run(1);
-    const reversed = run(2);
+    const canonical = run(false);
+    const reversed = run(true);
 
     expect(reversed).toEqual(canonical);
     expect(canonical.deltas[0]).not.toBe(0);
@@ -896,6 +906,51 @@ describe("individual casualty assistance and sparse drag groups", () => {
       physicalGaitSource: "draggedPatient",
       movementExpenditureRequested: 0,
       expenditureApplied: 0,
+    });
+  });
+
+  it("preserves the exact pre-energy drag step when the requested gait is sprinting", () => {
+    const simulation = createSimulation(scenario([
+      unit(1, 1, 100),
+      {
+        ...unit(2, 1, 104),
+        memberMaxStep: 8,
+        medicalProfile: physick(),
+        energyProfile: {
+          maximumEnergy: 100,
+          startingEnergy: 100,
+          safeRestRecoveryPerTick: 0,
+        },
+      },
+      unit(3, 2, 230),
+    ], [0, 1]));
+    const combat = requireCombat(simulation);
+    down(simulation, 0, 0);
+    advanceSimulationOneTick(simulation);
+    advanceSimulationOneTick(simulation);
+    const group = getActiveCasualtyDragGroups(
+      combat.casualtyDragGroupStore,
+    )[0]! as ReturnType<typeof getActiveCasualtyDragGroups>[number] & {
+      destinationX: number;
+      destinationY: number;
+      dragSpeedRemainder: number;
+    };
+    group.destinationX = 20;
+    group.destinationY = simulation.world.positionsY[0]!;
+    const beforeX = simulation.world.positionsX[1]!;
+
+    advanceSimulationOneTick(simulation);
+
+    expect(Math.abs(simulation.world.positionsX[1]! - beforeX)).toBe(4);
+    expect(group.dragSpeedRemainder).toBe(0);
+    expect(getIndividualEnergyActivityInspection(
+      combat.individualEnergyActivityStore, 1,
+    )).toMatchObject({
+      requestedPhysicalGait: "sprinting",
+      effectivePhysicalGait: "sprinting",
+      actualPhysicalGait: "sprinting",
+      gaitReducedByCapability: false,
+      movementExpenditureRequested: 40,
     });
   });
 

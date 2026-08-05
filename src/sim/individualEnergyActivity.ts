@@ -1,8 +1,4 @@
 import {
-  getActiveCasualtyDragGroups,
-  type CasualtyDragGroupStore,
-} from "./individualCasualtyAssistance";
-import {
   getIndividualCharacterLifecycleState,
   getIndividualPlayerPresenceState,
   type IndividualCasualtyLifecycleStore,
@@ -50,10 +46,6 @@ import {
 } from "./individualPhysicalGait";
 export type { IndividualPhysicalGait } from "./individualPhysicalGait";
 import type { WorldState } from "./types";
-import {
-  getIndividualConfiguredMaxStep,
-  type FormationBehaviourStore,
-} from "./formationBehaviour";
 
 export const INDIVIDUAL_ENERGY_WALKING_COST_PER_TICK = 1;
 export const INDIVIDUAL_ENERGY_JOGGING_COST_PER_TICK = 8;
@@ -755,70 +747,6 @@ function requireSpecialistAdapter(
   return internal;
 }
 
-export function observeIndividualEnergyCasualtyMovement(
-  store: IndividualEnergyActivityStore,
-  world: WorldState,
-  groups: CasualtyDragGroupStore,
-  formation: FormationBehaviourStore,
-): void {
-  const internal = requireStore(store, world.entityCount);
-  assertObservationOpen(internal);
-  if (groups.entityCount !== internal.entityCount) {
-    throw new RangeError("Energy activity drag store must match entityCount.");
-  }
-  if (formation.entityCount !== internal.entityCount) {
-    throw new RangeError("Energy activity formation store must match entityCount.");
-  }
-  for (const group of getActiveCasualtyDragGroups(groups)) {
-    const helperAuthority = group.phase === "gathering"
-      ? "casualtyGathering"
-      : group.phase === "dragging" || group.phase === "reachedSafety"
-        ? "activeDragHelper"
-        : undefined;
-    if (helperAuthority !== undefined) {
-      for (const helperEntityId of group.helperEntityIds) {
-        if (group.phase !== "reachedSafety" ||
-            entityChangedSinceCheckpoint(internal, world, helperEntityId)) {
-          internal.movementAuthorityMaskByEntity[helperEntityId] =
-            internal.movementAuthorityMaskByEntity[helperEntityId]! |
-            AUTHORITY_BITS[helperAuthority];
-        }
-        markChangedEntity(internal, world, helperEntityId, helperAuthority, false);
-        recordPhysicalGaitEvidence(
-          internal,
-          helperEntityId,
-          helperAuthority,
-          helperAuthority === "activeDragHelper"
-            ? "walking"
-            : requestedGaitForMaximumStep(
-                getIndividualConfiguredMaxStep(formation, helperEntityId),
-              ),
-          entityChangedSinceCheckpoint(internal, world, helperEntityId),
-        );
-      }
-    }
-    if (group.phase === "dragging" ||
-        (group.phase === "reachedSafety" &&
-          entityChangedSinceCheckpoint(internal, world, group.patientEntityId))) {
-      internal.movementAuthorityMaskByEntity[group.patientEntityId] =
-          internal.movementAuthorityMaskByEntity[group.patientEntityId]! |
-          AUTHORITY_BITS.draggedPatient;
-      markChangedEntity(internal, world, group.patientEntityId, "draggedPatient", true);
-      recordPhysicalGaitEvidence(
-        internal,
-        group.patientEntityId,
-        "draggedPatient",
-        "stationary",
-        entityChangedSinceCheckpoint(internal, world, group.patientEntityId),
-      );
-    }
-  }
-  // A cancelled group may have moved before combat. Preserve its already-marked
-  // authority, while advancing every checkpoint before the next movement system.
-  internal.checkpointXByEntity.set(world.positionsX);
-  internal.checkpointYByEntity.set(world.positionsY);
-}
-
 export function classifyIndividualEnergyActivityOneTick(
   store: IndividualEnergyActivityStore,
   dependencies: IndividualEnergyActivityClassificationDependencies,
@@ -1284,30 +1212,6 @@ function addExecutionRecords(
   }
 }
 
-function markChangedEntity(
-  store: InternalIndividualEnergyActivityStore,
-  world: WorldState,
-  entityId: number,
-  authority: IndividualEnergyMovementAuthority,
-  external: boolean,
-): void {
-  assertEntityId(entityId, store.entityCount);
-  if (world.positionsX[entityId] === store.checkpointXByEntity[entityId] &&
-      world.positionsY[entityId] === store.checkpointYByEntity[entityId]) return;
-  store.movementAuthorityMaskByEntity[entityId] =
-    store.movementAuthorityMaskByEntity[entityId]! | AUTHORITY_BITS[authority];
-  if (external) store.externallyMovedByEntity[entityId] = 1;
-}
-
-function entityChangedSinceCheckpoint(
-  store: InternalIndividualEnergyActivityStore,
-  world: WorldState,
-  entityId: number,
-): boolean {
-  return world.positionsX[entityId] !== store.checkpointXByEntity[entityId] ||
-    world.positionsY[entityId] !== store.checkpointYByEntity[entityId];
-}
-
 function orActionEvidence(
   store: InternalIndividualEnergyActivityStore,
   entityId: number,
@@ -1324,12 +1228,6 @@ function movementAuthorities(mask: number): readonly IndividualEnergyMovementAut
     if ((mask & AUTHORITY_BITS[authority]) !== 0) out.push(authority);
   }
   return out;
-}
-
-export function requestedGaitForMaximumStep(
-  maximumStep: number,
-): IndividualPhysicalGait {
-  return requestedPhysicalGaitForMaximumStep(maximumStep);
 }
 
 function recordPhysicalGaitEvidence(

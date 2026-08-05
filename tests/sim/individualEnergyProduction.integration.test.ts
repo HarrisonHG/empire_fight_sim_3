@@ -931,7 +931,7 @@ describe("Milestone 7B-1 production activity observation", () => {
     const simulation = createSimulation(CASUALTY_LIFECYCLE_VISUAL_SCENARIO);
     const observed = new Set<string>();
     let sawWalkingRespawnEgress = false;
-    for (let tick = 0; tick < 130; tick += 1) {
+    for (let tick = 0; tick < 400; tick += 1) {
       advanceSimulationOneTick(simulation);
       for (let entityId = 0; entityId < simulation.world.entityCount; entityId += 1) {
         const activity = getIndividualEnergyActivityInspection(

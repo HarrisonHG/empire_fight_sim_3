@@ -15,9 +15,6 @@ import {
 } from "../../src/sim/individualGlobalHits";
 import { initializeIndividualDeathCountsFromZeroHitTransitions, recordIndividualExecutionTerminal } from "../../src/sim/individualDeathCount";
 import { getIndividualCasualtyHistoryInspection as getConsolidatedCasualtyHistory } from "../../src/sim/individualCasualtyConsolidation";
-import {
-  INDIVIDUAL_RESPAWN_EGRESS_MAXIMUM_STEP,
-} from "../../src/sim/individualRespawnEgress";
 import { getIndividualEnergyCapabilityInspection } from "../../src/sim/individualEnergyCapability";
 import { getIndividualEnergyActivityInspection } from "../../src/sim/individualEnergyActivity";
 import { submitIndividualExecutionIntent } from "../../src/sim/individualExecutionAction";
@@ -32,6 +29,50 @@ import type {
 import type { IndividualMeleeDefenceRecord } from "../../src/sim/individualMeleeDefence";
 
 describe("Milestone 6H-2B respawn egress", () => {
+  it.each([
+    [100, "fresh"],
+    [50, "working"],
+    [20, "winded"],
+    [5, "spent"],
+    [0, "zero"],
+  ] as const)("retains procedure walking at energy %i (%s)", (
+    startingEnergy,
+    _band,
+  ) => {
+    const simulation = createSimulation(
+      scenario(20, { x: 0, y: 60 }, [0], startingEnergy),
+    );
+    const combat = requireCombat(simulation);
+    terminalize(simulation, 0, 0);
+    const startX = simulation.world.positionsX[0]!;
+
+    advanceSimulationOneTick(simulation);
+    expect(simulation.world.positionsX[0]).toBe(startX);
+    advanceSimulationOneTick(simulation);
+
+    expect(startX - simulation.world.positionsX[0]!).toBe(1);
+    expect(getIndividualEnergyCapabilityInspection(
+      combat.individualEnergyCapabilityStore, 0,
+    )).toMatchObject({
+      maximumOrdinaryGait: "stationary",
+      maximumActiveSpecialistGait: "stationary",
+      maximumRespawnEgressGait: "walking",
+      minimumActiveSpecialistWalkAvailable: false,
+      respawnEgressProcedureWalkAvailable: true,
+    });
+    expect(getIndividualEnergyActivityInspection(
+      combat.individualEnergyActivityStore, 0,
+    )).toMatchObject({
+      requestedPhysicalGait: "walking",
+      effectivePhysicalGait: "walking",
+      actualPhysicalGait: "walking",
+      gaitReducedByCapability: false,
+      physicalGaitSource: "respawnEgress",
+      movementExpenditureRequested: 1,
+      expenditureApplied: Math.min(startingEnergy, 1),
+    });
+  });
+
   it("projects procedure walking only after egress has started", () => {
     const simulation = createSimulation(scenario(20, { x: 0, y: 60 }, [0]));
     const combat = requireCombat(simulation);
@@ -72,7 +113,7 @@ describe("Milestone 6H-2B respawn egress", () => {
     });
   });
 
-  it("starts after classification, moves by its own bounded constant and arrives exactly once", () => {
+  it("starts after classification, walks one coordinate and arrives exactly once", () => {
     const simulation = createSimulation(scenario(20, { x: 0, y: 60 }, [0]));
     const combat = requireCombat(simulation);
     terminalize(simulation, 0, 0);
@@ -92,10 +133,7 @@ describe("Milestone 6H-2B respawn egress", () => {
     });
 
     advanceSimulationOneTick(simulation);
-    expect(startX - simulation.world.positionsX[0]!).toBeGreaterThan(0);
-    expect(startX - simulation.world.positionsX[0]!).toBeLessThanOrEqual(
-      INDIVIDUAL_RESPAWN_EGRESS_MAXIMUM_STEP,
-    );
+    expect(startX - simulation.world.positionsX[0]!).toBe(1);
     expect(combat.individualRespawnEgressResult.movementRecords).toHaveLength(1);
 
     const arrivalRecords = [];
@@ -177,12 +215,86 @@ describe("Milestone 6H-2B respawn egress", () => {
     });
     expect(combat.individualRespawnEgressResult.movementRecords).toEqual([]);
     expect(combat.individualRespawnEgressResult.arrivalRecords).toEqual([]);
+    expect(getIndividualEnergyActivityInspection(
+      combat.individualEnergyActivityStore, 0,
+    )).toMatchObject({
+      requestedPhysicalGait: "stationary",
+      effectivePhysicalGait: "stationary",
+      actualPhysicalGait: "stationary",
+      movementExpenditureRequested: 0,
+      expenditureApplied: 0,
+    });
     expect(getIndividualEnergyCapabilityInspection(
       combat.individualEnergyCapabilityStore, 0,
     )).toMatchObject({
       maximumRespawnEgressGait: "stationary",
       respawnEgressProcedureWalkAvailable: false,
     });
+  });
+
+  it("arrives stationary and free exactly once when already at its destination", () => {
+    const simulation = createSimulation(scenario(20, { x: 20, y: 60 }, [0]));
+    const combat = requireCombat(simulation);
+    terminalize(simulation, 0, 0);
+
+    advanceSimulationOneTick(simulation);
+    advanceSimulationOneTick(simulation);
+
+    expect(combat.individualRespawnEgressResult.movementRecords).toEqual([]);
+    expect(combat.individualRespawnEgressResult.arrivalRecords).toHaveLength(1);
+    expect(getIndividualPlayerPresenceState(
+      combat.individualPlayerPresenceStore, 0,
+    )).toBe("waitingAtRespawn");
+    expect(getIndividualEnergyActivityInspection(
+      combat.individualEnergyActivityStore, 0,
+    )).toMatchObject({
+      requestedPhysicalGait: "walking",
+      effectivePhysicalGait: "walking",
+      actualPhysicalGait: "stationary",
+      gaitReducedByCapability: false,
+      physicalGaitSource: "respawnEgress",
+      movementExpenditureRequested: 0,
+      expenditureApplied: 0,
+    });
+
+    advanceSimulationOneTick(simulation);
+    expect(combat.individualRespawnEgressResult.arrivalRecords).toEqual([]);
+    expect(getIndividualEnergyActivityInspection(
+      combat.individualEnergyActivityStore, 0,
+    ).actualPhysicalGait).toBe("stationary");
+  });
+
+  it("compacts simultaneous egress deterministically when one arrives and one continues", () => {
+    const run = () => {
+      const simulation = createSimulation(multipleEgressScenario());
+      const combat = requireCombat(simulation);
+      terminalize(simulation, 0, 0);
+      terminalize(simulation, 1, 0);
+      advanceSimulationOneTick(simulation);
+      advanceSimulationOneTick(simulation);
+      return {
+        positionsX: Array.from(simulation.world.positionsX),
+        presences: [0, 1].map((entityId) =>
+          getIndividualPlayerPresenceState(
+            combat.individualPlayerPresenceStore, entityId,
+          )),
+        movementRecords: [...combat.individualRespawnEgressResult.movementRecords],
+        arrivalRecords: [...combat.individualRespawnEgressResult.arrivalRecords],
+        activeEgressCount: combat.individualRespawnEgressResult.activeEgressCount,
+        activity: [0, 1].map((entityId) =>
+          getIndividualEnergyActivityInspection(
+            combat.individualEnergyActivityStore, entityId,
+          )),
+      };
+    };
+
+    const first = run();
+    expect(run()).toEqual(first);
+    expect(first.presences).toEqual(["waitingAtRespawn", "respawnEgress"]);
+    expect(first.positionsX.slice(0, 2)).toEqual([0, 4]);
+    expect(first.arrivalRecords).toHaveLength(1);
+    expect(first.movementRecords).toHaveLength(2);
+    expect(first.activeEgressCount).toBe(1);
   });
 
   it("rejects citizen destinations and out-of-bounds destinations", () => {
@@ -259,6 +371,7 @@ function scenario(
   barbarianX: number,
   destination?: { readonly x: number; readonly y: number },
   inspectedEntityIds?: readonly number[],
+  startingEnergy?: number,
 ): SimulationScenario {
   return {
     seed: 0x6_82b,
@@ -271,8 +384,32 @@ function scenario(
       appliedDamagePressureScale: 1,
       ...(inspectedEntityIds === undefined ? {} : { inspectedEntityIds }),
       units: [
-        unit(1, 1, barbarianX, "barbarian", destination),
+        {
+          ...unit(1, 1, barbarianX, "barbarian", destination),
+          ...(startingEnergy === undefined ? {} : {
+            energyProfile: {
+              maximumEnergy: 100,
+              startingEnergy,
+              safeRestRecoveryPerTick: 0,
+            },
+          }),
+        },
         unit(2, 2, 260, "citizen"),
+      ],
+    },
+  };
+}
+
+function multipleEgressScenario(): SimulationScenario {
+  return {
+    ...scenario(1, { x: 0, y: 60 }),
+    entityCount: 3,
+    combatSandbox: {
+      ...scenario(1, { x: 0, y: 60 }).combatSandbox!,
+      units: [
+        unit(1, 1, 1, "barbarian", { x: 0, y: 60 }),
+        unit(2, 1, 5, "barbarian", { x: 0, y: 60 }),
+        unit(3, 2, 260, "citizen"),
       ],
     },
   };

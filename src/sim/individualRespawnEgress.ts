@@ -12,9 +12,11 @@ import {
   type IndividualPlayerPresenceStore,
 } from "./individualCasualtyLifecycle";
 import type { WorldState } from "./types";
-import type { IndividualSpecialistPhysicalGaitAdapter } from "./individualPhysicalGait";
+import {
+  physicalGaitCoordinateCeiling,
+  type IndividualSpecialistPhysicalGaitAdapter,
+} from "./individualPhysicalGait";
 
-export const INDIVIDUAL_RESPAWN_EGRESS_MAXIMUM_STEP = 4;
 export const INDIVIDUAL_RESPAWN_EGRESS_ARRIVAL_TOLERANCE = 0;
 
 export interface IndividualRespawnEgressMovementRecord {
@@ -88,7 +90,10 @@ export function advanceIndividualRespawnEgressOneTick(
     if (tick <= getIndividualRespawnEgressStartedTick(presence, entityId)) {
       continue;
     }
-    gaitAdapter?.preflightRespawnEgressMovement(entityId);
+    const effectiveGait = gaitAdapter?.preflightRespawnEgressMovement(entityId)
+      ?? "walking";
+    const coordinateCeiling = physicalGaitCoordinateCeiling(effectiveGait);
+    const maximumStep = coordinateCeiling ?? Number.MAX_SAFE_INTEGER;
     const fromX = world.positionsX[entityId]!;
     const fromY = world.positionsY[entityId]!;
     const deltaX = destinationX - fromX;
@@ -98,13 +103,17 @@ export function advanceIndividualRespawnEgressOneTick(
       arrive(lifecycle, presence, entityId, tick, fromX, fromY, buffers);
       gaitAdapter?.completeRespawnEgressMovement(
         entityId,
-        "walking",
+        effectiveGait,
         false,
       );
       continue;
     }
+    if (maximumStep === 0) {
+      gaitAdapter?.completeRespawnEgressMovement(entityId, effectiveGait, false);
+      continue;
+    }
     const distance = Math.sqrt(distanceSquared);
-    const travel = Math.min(INDIVIDUAL_RESPAWN_EGRESS_MAXIMUM_STEP, distance);
+    const travel = Math.min(maximumStep, distance);
     let moveX = Math.trunc(deltaX * travel / distance);
     let moveY = Math.trunc(deltaY * travel / distance);
     if (moveX === 0 && moveY === 0) {
@@ -128,7 +137,7 @@ export function advanceIndividualRespawnEgressOneTick(
     if (remainingDistanceSquared <= INDIVIDUAL_RESPAWN_EGRESS_ARRIVAL_TOLERANCE ** 2) {
       arrive(lifecycle, presence, entityId, tick, toX, toY, buffers);
     }
-    gaitAdapter?.completeRespawnEgressMovement(entityId, "walking", true);
+    gaitAdapter?.completeRespawnEgressMovement(entityId, effectiveGait, true);
   }
   compactCompletedIndividualRespawnEgressEntities(presence);
   return {

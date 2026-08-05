@@ -12,6 +12,8 @@ import {
   beginIndividualEnergyActivityObservation,
   classifyIndividualEnergyActivityOneTick,
   createIndividualEnergyActivityStore,
+  createIndividualSpecialistPhysicalGaitAdapter,
+  getIndividualEnergyActivityContext,
   getIndividualEnergyActivityInspection,
   observeIndividualEnergyMovementAuthority,
 } from "../../src/sim/individualEnergyActivity";
@@ -24,6 +26,10 @@ import {
   getIndividualMaximumRoutingGait,
   getIndividualMinimumSafeWalkAvailable,
 } from "../../src/sim/individualEnergyCapability";
+import {
+  physicalGaitCoordinateCeiling,
+  type IndividualSpecialistMovementAuthority,
+} from "../../src/sim/individualPhysicalGait";
 import {
   advanceFormationOneTick,
   createFormationBehaviourStore,
@@ -163,6 +169,124 @@ describe("individual energy structural performance", () => {
       }, null, 2));
     });
   }
+});
+
+describe("specialist gait boundary structural performance", () => {
+  it.each([100, 500, 1_000, 2_000])(
+    "projects a fixed representative specialist population among %i entities",
+    (entityCount) => {
+      const specialistCount = 12;
+      const world: WorldState = {
+        entityCount,
+        bounds: { width: 10_000, height: 10_000 },
+        ids: Uint32Array.from({ length: entityCount }, (_, entityId) => entityId),
+        positionsX: new Int32Array(entityCount),
+        positionsY: new Int32Array(entityCount),
+        velocitiesX: new Int32Array(entityCount),
+        velocitiesY: new Int32Array(entityCount),
+      };
+      const profiles = createTrustedIndividualEnergyProfileStore({
+        entityCount,
+        profiles: Array.from({ length: entityCount }, (_, entityId) => ({
+          entityId,
+          maximumEnergy: 100,
+          startingEnergy: [100, 50, 20, 0][entityId % 4]!,
+          safeRestRecoveryPerTick: 0,
+        })),
+      });
+      const energy = createIndividualEnergyStore(profiles);
+      const lifecycle = createIndividualCasualtyLifecycleStore(entityCount);
+      const presence = createIndividualPlayerPresenceStore(entityCount);
+      const capability = createIndividualEnergyCapabilityStore(
+        entityCount, energy, lifecycle, presence,
+      );
+      const activity = createIndividualEnergyActivityStore(entityCount);
+      const adapter = createIndividualSpecialistPhysicalGaitAdapter(
+        activity, capability,
+      );
+      const treatments = createIndividualTreatmentActionStore(entityCount);
+      const executions = createIndividualExecutionActionStore(entityCount);
+      const treatmentBuffers = createIndividualTreatmentActionBuffers();
+      const executionBuffers = createIndividualExecutionActionBuffers();
+      const authorities: readonly IndividualSpecialistMovementAuthority[] = [
+        "casualtyGathering",
+        "medicalApproach",
+        "traumaWithdrawal",
+        "activeDragHelper",
+      ];
+
+      beginIndividualEnergyActivityObservation(activity, world, 0);
+      projectIndividualEnergyCapabilitiesOneTick(
+        capability, energy, lifecycle, presence, 0,
+      );
+      adapter.acceptCapabilityProjection(0);
+      for (let entityId = 0; entityId < specialistCount; entityId += 1) {
+        const authority = authorities[entityId % authorities.length]!;
+        const effectiveGait = adapter.preflightActiveSpecialistMovement(
+          entityId, authority, "sprinting",
+        );
+        const ceiling = physicalGaitCoordinateCeiling(effectiveGait);
+        const appliedStep = ceiling ?? 4;
+        if (appliedStep > 0) world.positionsX[entityId] = appliedStep;
+        adapter.completeActiveSpecialistMovement(
+          entityId,
+          authority,
+          "sprinting",
+          effectiveGait,
+          appliedStep > 0,
+        );
+      }
+      classifyIndividualEnergyActivityOneTick(activity, {
+        world,
+        lifecycle,
+        presence,
+        treatments,
+        treatmentResult: {
+          startedRecords: treatmentBuffers.startedRecords,
+          interruptedRecords: treatmentBuffers.interruptedRecords,
+          completedRecords: treatmentBuffers.completedRecords,
+          reassessmentRequests: treatmentBuffers.reassessmentRequests,
+          activeActionCount: 0,
+          progressedActionCount: 0,
+        },
+        executions,
+        executionResult: {
+          startedRecords: executionBuffers.startedRecords,
+          interruptedRecords: executionBuffers.interruptedRecords,
+          completedRecords: executionBuffers.completedRecords,
+          rejectedIntentRecords: executionBuffers.rejectedIntentRecords,
+          terminalTransitions: executionBuffers.terminalTransitions,
+          activeActionCount: 0,
+          pendingIntentCount: 0,
+          progressedActionCount: 0,
+        },
+        attackAttempts: [],
+        defenceAttempts: [],
+        isAlert: () => false,
+        tick: 0,
+      });
+      applyIndividualEnergyActivityOneTick(activity, profiles, energy, 0);
+
+      let activeSpecialistContextCount = 0;
+      for (let entityId = 0; entityId < specialistCount; entityId += 1) {
+        if (getIndividualEnergyActivityContext(activity, entityId) !==
+            "safeStationaryRest") activeSpecialistContextCount += 1;
+      }
+      expect(activeSpecialistContextCount).toBe(specialistCount);
+      expect(adapter.entityCount).toBe(entityCount);
+      expect(Object.keys(activity)).toEqual(["entityCount"]);
+      expect(Object.keys(capability)).toEqual(["entityCount"]);
+
+      console.info("Specialist gait boundary structural report", JSON.stringify({
+        entityCount,
+        specialistCount,
+        authorities,
+        storageShape: "reused entity-indexed typed arrays",
+        inspectionPolicy: "primitive context reads for fixed specialist population",
+        timingPolicy: "Structural assertions only; no machine timing threshold.",
+      }, null, 2));
+    },
+  );
 });
 
 describe("individual energy activity structural performance", () => {
