@@ -79,6 +79,53 @@ describe("current-tick specialist physical-gait adapter", () => {
     });
   });
 
+  it("records a non-promoting final drag-group gait for every helper", () => {
+    const harness = fixture(100);
+    beginIndividualEnergyActivityObservation(harness.activity, harness.world, 7);
+    projectIndividualEnergyCapabilitiesOneTick(
+      harness.capability, harness.energy, harness.lifecycle, harness.presence, 7,
+    );
+    harness.adapter.acceptCapabilityProjection(7);
+    expect(harness.adapter.preflightActiveSpecialistMovement(
+      0, "activeDragHelper", "sprinting",
+    )).toBe("sprinting");
+    harness.adapter.constrainPreflightedActiveDragHelperGait(
+      0, "sprinting", "walking",
+    );
+    harness.world.positionsX[0] = 1;
+
+    harness.adapter.completeActiveSpecialistMovement(
+      0, "activeDragHelper", "sprinting", "walking", true,
+    );
+
+    expect(getIndividualEnergyActivityInspection(harness.activity, 0))
+      .toMatchObject({
+        requestedPhysicalGait: "sprinting",
+        effectivePhysicalGait: "walking",
+        actualPhysicalGait: "walking",
+        gaitReducedByCapability: true,
+        gaitProducedDisplacement: true,
+      });
+  });
+
+  it("rejects a drag-group constraint that promotes personal capability", () => {
+    const harness = fixture(5);
+    beginIndividualEnergyActivityObservation(harness.activity, harness.world, 7);
+    projectIndividualEnergyCapabilitiesOneTick(
+      harness.capability, harness.energy, harness.lifecycle, harness.presence, 7,
+    );
+    harness.adapter.acceptCapabilityProjection(7);
+    expect(harness.adapter.preflightActiveSpecialistMovement(
+      0, "activeDragHelper", "sprinting",
+    )).toBe("walking");
+    const before = getIndividualEnergyActivityInspection(harness.activity, 0);
+
+    expect(() => harness.adapter.constrainPreflightedActiveDragHelperGait(
+      0, "sprinting", "jogging",
+    )).toThrow(/must not promote personal capability/);
+    expect(getIndividualEnergyActivityInspection(harness.activity, 0)).toEqual(before);
+  });
+
   it.each(["dying", "terminal"] as const)(
     "resolves an inactive %s specialist request to stationary",
     (lifecycleState) => {

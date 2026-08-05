@@ -606,6 +606,21 @@ describe("formation behaviour: physical gait authority", () => {
       20,
     );
     expect(defensive.world.positionsX[0]).toBe(defensiveStartX + 1);
+    const stateBeforeInvalidCeiling = {
+      x: defensive.world.positionsX[0],
+      y: defensive.world.positionsY[0],
+      velocityX: defensive.world.velocitiesX[0],
+      velocityY: defensive.world.velocitiesY[0],
+      movementMode: getIndividualMovementMode(defensive.store, 0),
+      stuckTicks: getIndividualStuckTicks(defensive.store, 0),
+      requestedGait: getIndividualRequestedPhysicalGait(defensive.store, 0),
+      effectiveGait: getIndividualEffectivePhysicalGait(defensive.store, 0),
+      preEnergyStepX: getIndividualPreEnergyStepX(defensive.store, 0),
+      preEnergyStepY: getIndividualPreEnergyStepY(defensive.store, 0),
+      postEnergyStepX: getIndividualPostEnergyStepX(defensive.store, 0),
+      postEnergyStepY: getIndividualPostEnergyStepY(defensive.store, 0),
+      reducedByEnergy: getIndividualMovementReducedByEnergy(defensive.store, 0),
+    };
     expect(() => applyIndividualExternalMovementIntent(
       defensive.world,
       defensive.store,
@@ -615,6 +630,21 @@ describe("formation behaviour: physical gait authority", () => {
       "approachClaimedPatient",
       -1,
     )).toThrow(/non-negative safe integer/);
+    expect({
+      x: defensive.world.positionsX[0],
+      y: defensive.world.positionsY[0],
+      velocityX: defensive.world.velocitiesX[0],
+      velocityY: defensive.world.velocitiesY[0],
+      movementMode: getIndividualMovementMode(defensive.store, 0),
+      stuckTicks: getIndividualStuckTicks(defensive.store, 0),
+      requestedGait: getIndividualRequestedPhysicalGait(defensive.store, 0),
+      effectiveGait: getIndividualEffectivePhysicalGait(defensive.store, 0),
+      preEnergyStepX: getIndividualPreEnergyStepX(defensive.store, 0),
+      preEnergyStepY: getIndividualPreEnergyStepY(defensive.store, 0),
+      postEnergyStepX: getIndividualPostEnergyStepX(defensive.store, 0),
+      postEnergyStepY: getIndividualPostEnergyStepY(defensive.store, 0),
+      reducedByEnergy: getIndividualMovementReducedByEnergy(defensive.store, 0),
+    }).toEqual(stateBeforeInvalidCeiling);
   });
 
   it("bounds ordinary anchors and members at every outward world edge", () => {
