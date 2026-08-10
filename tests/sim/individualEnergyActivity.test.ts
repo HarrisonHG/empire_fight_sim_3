@@ -10,6 +10,8 @@ import type { IndividualMeleeAttackAttemptRecord } from "../../src/sim/individua
 import {
   INDIVIDUAL_ENERGY_ALERT_STATIONARY_RECOVERY,
   INDIVIDUAL_ENERGY_DOWNED_REST_RECOVERY,
+  INDIVIDUAL_ENERGY_UNDER_TREATMENT_RECOVERY,
+  INDIVIDUAL_ENERGY_WAITING_AT_RESPAWN_RECOVERY,
   INDIVIDUAL_ENERGY_JOGGING_COST_PER_TICK,
   INDIVIDUAL_ENERGY_SPRINTING_COST_PER_TICK,
   INDIVIDUAL_ENERGY_VALID_ATTACK_IMPULSE,
@@ -296,8 +298,8 @@ describe("individual energy base expenditure and recovery", () => {
     ["safeStationaryRest", 9],
     ["alertStationary", INDIVIDUAL_ENERGY_ALERT_STATIONARY_RECOVERY],
     ["downedRest", INDIVIDUAL_ENERGY_DOWNED_REST_RECOVERY],
-    ["underTreatment", 0],
-    ["waitingAtRespawn", 0],
+    ["underTreatment", INDIVIDUAL_ENERGY_UNDER_TREATMENT_RECOVERY],
+    ["waitingAtRespawn", INDIVIDUAL_ENERGY_WAITING_AT_RESPAWN_RECOVERY],
     ["inactiveTerminal", 0],
   ] as const)("derives only accepted %s recovery", (dominantContext, expected) => {
     expect(deriveIndividualEnergyApplicationRequest({
@@ -330,6 +332,48 @@ describe("individual energy base expenditure and recovery", () => {
       recoveryRequested: 0,
     });
   });
+
+  it.each([
+    ["movement", true, "walking", 0, 0],
+    ["attack", false, "stationary", 1, 0],
+    ["defence", false, "stationary", 0, 1],
+  ] as const)(
+    "suppresses under-treatment recovery when %s expenditure is present",
+    (_kind, movementOccurred, movementIntensity, attackCount, defenceCount) => {
+      const request = deriveIndividualEnergyApplicationRequest({
+        dominantContext: "underTreatment",
+        movementOccurred,
+        movementIntensity,
+        personalMovementObserved: movementOccurred,
+        beingDragged: false,
+        validAttackAttemptCount: attackCount,
+        validDefenceAttemptCount: defenceCount,
+        safeRestRecoveryPerTick: 9,
+      });
+
+      expect(request.totalExpenditureRequested).toBeGreaterThan(0);
+      expect(request.recoveryRequested).toBe(0);
+    },
+  );
+
+  it.each(["treating", "executionCommitment", "inactiveTerminal"] as const)(
+    "keeps %s stationary recovery neutral",
+    (dominantContext) => {
+      expect(deriveIndividualEnergyApplicationRequest({
+        dominantContext,
+        movementOccurred: false,
+        movementIntensity: "stationary",
+        personalMovementObserved: false,
+        beingDragged: false,
+        validAttackAttemptCount: 0,
+        validDefenceAttemptCount: 0,
+        safeRestRecoveryPerTick: 9,
+      })).toMatchObject({
+        totalExpenditureRequested: 0,
+        recoveryRequested: 0,
+      });
+    },
+  );
 
   it("charges no attack impulse when invalid pre-commitment input emitted no record", () => {
     const harness = createEnergyHarness({

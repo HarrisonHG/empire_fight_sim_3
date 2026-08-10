@@ -5,7 +5,8 @@ projection and 7C-2 formation and routing movement enforcement are
 implemented. 7C specialist movement enforcement and consolidation is complete.
 7D combat exertion, attack tempo, and guard recovery is complete. 7E-1 exertion-
 modifier projection and 7E-2 burden, injury, and drag expenditure enforcement
-are implemented; 7E-3 is next. Milestone 7E is not complete.
+are implemented; 7E-3 is implemented and 7E-4 is next. Milestone 7E is not
+complete.
 
 Implementation begins after Milestone 6 is accepted and the post-Milestone-6 main-battle medical integration spike is retained as the evolving `/` scenario.
 
@@ -1986,7 +1987,7 @@ Boundary:
 Do not implement treatment or waiting recovery. Do not alter Milestone 6
 movement/selection, combat capability, attack/guard recovery, or pressure.
 
-#### 7E-3 — Treatment, downed, terminal, and respawn continuity — next
+#### 7E-3 — Treatment, downed, terminal, and respawn continuity — implemented
 
 Deliver:
 
@@ -2016,7 +2017,7 @@ Boundary:
 No respawn batching/re-entry, citizen Gate egress, treatment policy, new medical
 selection, or safe-rest decision AI.
 
-#### 7E-4 — Full 7E integration, determinism, and performance
+#### 7E-4 — Full 7E integration, determinism, and performance — next
 
 Deliver:
 

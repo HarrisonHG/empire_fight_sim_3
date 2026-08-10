@@ -17,6 +17,8 @@ import { initializeIndividualDeathCountsFromZeroHitTransitions, recordIndividual
 import { getIndividualCasualtyHistoryInspection as getConsolidatedCasualtyHistory } from "../../src/sim/individualCasualtyConsolidation";
 import { getIndividualEnergyCapabilityInspection } from "../../src/sim/individualEnergyCapability";
 import { getIndividualEnergyActivityInspection } from "../../src/sim/individualEnergyActivity";
+import { getIndividualCurrentEnergy } from "../../src/sim/individualEnergy";
+import { isIndividualCombatTargetEligible } from "../../src/sim/individualCombatEligibility";
 import { submitIndividualExecutionIntent } from "../../src/sim/individualExecutionAction";
 import { hasIndividualMedicalPatientClaim } from "../../src/sim/individualMedicalClaims";
 import { advanceSimulationOneTick, createSimulation } from "../../src/sim/simulation";
@@ -195,12 +197,22 @@ describe("Milestone 6H-2B respawn egress", () => {
     });
   });
 
-  it("charges one walking base cost on the final moving arrival coordinate, then waits free", () => {
-    const simulation = createSimulation(scenario(20, { x: 19, y: 60 }, [0]));
+  it("preserves continuous energy through a final adjusted walk, arrival, and clamped waiting recovery", () => {
+    const simulation = createSimulation(scenario(20, { x: 19, y: 60 }, [0], 98));
     const combat = requireCombat(simulation);
     terminalize(simulation, 0, 0);
 
     advanceSimulationOneTick(simulation);
+    expect(getIndividualCurrentEnergy(simulation.individualEnergyStore, 0)).toBe(98);
+    expect(getIndividualEnergyActivityInspection(
+      combat.individualEnergyActivityStore, 0,
+    )).toMatchObject({
+      dominantContext: "respawnEgress",
+      movementExpenditureRequested: 0,
+      recoveryRequested: 0,
+      energyBefore: 98,
+      energyAfter: 98,
+    });
     advanceSimulationOneTick(simulation);
 
     expect(simulation.world.positionsX[0]).toBe(19);
@@ -209,6 +221,7 @@ describe("Milestone 6H-2B respawn egress", () => {
     expect(getIndividualPlayerPresenceState(
       combat.individualPlayerPresenceStore, 0,
     )).toBe("waitingAtRespawn");
+    expect(getIndividualCurrentEnergy(simulation.individualEnergyStore, 0)).toBe(96);
     expect(getIndividualEnergyActivityInspection(
       combat.individualEnergyActivityStore, 0,
     )).toMatchObject({
@@ -219,6 +232,9 @@ describe("Milestone 6H-2B respawn egress", () => {
       physicalGaitSource: "respawnEgress",
       movementExpenditureRequested: 2,
       expenditureApplied: 2,
+      recoveryRequested: 0,
+      energyBefore: 98,
+      energyAfter: 96,
     });
 
     advanceSimulationOneTick(simulation);
@@ -232,11 +248,30 @@ describe("Milestone 6H-2B respawn egress", () => {
       actualPhysicalGait: "stationary",
       movementExpenditureRequested: 0,
       expenditureApplied: 0,
+      recoveryRequested: 5,
+      recoveryApplied: 4,
+      recoveryClamped: true,
+      energyBefore: 96,
+      energyAfter: 100,
     });
+    expect(getIndividualCurrentEnergy(simulation.individualEnergyStore, 0)).toBe(100);
+    expect(getIndividualCharacterLifecycleState(
+      combat.individualCasualtyLifecycleStore, 0,
+    )).toBe("terminal");
+    expect(getIndividualPlayerPresenceState(
+      combat.individualPlayerPresenceStore, 0,
+    )).toBe("waitingAtRespawn");
+    expect(getIndividualCurrentGlobalHits(combat.individualGlobalHitStore, 0)).toBe(0);
+    expect(isIndividualCombatTargetEligible(
+      combat.individualCombatEligibilitySnapshot, 0,
+    )).toBe(false);
+    expect(combat.individualCombatPipelineBuffers.attackAttempts.some(
+      (record) => record.attackerEntityId === 0,
+    )).toBe(false);
   });
 
   it("keeps a missing destination stationary and emits no guessed movement or transition", () => {
-    const simulation = createSimulation(scenario(20, undefined, [0]));
+    const simulation = createSimulation(scenario(20, undefined, [0], 50));
     const combat = requireCombat(simulation);
     terminalize(simulation, 0, 0);
     const x = simulation.world.positionsX[0]!;
@@ -244,6 +279,7 @@ describe("Milestone 6H-2B respawn egress", () => {
     for (let tick = 0; tick < 5; tick += 1) advanceSimulationOneTick(simulation);
     expect(simulation.world.positionsX[0]).toBe(x);
     expect(simulation.world.positionsY[0]).toBe(y);
+    expect(getIndividualCurrentEnergy(simulation.individualEnergyStore, 0)).toBe(50);
     expect(getIndividualRespawnEgressInspection(
       combat.individualPlayerPresenceStore, 0,
     )).toMatchObject({
@@ -273,7 +309,7 @@ describe("Milestone 6H-2B respawn egress", () => {
   });
 
   it("arrives stationary and free exactly once when already at its destination", () => {
-    const simulation = createSimulation(scenario(20, { x: 20, y: 60 }, [0]));
+    const simulation = createSimulation(scenario(20, { x: 20, y: 60 }, [0], 50));
     const combat = requireCombat(simulation);
     terminalize(simulation, 0, 0);
 
@@ -295,13 +331,22 @@ describe("Milestone 6H-2B respawn egress", () => {
       physicalGaitSource: "respawnEgress",
       movementExpenditureRequested: 0,
       expenditureApplied: 0,
+      recoveryRequested: 5,
+      energyBefore: 50,
+      energyAfter: 55,
     });
 
     advanceSimulationOneTick(simulation);
     expect(combat.individualRespawnEgressResult.arrivalRecords).toEqual([]);
     expect(getIndividualEnergyActivityInspection(
       combat.individualEnergyActivityStore, 0,
-    ).actualPhysicalGait).toBe("stationary");
+    )).toMatchObject({
+      actualPhysicalGait: "stationary",
+      recoveryRequested: 5,
+      recoveryApplied: 5,
+      energyBefore: 55,
+      energyAfter: 60,
+    });
   });
 
   it("compacts simultaneous egress deterministically when one arrives and one continues", () => {

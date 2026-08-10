@@ -59,7 +59,10 @@ import { advanceSimulationOneTick, createSimulation } from "../../src/sim/simula
 import { getIndividualCasualtyHistoryInspection as getConsolidatedCasualtyHistory } from "../../src/sim/individualCasualtyConsolidation";
 import { submitIndividualExecutionIntent } from "../../src/sim/individualExecutionAction";
 import { getIndividualEnergyActivityInspection } from "../../src/sim/individualEnergyActivity";
-import { setIndividualCurrentEnergyForTrustedSetup } from "../../src/sim/individualEnergy";
+import {
+  getIndividualCurrentEnergy,
+  setIndividualCurrentEnergyForTrustedSetup,
+} from "../../src/sim/individualEnergy";
 import type { IndividualMeleeAttackAttemptRecord } from "../../src/sim/individualCombatAction";
 import type { IndividualLandedHitGateDecisionRecord } from "../../src/sim/individualLandedHitGate";
 import {
@@ -123,7 +126,7 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
     }));
     const treatmentX = simulation.world.positionsX[0];
     const treatmentY = simulation.world.positionsY[0];
-    for (let count = 1; count < 2_400; count += 1) {
+    for (let count = 1; count < 2_399; count += 1) {
       keepInTouch(simulation, 1, 0);
       advanceSimulationOneTick(simulation);
     }
@@ -132,7 +135,35 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
     )).toBe("terminalAwaitingComfort");
     expect(getIndividualTreatmentActionInspection(
       combat.individualTreatmentActionStore, 1,
+    )?.progressTicks).toBe(2_398);
+    setIndividualCurrentEnergyForTrustedSetup(
+      simulation.individualEnergyStore, 0, 100,
+    );
+    setIndividualCurrentEnergyForTrustedSetup(
+      simulation.individualEnergyStore, 1, 100,
+    );
+    keepInTouch(simulation, 1, 0);
+    advanceSimulationOneTick(simulation);
+    expect(getIndividualTreatmentActionInspection(
+      combat.individualTreatmentActionStore, 1,
     )?.progressTicks).toBe(2_399);
+    expect(getIndividualEnergyActivityInspection(
+      combat.individualEnergyActivityStore, 0,
+    )).toMatchObject({
+      dominantContext: "underTreatment",
+      recoveryRequested: 3,
+      recoveryApplied: 3,
+      energyBefore: 100,
+      energyAfter: 103,
+    });
+    expect(getIndividualEnergyActivityInspection(
+      combat.individualEnergyActivityStore, 1,
+    )).toMatchObject({
+      dominantContext: "treating",
+      recoveryRequested: 0,
+      energyBefore: 100,
+      energyAfter: 100,
+    });
     keepInTouch(simulation, 1, 0);
     advanceSimulationOneTick(simulation);
     expect(combat.individualTreatmentActionResult.completedRecords).toEqual([
@@ -166,6 +197,23 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
       combat.individualCasualtyLifecycleStore, 0,
     )).toBe("terminal");
     expect(getIndividualCurrentGlobalHits(combat.individualGlobalHitStore, 0)).toBe(0);
+    expect(getIndividualEnergyActivityInspection(
+      combat.individualEnergyActivityStore, 0,
+    )).toMatchObject({
+      dominantContext: "inactiveTerminal",
+      recoveryRequested: 0,
+      recoveryApplied: 0,
+      energyBefore: 103,
+      energyAfter: 103,
+    });
+    expect(getIndividualEnergyActivityInspection(
+      combat.individualEnergyActivityStore, 1,
+    )).toMatchObject({
+      dominantContext: "treating",
+      recoveryRequested: 0,
+      energyBefore: 100,
+      energyAfter: 100,
+    });
     expect(getIndividualDeathCountInspection(
       combat.individualDeathCountStore, 0,
     )).toEqual(deathBefore);
@@ -178,6 +226,24 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
       terminalCause: "execution",
       comfortStartedCount: 1,
       comfortCompletedTick: startedTick + 2_400,
+    });
+    advanceSimulationOneTick(simulation);
+    expect(getIndividualPlayerPresenceState(
+      combat.individualPlayerPresenceStore, 0,
+    )).toBe("terminalComforted");
+    expect(getIndividualCharacterLifecycleState(
+      combat.individualCasualtyLifecycleStore, 0,
+    )).toBe("terminal");
+    expect(getIndividualCurrentGlobalHits(combat.individualGlobalHitStore, 0)).toBe(0);
+    expect(getIndividualCurrentEnergy(simulation.individualEnergyStore, 0)).toBe(103);
+    expect(getIndividualEnergyActivityInspection(
+      combat.individualEnergyActivityStore, 0,
+    )).toMatchObject({
+      dominantContext: "inactiveTerminal",
+      recoveryRequested: 0,
+      expenditureApplied: 0,
+      energyBefore: 103,
+      energyAfter: 103,
     });
     expect(getIndividualMedicalClaimInspection(
       combat.individualMedicalClaimStore, 0,
@@ -456,8 +522,26 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
   it("owns start-tick pause, grants exactly 600 later progress ticks, restores before death advancement, and supports a fresh dying episode", () => {
     const simulation = createTreatmentSimulation({ physick: true, herbs: 0 });
     const combat = requireCombat(simulation);
+    setIndividualCurrentEnergyForTrustedSetup(
+      simulation.individualEnergyStore, 0, 100,
+    );
     down(simulation, 0, 0);
     const startedTick = advanceUntilTreatmentStarts(simulation);
+    const energyAtTreatmentStart = getIndividualCurrentEnergy(
+      simulation.individualEnergyStore, 0,
+    );
+
+    expect(energyAtTreatmentStart).toBeGreaterThan(100);
+    expect(energyAtTreatmentStart - 103).toBeGreaterThanOrEqual(4);
+    expect((energyAtTreatmentStart - 103) % 4).toBe(0);
+    expect(getIndividualEnergyActivityInspection(
+      combat.individualEnergyActivityStore, 0,
+    )).toMatchObject({
+      dominantContext: "underTreatment",
+      recoveryRequested: 3,
+      recoveryApplied: 3,
+      energyAfter: energyAtTreatmentStart,
+    });
 
     expect(getIndividualTreatmentActionInspection(
       combat.individualTreatmentActionStore, 1,
@@ -503,6 +587,12 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
       combat.individualTreatmentActionStore, 1,
     )!.progressTicks).toBe(599);
     setRemainingDeathCountForBoundaryTest(combat, 0, 1);
+    const energyBeforeRevival = getIndividualCurrentEnergy(
+      simulation.individualEnergyStore, 0,
+    );
+    setIndividualCurrentEnergyForTrustedSetup(
+      simulation.individualEnergyStore, 1, 500,
+    );
 
     keepInTouch(simulation, 1, 0);
     advanceSimulationOneTick(simulation);
@@ -528,6 +618,25 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
     expect(combat.individualTerminalTransitions).toHaveLength(0);
     expect(getIndividualCurrentGlobalHits(combat.individualGlobalHitStore, 0)).toBe(1);
     expect(getIndividualCharacterLifecycleState(combat.individualCasualtyLifecycleStore, 0)).toBe("active");
+    expect(getIndividualCurrentEnergy(simulation.individualEnergyStore, 0))
+      .toBe(energyBeforeRevival + 3);
+    expect(getIndividualEnergyActivityInspection(
+      combat.individualEnergyActivityStore, 0,
+    )).toMatchObject({
+      dominantContext: "underTreatment",
+      recoveryRequested: 3,
+      recoveryApplied: 3,
+      energyBefore: energyBeforeRevival,
+      energyAfter: energyBeforeRevival + 3,
+    });
+    expect(getIndividualEnergyActivityInspection(
+      combat.individualEnergyActivityStore, 1,
+    )).toMatchObject({
+      dominantContext: "treating",
+      recoveryRequested: 0,
+      energyBefore: 500,
+      energyAfter: 500,
+    });
     expect(getIndividualPlayerPresenceState(combat.individualPlayerPresenceStore, 0)).toBe("activePresence");
     expect(getIndividualDeathCountInspection(combat.individualDeathCountStore, 0).paused).toBe(false);
     expect(combat.individualCasualtyUnitSummaries[0]).toMatchObject({
