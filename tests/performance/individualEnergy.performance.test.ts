@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { CASUALTY_LIFECYCLE_VISUAL_SCENARIO } from "../../src/content/casualtyLifecycleVisualScenario";
 import {
   createIndividualEnergyStore,
   createTrustedIndividualEnergyProfileStore,
@@ -45,6 +46,7 @@ import type { IndividualMeleeDefenceRecord } from "../../src/sim/individualMelee
 import {
   createIndividualCasualtyLifecycleStore,
   createIndividualPlayerPresenceStore,
+  getIndividualCharacterLifecycleState,
 } from "../../src/sim/individualCasualtyLifecycle";
 import {
   createIndividualExecutionActionBuffers,
@@ -54,7 +56,20 @@ import {
   createIndividualTreatmentActionBuffers,
   createIndividualTreatmentActionStore,
 } from "../../src/sim/individualTreatmentAction";
-import type { WorldState } from "../../src/sim/types";
+import {
+  getIndividualBurdenExertionMultiplierPercent,
+  getIndividualEnergyExertionModifierInspection,
+  getIndividualEnergyExertionModifierProjectionTick,
+} from "../../src/sim/individualEnergyExertionModifier";
+import {
+  advanceSimulationOneTick,
+  createSimulation,
+} from "../../src/sim/simulation";
+import type {
+  CombatSandboxUnitScenario,
+  SimulationScenario,
+  WorldState,
+} from "../../src/sim/types";
 import {
   createUnitIdentityStore,
   getUnitIdForEntity,
@@ -710,3 +725,155 @@ describe("formation energy enforcement structural performance", () => {
     30_000,
   );
 });
+
+describe("Milestone 7E production structural performance", () => {
+  it.each([100, 500, 1_000, 2_000])(
+    "projects representative burden with sparse casualties among %i entities",
+    (entityCount) => {
+      const { scenario, expectedMinimumBurdenCounts } =
+        createMilestone7EPerformanceScenario(entityCount);
+      const simulation = createSimulation(scenario);
+      const combat = simulation.combatSandbox!;
+      const activityStoreIdentity = combat.individualEnergyActivityStore;
+      const modifierStoreIdentity =
+        combat.individualEnergyExertionModifierStore;
+
+      const started = performance.now();
+      advanceSimulationOneTick(simulation);
+      const elapsedMilliseconds = performance.now() - started;
+
+      const actualBurdenCounts = new Map<number, number>();
+      let sparseCasualtyCount = 0;
+      for (let entityId = 0; entityId < entityCount; entityId += 1) {
+        const multiplier = getIndividualBurdenExertionMultiplierPercent(
+          modifierStoreIdentity,
+          entityId,
+        );
+        actualBurdenCounts.set(
+          multiplier,
+          (actualBurdenCounts.get(multiplier) ?? 0) + 1,
+        );
+        if (getIndividualCharacterLifecycleState(
+          combat.individualCasualtyLifecycleStore,
+          entityId,
+        ) !== "active") sparseCasualtyCount += 1;
+      }
+
+      expect([...actualBurdenCounts.values()].reduce(
+        (total, count) => total + count,
+        0,
+      )).toBe(entityCount);
+      for (const [multiplier, minimumCount] of expectedMinimumBurdenCounts) {
+        expect(actualBurdenCounts.get(multiplier) ?? 0)
+          .toBeGreaterThanOrEqual(minimumCount);
+      }
+      expect(sparseCasualtyCount).toBeGreaterThan(0);
+      expect(sparseCasualtyCount).toBeLessThanOrEqual(12);
+      expect(combat.individualEnergyActivityStore).toBe(activityStoreIdentity);
+      expect(combat.individualEnergyExertionModifierStore)
+        .toBe(modifierStoreIdentity);
+      expect(getIndividualEnergyExertionModifierProjectionTick(
+        modifierStoreIdentity,
+      )).toBe(0);
+      expect(getIndividualEnergyActivityInspection(
+        activityStoreIdentity,
+        0,
+      ).applicationTick).toBe(0);
+      expect(getIndividualEnergyExertionModifierInspection(
+        modifierStoreIdentity,
+        0,
+      ).projectionTick).toBe(0);
+      expect(combat.inspectedEntityIds).toEqual([]);
+      expect(combat.inspectedIndividuals).toEqual([]);
+      expect(combat.debugSnapshot.inspectedIndividuals).toEqual([]);
+      expect(Object.keys(activityStoreIdentity)).toEqual(["entityCount"]);
+      expect(Object.keys(modifierStoreIdentity)).toEqual(["entityCount"]);
+      expect(Number.isFinite(elapsedMilliseconds)).toBe(true);
+      expect(elapsedMilliseconds).toBeGreaterThanOrEqual(0);
+      expect(combat.individualCombatPipelineBuffers.hitApplications.length)
+        .toBeLessThanOrEqual(CASUALTY_LIFECYCLE_VISUAL_SCENARIO.entityCount);
+
+      console.info("Milestone 7E production structural report", JSON.stringify({
+        entityCount,
+        representativeBurdenMultiplierCounts:
+          Object.fromEntries(actualBurdenCounts),
+        sparseCasualtyCount,
+        inspectedEntityCount: combat.inspectedIndividuals.length,
+        elapsedMilliseconds,
+        projectionShape: "opaque entity-indexed typed arrays",
+        applicationShape: "one production projection and application pass",
+        inspectionPolicy:
+          "no production inspection objects; two bounded post-tick assertions",
+        casualtyPolicy: "fixed retained sparse fixture independent of entity count",
+        timingPolicy: "Structural assertions only; no machine timing threshold.",
+      }, null, 2));
+    },
+  );
+});
+
+function createMilestone7EPerformanceScenario(entityCount: number): {
+  readonly scenario: SimulationScenario;
+  readonly expectedMinimumBurdenCounts: ReadonlyMap<number, number>;
+} {
+  const sourceCombat = CASUALTY_LIFECYCLE_VISUAL_SCENARIO.combatSandbox!;
+  const fixtureCount = CASUALTY_LIFECYCLE_VISUAL_SCENARIO.entityCount;
+  const fillerCount = entityCount - fixtureCount;
+  const baseCount = Math.floor(fillerCount / 4);
+  const remainder = fillerCount % 4;
+  const counts = Array.from(
+    { length: 4 },
+    (_, index) => baseCount + (index < remainder ? 1 : 0),
+  );
+  const loadouts = [
+    { weaponCategory: "unarmed", armourClass: "none", shieldClass: "none" },
+    { weaponCategory: "oneHanded", armourClass: "medium", shieldClass: "shield" },
+    { weaponCategory: "twoHanded", armourClass: "heavy", shieldClass: "none" },
+    { weaponCategory: "staff", armourClass: "mageArmour", shieldClass: "none" },
+  ] as const;
+  const expectedFillerMultipliers = [100, 150, 160, 130] as const;
+  const template = sourceCombat.units[24]!;
+  const fillerUnits: CombatSandboxUnitScenario[] = counts.map(
+    (memberCount, index) => ({
+      ...template,
+      unitId: 2_000 + index,
+      factionId: 99,
+      memberCount,
+      deploymentZone: {
+        minX: 3_800,
+        maxX: 3_800,
+        minY: 1_500 + index * 800,
+        maxY: 1_500 + index * 800,
+      },
+      anchorX: 3_800,
+      anchorY: 1_500 + index * 800,
+      headingX: -1,
+      rows: Math.ceil(memberCount / 20),
+      cols: Math.min(memberCount, 20),
+      unitSpeed: 0,
+      order: "hold",
+      weaponCategory: loadouts[index]!.weaponCategory,
+      armourClass: loadouts[index]!.armourClass,
+      shieldClass: loadouts[index]!.shieldClass,
+      label: `7E structural burden ${expectedFillerMultipliers[index]}`,
+    }),
+  );
+  const scenario: SimulationScenario = {
+    ...CASUALTY_LIFECYCLE_VISUAL_SCENARIO,
+    entityCount,
+    bounds: { width: 5_000, height: 5_000 },
+    combatSandbox: {
+      ...sourceCombat,
+      inspectedEntityIds: [],
+      units: [...sourceCombat.units, ...fillerUnits],
+    },
+  };
+  const expectedMinimumBurdenCounts = new Map<number, number>();
+  for (let index = 0; index < counts.length; index += 1) {
+    const multiplier = expectedFillerMultipliers[index]!;
+    expectedMinimumBurdenCounts.set(
+      multiplier,
+      (expectedMinimumBurdenCounts.get(multiplier) ?? 0) + counts[index]!,
+    );
+  }
+  return { scenario, expectedMinimumBurdenCounts };
+}
