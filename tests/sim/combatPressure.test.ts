@@ -11,6 +11,7 @@ import {
   advanceCombatPressureOneTick,
   createCombatPressureStore,
   getIndividualCombatPressureInspection,
+  INDIVIDUAL_PRESSURE_RECOVERY_CREDIT_FIXED_POINT_SCALE,
   type CombatPressureStore,
   type UnitPressureUpdate,
 } from "../../src/sim/combatPressure";
@@ -460,6 +461,141 @@ describe("combat pressure stage", () => {
 
     expect(getIndividualPressure(recruit.formation, 2)).toBe(12);
     expect(getIndividualPressure(regular.formation, 2)).toBe(11);
+    expect([
+      recruit, regular, veteran,
+    ].map((harness) => getIndividualCombatPressureInspection(
+      harness.formation, harness.store, 2,
+    ).baseRecoveryCredit)).toEqual([1, 2, 4]);
+  });
+
+  it.each([
+    ["working", 50, 90, 5, 50],
+    ["winded", 20, 70, 6, 20],
+    ["spent", 5, 50, 8, 0],
+  ] as const)(
+    "preserves smallest-base fractional progress for %s energy",
+    (_band, energy, percent, recoveryTickCount, expectedRemainder) => {
+      const harness = createHarness({ targetRole: "recruit" });
+      setIndividualPressure(harness.formation, 2, 12);
+
+      for (let tick = 0; tick < recoveryTickCount - 1; tick += 1) {
+        advanceIndividualPressure(
+          harness,
+          [individualSummary(TARGET_UNIT_ID)],
+          {},
+          undefined,
+          undefined,
+          createPressureEnergyInput(4, 2, energy, tick),
+        );
+      }
+      expect(getIndividualPressure(harness.formation, 2)).toBe(12);
+
+      advanceIndividualPressure(
+        harness,
+        [individualSummary(TARGET_UNIT_ID)],
+        {},
+        undefined,
+        undefined,
+        createPressureEnergyInput(4, 2, energy, recoveryTickCount - 1),
+      );
+      expect(getIndividualPressure(harness.formation, 2)).toBe(11);
+      expect(getIndividualCombatPressureInspection(
+        harness.formation, harness.store, 2,
+      )).toMatchObject({
+        baseRecoveryCredit: 1,
+        energyRecoveryMultiplierPercent: percent,
+        energyAdjustedRecoveryCredit: percent / 100,
+        energyAdjustedRecoveryCreditFixedPoint: percent,
+        recoveryCreditAccumulatorFixedPoint: expectedRemainder,
+        recoveredPressureAmount: 1,
+      });
+    },
+  );
+
+  it("retains exact fresh and legacy smallest-base recovery", () => {
+    expect(INDIVIDUAL_PRESSURE_RECOVERY_CREDIT_FIXED_POINT_SCALE).toBe(100);
+    const fresh = createHarness({ targetRole: "recruit" });
+    const legacy = createHarness({ targetRole: "recruit" });
+    setIndividualPressure(fresh.formation, 2, 12);
+    setIndividualPressure(legacy.formation, 2, 12);
+    const freshSequence: Array<ReturnType<typeof recoverySequenceEntry>> = [];
+    const legacySequence: Array<ReturnType<typeof recoverySequenceEntry>> = [];
+
+    for (let tick = 0; tick < 12; tick += 1) {
+      advanceIndividualPressure(
+        fresh,
+        [individualSummary(TARGET_UNIT_ID)],
+        {},
+        undefined,
+        undefined,
+        createPressureEnergyInput(4, 2, 100, tick),
+      );
+      advanceIndividualPressure(
+        legacy,
+        [individualSummary(TARGET_UNIT_ID)],
+      );
+      freshSequence.push(recoverySequenceEntry(fresh, 2));
+      legacySequence.push(recoverySequenceEntry(legacy, 2));
+    }
+    expect(freshSequence).toEqual(legacySequence);
+    expect(freshSequence.map((entry) => entry.pressure)).toEqual([
+      12, 12, 12, 11, 11, 11, 11, 10, 10, 10, 10, 9,
+    ]);
+  });
+
+  it("retains experience and stationary-context base credits", () => {
+    const cases = [
+      ["recruit", 4], ["regular", 6], ["veteran", 8],
+    ] as const;
+    for (const [role, expectedCredit] of cases) {
+      const harness = createHarness({ targetRole: role });
+      harness.world.positionsX[0] = 0;
+      harness.world.positionsX[1] = 12;
+      harness.world.positionsX[2] = 500;
+      harness.world.positionsX[3] = 512;
+      setIndividualPressure(harness.formation, 2, 12);
+      advanceIndividualPressure(harness, [individualSummary(TARGET_UNIT_ID)]);
+      expect(getIndividualCombatPressureInspection(
+        harness.formation, harness.store, 2,
+      )).toMatchObject({
+        recoveryContext: "noHostileStationary",
+        baseRecoveryCredit: expectedCredit,
+        energyAdjustedRecoveryCredit: expectedCredit,
+      });
+    }
+  });
+
+  it("retains experience and moving-context base credits", () => {
+    const cases = [
+      ["recruit", 2], ["regular", 4], ["veteran", 6],
+    ] as const;
+    for (const [role, expectedCredit] of cases) {
+      const harness = createHarness({ targetRole: role, targetMoving: true });
+      harness.world.positionsX[0] = 0;
+      harness.world.positionsX[1] = 12;
+      harness.world.positionsX[2] = 500;
+      harness.world.positionsX[3] = 512;
+      advanceFormationOneTick(
+        harness.world,
+        harness.identity,
+        harness.formation,
+      );
+      setIndividualPressure(harness.formation, 2, 12);
+      advanceIndividualPressure(harness, [individualSummary(TARGET_UNIT_ID)]);
+      expect(getIndividualCombatPressureInspection(
+        harness.formation, harness.store, 2,
+      )).toMatchObject({
+        recoveryContext: "noHostileMoving",
+        baseRecoveryCredit: expectedCredit,
+        energyAdjustedRecoveryCredit: expectedCredit,
+      });
+    }
+  });
+
+  it("replays fractional pressure-recovery progress deterministically", () => {
+    expect(runFractionalRecoverySequence()).toEqual(
+      runFractionalRecoverySequence(),
+    );
   });
 
   it("slows personal recovery by tick-start energy without changing pressure sources", () => {
@@ -637,6 +773,7 @@ interface FormationSignalHarness {
 function createHarness(options: {
   readonly targetConfidence?: number;
   readonly targetRole?: "recruit" | "regular" | "veteran";
+  readonly targetMoving?: boolean;
 } = {}): PressureHarness {
   const world = createWorld(4);
   const identity = createUnitIdentityStore({
@@ -649,7 +786,16 @@ function createHarness(options: {
   const formation = createFormationBehaviourStore(identity, {
     entityCount: 4,
     rngSeed: 0x4b,
-    units: [formationUnit(SOURCE_UNIT_ID, 100), formationUnit(TARGET_UNIT_ID, 200)],
+    units: [
+      formationUnit(SOURCE_UNIT_ID, 100),
+      options.targetMoving
+        ? {
+          ...formationUnit(TARGET_UNIT_ID, 200),
+          unitSpeed: 1,
+          order: "advance" as const,
+        }
+        : formationUnit(TARGET_UNIT_ID, 200),
+    ],
     individuals: [0, 1, 2, 3].map((entityId) => ({
       entityId,
       role:
@@ -880,6 +1026,43 @@ function createPressureEnergyInput(
     capabilities, energy, lifecycle, presence, tick,
   );
   return { capabilities, tick };
+}
+
+function recoverySequenceEntry(harness: PressureHarness, entityId: number) {
+  const inspection = getIndividualCombatPressureInspection(
+    harness.formation,
+    harness.store,
+    entityId,
+  );
+  return {
+    pressure: getIndividualPressure(harness.formation, entityId),
+    baseRecoveryCredit: inspection.baseRecoveryCredit,
+    energyRecoveryMultiplierPercent:
+      inspection.energyRecoveryMultiplierPercent,
+    energyAdjustedRecoveryCreditFixedPoint:
+      inspection.energyAdjustedRecoveryCreditFixedPoint,
+    recoveryCreditAccumulatorFixedPoint:
+      inspection.recoveryCreditAccumulatorFixedPoint,
+    recoveredPressureAmount: inspection.recoveredPressureAmount,
+  };
+}
+
+function runFractionalRecoverySequence() {
+  const harness = createHarness({ targetRole: "recruit" });
+  setIndividualPressure(harness.formation, 2, 12);
+  const sequence = [];
+  for (let tick = 0; tick < 12; tick += 1) {
+    advanceIndividualPressure(
+      harness,
+      [individualSummary(TARGET_UNIT_ID)],
+      {},
+      undefined,
+      undefined,
+      createPressureEnergyInput(4, 2, 20, tick),
+    );
+    sequence.push(recoverySequenceEntry(harness, 2));
+  }
+  return sequence;
 }
 
 function individualAttempt(attackerEntityId: number, targetEntityId: number) {

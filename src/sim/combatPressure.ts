@@ -115,8 +115,10 @@ interface InternalCombatPressureStore extends CombatPressureStore {
   readonly incomingHitImpulseByEntity: Int32Array;
   readonly blockedStrikeImpulseByEntity: Int32Array;
   readonly recoveryPauseTicksByEntity: Int16Array;
-  readonly recoveryCreditByEntity: Int16Array;
+  /** Persistent recovery credits in pressure-recovery percent-scale units. */
+  readonly recoveryCreditByEntity: Uint16Array;
   readonly recoveryCreditAppliedByEntity: Int16Array;
+  readonly recoveryCreditAppliedFixedPointByEntity: Uint16Array;
   readonly pressureRecoveredByEntity: Int32Array;
   readonly baseRecoveryCreditByEntity: Int16Array;
   readonly energyRecoveryMultiplierPercentByEntity: Uint16Array;
@@ -161,6 +163,11 @@ const INCOMING_HIT_PRESSURE_IMPULSE = 8;
 const BLOCKED_STRIKE_PRESSURE_IMPULSE = 1;
 const INCOMING_ATTACK_RECOVERY_PAUSE_TICKS = 20;
 const RECOVERY_CREDITS_PER_PRESSURE = 4;
+export const INDIVIDUAL_PRESSURE_RECOVERY_CREDIT_FIXED_POINT_SCALE =
+  INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_SCALE;
+const RECOVERY_CREDITS_PER_PRESSURE_FIXED_POINT =
+  RECOVERY_CREDITS_PER_PRESSURE *
+  INDIVIDUAL_PRESSURE_RECOVERY_CREDIT_FIXED_POINT_SCALE;
 const DEFAULT_RESOLVED_CONFIG: ResolvedCombatPressureConfig = {
   engagedPressureDeltaPerMember: DEFAULT_ENGAGED_PRESSURE_DELTA_PER_MEMBER,
   contactPressureDeltaPerMember: DEFAULT_CONTACT_PRESSURE_DELTA_PER_MEMBER,
@@ -215,8 +222,11 @@ export function createCombatPressureStore(
     incomingHitImpulseByEntity: new Int32Array(identityStore.entityCount),
     blockedStrikeImpulseByEntity: new Int32Array(identityStore.entityCount),
     recoveryPauseTicksByEntity: new Int16Array(identityStore.entityCount),
-    recoveryCreditByEntity: new Int16Array(identityStore.entityCount),
+    recoveryCreditByEntity: new Uint16Array(identityStore.entityCount),
     recoveryCreditAppliedByEntity: new Int16Array(identityStore.entityCount),
+    recoveryCreditAppliedFixedPointByEntity: new Uint16Array(
+      identityStore.entityCount,
+    ),
     pressureRecoveredByEntity: new Int32Array(identityStore.entityCount),
     baseRecoveryCreditByEntity: new Int16Array(identityStore.entityCount),
     energyRecoveryMultiplierPercentByEntity,
@@ -248,6 +258,8 @@ export interface IndividualCombatPressureInspection {
   readonly baseRecoveryCredit: number;
   readonly energyRecoveryMultiplierPercent: number;
   readonly energyAdjustedRecoveryCredit: number;
+  readonly energyAdjustedRecoveryCreditFixedPoint: number;
+  readonly recoveryCreditAccumulatorFixedPoint: number;
   readonly energyCapabilityProjectionTickUsed: number | null;
 }
 
@@ -281,7 +293,12 @@ export function getIndividualCombatPressureInspection(
     energyRecoveryMultiplierPercent:
       internal.energyRecoveryMultiplierPercentByEntity[entityId]!,
     energyAdjustedRecoveryCredit:
-      internal.recoveryCreditAppliedByEntity[entityId]!,
+      internal.recoveryCreditAppliedFixedPointByEntity[entityId]! /
+        INDIVIDUAL_PRESSURE_RECOVERY_CREDIT_FIXED_POINT_SCALE,
+    energyAdjustedRecoveryCreditFixedPoint:
+      internal.recoveryCreditAppliedFixedPointByEntity[entityId]!,
+    recoveryCreditAccumulatorFixedPoint:
+      internal.recoveryCreditByEntity[entityId]!,
     energyCapabilityProjectionTickUsed: nullableTick(
       internal.energyCapabilityProjectionTickUsedByEntity[entityId]!,
     ),
@@ -680,20 +697,23 @@ function applyIndividualPressureForEntity(
       store.recoveryPauseTicksByEntity[entityId]! - 1;
   } else if (pressure > floor) {
     const baseCredit = recoveryCreditForEntity(formationStore, store, entityId);
-    const credit = Math.floor(
-      baseCredit * energyRecoveryMultiplierPercent /
-        INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_SCALE,
-    );
+    const creditFixedPoint = baseCredit * energyRecoveryMultiplierPercent;
     store.baseRecoveryCreditByEntity[entityId] = baseCredit;
     store.recoveryCreditByEntity[entityId] =
-      store.recoveryCreditByEntity[entityId]! + credit;
-    store.recoveryCreditAppliedByEntity[entityId] = credit;
+      store.recoveryCreditByEntity[entityId]! + creditFixedPoint;
+    store.recoveryCreditAppliedByEntity[entityId] = Math.floor(
+      creditFixedPoint /
+        INDIVIDUAL_PRESSURE_RECOVERY_CREDIT_FIXED_POINT_SCALE,
+    );
+    store.recoveryCreditAppliedFixedPointByEntity[entityId] = creditFixedPoint;
     while (
       pressure > floor &&
-      store.recoveryCreditByEntity[entityId]! >= RECOVERY_CREDITS_PER_PRESSURE
+      store.recoveryCreditByEntity[entityId]! >=
+        RECOVERY_CREDITS_PER_PRESSURE_FIXED_POINT
     ) {
       store.recoveryCreditByEntity[entityId] =
-        store.recoveryCreditByEntity[entityId]! - RECOVERY_CREDITS_PER_PRESSURE;
+        store.recoveryCreditByEntity[entityId]! -
+          RECOVERY_CREDITS_PER_PRESSURE_FIXED_POINT;
       pressure -= 1;
       store.pressureRecoveredByEntity[entityId] =
         store.pressureRecoveredByEntity[entityId]! + 1;
@@ -804,6 +824,7 @@ function prepareIndividualSourceScratch(
   store.incomingHitImpulseByEntity.fill(0);
   store.blockedStrikeImpulseByEntity.fill(0);
   store.recoveryCreditAppliedByEntity.fill(0);
+  store.recoveryCreditAppliedFixedPointByEntity.fill(0);
   store.pressureRecoveredByEntity.fill(0);
   store.baseRecoveryCreditByEntity.fill(0);
   store.energyRecoveryMultiplierPercentByEntity.fill(
