@@ -1225,6 +1225,30 @@ export function getIndividualEnergyActivityContext(
   return CONTEXTS[internal.contextByEntity[entityId]!]!;
 }
 
+export function getIndividualEnergyActivityApplicationTick(
+  store: IndividualEnergyActivityStore,
+): number | null {
+  return requireStore(store).applicationCompletedTick;
+}
+
+export function getIndividualEnergyExpenditureApplied(
+  store: IndividualEnergyActivityStore,
+  entityId: number,
+): number {
+  const internal = requireStore(store);
+  assertEntityId(entityId, internal.entityCount);
+  return internal.expenditureAppliedByEntity[entityId]!;
+}
+
+export function getIndividualEnergyRecoveryApplied(
+  store: IndividualEnergyActivityStore,
+  entityId: number,
+): number {
+  const internal = requireStore(store);
+  assertEntityId(entityId, internal.entityCount);
+  return internal.recoveryAppliedByEntity[entityId]!;
+}
+
 export function getIndividualEnergyActualMovementDistanceSquared(
   store: IndividualEnergyActivityStore,
   entityId: number,

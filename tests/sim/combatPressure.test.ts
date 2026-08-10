@@ -16,6 +16,19 @@ import {
 } from "../../src/sim/combatPressure";
 import { createIndividualCombatEligibilitySnapshot } from "../../src/sim/individualCombatEligibility";
 import {
+  createIndividualCasualtyLifecycleStore,
+  createIndividualPlayerPresenceStore,
+} from "../../src/sim/individualCasualtyLifecycle";
+import {
+  createIndividualEnergyStore,
+  createTrustedIndividualEnergyProfileStore,
+} from "../../src/sim/individualEnergy";
+import {
+  createIndividualEnergyCapabilityStore,
+  projectIndividualEnergyCapabilitiesOneTick,
+  type IndividualCombatEnergyCapabilityInput,
+} from "../../src/sim/individualEnergyCapability";
+import {
   createIndividualOrdinaryParticipationSnapshot,
   setIndividualOrdinaryParticipationEligible,
 } from "../../src/sim/individualOrdinaryParticipation";
@@ -449,6 +462,101 @@ describe("combat pressure stage", () => {
     expect(getIndividualPressure(regular.formation, 2)).toBe(11);
   });
 
+  it("slows personal recovery by tick-start energy without changing pressure sources", () => {
+    const fresh = createHarness({ targetRole: "veteran" });
+    const spent = createHarness({ targetRole: "veteran" });
+    setIndividualPressure(fresh.formation, 2, 12);
+    setIndividualPressure(spent.formation, 2, 12);
+
+    advanceIndividualPressure(
+      fresh,
+      [individualSummary(TARGET_UNIT_ID)],
+      {},
+      undefined,
+      undefined,
+      createPressureEnergyInput(fresh.identity.entityCount, 2, 100, 7),
+    );
+    advanceIndividualPressure(
+      spent,
+      [individualSummary(TARGET_UNIT_ID)],
+      {},
+      undefined,
+      undefined,
+      createPressureEnergyInput(spent.identity.entityCount, 2, 5, 7),
+    );
+
+    expect(getIndividualPressure(fresh.formation, 2)).toBe(11);
+    expect(getIndividualPressure(spent.formation, 2)).toBe(12);
+    expect(getIndividualCombatPressureInspection(
+      fresh.formation, fresh.store, 2,
+    )).toMatchObject({
+      proximityFloor: 3,
+      baseRecoveryCredit: 4,
+      energyRecoveryMultiplierPercent: 100,
+      energyAdjustedRecoveryCredit: 4,
+      energyCapabilityProjectionTickUsed: 7,
+    });
+    expect(getIndividualCombatPressureInspection(
+      spent.formation, spent.store, 2,
+    )).toMatchObject({
+      proximityFloor: 3,
+      baseRecoveryCredit: 4,
+      energyRecoveryMultiplierPercent: 50,
+      energyAdjustedRecoveryCredit: 2,
+      energyCapabilityProjectionTickUsed: 7,
+    });
+  });
+
+  it("leaves attack impulses and proximity floors unchanged across energy bands", () => {
+    const fresh = createHarness();
+    const spent = createHarness();
+    const records = {
+      attackAttempts: [individualAttempt(0, 2)],
+      defenceRecords: [landedDefence(0, 2)],
+    };
+    advanceIndividualPressure(
+      fresh, [individualSummary(TARGET_UNIT_ID)], records, undefined, undefined,
+      createPressureEnergyInput(4, 2, 100, 3),
+    );
+    advanceIndividualPressure(
+      spent, [individualSummary(TARGET_UNIT_ID)], records, undefined, undefined,
+      createPressureEnergyInput(4, 2, 0, 3),
+    );
+    const freshInspection = getIndividualCombatPressureInspection(
+      fresh.formation, fresh.store, 2,
+    );
+    const spentInspection = getIndividualCombatPressureInspection(
+      spent.formation, spent.store, 2,
+    );
+    expect(spentInspection.proximityFloor).toBe(freshInspection.proximityFloor);
+    expect(spentInspection.incomingAttackImpulse).toBe(
+      freshInspection.incomingAttackImpulse,
+    );
+    expect(getIndividualPressure(spent.formation, 2)).toBe(
+      getIndividualPressure(fresh.formation, 2),
+    );
+  });
+
+  it("does not mutate or replace morale movement authority from energy", () => {
+    const harness = createHarness({ targetRole: "veteran" });
+    const moraleStates = new Map([
+      [SOURCE_UNIT_ID, "steady" as const],
+      [TARGET_UNIT_ID, "shaken" as const],
+    ]);
+    const before = [...moraleStates];
+    setIndividualPressure(harness.formation, 2, 12);
+    advanceIndividualPressure(
+      harness,
+      [individualSummary(TARGET_UNIT_ID)],
+      {},
+      moraleStates,
+      undefined,
+      createPressureEnergyInput(4, 2, 0, 9),
+    );
+    expect([...moraleStates]).toEqual(before);
+    expect(moraleStates.get(TARGET_UNIT_ID)).toBe("shaken");
+  });
+
   it("records proportional zero-hit cohesion loss without double-counting pressure", () => {
     const harness = createHarness();
 
@@ -721,6 +829,7 @@ function advanceIndividualPressure(
     "steady" | "strained" | "shaken" | "wavering" | "routing" | "recovering"
   >,
   ordinaryParticipation?: ReturnType<typeof createIndividualOrdinaryParticipationSnapshot>,
+  energyCapabilities?: IndividualCombatEnergyCapabilityInput,
 ): readonly UnitPressureUpdate[] {
   const eligibility = createIndividualCombatEligibilitySnapshot({
     entityCount: harness.identity.entityCount,
@@ -742,8 +851,35 @@ function advanceIndividualPressure(
     tickStartMoraleStates,
     undefined,
     ordinaryParticipation,
+    energyCapabilities,
   );
   return result.updates.slice();
+}
+
+function createPressureEnergyInput(
+  entityCount: number,
+  targetEntityId: number,
+  targetEnergy: number,
+  tick: number,
+): IndividualCombatEnergyCapabilityInput {
+  const profiles = createTrustedIndividualEnergyProfileStore({
+    entityCount,
+    profiles: Array.from({ length: entityCount }, (_, entityId) => ({
+      entityId,
+      maximumEnergy: 100,
+      startingEnergy: entityId === targetEntityId ? targetEnergy : 100,
+    })),
+  });
+  const energy = createIndividualEnergyStore(profiles);
+  const lifecycle = createIndividualCasualtyLifecycleStore(entityCount);
+  const presence = createIndividualPlayerPresenceStore(entityCount);
+  const capabilities = createIndividualEnergyCapabilityStore(
+    entityCount, energy, lifecycle, presence,
+  );
+  projectIndividualEnergyCapabilitiesOneTick(
+    capabilities, energy, lifecycle, presence, tick,
+  );
+  return { capabilities, tick };
 }
 
 function individualAttempt(attackerEntityId: number, targetEntityId: number) {

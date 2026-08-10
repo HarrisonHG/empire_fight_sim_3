@@ -24,11 +24,13 @@ import {
   INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_SCALE,
   INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_STORAGE_MAX,
   INDIVIDUAL_GUARD_READINESS_RECOVERY_PERCENT_BY_ENERGY_BAND,
+  INDIVIDUAL_PRESSURE_RECOVERY_PERCENT_BY_ENERGY_BAND,
   assertIndividualEnergyCapabilityProjectionTick,
   createIndividualEnergyCapabilityStore,
   getIndividualAttackRecoveryDurationPercent,
   getIndividualEnergyCapabilityInspection,
   getIndividualGuardReadinessRecoveryPercent,
+  getIndividualPressureRecoveryPercent,
   projectIndividualEnergyCapabilitiesOneTick,
 } from "../../src/sim/individualEnergyCapability";
 import type { WorldState } from "../../src/sim/types";
@@ -76,6 +78,7 @@ describe("individual tick-start energy capability", () => {
       respawnEgressProcedureWalkAvailable: false,
       attackRecoveryDurationPercent: 100,
       guardReadinessRecoveryPercent: 100,
+      pressureRecoveryPercent: 100,
     });
     expect(getIndividualEnergyCapabilityInspection(capability, 1))
       .toMatchObject({
@@ -111,9 +114,13 @@ describe("individual tick-start energy capability", () => {
     expect(INDIVIDUAL_GUARD_READINESS_RECOVERY_PERCENT_BY_ENERGY_BAND).toEqual({
       fresh: 100, working: 90, winded: 70, spent: 50,
     });
+    expect(INDIVIDUAL_PRESSURE_RECOVERY_PERCENT_BY_ENERGY_BAND).toEqual({
+      fresh: 100, working: 90, winded: 70, spent: 50,
+    });
     for (const table of [
       INDIVIDUAL_ATTACK_RECOVERY_PERCENT_BY_ENERGY_BAND,
       INDIVIDUAL_GUARD_READINESS_RECOVERY_PERCENT_BY_ENERGY_BAND,
+      INDIVIDUAL_PRESSURE_RECOVERY_PERCENT_BY_ENERGY_BAND,
     ]) {
       for (const value of Object.values(table)) {
         expect(Number.isSafeInteger(value)).toBe(true);
@@ -146,12 +153,16 @@ describe("individual tick-start energy capability", () => {
     expect([0, 1, 2, 3].map((entityId) =>
       getIndividualGuardReadinessRecoveryPercent(capability, entityId),
     )).toEqual([100, 90, 70, 50]);
+    expect([0, 1, 2, 3].map((entityId) =>
+      getIndividualPressureRecoveryPercent(capability, entityId),
+    )).toEqual([100, 90, 70, 50]);
     expect(getIndividualEnergyCapabilityInspection(capability, 3))
       .toMatchObject({
         sourceEnergy: 0,
         sourceEnergyBand: "spent",
         attackRecoveryDurationPercent: 175,
         guardReadinessRecoveryPercent: 50,
+        pressureRecoveryPercent: 50,
       });
   });
 

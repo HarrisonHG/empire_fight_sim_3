@@ -48,6 +48,10 @@ import type {
 import type { IndividualEnergyCapabilityStore } from "./individualEnergyCapability";
 import type { IndividualEnergyExertionModifierStore } from "./individualEnergyExertionModifier";
 import type {
+  UnitEnergySummary,
+  UnitEnergySummaryStore,
+} from "./unitEnergySummary";
+import type {
   CasualtyProcedureKind,
   DeathCountPolicy,
   IndividualCasualtyProcedureProfileStore,
@@ -796,6 +800,8 @@ export interface CombatSandboxSimulationState {
   readonly individualEnergyActivityStore: IndividualEnergyActivityStore;
   readonly individualEnergyCapabilityStore: IndividualEnergyCapabilityStore;
   readonly individualEnergyExertionModifierStore: IndividualEnergyExertionModifierStore;
+  readonly unitEnergySummaryStore: UnitEnergySummaryStore;
+  readonly unitEnergySummaries: readonly UnitEnergySummary[];
   readonly formationEnergyGaitCapabilities: FormationEnergyGaitCapabilitySource;
   readonly specialistPhysicalGaitAdapter: IndividualSpecialistPhysicalGaitAdapter;
   readonly individualCasualtyProcedureProfileStore: IndividualCasualtyProcedureProfileStore;

@@ -28,7 +28,9 @@ import {
   getIndividualMaximumOrdinaryGait,
   getIndividualMaximumRoutingGait,
   getIndividualMinimumSafeWalkAvailable,
+  getIndividualPressureRecoveryPercent,
 } from "../../src/sim/individualEnergyCapability";
+import { getUnitEnergySummaries } from "../../src/sim/unitEnergySummary";
 import {
   physicalGaitCoordinateCeiling,
   type IndividualSpecialistMovementAuthority,
@@ -163,6 +165,8 @@ describe("individual energy structural performance", () => {
           getIndividualAttackRecoveryDurationPercent(
             capabilityStore, entityId,
           ) + getIndividualGuardReadinessRecoveryPercent(
+            capabilityStore, entityId,
+          ) + getIndividualPressureRecoveryPercent(
             capabilityStore, entityId,
           );
       }
@@ -737,6 +741,7 @@ describe("Milestone 7E production structural performance", () => {
       const activityStoreIdentity = combat.individualEnergyActivityStore;
       const modifierStoreIdentity =
         combat.individualEnergyExertionModifierStore;
+      const summaryStoreIdentity = combat.unitEnergySummaryStore;
 
       const started = performance.now();
       advanceSimulationOneTick(simulation);
@@ -772,6 +777,18 @@ describe("Milestone 7E production structural performance", () => {
       expect(combat.individualEnergyActivityStore).toBe(activityStoreIdentity);
       expect(combat.individualEnergyExertionModifierStore)
         .toBe(modifierStoreIdentity);
+      expect(combat.unitEnergySummaryStore).toBe(summaryStoreIdentity);
+      const summaries = getUnitEnergySummaries(summaryStoreIdentity);
+      expect(summaries.reduce(
+        (total, summary) => total + summary.memberCount,
+        0,
+      )).toBe(entityCount);
+      expect(summaries.every((summary) => summary.collectionTick === 0))
+        .toBe(true);
+      expect(summaries.reduce(
+        (total, summary) => total + summary.activeMemberCount,
+        0,
+      )).toBe(entityCount - sparseCasualtyCount);
       expect(getIndividualEnergyExertionModifierProjectionTick(
         modifierStoreIdentity,
       )).toBe(0);
@@ -788,6 +805,9 @@ describe("Milestone 7E production structural performance", () => {
       expect(combat.debugSnapshot.inspectedIndividuals).toEqual([]);
       expect(Object.keys(activityStoreIdentity)).toEqual(["entityCount"]);
       expect(Object.keys(modifierStoreIdentity)).toEqual(["entityCount"]);
+      expect(Object.keys(summaryStoreIdentity)).toEqual([
+        "entityCount", "unitCount",
+      ]);
       expect(Number.isFinite(elapsedMilliseconds)).toBe(true);
       expect(elapsedMilliseconds).toBeGreaterThanOrEqual(0);
       expect(combat.individualCombatPipelineBuffers.hitApplications.length)
@@ -802,6 +822,8 @@ describe("Milestone 7E production structural performance", () => {
         elapsedMilliseconds,
         projectionShape: "opaque entity-indexed typed arrays",
         applicationShape: "one production projection and application pass",
+        summaryShape:
+          "stable per-unit objects with one linear member aggregation pass",
         inspectionPolicy:
           "no production inspection objects; two bounded post-tick assertions",
         casualtyPolicy: "fixed retained sparse fixture independent of entity count",

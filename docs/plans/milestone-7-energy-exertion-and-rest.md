@@ -5,8 +5,8 @@ projection and 7C-2 formation and routing movement enforcement are
 implemented. 7C specialist movement enforcement and consolidation is complete.
 7D combat exertion, attack tempo, and guard recovery is complete. 7E-1 exertion-
 modifier projection and 7E-2 burden, injury, and drag expenditure enforcement
-are implemented; 7E-3 and 7E-4 are implemented. Milestone 7E is complete and
-7F is next.
+are implemented; 7E-3 and 7E-4 are implemented. Milestone 7E is complete, 7F
+is implemented, and 7G is next.
 
 Implementation begins after Milestone 6 is accepted and the post-Milestone-6 main-battle medical integration spike is retained as the evolving `/` scenario.
 
@@ -2072,7 +2072,7 @@ or barbarian respawn batching/re-entry.
 
 ---
 
-## 7F — Pressure recovery and unit energy summaries — next
+## 7F — Pressure recovery and unit energy summaries — implemented
 
 Deliver:
 
@@ -2098,7 +2098,7 @@ No rest/disengagement behaviour yet.
 
 ---
 
-## 7G — Conservation, safe rest, and re-engagement reluctance
+## 7G — Conservation, safe rest, and re-engagement reluctance — next
 
 Deliver:
 

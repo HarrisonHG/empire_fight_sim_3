@@ -23,6 +23,7 @@ import {
 } from "../../src/sim/individualCasualtyLifecycle";
 import { getIndividualCurrentGlobalHits } from "../../src/sim/individualGlobalHits";
 import { getIndividualCombatPressureInspection } from "../../src/sim/combatPressure";
+import { getUnitEnergySummary } from "../../src/sim/unitEnergySummary";
 import {
   getUnitAnchor,
   type FormationTickResult,
@@ -40,6 +41,29 @@ import type {
 } from "../../src/sim/types";
 
 describe("Milestone 7A production energy integration", () => {
+  it("supplies current energy capability to pressure and final unit summaries", () => {
+    const simulation = createSimulation(createSmallBattleScenario({}));
+    advanceSimulationOneTick(simulation);
+    const combat = simulation.combatSandbox!;
+    expect(getIndividualCombatPressureInspection(
+      combat.formationStore,
+      combat.pressureStore,
+      0,
+    )).toMatchObject({
+      energyRecoveryMultiplierPercent: 100,
+      energyCapabilityProjectionTickUsed: 0,
+    });
+    expect(getUnitEnergySummary(combat.unitEnergySummaryStore, 1))
+      .toMatchObject({
+        collectionTick: 0,
+        activeMemberCount: 2,
+        freshMemberCount: 2,
+        jogCapableMemberCount: 2,
+        sprintOrChargeCapableMemberCount: 2,
+        dragCapableHelperCount: 2,
+      });
+  });
+
   it("instantiates trusted default energy for every production entity without inference", () => {
     const simulation = createSimulation(MAIN_BATTLE_MEDICAL_SCENARIO);
     expect(simulation.trustedIndividualEnergyProfileStore.entityCount).toBe(44);

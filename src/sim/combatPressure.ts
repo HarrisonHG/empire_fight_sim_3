@@ -6,6 +6,12 @@ import {
   type IndividualCombatEligibilitySnapshot,
 } from "./individualCombatEligibility";
 import {
+  INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_SCALE,
+  assertIndividualCombatEnergyCapabilityInput,
+  getIndividualPressureRecoveryPercent,
+  type IndividualCombatEnergyCapabilityInput,
+} from "./individualEnergyCapability";
+import {
   isIndividualCharacterActive,
   type IndividualCasualtyLifecycleStore,
 } from "./individualCasualtyLifecycle";
@@ -112,6 +118,9 @@ interface InternalCombatPressureStore extends CombatPressureStore {
   readonly recoveryCreditByEntity: Int16Array;
   readonly recoveryCreditAppliedByEntity: Int16Array;
   readonly pressureRecoveredByEntity: Int32Array;
+  readonly baseRecoveryCreditByEntity: Int16Array;
+  readonly energyRecoveryMultiplierPercentByEntity: Uint16Array;
+  readonly energyCapabilityProjectionTickUsedByEntity: Float64Array;
   individualPressureGrid: SpatialGrid | undefined;
   readonly individualPressureNearbyScratch: number[];
 }
@@ -178,6 +187,17 @@ export function createCombatPressureStore(
     previousCohesion[unitIndex] = getUnitCohesion(formationStore, unitId);
   }
 
+  const energyRecoveryMultiplierPercentByEntity = new Uint16Array(
+    identityStore.entityCount,
+  );
+  energyRecoveryMultiplierPercentByEntity.fill(
+    INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_SCALE,
+  );
+  const energyCapabilityProjectionTickUsedByEntity = new Float64Array(
+    identityStore.entityCount,
+  );
+  energyCapabilityProjectionTickUsedByEntity.fill(-1);
+
   return {
     entityCount: identityStore.entityCount,
     unitCount: identityStore.unitCount,
@@ -198,6 +218,9 @@ export function createCombatPressureStore(
     recoveryCreditByEntity: new Int16Array(identityStore.entityCount),
     recoveryCreditAppliedByEntity: new Int16Array(identityStore.entityCount),
     pressureRecoveredByEntity: new Int32Array(identityStore.entityCount),
+    baseRecoveryCreditByEntity: new Int16Array(identityStore.entityCount),
+    energyRecoveryMultiplierPercentByEntity,
+    energyCapabilityProjectionTickUsedByEntity,
     individualPressureGrid: undefined,
     individualPressureNearbyScratch: [],
   } as InternalCombatPressureStore;
@@ -222,6 +245,10 @@ export interface IndividualCombatPressureInspection {
   readonly recoveryContext: IndividualCombatPressureRecoveryContext;
   readonly recoveryCreditApplied: number;
   readonly recoveredPressureAmount: number;
+  readonly baseRecoveryCredit: number;
+  readonly energyRecoveryMultiplierPercent: number;
+  readonly energyAdjustedRecoveryCredit: number;
+  readonly energyCapabilityProjectionTickUsed: number | null;
 }
 
 export function getIndividualCombatPressureInspection(
@@ -250,6 +277,14 @@ export function getIndividualCombatPressureInspection(
     ),
     recoveryCreditApplied: internal.recoveryCreditAppliedByEntity[entityId]!,
     recoveredPressureAmount: internal.pressureRecoveredByEntity[entityId]!,
+    baseRecoveryCredit: internal.baseRecoveryCreditByEntity[entityId]!,
+    energyRecoveryMultiplierPercent:
+      internal.energyRecoveryMultiplierPercentByEntity[entityId]!,
+    energyAdjustedRecoveryCredit:
+      internal.recoveryCreditAppliedByEntity[entityId]!,
+    energyCapabilityProjectionTickUsed: nullableTick(
+      internal.energyCapabilityProjectionTickUsedByEntity[entityId]!,
+    ),
   };
 }
 
@@ -335,6 +370,7 @@ export function advanceIndividualCombatPressureOneTick(
   tickStartMoraleStates?: UnitMoraleMovementStateSource,
   lifecycleStore?: IndividualCasualtyLifecycleStore,
   ordinaryParticipation?: IndividualOrdinaryParticipationSnapshot,
+  energyCapabilities?: IndividualCombatEnergyCapabilityInput | null,
 ): CombatPressureTickResult {
   validateStores(identityStore, formationStore);
   if (
@@ -345,6 +381,10 @@ export function advanceIndividualCombatPressureOneTick(
       "Individual combat pressure dependencies must match entity count.",
     );
   }
+  assertIndividualCombatEnergyCapabilityInput(
+    energyCapabilities,
+    identityStore.entityCount,
+  );
   if (ordinaryParticipation !== undefined && ordinaryParticipation.entityCount !== identityStore.entityCount) {
     throw new RangeError("Individual combat pressure ordinary participation must match entity count.");
   }
@@ -402,6 +442,7 @@ export function advanceIndividualCombatPressureOneTick(
         lifecycleStore,
         eligibility,
         ordinaryParticipation,
+        energyCapabilities,
       ),
     );
   }
@@ -491,6 +532,7 @@ function applyIndividualUnitPressureUpdate(
   lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
   eligibility: IndividualCombatEligibilitySnapshot,
   ordinaryParticipation: IndividualOrdinaryParticipationSnapshot | undefined,
+  energyCapabilities: IndividualCombatEnergyCapabilityInput | undefined,
 ): UnitPressureUpdate {
   const members = getUnitMembers(identityStore, unitId);
   const confidenceAverage = calculateActiveAverageConfidence(
@@ -538,6 +580,7 @@ function applyIndividualUnitPressureUpdate(
       store,
       entityId,
       cohesionPressureDeltaPerMember,
+      energyCapabilities,
     );
     if (contributesToAggregate) {
       activeMemberCount += 1;
@@ -604,11 +647,22 @@ function applyIndividualPressureForEntity(
   store: InternalCombatPressureStore,
   entityId: number,
   cohesionPressureDelta: number,
+  energyCapabilities: IndividualCombatEnergyCapabilityInput | undefined,
 ): number {
   const floor = store.proximityFloorByEntity[entityId]!;
   const incomingAttackImpulse = store.incomingAttackImpulseByEntity[entityId]!;
   const incomingHitImpulse = store.incomingHitImpulseByEntity[entityId]!;
   const blockedStrikeImpulse = store.blockedStrikeImpulseByEntity[entityId]!;
+  const energyRecoveryMultiplierPercent = energyCapabilities === undefined
+    ? INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_SCALE
+    : getIndividualPressureRecoveryPercent(
+      energyCapabilities.capabilities,
+      entityId,
+    );
+  store.energyRecoveryMultiplierPercentByEntity[entityId] =
+    energyRecoveryMultiplierPercent;
+  store.energyCapabilityProjectionTickUsedByEntity[entityId] =
+    energyCapabilities?.tick ?? -1;
   let pressure = getIndividualPressure(formationStore, entityId);
   const beforeImpulsePressure = pressure;
   pressure = Math.max(pressure, floor);
@@ -625,7 +679,12 @@ function applyIndividualPressureForEntity(
     store.recoveryPauseTicksByEntity[entityId] =
       store.recoveryPauseTicksByEntity[entityId]! - 1;
   } else if (pressure > floor) {
-    const credit = recoveryCreditForEntity(formationStore, store, entityId);
+    const baseCredit = recoveryCreditForEntity(formationStore, store, entityId);
+    const credit = Math.floor(
+      baseCredit * energyRecoveryMultiplierPercent /
+        INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_SCALE,
+    );
+    store.baseRecoveryCreditByEntity[entityId] = baseCredit;
     store.recoveryCreditByEntity[entityId] =
       store.recoveryCreditByEntity[entityId]! + credit;
     store.recoveryCreditAppliedByEntity[entityId] = credit;
@@ -746,6 +805,11 @@ function prepareIndividualSourceScratch(
   store.blockedStrikeImpulseByEntity.fill(0);
   store.recoveryCreditAppliedByEntity.fill(0);
   store.pressureRecoveredByEntity.fill(0);
+  store.baseRecoveryCreditByEntity.fill(0);
+  store.energyRecoveryMultiplierPercentByEntity.fill(
+    INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_SCALE,
+  );
+  store.energyCapabilityProjectionTickUsedByEntity.fill(-1);
 
   prepareIndividualProximityFloors(
     world,
@@ -1123,6 +1187,10 @@ function assertEntityId(entityId: number, entityCount: number): void {
   if (!Number.isSafeInteger(entityId) || entityId < 0 || entityId >= entityCount) {
     throw new RangeError("Combat pressure entity ID is out of bounds.");
   }
+}
+
+function nullableTick(tick: number): number | null {
+  return tick < 0 ? null : tick;
 }
 
 function asInternal(store: CombatPressureStore): InternalCombatPressureStore {

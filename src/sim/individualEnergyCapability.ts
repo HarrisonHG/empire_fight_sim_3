@@ -36,6 +36,13 @@ export const INDIVIDUAL_GUARD_READINESS_RECOVERY_PERCENT_BY_ENERGY_BAND =
     winded: 70,
     spent: 50,
   } satisfies Readonly<Record<IndividualEnergyBand, number>>);
+export const INDIVIDUAL_PRESSURE_RECOVERY_PERCENT_BY_ENERGY_BAND =
+  Object.freeze({
+    fresh: 100,
+    working: 90,
+    winded: 70,
+    spent: 50,
+  } satisfies Readonly<Record<IndividualEnergyBand, number>>);
 
 export interface IndividualCombatEnergyCapabilityInput {
   readonly capabilities: IndividualEnergyCapabilityStore;
@@ -76,6 +83,7 @@ export interface IndividualEnergyCapabilityInspection {
   readonly respawnEgressProcedureWalkAvailable: boolean;
   readonly attackRecoveryDurationPercent: number;
   readonly guardReadinessRecoveryPercent: number;
+  readonly pressureRecoveryPercent: number;
 }
 
 interface InternalIndividualEnergyCapabilityStore
@@ -92,6 +100,7 @@ interface InternalIndividualEnergyCapabilityStore
   readonly respawnEgressProcedureWalkByEntity: Uint8Array;
   readonly attackRecoveryDurationPercentByEntity: Uint16Array;
   readonly guardReadinessRecoveryPercentByEntity: Uint16Array;
+  readonly pressureRecoveryPercentByEntity: Uint16Array;
   projectionTick: number | null;
 }
 
@@ -103,6 +112,9 @@ validateCombatCapabilityPercentTable(
 );
 validateCombatCapabilityPercentTable(
   INDIVIDUAL_GUARD_READINESS_RECOVERY_PERCENT_BY_ENERGY_BAND,
+);
+validateCombatCapabilityPercentTable(
+  INDIVIDUAL_PRESSURE_RECOVERY_PERCENT_BY_ENERGY_BAND,
 );
 const capabilityStoreInternals = new WeakMap<
   IndividualEnergyCapabilityStore,
@@ -135,6 +147,7 @@ export function createIndividualEnergyCapabilityStore(
     respawnEgressProcedureWalkByEntity: new Uint8Array(entityCount),
     attackRecoveryDurationPercentByEntity: new Uint16Array(entityCount),
     guardReadinessRecoveryPercentByEntity: new Uint16Array(entityCount),
+    pressureRecoveryPercentByEntity: new Uint16Array(entityCount),
     projectionTick: null,
   });
   populateCapabilities(store, energy, lifecycle, presence, null);
@@ -214,6 +227,8 @@ function populateCapabilities(
       INDIVIDUAL_ATTACK_RECOVERY_PERCENT_BY_ENERGY_BAND[band];
     internal.guardReadinessRecoveryPercentByEntity[entityId] =
       INDIVIDUAL_GUARD_READINESS_RECOVERY_PERCENT_BY_ENERGY_BAND[band];
+    internal.pressureRecoveryPercentByEntity[entityId] =
+      INDIVIDUAL_PRESSURE_RECOVERY_PERCENT_BY_ENERGY_BAND[band];
   }
 }
 
@@ -265,6 +280,8 @@ export function getIndividualEnergyCapabilityInspection(
       internal.attackRecoveryDurationPercentByEntity[entityId]!,
     guardReadinessRecoveryPercent:
       internal.guardReadinessRecoveryPercentByEntity[entityId]!,
+    pressureRecoveryPercent:
+      internal.pressureRecoveryPercentByEntity[entityId]!,
   };
 }
 
@@ -327,6 +344,24 @@ export function getIndividualMinimumSafeWalkAvailable(
   return internal.minimumSafeWalkByEntity[entityId] !== 0;
 }
 
+export function getIndividualCanInitiateOrdinarySprintOrCharge(
+  store: IndividualEnergyCapabilityStore,
+  entityId: number,
+): boolean {
+  const internal = requireStore(store);
+  assertEntityId(entityId, internal.entityCount);
+  return internal.canInitiateSprintByEntity[entityId] !== 0;
+}
+
+export function getIndividualMinimumActiveSpecialistWalkAvailable(
+  store: IndividualEnergyCapabilityStore,
+  entityId: number,
+): boolean {
+  const internal = requireStore(store);
+  assertEntityId(entityId, internal.entityCount);
+  return internal.minimumActiveSpecialistWalkByEntity[entityId] !== 0;
+}
+
 export function getIndividualAttackRecoveryDurationPercent(
   store: IndividualEnergyCapabilityStore,
   entityId: number,
@@ -343,6 +378,15 @@ export function getIndividualGuardReadinessRecoveryPercent(
   const internal = requireStore(store);
   assertEntityId(entityId, internal.entityCount);
   return internal.guardReadinessRecoveryPercentByEntity[entityId]!;
+}
+
+export function getIndividualPressureRecoveryPercent(
+  store: IndividualEnergyCapabilityStore,
+  entityId: number,
+): number {
+  const internal = requireStore(store);
+  assertEntityId(entityId, internal.entityCount);
+  return internal.pressureRecoveryPercentByEntity[entityId]!;
 }
 
 function validateCombatCapabilityPercentTable(

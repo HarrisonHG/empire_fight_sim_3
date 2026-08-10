@@ -250,6 +250,11 @@ import {
   getIndividualEnergyExertionModifierInspection,
   projectIndividualEnergyExertionModifiersOneTick,
 } from "./individualEnergyExertionModifier";
+import {
+  collectUnitEnergySummariesOneTick,
+  createUnitEnergySummaryStore,
+  getUnitEnergySummaries,
+} from "./unitEnergySummary";
 import { SeededRng } from "./rng";
 import {
   createUnitIdentityStore,
@@ -853,6 +858,7 @@ function createCombatSandbox(
     );
   const individualEnergyExertionModifierStore =
     createIndividualEnergyExertionModifierStore(world.entityCount);
+  const unitEnergySummaryStore = createUnitEnergySummaryStore(identityStore);
   const formationEnergyGaitCapabilities = {
     entityCount: world.entityCount,
     get projectionTick() {
@@ -1003,6 +1009,8 @@ function createCombatSandbox(
       missingDestinationCount: 0,
     },
     individualCasualtyHistoryStore,
+    unitEnergySummaryStore,
+    unitEnergySummaries: getUnitEnergySummaries(unitEnergySummaryStore),
     individualCasualtyUnitSummaryStore,
     individualCasualtyUnitSummaries: getIndividualCasualtyUnitSummaries(
       individualCasualtyUnitSummaryStore,
@@ -2584,6 +2592,10 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.moraleMovementStates,
       combatSandbox.individualCasualtyLifecycleStore,
       combatSandbox.individualOrdinaryParticipationSnapshot,
+      {
+        capabilities: combatSandbox.individualEnergyCapabilityStore,
+        tick,
+      },
     ),
   );
   classifyIndividualEnergyActivityOneTick(
@@ -2614,6 +2626,17 @@ export function advanceCombatSandboxOneTick(
       modifiers: combatSandbox.individualEnergyExertionModifierStore,
       tick,
     },
+  );
+  collectUnitEnergySummariesOneTick(
+    combatSandbox.unitEnergySummaryStore,
+    combatSandbox.identityStore,
+    combatSandbox.individualCasualtyLifecycleStore,
+    combatSandbox.individualPlayerPresenceStore,
+    combatSandbox.individualEnergyStore,
+    combatSandbox.individualEnergyCapabilityStore,
+    combatSandbox.individualEnergyActivityStore,
+    combatSandbox.individualOrdinaryParticipationSnapshot,
+    tick,
   );
   runStage("routingContagion", () =>
     advanceRoutingContagionOneTick(
