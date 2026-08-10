@@ -296,9 +296,9 @@ describe("individual medical urgency and prepared discovery", () => {
 
 describe("production trauma withdrawal", () => {
   it.each([
-    [100, 4, "sprinting", 40],
-    [20, 2, "jogging", 8],
-    [0, 1, "walking", 1],
+    [100, 4, "sprinting", 44],
+    [20, 2, "jogging", 9],
+    [0, 1, "walking", 2],
   ] as const)(
     "enforces withdrawal capability from starting energy %i",
     (startingEnergy, expectedStep, expectedEffectiveGait, expectedCost) => {
@@ -371,7 +371,7 @@ describe("production trauma withdrawal", () => {
     )).toMatchObject({
       effectivePhysicalGait: "sprinting",
       actualPhysicalGait: "sprinting",
-      movementExpenditureRequested: 40,
+      movementExpenditureRequested: 44,
     });
     const beforeNextX = simulation.world.positionsX[0]!;
 
@@ -383,7 +383,7 @@ describe("production trauma withdrawal", () => {
       requestedPhysicalGait: "sprinting",
       effectivePhysicalGait: "walking",
       actualPhysicalGait: "walking",
-      movementExpenditureRequested: 1,
+      movementExpenditureRequested: 2,
     });
   });
 

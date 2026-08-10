@@ -230,6 +230,7 @@ import {
   createIndividualSpecialistPhysicalGaitAdapter,
   checkpointIndividualEnergyMovementObservation,
   getIndividualEnergyActivityInspection,
+  getIndividualEnergyExpenditureInspection,
   initializeIndividualEnergyActivityApplicationState,
   observeIndividualEnergyMovementAuthority,
 } from "./individualEnergyActivity";
@@ -246,6 +247,7 @@ import {
 } from "./individualEnergyCapability";
 import {
   createIndividualEnergyExertionModifierStore,
+  getIndividualEnergyExertionModifierInspection,
   projectIndividualEnergyExertionModifiersOneTick,
 } from "./individualEnergyExertionModifier";
 import { SeededRng } from "./rng";
@@ -2608,6 +2610,10 @@ export function advanceCombatSandboxOneTick(
     combatSandbox.trustedIndividualEnergyProfileStore,
     combatSandbox.individualEnergyStore,
     tick,
+    {
+      modifiers: combatSandbox.individualEnergyExertionModifierStore,
+      tick,
+    },
   );
   runStage("routingContagion", () =>
     advanceRoutingContagionOneTick(
@@ -3150,8 +3156,16 @@ function collectInspectedIndividualSnapshots(
       combatSandbox.individualEnergyActivityStore,
       entityId,
     );
+    const energyExpenditure = getIndividualEnergyExpenditureInspection(
+      combatSandbox.individualEnergyActivityStore,
+      entityId,
+    );
     const energyCapability = getIndividualEnergyCapabilityInspection(
       combatSandbox.individualEnergyCapabilityStore,
+      entityId,
+    );
+    const exertionModifier = getIndividualEnergyExertionModifierInspection(
+      combatSandbox.individualEnergyExertionModifierStore,
       entityId,
     );
     const guardRecovery = getIndividualGuardRecoveryInspection(
@@ -3364,13 +3378,33 @@ function collectInspectedIndividualSnapshots(
       energyExternallyMovedThisTick: energyActivity.externallyMoved,
       energyMovementExpenditureRequestedThisTick:
         energyActivity.movementExpenditureRequested,
+      energyMovementBaseExpenditureThisTick:
+        energyExpenditure.movementBaseExpenditure,
+      energyDragSurchargeThisTick: energyExpenditure.dragSurcharge,
+      energyArmourBurdenPoints: exertionModifier.armourBurdenPoints,
+      energyHeldShieldBurdenPoints: exertionModifier.heldShieldBurdenPoints,
+      energyPrimaryWeaponBurdenPoints:
+        exertionModifier.primaryWeaponBurdenPoints,
+      energyTotalBurdenPoints: exertionModifier.totalBurdenPoints,
+      energyBurdenExertionMultiplierPercent:
+        energyExpenditure.burdenExertionMultiplierPercent,
+      energyMissingGlobalHitsAtProjection:
+        exertionModifier.missingGlobalHits,
+      energyInjuryExertionMultiplierPercent:
+        energyExpenditure.injuryExertionMultiplierPercent,
       energyAttackExpenditureRequestedThisTick:
         energyActivity.attackExpenditureRequested,
+      energyAttackBaseExpenditureThisTick:
+        energyExpenditure.attackBaseExpenditure,
       energyDefenceExpenditureRequestedThisTick:
         energyActivity.defenceExpenditureRequested,
+      energyDefenceBaseExpenditureThisTick:
+        energyExpenditure.defenceBaseExpenditure,
       energyTotalExpenditureRequestedThisTick:
         energyActivity.totalExpenditureRequested,
       energyExpenditureAppliedThisTick: energyActivity.expenditureApplied,
+      energyExertionModifierProjectionTickUsed:
+        energyExpenditure.exertionModifierProjectionTickUsed,
       energyRecoveryRequestedThisTick: energyActivity.recoveryRequested,
       energyRecoveryAppliedThisTick: energyActivity.recoveryApplied,
       energyBeforeThisTick: energyActivity.energyBefore,

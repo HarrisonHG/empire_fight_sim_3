@@ -36,6 +36,14 @@ import {
   type IndividualEnergyCapabilityStore,
 } from "./individualEnergyCapability";
 import {
+  INDIVIDUAL_EXERTION_PERCENT_SCALE,
+  assertIndividualEnergyExertionModifierInput,
+  getIndividualBurdenExertionMultiplierPercent,
+  getIndividualEnergyExertionModifierProjectionTick,
+  getIndividualInjuryExertionMultiplierPercent,
+  type IndividualEnergyExertionModifierInput,
+} from "./individualEnergyExertionModifier";
+import {
   clampPhysicalGait,
   INDIVIDUAL_PHYSICAL_GAITS,
   physicalGaitRank,
@@ -52,6 +60,7 @@ export const INDIVIDUAL_ENERGY_JOGGING_COST_PER_TICK = 8;
 export const INDIVIDUAL_ENERGY_SPRINTING_COST_PER_TICK = 40;
 export const INDIVIDUAL_ENERGY_VALID_ATTACK_IMPULSE = 80;
 export const INDIVIDUAL_ENERGY_VALID_DEFENCE_IMPULSE = 50;
+export const INDIVIDUAL_ENERGY_ACTIVE_DRAG_HELPER_SURCHARGE = 12;
 export const INDIVIDUAL_ENERGY_ALERT_STATIONARY_RECOVERY = 2;
 export const INDIVIDUAL_ENERGY_DOWNED_REST_RECOVERY = 4;
 
@@ -150,8 +159,14 @@ interface InternalIndividualEnergyActivityStore
   readonly externallyMovedByEntity: Uint8Array;
   readonly actionEvidenceByEntity: Uint8Array;
   readonly movementExpenditureRequestedByEntity: Float64Array;
+  readonly movementBaseExpenditureByEntity: Float64Array;
+  readonly dragSurchargeByEntity: Uint8Array;
+  readonly burdenMultiplierPercentByEntity: Uint16Array;
+  readonly injuryMultiplierPercentByEntity: Uint16Array;
   readonly attackExpenditureRequestedByEntity: Float64Array;
+  readonly attackBaseExpenditureByEntity: Float64Array;
   readonly defenceExpenditureRequestedByEntity: Float64Array;
+  readonly defenceBaseExpenditureByEntity: Float64Array;
   readonly totalExpenditureRequestedByEntity: Float64Array;
   readonly expenditureAppliedByEntity: Uint32Array;
   readonly recoveryRequestedByEntity: Uint32Array;
@@ -160,6 +175,7 @@ interface InternalIndividualEnergyActivityStore
   readonly energyAfterByEntity: Uint32Array;
   readonly expenditureClampedByEntity: Uint8Array;
   readonly recoveryClampedByEntity: Uint8Array;
+  readonly exertionModifierProjectionTickByEntity: Float64Array;
   readonly applicationRequestScratch: MutableIndividualEnergyApplicationRequest;
   energyStore: IndividualEnergyStore | undefined;
   observationStartedTick: number;
@@ -204,6 +220,23 @@ export interface IndividualEnergyActivityInspection {
   readonly lastStrenuousTick: number | null;
   readonly expenditureClamped: boolean;
   readonly recoveryClamped: boolean;
+  readonly applicationTick: number;
+}
+
+export interface IndividualEnergyExpenditureInspection {
+  readonly movementBaseExpenditure: number;
+  readonly dragSurcharge: number;
+  readonly burdenExertionMultiplierPercent: number;
+  readonly injuryExertionMultiplierPercent: number;
+  readonly movementAdjustedExpenditure: number;
+  readonly attackBaseExpenditure: number;
+  readonly attackAdjustedExpenditure: number;
+  readonly defenceBaseExpenditure: number;
+  readonly defenceAdjustedExpenditure: number;
+  readonly totalExpenditureRequested: number;
+  readonly expenditureApplied: number;
+  readonly expenditureClamped: boolean;
+  readonly exertionModifierProjectionTickUsed: number | null;
   readonly applicationTick: number;
 }
 
@@ -302,8 +335,14 @@ export function createIndividualEnergyActivityStore(
     externallyMovedByEntity: new Uint8Array(entityCount),
     actionEvidenceByEntity: new Uint8Array(entityCount),
     movementExpenditureRequestedByEntity: new Float64Array(entityCount),
+    movementBaseExpenditureByEntity: new Float64Array(entityCount),
+    dragSurchargeByEntity: new Uint8Array(entityCount),
+    burdenMultiplierPercentByEntity: new Uint16Array(entityCount),
+    injuryMultiplierPercentByEntity: new Uint16Array(entityCount),
     attackExpenditureRequestedByEntity: new Float64Array(entityCount),
+    attackBaseExpenditureByEntity: new Float64Array(entityCount),
     defenceExpenditureRequestedByEntity: new Float64Array(entityCount),
+    defenceBaseExpenditureByEntity: new Float64Array(entityCount),
     totalExpenditureRequestedByEntity: new Float64Array(entityCount),
     expenditureAppliedByEntity: new Uint32Array(entityCount),
     recoveryRequestedByEntity: new Uint32Array(entityCount),
@@ -312,6 +351,7 @@ export function createIndividualEnergyActivityStore(
     energyAfterByEntity: new Uint32Array(entityCount),
     expenditureClampedByEntity: new Uint8Array(entityCount),
     recoveryClampedByEntity: new Uint8Array(entityCount),
+    exertionModifierProjectionTickByEntity: new Float64Array(entityCount),
     applicationRequestScratch: {
       movementExpenditureRequested: 0,
       attackExpenditureRequested: 0,
@@ -326,6 +366,13 @@ export function createIndividualEnergyActivityStore(
   } as InternalIndividualEnergyActivityStore);
   const internal = activityStoreInternals.get(publicStore)!;
   internal.gaitSourceByEntity.fill(-1);
+  internal.burdenMultiplierPercentByEntity.fill(
+    INDIVIDUAL_EXERTION_PERCENT_SCALE,
+  );
+  internal.injuryMultiplierPercentByEntity.fill(
+    INDIVIDUAL_EXERTION_PERCENT_SCALE,
+  );
+  internal.exertionModifierProjectionTickByEntity.fill(-1);
   return publicStore;
 }
 
@@ -820,6 +867,7 @@ export function applyIndividualEnergyActivityOneTick(
   profiles: TrustedIndividualEnergyProfileStore,
   energy: IndividualEnergyStore,
   tick: number,
+  exertionModifiers?: IndividualEnergyExertionModifierInput | null,
 ): IndividualEnergyActivityStore {
   const internal = requireStore(activity, energy.entityCount);
   if (profiles.entityCount !== internal.entityCount) {
@@ -836,6 +884,11 @@ export function applyIndividualEnergyActivityOneTick(
   if (internal.classificationCompletedTick !== tick) {
     throw new Error("Energy activity application requires completed classification for the same tick.");
   }
+  assertIndividualEnergyExertionModifierInput(
+    exertionModifiers,
+    internal.entityCount,
+    tick,
+  );
   bindEnergyStore(internal, energy);
 
   // Validate and stage every requested value before any current-energy mutation.
@@ -855,15 +908,79 @@ export function applyIndividualEnergyActivityOneTick(
       profile.safeRestRecoveryPerTick,
       request,
     );
+    const movementBaseExpenditure = request.movementExpenditureRequested;
+    const movingDragHelper = exertionModifiers !== undefined &&
+      movementBaseExpenditure > 0 &&
+      (internal.movementAuthorityMaskByEntity[entityId]! &
+        AUTHORITY_BITS.activeDragHelper) !== 0;
+    const dragSurcharge = movingDragHelper
+      ? INDIVIDUAL_ENERGY_ACTIVE_DRAG_HELPER_SURCHARGE
+      : 0;
+    const burdenMultiplier = exertionModifiers === undefined
+      ? INDIVIDUAL_EXERTION_PERCENT_SCALE
+      : getIndividualBurdenExertionMultiplierPercent(
+          exertionModifiers.modifiers,
+          entityId,
+        );
+    const injuryMultiplier = exertionModifiers === undefined
+      ? INDIVIDUAL_EXERTION_PERCENT_SCALE
+      : getIndividualInjuryExertionMultiplierPercent(
+          exertionModifiers.modifiers,
+          entityId,
+        );
+    const movementWithDrag = checkedAddition(
+      movementBaseExpenditure,
+      dragSurcharge,
+      "movement and drag expenditure",
+    );
+    const movementExpenditure = calculateIndividualEnergyExertionAdjustedValue(
+      movementWithDrag,
+      burdenMultiplier,
+      injuryMultiplier,
+      "movement expenditure",
+    );
+    const attackExpenditure = calculateIndividualEnergyExertionAdjustedValue(
+      request.attackExpenditureRequested,
+      INDIVIDUAL_EXERTION_PERCENT_SCALE,
+      injuryMultiplier,
+      "attack expenditure",
+    );
+    const defenceExpenditure = calculateIndividualEnergyExertionAdjustedValue(
+      request.defenceExpenditureRequested,
+      INDIVIDUAL_EXERTION_PERCENT_SCALE,
+      injuryMultiplier,
+      "defence expenditure",
+    );
+    const totalExpenditure = checkedAddition(
+      checkedAddition(
+        movementExpenditure,
+        attackExpenditure,
+        "movement and attack expenditure",
+      ),
+      defenceExpenditure,
+      "total expenditure",
+    );
+    const recoveryRequested = totalExpenditure === 0
+      ? request.recoveryRequested
+      : 0;
+    internal.movementBaseExpenditureByEntity[entityId] =
+      movementBaseExpenditure;
+    internal.dragSurchargeByEntity[entityId] = dragSurcharge;
+    internal.burdenMultiplierPercentByEntity[entityId] = burdenMultiplier;
+    internal.injuryMultiplierPercentByEntity[entityId] = injuryMultiplier;
     internal.movementExpenditureRequestedByEntity[entityId] =
-      request.movementExpenditureRequested;
-    internal.attackExpenditureRequestedByEntity[entityId] =
+      movementExpenditure;
+    internal.attackBaseExpenditureByEntity[entityId] =
       request.attackExpenditureRequested;
-    internal.defenceExpenditureRequestedByEntity[entityId] =
+    internal.attackExpenditureRequestedByEntity[entityId] =
+      attackExpenditure;
+    internal.defenceBaseExpenditureByEntity[entityId] =
       request.defenceExpenditureRequested;
+    internal.defenceExpenditureRequestedByEntity[entityId] =
+      defenceExpenditure;
     internal.totalExpenditureRequestedByEntity[entityId] =
-      request.totalExpenditureRequested;
-    internal.recoveryRequestedByEntity[entityId] = request.recoveryRequested;
+      totalExpenditure;
+    internal.recoveryRequestedByEntity[entityId] = recoveryRequested;
     internal.expenditureAppliedByEntity[entityId] = 0;
     internal.recoveryAppliedByEntity[entityId] = 0;
     internal.expenditureClampedByEntity[entityId] = 0;
@@ -871,6 +988,12 @@ export function applyIndividualEnergyActivityOneTick(
     const current = getIndividualCurrentEnergy(energy, entityId);
     internal.energyBeforeByEntity[entityId] = current;
     internal.energyAfterByEntity[entityId] = current;
+    internal.exertionModifierProjectionTickByEntity[entityId] =
+      exertionModifiers === undefined
+        ? -1
+        : getIndividualEnergyExertionModifierProjectionTick(
+            exertionModifiers.modifiers,
+          )!;
   }
 
   for (let entityId = 0; entityId < internal.entityCount; entityId += 1) {
@@ -1050,6 +1173,43 @@ export function getIndividualEnergyActivityInspection(
       : getIndividualEnergyLastStrenuousTick(internal.energyStore, entityId),
     expenditureClamped: internal.expenditureClampedByEntity[entityId] !== 0,
     recoveryClamped: internal.recoveryClampedByEntity[entityId] !== 0,
+    applicationTick: internal.applicationCompletedTick,
+  };
+}
+
+export function getIndividualEnergyExpenditureInspection(
+  store: IndividualEnergyActivityStore,
+  entityId: number,
+): IndividualEnergyExpenditureInspection {
+  const internal = requireStore(store);
+  assertEntityId(entityId, internal.entityCount);
+  return {
+    movementBaseExpenditure:
+      internal.movementBaseExpenditureByEntity[entityId]!,
+    dragSurcharge: internal.dragSurchargeByEntity[entityId]!,
+    burdenExertionMultiplierPercent:
+      internal.burdenMultiplierPercentByEntity[entityId]!,
+    injuryExertionMultiplierPercent:
+      internal.injuryMultiplierPercentByEntity[entityId]!,
+    movementAdjustedExpenditure:
+      internal.movementExpenditureRequestedByEntity[entityId]!,
+    attackBaseExpenditure:
+      internal.attackBaseExpenditureByEntity[entityId]!,
+    attackAdjustedExpenditure:
+      internal.attackExpenditureRequestedByEntity[entityId]!,
+    defenceBaseExpenditure:
+      internal.defenceBaseExpenditureByEntity[entityId]!,
+    defenceAdjustedExpenditure:
+      internal.defenceExpenditureRequestedByEntity[entityId]!,
+    totalExpenditureRequested:
+      internal.totalExpenditureRequestedByEntity[entityId]!,
+    expenditureApplied: internal.expenditureAppliedByEntity[entityId]!,
+    expenditureClamped:
+      internal.expenditureClampedByEntity[entityId] !== 0,
+    exertionModifierProjectionTickUsed:
+      internal.exertionModifierProjectionTickByEntity[entityId]! < 0
+        ? null
+        : internal.exertionModifierProjectionTickByEntity[entityId]!,
     applicationTick: internal.applicationCompletedTick,
   };
 }
@@ -1323,6 +1483,39 @@ function checkedAddition(left: number, right: number, name: string): number {
   return result;
 }
 
+export function calculateIndividualEnergyExertionAdjustedValue(
+  base: number,
+  burdenMultiplierPercent: number,
+  injuryMultiplierPercent: number,
+  name: string,
+): number {
+  assertNonNegativeSafeInteger(base, `${name} base`);
+  assertPositiveSafeInteger(
+    burdenMultiplierPercent,
+    `${name} burden multiplier`,
+  );
+  assertPositiveSafeInteger(
+    injuryMultiplierPercent,
+    `${name} injury multiplier`,
+  );
+  if (base === 0) return 0;
+  const burdenAdjustedNumerator = checkedMultiplication(
+    base,
+    burdenMultiplierPercent,
+    `${name} burden numerator`,
+  );
+  const combinedNumerator = checkedMultiplication(
+    burdenAdjustedNumerator,
+    injuryMultiplierPercent,
+    `${name} combined numerator`,
+  );
+  return Math.ceil(
+    combinedNumerator /
+      (INDIVIDUAL_EXERTION_PERCENT_SCALE *
+        INDIVIDUAL_EXERTION_PERCENT_SCALE),
+  );
+}
+
 function incrementChecked(array: Uint32Array, entityId: number, label: string): void {
   assertEntityId(entityId, array.length);
   const current = array[entityId]!;
@@ -1368,14 +1561,25 @@ function resetApplicationOutputs(
   store: InternalIndividualEnergyActivityStore,
 ): void {
   store.movementExpenditureRequestedByEntity.fill(0);
+  store.movementBaseExpenditureByEntity.fill(0);
+  store.dragSurchargeByEntity.fill(0);
+  store.burdenMultiplierPercentByEntity.fill(
+    INDIVIDUAL_EXERTION_PERCENT_SCALE,
+  );
+  store.injuryMultiplierPercentByEntity.fill(
+    INDIVIDUAL_EXERTION_PERCENT_SCALE,
+  );
   store.attackExpenditureRequestedByEntity.fill(0);
+  store.attackBaseExpenditureByEntity.fill(0);
   store.defenceExpenditureRequestedByEntity.fill(0);
+  store.defenceBaseExpenditureByEntity.fill(0);
   store.totalExpenditureRequestedByEntity.fill(0);
   store.expenditureAppliedByEntity.fill(0);
   store.recoveryRequestedByEntity.fill(0);
   store.recoveryAppliedByEntity.fill(0);
   store.expenditureClampedByEntity.fill(0);
   store.recoveryClampedByEntity.fill(0);
+  store.exertionModifierProjectionTickByEntity.fill(-1);
   if (store.energyStore === undefined) {
     store.energyBeforeByEntity.fill(0);
     store.energyAfterByEntity.fill(0);
@@ -1417,5 +1621,11 @@ function assertTick(tick: number): void {
 function assertNonNegativeSafeInteger(value: number, name: string): void {
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new RangeError(`${name} must be a non-negative safe integer.`);
+  }
+}
+
+function assertPositiveSafeInteger(value: number, name: string): void {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new RangeError(`${name} must be a positive safe integer.`);
   }
 }

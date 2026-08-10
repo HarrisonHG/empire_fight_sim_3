@@ -68,8 +68,8 @@ describe("Milestone 6H-2B respawn egress", () => {
       actualPhysicalGait: "walking",
       gaitReducedByCapability: false,
       physicalGaitSource: "respawnEgress",
-      movementExpenditureRequested: 1,
-      expenditureApplied: Math.min(startingEnergy, 1),
+      movementExpenditureRequested: 2,
+      expenditureApplied: Math.min(startingEnergy, 2),
     });
   });
 
@@ -109,7 +109,7 @@ describe("Milestone 6H-2B respawn egress", () => {
       actualPhysicalGait: "walking",
       gaitReducedByCapability: false,
       physicalGaitSource: "respawnEgress",
-      movementExpenditureRequested: 1,
+      movementExpenditureRequested: 2,
     });
   });
 
@@ -217,8 +217,8 @@ describe("Milestone 6H-2B respawn egress", () => {
       actualPhysicalGait: "walking",
       gaitReducedByCapability: false,
       physicalGaitSource: "respawnEgress",
-      movementExpenditureRequested: 1,
-      expenditureApplied: 1,
+      movementExpenditureRequested: 2,
+      expenditureApplied: 2,
     });
 
     advanceSimulationOneTick(simulation);
