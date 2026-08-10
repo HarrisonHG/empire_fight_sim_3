@@ -13,6 +13,7 @@ import {
 } from "../../src/sim/individualEnergy";
 import { getIndividualEnergyActivityInspection } from "../../src/sim/individualEnergyActivity";
 import { getIndividualEnergyCapabilityInspection } from "../../src/sim/individualEnergyCapability";
+import { getIndividualEnergyExertionModifierInspection } from "../../src/sim/individualEnergyExertionModifier";
 import {
   getIndividualCharacterLifecycleState,
   getIndividualPlayerPresenceState,
@@ -1007,6 +1008,15 @@ describe("Milestone 7B-1 production activity observation", () => {
       );
       expect(capabilityInspection.projectionTick).toBe(expectedTick);
       expect(capabilityInspection.sourceEnergy).toBe(phase.energyBefore);
+      const exertion = getIndividualEnergyExertionModifierInspection(
+        simulation.combatSandbox!.individualEnergyExertionModifierStore,
+        0,
+      );
+      expect(exertion.projectionTick).toBe(expectedTick);
+      expect(exertion.currentGlobalHits).toBeGreaterThanOrEqual(0);
+      expect(exertion.currentGlobalHits).toBeLessThanOrEqual(
+        exertion.maximumGlobalHits,
+      );
     }
   });
 

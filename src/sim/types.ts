@@ -46,6 +46,7 @@ import type {
   IndividualSpecialistPhysicalGaitAdapter,
 } from "./individualPhysicalGait";
 import type { IndividualEnergyCapabilityStore } from "./individualEnergyCapability";
+import type { IndividualEnergyExertionModifierStore } from "./individualEnergyExertionModifier";
 import type {
   CasualtyProcedureKind,
   DeathCountPolicy,
@@ -782,6 +783,7 @@ export interface CombatSandboxSimulationState {
   readonly individualEnergyStore: IndividualEnergyStore;
   readonly individualEnergyActivityStore: IndividualEnergyActivityStore;
   readonly individualEnergyCapabilityStore: IndividualEnergyCapabilityStore;
+  readonly individualEnergyExertionModifierStore: IndividualEnergyExertionModifierStore;
   readonly formationEnergyGaitCapabilities: FormationEnergyGaitCapabilitySource;
   readonly specialistPhysicalGaitAdapter: IndividualSpecialistPhysicalGaitAdapter;
   readonly individualCasualtyProcedureProfileStore: IndividualCasualtyProcedureProfileStore;

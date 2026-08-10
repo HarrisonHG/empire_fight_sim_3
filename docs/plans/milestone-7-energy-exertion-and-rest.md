@@ -3,7 +3,8 @@
 Status: active; 7A and 7B are complete. 7C-1 gait authority and capability
 projection and 7C-2 formation and routing movement enforcement are
 implemented. 7C specialist movement enforcement and consolidation is complete.
-7D combat exertion, attack tempo, and guard recovery is complete; 7E is next.
+7D combat exertion, attack tempo, and guard recovery is complete. 7E-1 exertion-
+modifier projection is implemented; 7E-2 is next. Milestone 7E is not complete.
 
 Implementation begins after Milestone 6 is accepted and the post-Milestone-6 main-battle medical integration spike is retained as the evolving `/` scenario.
 
@@ -1906,7 +1907,7 @@ existing evidence.
 
 ### Ordered implementation slices
 
-#### 7E-1 — Exertion-modifier projection and contract
+#### 7E-1 — Exertion-modifier projection and contract — implemented
 
 Deliver:
 
@@ -1943,7 +1944,7 @@ Projection and contract only. Do not change any expenditure, recovery, energy,
 movement, attack, defence, hit, casualty, treatment, presence, or lifecycle
 outcome.
 
-#### 7E-2 — Burden, injury, and drag expenditure enforcement
+#### 7E-2 — Burden, injury, and drag expenditure enforcement — next
 
 Deliver:
 

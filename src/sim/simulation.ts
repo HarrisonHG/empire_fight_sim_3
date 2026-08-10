@@ -244,6 +244,10 @@ import {
   getIndividualMinimumSafeWalkAvailable,
   projectIndividualEnergyCapabilitiesOneTick,
 } from "./individualEnergyCapability";
+import {
+  createIndividualEnergyExertionModifierStore,
+  projectIndividualEnergyExertionModifiersOneTick,
+} from "./individualEnergyExertionModifier";
 import { SeededRng } from "./rng";
 import {
   createUnitIdentityStore,
@@ -845,6 +849,8 @@ function createCombatSandbox(
       individualCasualtyLifecycleStore,
       individualPlayerPresenceStore,
     );
+  const individualEnergyExertionModifierStore =
+    createIndividualEnergyExertionModifierStore(world.entityCount);
   const formationEnergyGaitCapabilities = {
     entityCount: world.entityCount,
     get projectionTick() {
@@ -907,6 +913,7 @@ function createCombatSandbox(
     individualEnergyStore,
     individualEnergyActivityStore,
     individualEnergyCapabilityStore,
+    individualEnergyExertionModifierStore,
     formationEnergyGaitCapabilities,
     specialistPhysicalGaitAdapter,
     individualCasualtyProcedureProfileStore,
@@ -1875,6 +1882,12 @@ export function advanceCombatSandboxOneTick(
   beginIndividualEnergyActivityObservation(
     combatSandbox.individualEnergyActivityStore,
     world,
+    tick,
+  );
+  projectIndividualEnergyExertionModifiersOneTick(
+    combatSandbox.individualEnergyExertionModifierStore,
+    combatSandbox.individualProfileStore,
+    combatSandbox.individualGlobalHitStore,
     tick,
   );
   projectIndividualEnergyCapabilitiesOneTick(
