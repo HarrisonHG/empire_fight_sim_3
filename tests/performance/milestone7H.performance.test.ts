@@ -5,16 +5,20 @@ import { describe, expect, it } from "vitest";
 import { CASUALTY_LIFECYCLE_VISUAL_SCENARIO } from "../../src/content/casualtyLifecycleVisualScenario";
 import { MAIN_BATTLE_MEDICAL_SCENARIO } from "../../src/content/mainBattleMedicalScenario";
 import {
+  applyIndividualZeroHitLifecycleTransitions,
   getIndividualCharacterLifecycleState,
 } from "../../src/sim/individualCasualtyLifecycle";
+import { initializeIndividualDeathCountsFromZeroHitTransitions } from "../../src/sim/individualDeathCount";
 import {
   getIndividualCurrentEnergy,
   getIndividualMaximumEnergy,
 } from "../../src/sim/individualEnergy";
 import {
+  applyIndividualLandedHits,
   getIndividualCurrentGlobalHits,
   getIndividualMaximumGlobalHits,
 } from "../../src/sim/individualGlobalHits";
+import type { IndividualMeleeDefenceRecord } from "../../src/sim/individualMeleeDefence";
 import {
   advanceCombatSandboxOneTick,
   advanceSimulationOneTick,
@@ -34,6 +38,8 @@ const UNIT_COUNT = 100;
 const MEMBERS_PER_UNIT = 20;
 const WARM_UP_TICKS = 5;
 const MEASURED_TICKS = 20;
+const REPRESENTATIVE_DRAG_PATIENT_ENTITY_ID = 1_920;
+const REPRESENTATIVE_EGRESS_ENTITY_ID = 1_960;
 
 type PerformanceCase = "representative" | "sprintHeavy" | "denseDefence" | "idle";
 
@@ -59,8 +65,22 @@ describe("Milestone 7H production structural performance", () => {
       .toBeGreaterThanOrEqual(report.stage.preMovementRecoveryThreat.p95MillisecondsPerTick);
     expect(report.stage.recoveryThreat.meanMillisecondsPerTick)
       .toBeGreaterThanOrEqual(0);
+    console.info("Milestone 7H production stage report", JSON.stringify(report, null, 2));
     if (caseName === "representative") {
       expect(report.zeroEnergyActiveMoverCount).toBeGreaterThan(0);
+      expect(report.representativeCasualtyActivity.draggingMeasuredTickCount)
+        .toBeGreaterThan(0);
+      expect(report.representativeCasualtyActivity.treatmentMeasuredTickCount)
+        .toBeGreaterThan(0);
+      expect(report.representativeCasualtyActivity.egressMeasuredTickCount)
+        .toBeGreaterThan(0);
+      expect(report.representativeCasualtyActivity.maximumMovedDragParticipants)
+        .toBeGreaterThan(0);
+      expect(report.representativeCasualtyActivity.egressMovementRecordCount)
+        .toBeGreaterThan(0);
+      expect(report.representativeCasualtyActivity.seededDragStarted).toBe(true);
+      expect(report.representativeCasualtyActivity.seededTreatmentStarted).toBe(true);
+      expect(report.representativeCasualtyActivity.seededEgressMoved).toBe(true);
     }
     if (caseName === "denseDefence") {
       expect(report.maximumDefenceRecords).toBeGreaterThan(0);
@@ -68,7 +88,6 @@ describe("Milestone 7H production structural performance", () => {
     if (caseName === "sprintHeavy") {
       expect(report.totalEnergySpent).toBeGreaterThan(0);
     }
-    console.info("Milestone 7H production stage report", JSON.stringify(report, null, 2));
   }, 30_000);
 
   it("measures the retained casualty-extraction stress with bounded outputs", () => {
@@ -138,9 +157,23 @@ function runProductionCase(caseName: PerformanceCase) {
   let maximumSelectedTargetRecords = 0;
   let maximumDefenceRecords = 0;
   let energyAndHitBoundsValid = true;
+  const representativeCasualtyActivity = {
+    draggingMeasuredTickCount: 0,
+    treatmentMeasuredTickCount: 0,
+    egressMeasuredTickCount: 0,
+    maximumMovedDragParticipants: 0,
+    treatmentStartCount: 0,
+    egressMovementRecordCount: 0,
+    seededDragStarted: false,
+    seededTreatmentStarted: false,
+    seededEgressMoved: false,
+  };
 
   for (let tick = 0; tick < WARM_UP_TICKS; tick += 1) {
     advanceSimulationOneTick(simulation);
+  }
+  if (caseName === "representative") {
+    seedRepresentativeCasualties(simulation, simulation.tick);
   }
 
   for (let tick = 0; tick < MEASURED_TICKS; tick += 1) {
@@ -169,6 +202,35 @@ function runProductionCase(caseName: PerformanceCase) {
       maximumDefenceRecords,
       combat.individualCombatPipelineBuffers.defenceRecords.length,
     );
+    if (combat.casualtyDragMovementResult.draggingGroupCount > 0) {
+      representativeCasualtyActivity.draggingMeasuredTickCount += 1;
+    }
+    representativeCasualtyActivity.maximumMovedDragParticipants = Math.max(
+      representativeCasualtyActivity.maximumMovedDragParticipants,
+      combat.casualtyDragMovementResult.movedParticipantCount,
+    );
+    if (combat.individualTreatmentActionResult.activeActionCount > 0) {
+      representativeCasualtyActivity.treatmentMeasuredTickCount += 1;
+    }
+    representativeCasualtyActivity.treatmentStartCount +=
+      combat.individualTreatmentActionResult.startedRecords.length;
+    representativeCasualtyActivity.seededDragStarted ||=
+      combat.casualtyDragMovementResult.draggingStartedRecords.some((record) =>
+        record.patientEntityId === REPRESENTATIVE_DRAG_PATIENT_ENTITY_ID
+      );
+    representativeCasualtyActivity.seededTreatmentStarted ||=
+      combat.individualTreatmentActionResult.startedRecords.some((record) =>
+        record.patientEntityId === REPRESENTATIVE_DRAG_PATIENT_ENTITY_ID
+      );
+    if (combat.individualRespawnEgressResult.movementRecords.length > 0) {
+      representativeCasualtyActivity.egressMeasuredTickCount += 1;
+    }
+    representativeCasualtyActivity.egressMovementRecordCount +=
+      combat.individualRespawnEgressResult.movementRecords.length;
+    representativeCasualtyActivity.seededEgressMoved ||=
+      combat.individualRespawnEgressResult.movementRecords.some((record) =>
+        record.entityId === REPRESENTATIVE_EGRESS_ENTITY_ID
+      );
     for (let entityId = 0; entityId < ENTITY_COUNT; entityId += 1) {
       const energy = getIndividualCurrentEnergy(combat.individualEnergyStore, entityId);
       energyAndHitBoundsValid &&= energy >= 0 && energy <=
@@ -202,6 +264,7 @@ function runProductionCase(caseName: PerformanceCase) {
     ),
     maximumSelectedTargetRecords,
     maximumDefenceRecords,
+    representativeCasualtyActivity,
     energyAndHitBoundsValid,
     outputReuse:
       combat.individualCombatPipelineBuffers.selectedTargetRecords === outputReferences[0] &&
@@ -216,6 +279,69 @@ function runProductionCase(caseName: PerformanceCase) {
     allocationPolicy:
       "stable stores and output buffers; no per-entity production inspection",
     timingPolicy: "Structural assertions only; no machine timing threshold.",
+  };
+}
+
+function seedRepresentativeCasualties(
+  simulation: SimulationState,
+  tick: number,
+): void {
+  downRepresentativeEntity(simulation, REPRESENTATIVE_DRAG_PATIENT_ENTITY_ID, tick);
+  downRepresentativeEntity(simulation, REPRESENTATIVE_EGRESS_ENTITY_ID, tick);
+}
+
+function downRepresentativeEntity(
+  simulation: SimulationState,
+  entityId: number,
+  tick: number,
+): void {
+  const combat = simulation.combatSandbox!;
+  const currentHits = getIndividualCurrentGlobalHits(
+    combat.individualGlobalHitStore,
+    entityId,
+  );
+  const hits = applyIndividualLandedHits(
+    combat.individualGlobalHitStore,
+    Array.from({ length: currentHits }, () => representativeLandedRecord(entityId)),
+  );
+  const lifecycle = applyIndividualZeroHitLifecycleTransitions(
+    combat.individualCasualtyLifecycleStore,
+    combat.individualPlayerPresenceStore,
+    combat.individualCasualtyProcedureProfileStore,
+    simulation.world,
+    hits.zeroHitEvents,
+    tick,
+  );
+  initializeIndividualDeathCountsFromZeroHitTransitions(
+    combat.individualDeathCountStore,
+    combat.individualCasualtyLifecycleStore,
+    combat.individualCasualtyProcedureProfileStore,
+    combat.individualProfileStore,
+    lifecycle.transitions,
+  );
+}
+
+function representativeLandedRecord(
+  defenderEntityId: number,
+): IndividualMeleeDefenceRecord {
+  return {
+    attackerEntityId: 0,
+    defenderEntityId,
+    attackerWeaponCategory: "oneHanded",
+    defenderActiveWeaponCategory: "oneHanded",
+    defenderShieldCategory: "none",
+    defenderShieldCarriedState: "none",
+    defenderActionState: "ready",
+    guardStateBeforeResolution: "ready",
+    defenderFacingX: -1,
+    defenderFacingY: 0,
+    incomingDirectionName: "west",
+    incomingDirectionOctantIndex: 4,
+    availableDefenceType: "none",
+    outcome: "landed",
+    landedReason: "noActiveDefence",
+    defenceRecoveryTicksAssigned: 0,
+    awkwardDistance: false,
   };
 }
 
@@ -244,15 +370,26 @@ function createPerformanceScenario(caseName: PerformanceCase): SimulationScenari
   const units: CombatSandboxUnitScenario[] = [];
   for (let unitIndex = 0; unitIndex < UNIT_COUNT; unitIndex += 1) {
     const pairIndex = Math.floor(unitIndex / 2);
-    const factionId = unitIndex % 2 + 1;
+    const representativeCasualtyUnit = caseName === "representative" &&
+      unitIndex >= 96;
+    const factionId = representativeCasualtyUnit
+      ? unitIndex < 98 ? 1 : 2
+      : unitIndex % 2 + 1;
     const pairColumn = pairIndex % 10;
     const pairRow = Math.floor(pairIndex / 10);
     const leftX = 120 + pairColumn * 320;
     const gap = caseName === "denseDefence" ? 10
       : caseName === "idle" ? 220
       : 80;
-    const anchorX = factionId === 1 ? leftX : leftX + gap;
-    const anchorY = 100 + pairRow * 150;
+    const anchorX = representativeCasualtyUnit
+      ? unitIndex === 96 ? 100
+        : unitIndex === 97 ? 112
+        : unitIndex === 98 ? 300
+        : 312
+      : factionId === 1 ? leftX : leftX + gap;
+    const anchorY = representativeCasualtyUnit
+      ? 790
+      : 100 + pairRow * 150;
     const equipment = unitIndex % 4;
     const energy = unitIndex % 4;
     const { memberProfiles: _memberProfiles, ...base } = source;
@@ -274,18 +411,21 @@ function createPerformanceScenario(caseName: PerformanceCase): SimulationScenari
       spacing: 4,
       rows: 4,
       cols: 5,
-      unitSpeed: caseName === "idle" ? 0 : 4,
+      unitSpeed: caseName === "idle" || representativeCasualtyUnit ? 0 : 4,
       ordinaryPhysicalGait: caseName === "sprintHeavy" ? "sprinting" : "jogging",
-      order: caseName === "idle" || caseName === "denseDefence"
+      order: caseName === "idle" || caseName === "denseDefence" ||
+          representativeCasualtyUnit
         ? "hold"
         : "advanceCautious",
       memberMaxStep: 4,
-      weaponCategory: caseName === "idle" ? "unarmed"
+      weaponCategory: caseName === "idle" || representativeCasualtyUnit
+        ? "unarmed"
         : equipment === 0 ? "oneHanded"
         : equipment === 1 ? "twoHanded"
         : equipment === 2 ? "polearm"
         : "staff",
-      weaponReachBand: caseName === "idle" ? "none"
+      weaponReachBand: caseName === "idle" || representativeCasualtyUnit
+        ? "none"
         : equipment === 2 || equipment === 3 ? "long"
         : "short",
       armourClass: equipment === 0 ? "none"
@@ -294,7 +434,13 @@ function createPerformanceScenario(caseName: PerformanceCase): SimulationScenari
         : "heavy",
       shieldClass: equipment === 0 ? "none" : equipment === 2 ? "shield" : "none",
       maxDamageCapacity: 100,
-      casualtyProcedure: factionId === 1
+      casualtyProcedure: unitIndex === 98 && representativeCasualtyUnit
+        ? {
+            procedureKind: "barbarian",
+            deathCountPolicy: { kind: "fixedTicks", durationTicks: 3 },
+            respawnDestination: { x: 360, y: anchorY },
+          }
+        : factionId === 1
         ? {
             procedureKind: "citizen",
             deathCountPolicy: { kind: "normalFortitude" },
@@ -304,7 +450,9 @@ function createPerformanceScenario(caseName: PerformanceCase): SimulationScenari
             deathCountPolicy: { kind: "fixedTicks", durationTicks: 50 },
             respawnDestination: { x: 3_300, y: anchorY },
           },
-      medicalProfile: unitIndex % 10 === 0
+      medicalProfile: unitIndex === 97 && representativeCasualtyUnit
+        ? { hasChirurgeon: true, hasPhysick: true, startingGenericHerbs: 20 }
+        : unitIndex % 10 === 0
         ? { hasChirurgeon: true, hasPhysick: true, startingGenericHerbs: 20 }
         : { hasChirurgeon: false, hasPhysick: false },
       energyProfile: {
