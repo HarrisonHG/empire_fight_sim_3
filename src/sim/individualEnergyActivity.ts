@@ -105,6 +105,7 @@ const CONTEXTS: readonly IndividualEnergyActivityContext[] = Object.freeze([
 ]);
 const INTENSITIES: readonly IndividualEnergyMovementIntensity[] =
   INDIVIDUAL_PHYSICAL_GAITS;
+const SPRINTING_GAIT_INDEX = INDIVIDUAL_PHYSICAL_GAITS.indexOf("sprinting");
 
 const AUTHORITY_BITS: Readonly<Record<IndividualEnergyMovementAuthority, number>> =
   Object.freeze({
@@ -136,6 +137,15 @@ const EXECUTION_COMMITMENT = 1 << 2;
 
 export interface IndividualEnergyActivityStore {
   readonly entityCount: number;
+}
+
+export interface IndividualEnergyActivityHistoryInspection {
+  readonly attackExertionCount: number;
+  readonly defenceExertionCount: number;
+  readonly sprintTicks: number;
+  readonly dragTicks: number;
+  readonly restTicks: number;
+  readonly waitingAtRespawnTicks: number;
 }
 
 interface InternalIndividualEnergyActivityStore
@@ -178,6 +188,12 @@ interface InternalIndividualEnergyActivityStore
   readonly expenditureClampedByEntity: Uint8Array;
   readonly recoveryClampedByEntity: Uint8Array;
   readonly exertionModifierProjectionTickByEntity: Float64Array;
+  readonly attackExertionCountByEntity: Uint32Array;
+  readonly defenceExertionCountByEntity: Uint32Array;
+  readonly sprintTicksByEntity: Uint32Array;
+  readonly dragTicksByEntity: Uint32Array;
+  readonly restTicksByEntity: Uint32Array;
+  readonly waitingAtRespawnTicksByEntity: Uint32Array;
   readonly applicationRequestScratch: MutableIndividualEnergyApplicationRequest;
   energyStore: IndividualEnergyStore | undefined;
   observationStartedTick: number;
@@ -354,6 +370,12 @@ export function createIndividualEnergyActivityStore(
     expenditureClampedByEntity: new Uint8Array(entityCount),
     recoveryClampedByEntity: new Uint8Array(entityCount),
     exertionModifierProjectionTickByEntity: new Float64Array(entityCount),
+    attackExertionCountByEntity: new Uint32Array(entityCount),
+    defenceExertionCountByEntity: new Uint32Array(entityCount),
+    sprintTicksByEntity: new Uint32Array(entityCount),
+    dragTicksByEntity: new Uint32Array(entityCount),
+    restTicksByEntity: new Uint32Array(entityCount),
+    waitingAtRespawnTicksByEntity: new Uint32Array(entityCount),
     applicationRequestScratch: {
       movementExpenditureRequested: 0,
       attackExpenditureRequested: 0,
@@ -1025,6 +1047,7 @@ export function applyIndividualEnergyActivityOneTick(
       internal.recoveryClampedByEntity[entityId] =
         result.appliedAmount < recoveryRequested ? 1 : 0;
     }
+    accumulateBoundedActivityHistory(internal, entityId);
   }
   internal.applicationCompletedTick = tick;
   return activity;
@@ -1179,6 +1202,22 @@ export function getIndividualEnergyActivityInspection(
   };
 }
 
+export function getIndividualEnergyActivityHistoryInspection(
+  store: IndividualEnergyActivityStore,
+  entityId: number,
+): IndividualEnergyActivityHistoryInspection {
+  const internal = requireStore(store);
+  assertEntityId(entityId, internal.entityCount);
+  return {
+    attackExertionCount: internal.attackExertionCountByEntity[entityId]!,
+    defenceExertionCount: internal.defenceExertionCountByEntity[entityId]!,
+    sprintTicks: internal.sprintTicksByEntity[entityId]!,
+    dragTicks: internal.dragTicksByEntity[entityId]!,
+    restTicks: internal.restTicksByEntity[entityId]!,
+    waitingAtRespawnTicks: internal.waitingAtRespawnTicksByEntity[entityId]!,
+  };
+}
+
 export function getIndividualEnergyExpenditureInspection(
   store: IndividualEnergyActivityStore,
   entityId: number,
@@ -1292,6 +1331,52 @@ export function wasIndividualEnergyExternallyMoved(
   const internal = requireStore(store);
   assertEntityId(entityId, internal.entityCount);
   return internal.externallyMovedByEntity[entityId] !== 0;
+}
+
+function accumulateBoundedActivityHistory(
+  store: InternalIndividualEnergyActivityStore,
+  entityId: number,
+): void {
+  store.attackExertionCountByEntity[entityId] = saturatingHistoryAddition(
+    store.attackExertionCountByEntity[entityId]!,
+    store.attackAttemptCountByEntity[entityId]!,
+  );
+  store.defenceExertionCountByEntity[entityId] = saturatingHistoryAddition(
+    store.defenceExertionCountByEntity[entityId]!,
+    store.defenceAttemptCountByEntity[entityId]!,
+  );
+  const context = CONTEXTS[store.contextByEntity[entityId]!]!;
+  if (
+    store.actualGaitByEntity[entityId] === SPRINTING_GAIT_INDEX &&
+    store.gaitProducedDisplacementByEntity[entityId] !== 0
+  ) {
+    store.sprintTicksByEntity[entityId] = saturatingHistoryAddition(
+      store.sprintTicksByEntity[entityId]!,
+      1,
+    );
+  }
+  if (context === "dragging") {
+    store.dragTicksByEntity[entityId] = saturatingHistoryAddition(
+      store.dragTicksByEntity[entityId]!,
+      1,
+    );
+  }
+  if (context === "safeStationaryRest" || context === "downedRest") {
+    store.restTicksByEntity[entityId] = saturatingHistoryAddition(
+      store.restTicksByEntity[entityId]!,
+      1,
+    );
+  }
+  if (context === "waitingAtRespawn") {
+    store.waitingAtRespawnTicksByEntity[entityId] = saturatingHistoryAddition(
+      store.waitingAtRespawnTicksByEntity[entityId]!,
+      1,
+    );
+  }
+}
+
+function saturatingHistoryAddition(current: number, addition: number): number {
+  return Math.min(0xffff_ffff, current + addition);
 }
 
 function classifyContext(

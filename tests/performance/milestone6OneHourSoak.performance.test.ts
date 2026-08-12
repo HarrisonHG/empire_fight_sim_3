@@ -24,7 +24,16 @@ import {
 import {
   applyIndividualLandedHits,
   getIndividualCurrentGlobalHits,
+  getIndividualMaximumGlobalHits,
 } from "../../src/sim/individualGlobalHits";
+import {
+  getIndividualCurrentEnergy,
+  getIndividualEnergyHistoryInspection,
+  getIndividualMaximumEnergy,
+} from "../../src/sim/individualEnergy";
+import {
+  getIndividualEnergyActivityHistoryInspection,
+} from "../../src/sim/individualEnergyActivity";
 import {
   applyTrustedIndividualLimbDisability,
   getIndividualLimbDisabilityInspection,
@@ -57,7 +66,7 @@ const ONE_HOUR_TICKS = 72_000;
 const TRAUMA_TARGET = 4;
 const TRAUMA_HEALER = 5;
 
-describe("Milestone 6I-2 deterministic one-hour production soak", () => {
+describe("Milestone 6I-2 retained and Milestone 7H energy production soak", () => {
   it("runs the same 72,000 scheduled production ticks twice with bounded reusable output", () => {
     const startedAt = performance.now();
     const first = runSoak();
@@ -87,9 +96,13 @@ describe("Milestone 6I-2 deterministic one-hour production soak", () => {
     expect(first.final.historyInspectionFieldCount).toBeLessThan(64);
     expect(first.outputReuse.allStable).toBe(true);
     expect(first.outputReuse.maximumReusableRecordLength).toBeLessThanOrEqual(10);
+    expect(first.energyBounds.noUnderflowOrOverflow).toBe(true);
+    expect(first.energyBounds.noHitsAboveMaximum).toBe(true);
+    expect(first.energyBounds.maximumEnergyHistoryFieldCount).toBeLessThan(16);
+    expect(first.energyBounds.maximumActivityHistoryFieldCount).toBeLessThan(16);
 
     process.stdout.write(
-      `\nMilestone 6 deterministic one-hour soak\n${JSON.stringify({
+      `\nMilestone 7H deterministic one-hour energy soak\n${JSON.stringify({
         ticksPerRun: ONE_HOUR_TICKS,
         runCount: 2,
         entityCount: 10,
@@ -139,6 +152,8 @@ function runSoak() {
     laterDyingEpisodeInitialRemainingTicks: -1,
   };
   let maximumReusableRecordLength = 0;
+  let noUnderflowOrOverflow = true;
+  let noHitsAboveMaximum = true;
 
   for (let tick = 0; tick < ONE_HOUR_TICKS; tick += 1) {
     if (tick >= 20 && tick < 30) {
@@ -205,6 +220,18 @@ function runSoak() {
         0,
       ),
     );
+    for (let entityId = 0; entityId < simulation.world.entityCount; entityId += 1) {
+      const currentEnergy = getIndividualCurrentEnergy(
+        combat.individualEnergyStore,
+        entityId,
+      );
+      noUnderflowOrOverflow &&= currentEnergy >= 0 && currentEnergy <=
+        getIndividualMaximumEnergy(combat.individualEnergyStore, entityId);
+      noHitsAboveMaximum &&= getIndividualCurrentGlobalHits(
+        combat.individualGlobalHitStore,
+        entityId,
+      ) <= getIndividualMaximumGlobalHits(combat.individualGlobalHitStore, entityId);
+    }
   }
 
   const histories = Array.from({ length: simulation.world.entityCount }, (_, entityId) =>
@@ -234,6 +261,24 @@ function runSoak() {
     outputReuse: {
       allStable: outputRefs.every(([getCurrent, initial]) => getCurrent() === initial),
       maximumReusableRecordLength,
+    },
+    energyBounds: {
+      noUnderflowOrOverflow,
+      noHitsAboveMaximum,
+      maximumEnergyHistoryFieldCount: Math.max(...Array.from(
+        { length: simulation.world.entityCount },
+        (_, entityId) => Object.keys(getIndividualEnergyHistoryInspection(
+          combat.individualEnergyStore,
+          entityId,
+        )).length,
+      )),
+      maximumActivityHistoryFieldCount: Math.max(...Array.from(
+        { length: simulation.world.entityCount },
+        (_, entityId) => Object.keys(getIndividualEnergyActivityHistoryInspection(
+          combat.individualEnergyActivityStore,
+          entityId,
+        )).length,
+      )),
     },
     final: {
       lifecycle: Array.from({ length: 10 }, (_, entityId) =>
@@ -293,6 +338,17 @@ function runSoak() {
           combat.individualCasualtyAssistanceStore,
           entityId,
         ).dragGroupId),
+      energy: Array.from({ length: 10 }, (_, entityId) => ({
+        current: getIndividualCurrentEnergy(combat.individualEnergyStore, entityId),
+        history: getIndividualEnergyHistoryInspection(
+          combat.individualEnergyStore,
+          entityId,
+        ),
+        activityHistory: getIndividualEnergyActivityHistoryInspection(
+          combat.individualEnergyActivityStore,
+          entityId,
+        ),
+      })),
     },
   };
 }

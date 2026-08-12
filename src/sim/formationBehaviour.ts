@@ -85,6 +85,18 @@ export interface FormationEnergyGaitTickContext {
   readonly capabilities: FormationEnergyGaitCapabilitySource;
 }
 
+export interface FormationEnergyRestSource {
+  readonly entityCount: number;
+  readonly unitCount: number;
+  readonly projectionTick: number | null;
+  isUnitResting(unitId: UnitId): boolean;
+}
+
+export interface FormationEnergyRestTickContext {
+  readonly tick: number;
+  readonly rest: FormationEnergyRestSource;
+}
+
 export interface UnitEnergyGaitDiagnostics {
   readonly requestedUnitPhysicalGait: IndividualPhysicalGait;
   readonly effectiveAnchorPhysicalGait: IndividualPhysicalGait;
@@ -976,6 +988,7 @@ export function advanceFormationOneTick(
   lifecycleStore?: IndividualCasualtyLifecycleStore,
   ordinaryParticipation?: IndividualOrdinaryParticipationSnapshot,
   energyGaitContext?: FormationEnergyGaitTickContext,
+  energyRestContext?: FormationEnergyRestTickContext,
 ): FormationTickResult {
   const internal = asInternal(store);
   validateWorldForBehaviour(world, internal, identityStore);
@@ -1000,6 +1013,16 @@ export function advanceFormationOneTick(
         energyGaitContext.capabilities.entityCount !== internal.entityCount) {
       throw new Error("Formation energy gait capability must project the current tick.");
     }
+  }
+  if (
+    energyRestContext !== undefined &&
+    (!Number.isSafeInteger(energyRestContext.tick) ||
+      energyRestContext.tick < 0 ||
+      energyRestContext.rest.projectionTick !== energyRestContext.tick ||
+      energyRestContext.rest.entityCount !== internal.entityCount ||
+      energyRestContext.rest.unitCount !== internal.unitCount)
+  ) {
+    throw new Error("Formation energy rest state must project the current tick.");
   }
   resetEnergyMovementDiagnostics(internal);
   internal.energyGaitProjectionTickUsed = energyGaitContext?.tick ?? null;
@@ -1049,6 +1072,7 @@ export function advanceFormationOneTick(
       lifecycleStore,
       ordinaryParticipation,
       energyGaitContext,
+      energyRestContext,
     );
   }
   if (diagnostics !== undefined) {
@@ -1087,6 +1111,7 @@ function processUnit(
   lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
   ordinaryParticipation: IndividualOrdinaryParticipationSnapshot | undefined,
   energyGaitContext: FormationEnergyGaitTickContext | undefined,
+  energyRestContext: FormationEnergyRestTickContext | undefined,
 ): void {
   const unitMembers = getUnitMembers(identityStore, unitId);
   const storedOrder = store.orders[unitIndex]!;
@@ -1104,6 +1129,29 @@ function processUnit(
     store.anchorMovementRemainder[unitIndex] = 0;
     store.routingHeadingX[unitIndex] = 0;
     store.routingHeadingY[unitIndex] = 0;
+    for (let index = 0; index < unitMembers.length; index += 1) {
+      const entityId = unitMembers[index]!;
+      store.movementMode[entityId] = "holdPosition";
+      store.requestedPhysicalGait[entityId] = "stationary";
+      store.effectivePhysicalGait[entityId] = "stationary";
+      store.stuckTicks[entityId] = 0;
+      store.isStuck[entityId] = 0;
+    }
+    return;
+  }
+  if (
+    moraleMovementState !== "routing" &&
+    energyRestContext?.rest.isUnitResting(unitId) === true
+  ) {
+    store.requestedUnitPhysicalGait[unitIndex] = "stationary";
+    store.effectiveAnchorPhysicalGait[unitIndex] = "stationary";
+    store.anchorEnergyPolicyApplied[unitIndex] = 1;
+    store.anchorMovementRemainder[unitIndex] = 0;
+    store.unitMovementStyle[unitIndex] = "orderedHalt";
+    if (store.lastEmittedUnitStyle[unitIndex] !== "orderedHalt") {
+      store.lastEmittedUnitStyle[unitIndex] = "orderedHalt";
+      events.push({ kind: "unit_movement_choice", unitId, style: "orderedHalt" });
+    }
     for (let index = 0; index < unitMembers.length; index += 1) {
       const entityId = unitMembers[index]!;
       store.movementMode[entityId] = "holdPosition";

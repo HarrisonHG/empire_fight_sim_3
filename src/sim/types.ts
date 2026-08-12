@@ -51,6 +51,7 @@ import type {
   UnitEnergySummary,
   UnitEnergySummaryStore,
 } from "./unitEnergySummary";
+import type { UnitEnergyBehaviourStore } from "./unitEnergyBehaviour";
 import type {
   CasualtyProcedureKind,
   DeathCountPolicy,
@@ -539,6 +540,14 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly firstSpentTick?: number | null;
   readonly totalEnergySpent?: number;
   readonly totalEnergyRecovered?: number;
+  readonly energyAttackExertionHistoryCount?: number;
+  readonly energyDefenceExertionHistoryCount?: number;
+  readonly energySprintHistoryTicks?: number;
+  readonly energyDragHistoryTicks?: number;
+  readonly energyRestHistoryTicks?: number;
+  readonly energyWaitingAtRespawnHistoryTicks?: number;
+  readonly energyBehaviourRecommendation?: import("./unitEnergyBehaviour").UnitEnergyBehaviourRecommendation;
+  readonly unitEnergyResting?: boolean;
   readonly energyActivityContext?: IndividualEnergyActivityContext;
   readonly energyDisplacementX?: number;
   readonly energyDisplacementY?: number;
@@ -802,6 +811,7 @@ export interface CombatSandboxSimulationState {
   readonly individualEnergyExertionModifierStore: IndividualEnergyExertionModifierStore;
   readonly unitEnergySummaryStore: UnitEnergySummaryStore;
   readonly unitEnergySummaries: readonly UnitEnergySummary[];
+  readonly unitEnergyBehaviourStore: UnitEnergyBehaviourStore;
   readonly formationEnergyGaitCapabilities: FormationEnergyGaitCapabilitySource;
   readonly specialistPhysicalGaitAdapter: IndividualSpecialistPhysicalGaitAdapter;
   readonly individualCasualtyProcedureProfileStore: IndividualCasualtyProcedureProfileStore;

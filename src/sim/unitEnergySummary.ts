@@ -35,6 +35,13 @@ import {
   type UnitId,
   type UnitIdentityStore,
 } from "./unitIdentity";
+import {
+  deriveUnitEnergyBehaviourRecommendation,
+  getUnitEnergyBehaviourProjectionTick,
+  isUnitEnergyResting,
+  type UnitEnergyBehaviourRecommendation,
+  type UnitEnergyBehaviourStore,
+} from "./unitEnergyBehaviour";
 
 export interface UnitEnergySummaryStore {
   readonly entityCount: number;
@@ -62,6 +69,8 @@ export interface UnitEnergySummary {
   sprintOrChargeCapableFractionFixedPoint: number | null;
   energySpentThisTick: number;
   energyRecoveredThisTick: number;
+  energyBehaviourRecommendation: UnitEnergyBehaviourRecommendation;
+  currentlyRestingMemberCount: number;
 }
 
 interface InternalUnitEnergySummaryStore extends UnitEnergySummaryStore {
@@ -111,8 +120,17 @@ export function collectUnitEnergySummariesOneTick(
   activity: IndividualEnergyActivityStore,
   ordinaryParticipation: IndividualOrdinaryParticipationSnapshot,
   tick: number,
+  energyBehaviour?: UnitEnergyBehaviourStore,
 ): readonly UnitEnergySummary[] {
   const internal = requireStore(store);
+  if (
+    energyBehaviour !== undefined &&
+    (energyBehaviour.entityCount !== internal.entityCount ||
+      energyBehaviour.unitCount !== internal.unitCount ||
+      getUnitEnergyBehaviourProjectionTick(energyBehaviour) !== tick)
+  ) {
+    throw new Error("Unit energy summaries require current-tick behaviour evidence.");
+  }
   validateDependencies(
     internal,
     identity,
@@ -205,6 +223,14 @@ export function collectUnitEnergySummariesOneTick(
           ENERGY_RATIO_FIXED_POINT_SCALE / summary.activeMemberCount,
       );
     }
+    summary.energyBehaviourRecommendation =
+      deriveUnitEnergyBehaviourRecommendation(summary.averageEnergyRatioFixedPoint);
+    if (energyBehaviour !== undefined) {
+      summary.currentlyRestingMemberCount = isUnitEnergyResting(
+        energyBehaviour,
+        unitId,
+      ) ? summary.activeMemberCount : 0;
+    }
   }
   return internal.summaries;
 }
@@ -280,6 +306,8 @@ function createEmptySummary(unitId: UnitId, memberCount: number): UnitEnergySumm
     sprintOrChargeCapableFractionFixedPoint: null,
     energySpentThisTick: 0,
     energyRecoveredThisTick: 0,
+    energyBehaviourRecommendation: "normal",
+    currentlyRestingMemberCount: 0,
   };
 }
 
@@ -302,6 +330,8 @@ function resetSummary(summary: UnitEnergySummary, tick: number): void {
   summary.sprintOrChargeCapableFractionFixedPoint = null;
   summary.energySpentThisTick = 0;
   summary.energyRecoveredThisTick = 0;
+  summary.energyBehaviourRecommendation = "normal";
+  summary.currentlyRestingMemberCount = 0;
 }
 
 function incrementBandCount(

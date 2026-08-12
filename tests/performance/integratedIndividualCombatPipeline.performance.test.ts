@@ -198,6 +198,7 @@ describe("integrated individual combat authority performance", () => {
     expect(stageCalls).toEqual(
       new Map<CombatSandboxTickStage, number>([
         ["formation", 60],
+        ["preMovementRecoveryThreat", 60],
         ["individualPipeline", 60],
         ["individualPressureAndCohesion", 60],
         ["routingContagion", 60],
@@ -247,6 +248,7 @@ interface InstrumentedCoreStageRun {
   readonly warmUpTicks: number;
   readonly measuredTicks: number;
   readonly formation: StageTimingReport;
+  readonly preMovementRecoveryThreat: StageTimingReport;
   readonly blockerGridBuild: StageTimingReport;
   readonly individualPipeline: StageTimingReport;
   readonly individualPressureAndCohesion: StageTimingReport;
@@ -405,6 +407,9 @@ function runInstrumentedCoreStageReference(
     warmUpTicks: WARM_UP_TICKS,
     measuredTicks: MEASURED_TICKS,
     formation: timingReport(stageSamples.formation),
+    preMovementRecoveryThreat: timingReport(
+      stageSamples.preMovementRecoveryThreat,
+    ),
     blockerGridBuild: timingReport(blockerGridBuildSamples),
     individualPipeline: timingReport(stageSamples.individualPipeline),
     individualPressureAndCohesion: timingReport(
@@ -448,6 +453,7 @@ function createCombatSandboxStageSamples(): Record<
 > {
   return {
     formation: new Float64Array(MEASURED_TICKS),
+    preMovementRecoveryThreat: new Float64Array(MEASURED_TICKS),
     individualPipeline: new Float64Array(MEASURED_TICKS),
     individualPressureAndCohesion: new Float64Array(MEASURED_TICKS),
     routingContagion: new Float64Array(MEASURED_TICKS),

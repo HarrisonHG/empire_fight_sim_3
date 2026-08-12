@@ -230,6 +230,7 @@ import {
   createIndividualSpecialistPhysicalGaitAdapter,
   checkpointIndividualEnergyMovementObservation,
   getIndividualEnergyActivityInspection,
+  getIndividualEnergyActivityHistoryInspection,
   getIndividualEnergyExpenditureInspection,
   initializeIndividualEnergyActivityApplicationState,
   observeIndividualEnergyMovementAuthority,
@@ -255,6 +256,14 @@ import {
   createUnitEnergySummaryStore,
   getUnitEnergySummaries,
 } from "./unitEnergySummary";
+import {
+  createUnitEnergyBehaviourStore,
+  getIndividualCombatConservationInput,
+  getUnitEnergyBehaviourRecommendation,
+  getUnitEnergyRestSource,
+  isUnitEnergyResting,
+  projectUnitEnergyBehaviourOneTick,
+} from "./unitEnergyBehaviour";
 import { SeededRng } from "./rng";
 import {
   createUnitIdentityStore,
@@ -310,8 +319,22 @@ export const MILESTONE_6_PRODUCTION_TICK_ORDER = Object.freeze([
   "historyAndDebugSnapshot",
 ] as const);
 
+export const MILESTONE_7_PRODUCTION_TICK_ORDER = Object.freeze([
+  "energyObservationAndTickStartProjection",
+  "commitmentAndOrdinaryParticipationProjection",
+  "preMovementLocalThreatAndEnergyBehaviourProjection",
+  "formationAndSpecialistMovement",
+  "combatExchangeAndGlobalHits",
+  "casualtyTreatmentExecutionAndPresence",
+  "energyActivityClassificationAndApplication",
+  "unitEnergyAggregation",
+  "pressureRecoveryRoutingAndMorale",
+  "boundedHistoryAndDebugSnapshot",
+] as const);
+
 export type CombatSandboxTickStage =
   | "formation"
+  | "preMovementRecoveryThreat"
   | "individualPipeline"
   | "individualPressureAndCohesion"
   | "routingContagion"
@@ -859,6 +882,7 @@ function createCombatSandbox(
   const individualEnergyExertionModifierStore =
     createIndividualEnergyExertionModifierStore(world.entityCount);
   const unitEnergySummaryStore = createUnitEnergySummaryStore(identityStore);
+  const unitEnergyBehaviourStore = createUnitEnergyBehaviourStore(identityStore);
   const formationEnergyGaitCapabilities = {
     entityCount: world.entityCount,
     get projectionTick() {
@@ -1011,6 +1035,7 @@ function createCombatSandbox(
     individualCasualtyHistoryStore,
     unitEnergySummaryStore,
     unitEnergySummaries: getUnitEnergySummaries(unitEnergySummaryStore),
+    unitEnergyBehaviourStore,
     individualCasualtyUnitSummaryStore,
     individualCasualtyUnitSummaries: getIndividualCasualtyUnitSummaries(
       individualCasualtyUnitSummaryStore,
@@ -2012,6 +2037,30 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.individualCasualtyLifecycleStore,
       combatSandbox.individualOrdinaryParticipationSnapshot,
     );
+    runStage("preMovementRecoveryThreat", () =>
+      collectRecoveryThreatSummaries(
+        world,
+        combatSandbox.identityStore,
+        combatSandbox.formationStore,
+        combatSandbox.recoveryThreatStore,
+        combatSandbox.recoveryThreatSummaries,
+        combatSandbox.individualCasualtyLifecycleStore,
+        combatSandbox.individualOrdinaryParticipationSnapshot,
+      ),
+    );
+    projectUnitEnergyBehaviourOneTick(
+      combatSandbox.unitEnergyBehaviourStore,
+      combatSandbox.identityStore,
+      combatSandbox.formationStore,
+      combatSandbox.unitEnergySummaries,
+      combatSandbox.individualEnergyStore,
+      combatSandbox.individualCasualtyLifecycleStore,
+      combatSandbox.individualPlayerPresenceStore,
+      combatSandbox.individualOrdinaryParticipationSnapshot,
+      combatSandbox.moraleMovementStates,
+      combatSandbox.recoveryThreatSummaries,
+      tick,
+    );
     const result = advanceFormationOneTick(
       world,
       combatSandbox.identityStore,
@@ -2021,6 +2070,7 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.individualCasualtyLifecycleStore,
       combatSandbox.individualOrdinaryParticipationSnapshot,
       { tick, capabilities: combatSandbox.formationEnergyGaitCapabilities },
+      { tick, rest: getUnitEnergyRestSource(combatSandbox.unitEnergyBehaviourStore) },
     );
     observeIndividualEnergyMovementAuthority(
       combatSandbox.individualEnergyActivityStore,
@@ -2130,6 +2180,10 @@ export function advanceCombatSandboxOneTick(
           capabilities: combatSandbox.individualEnergyCapabilityStore,
           tick,
         },
+        energyConservation: getIndividualCombatConservationInput(
+          combatSandbox.unitEnergyBehaviourStore,
+          tick,
+        ),
       },
     );
     individualCombatExchange = applyRetainedCasualtyVisualFixtureHitInputs(
@@ -2637,6 +2691,7 @@ export function advanceCombatSandboxOneTick(
     combatSandbox.individualEnergyActivityStore,
     combatSandbox.individualOrdinaryParticipationSnapshot,
     tick,
+    combatSandbox.unitEnergyBehaviourStore,
   );
   runStage("routingContagion", () =>
     advanceRoutingContagionOneTick(
@@ -3179,6 +3234,11 @@ function collectInspectedIndividualSnapshots(
       combatSandbox.individualEnergyActivityStore,
       entityId,
     );
+    const energyActivityHistory = getIndividualEnergyActivityHistoryInspection(
+      combatSandbox.individualEnergyActivityStore,
+      entityId,
+    );
+    const unitId = getUnitIdForEntity(combatSandbox.identityStore, entityId);
     const energyExpenditure = getIndividualEnergyExpenditureInspection(
       combatSandbox.individualEnergyActivityStore,
       entityId,
@@ -3250,7 +3310,7 @@ function collectInspectedIndividualSnapshots(
 
     out.push({
       entityId,
-      unitId: getUnitIdForEntity(combatSandbox.identityStore, entityId),
+      unitId,
       casualtyProcedureKind: getIndividualCasualtyProcedureProfile(
         combatSandbox.individualCasualtyProcedureProfileStore,
         entityId,
@@ -3337,6 +3397,23 @@ function collectInspectedIndividualSnapshots(
       firstSpentTick: energy.firstSpentTick,
       totalEnergySpent: energy.totalEnergySpent,
       totalEnergyRecovered: energy.totalEnergyRecovered,
+      energyAttackExertionHistoryCount:
+        energyActivityHistory.attackExertionCount,
+      energyDefenceExertionHistoryCount:
+        energyActivityHistory.defenceExertionCount,
+      energySprintHistoryTicks: energyActivityHistory.sprintTicks,
+      energyDragHistoryTicks: energyActivityHistory.dragTicks,
+      energyRestHistoryTicks: energyActivityHistory.restTicks,
+      energyWaitingAtRespawnHistoryTicks:
+        energyActivityHistory.waitingAtRespawnTicks,
+      energyBehaviourRecommendation: getUnitEnergyBehaviourRecommendation(
+        combatSandbox.unitEnergyBehaviourStore,
+        unitId,
+      ),
+      unitEnergyResting: isUnitEnergyResting(
+        combatSandbox.unitEnergyBehaviourStore,
+        unitId,
+      ),
       energyActivityContext: energyActivity.dominantContext,
       energyDisplacementX: energyActivity.displacementX,
       energyDisplacementY: energyActivity.displacementY,

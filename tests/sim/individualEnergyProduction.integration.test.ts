@@ -24,6 +24,7 @@ import {
 import { getIndividualCurrentGlobalHits } from "../../src/sim/individualGlobalHits";
 import { getIndividualCombatPressureInspection } from "../../src/sim/combatPressure";
 import { getUnitEnergySummary } from "../../src/sim/unitEnergySummary";
+import { getUnitEnergyBehaviourInspection } from "../../src/sim/unitEnergyBehaviour";
 import {
   getUnitAnchor,
   type FormationTickResult,
@@ -41,6 +42,52 @@ import type {
 } from "../../src/sim/types";
 
 describe("Milestone 7A production energy integration", () => {
+  it("rests a safe exhausted cautious unit and interrupts rest when a hostile approaches", () => {
+    const source = createSmallBattleScenario({
+      firstUnitEnergy: {
+        maximumEnergy: 100,
+        startingEnergy: 5,
+        safeRestRecoveryPerTick: 5,
+      },
+    });
+    const combat = source.combatSandbox!;
+    const simulation = createSimulation({
+      ...source,
+      combatSandbox: {
+        ...combat,
+        units: combat.units.map((unit, index) => index === 0
+          ? { ...unit, order: "advanceCautious" as const }
+          : unit),
+      },
+    });
+    const initialAnchor = getUnitAnchor(simulation.combatSandbox!.formationStore, 1);
+    const initialPositions = simulation.world.positionsX.slice(0, 2);
+
+    advanceSimulationOneTick(simulation);
+    expect(getUnitEnergyBehaviourInspection(
+      simulation.combatSandbox!.unitEnergyBehaviourStore,
+      1,
+    )).toMatchObject({ projectionTick: 0, resting: true });
+    expect(getUnitAnchor(simulation.combatSandbox!.formationStore, 1)).toEqual(initialAnchor);
+    expect(simulation.world.positionsX.slice(0, 2)).toEqual(initialPositions);
+    expect(getUnitEnergySummary(simulation.combatSandbox!.unitEnergySummaryStore, 1))
+      .toMatchObject({
+        energyBehaviourRecommendation: "conserve",
+        currentlyRestingMemberCount: 2,
+        energyRecoveredThisTick: 10,
+      });
+
+    simulation.world.positionsX[2] = 90;
+    simulation.world.positionsY[2] = 120;
+    simulation.world.positionsX[3] = 92;
+    simulation.world.positionsY[3] = 120;
+    advanceSimulationOneTick(simulation);
+    expect(getUnitEnergyBehaviourInspection(
+      simulation.combatSandbox!.unitEnergyBehaviourStore,
+      1,
+    )).toMatchObject({ projectionTick: 1, resting: false });
+  });
+
   it("supplies current energy capability to pressure and final unit summaries", () => {
     const simulation = createSimulation(createSmallBattleScenario({}));
     advanceSimulationOneTick(simulation);

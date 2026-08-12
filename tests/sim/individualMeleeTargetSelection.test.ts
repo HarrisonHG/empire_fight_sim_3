@@ -127,6 +127,53 @@ describe("individual melee threat and target selection", () => {
     });
   });
 
+  it("makes spent sources reluctant to reacquire distant combat without abandoning contact", () => {
+    const harness = createHarness([
+      entity(100, 100, 1, "pike", 1),
+      entity(120, 100, 2, "oneHanded", -1),
+    ]);
+    let reluctantToReengage = true;
+    const reluctant = {
+      entityCount: 2,
+      projectionTick: 0,
+      isReluctantToReacquireDistantCombat: (entityId: number) =>
+        entityId === 0 && reluctantToReengage,
+    };
+    const first = advanceIndividualMeleeTargetSelection(
+      harness.world, harness.identity, harness.formation, harness.profiles,
+      harness.store, harness.records, undefined, undefined, reluctant,
+    );
+    expect(sourceRecord(first.records, 0).targetEntityId).toBe(NO_INDIVIDUAL_TARGET);
+
+    reluctantToReengage = false;
+    expect(sourceRecord(advanceIndividualMeleeTargetSelection(
+      harness.world, harness.identity, harness.formation, harness.profiles,
+      harness.store, harness.records, undefined, undefined, reluctant,
+    ).records, 0).targetEntityId).toBe(1);
+
+    const contactHarness = createHarness([
+      entity(100, 100, 1, "pike", 1),
+      entity(116, 100, 2, "oneHanded", -1),
+    ]);
+    reluctantToReengage = true;
+
+    expect(sourceRecord(advanceIndividualMeleeTargetSelection(
+      contactHarness.world, contactHarness.identity, contactHarness.formation,
+      contactHarness.profiles, contactHarness.store, contactHarness.records,
+      undefined, undefined, reluctant,
+    ).records, 0).targetEntityId).toBe(1);
+
+    contactHarness.world.positionsX[1] = 120;
+    expect(sourceRecord(advanceIndividualMeleeTargetSelection(
+      contactHarness.world, contactHarness.identity, contactHarness.formation,
+      contactHarness.profiles, contactHarness.store, contactHarness.records,
+      undefined, undefined, reluctant,
+    ).records, 0)).toMatchObject({
+      targetEntityId: 1,
+      selectionReason: "previousTargetContinued",
+    });
+  });
+
   it("releases a previous target that becomes distant or invalid", () => {
     const harness = createHarness([
       entity(100, 100, 1, "oneHanded", 1),

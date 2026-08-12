@@ -21,8 +21,10 @@ import {
   type UnitIdentityStore,
 } from "./unitIdentity";
 import type { SimulationBounds, WorldState } from "./types";
+import type { IndividualCombatConservationSource } from "./unitEnergyBehaviour";
 
 export const NO_INDIVIDUAL_TARGET = -1;
+export const INDIVIDUAL_SPENT_REENGAGEMENT_DISTANCE = 16;
 
 /** Named conversion from profile-relative reach to world-space distances. */
 export const INDIVIDUAL_MELEE_DISTANCE = Object.freeze({
@@ -124,6 +126,7 @@ export function advanceIndividualMeleeTargetSelection(
   candidateQuery: IndividualTargetCandidateQuery =
     queryEntitiesWithinRadiusInto,
   eligibility?: IndividualCombatEligibilitySnapshot,
+  conservation?: IndividualCombatConservationSource,
 ): IndividualMeleeTargetSelectionTickResult {
   validateStores(world, identityStore, formationStore, profileStore, store);
   if (
@@ -132,6 +135,11 @@ export function advanceIndividualMeleeTargetSelection(
   ) {
     throw new RangeError(
       "Individual melee targeting eligibility must match world entity count.",
+    );
+  }
+  if (conservation !== undefined && conservation.entityCount !== world.entityCount) {
+    throw new RangeError(
+      "Individual combat conservation must match world entity count.",
     );
   }
   const internal = asInternal(store);
@@ -197,6 +205,13 @@ export function advanceIndividualMeleeTargetSelection(
       if (
         !facingEligible ||
         distanceSquared > sourceDistances.threat * sourceDistances.threat
+      ) {
+        continue;
+      }
+      if (
+        targetEntityId !== previousTarget &&
+        conservation?.isReluctantToReacquireDistantCombat(sourceEntityId) === true &&
+        distanceSquared > INDIVIDUAL_SPENT_REENGAGEMENT_DISTANCE ** 2
       ) {
         continue;
       }

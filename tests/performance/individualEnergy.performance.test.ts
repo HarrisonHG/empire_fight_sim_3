@@ -31,6 +31,7 @@ import {
   getIndividualPressureRecoveryPercent,
 } from "../../src/sim/individualEnergyCapability";
 import { getUnitEnergySummaries } from "../../src/sim/unitEnergySummary";
+import { getUnitEnergyBehaviourProjectionTick } from "../../src/sim/unitEnergyBehaviour";
 import {
   physicalGaitCoordinateCeiling,
   type IndividualSpecialistMovementAuthority,
@@ -742,6 +743,7 @@ describe("Milestone 7E production structural performance", () => {
       const modifierStoreIdentity =
         combat.individualEnergyExertionModifierStore;
       const summaryStoreIdentity = combat.unitEnergySummaryStore;
+      const behaviourStoreIdentity = combat.unitEnergyBehaviourStore;
 
       const started = performance.now();
       advanceSimulationOneTick(simulation);
@@ -778,6 +780,7 @@ describe("Milestone 7E production structural performance", () => {
       expect(combat.individualEnergyExertionModifierStore)
         .toBe(modifierStoreIdentity);
       expect(combat.unitEnergySummaryStore).toBe(summaryStoreIdentity);
+      expect(combat.unitEnergyBehaviourStore).toBe(behaviourStoreIdentity);
       const summaries = getUnitEnergySummaries(summaryStoreIdentity);
       expect(summaries.reduce(
         (total, summary) => total + summary.memberCount,
@@ -792,6 +795,7 @@ describe("Milestone 7E production structural performance", () => {
       expect(getIndividualEnergyExertionModifierProjectionTick(
         modifierStoreIdentity,
       )).toBe(0);
+      expect(getUnitEnergyBehaviourProjectionTick(behaviourStoreIdentity)).toBe(0);
       expect(getIndividualEnergyActivityInspection(
         activityStoreIdentity,
         0,
@@ -806,6 +810,9 @@ describe("Milestone 7E production structural performance", () => {
       expect(Object.keys(activityStoreIdentity)).toEqual(["entityCount"]);
       expect(Object.keys(modifierStoreIdentity)).toEqual(["entityCount"]);
       expect(Object.keys(summaryStoreIdentity)).toEqual([
+        "entityCount", "unitCount",
+      ]);
+      expect(Object.keys(behaviourStoreIdentity)).toEqual([
         "entityCount", "unitCount",
       ]);
       expect(Number.isFinite(elapsedMilliseconds)).toBe(true);
@@ -824,6 +831,8 @@ describe("Milestone 7E production structural performance", () => {
         applicationShape: "one production projection and application pass",
         summaryShape:
           "stable per-unit objects with one linear member aggregation pass",
+        conservationShape:
+          "opaque typed arrays over units/entities plus reused local threat grid",
         inspectionPolicy:
           "no production inspection objects; two bounded post-tick assertions",
         casualtyPolicy: "fixed retained sparse fixture independent of entity count",

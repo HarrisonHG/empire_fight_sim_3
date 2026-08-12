@@ -85,6 +85,10 @@ import {
   type UnitLoadoutStore,
   type WeaponCategory,
 } from "./unitLoadout";
+import {
+  assertIndividualCombatConservationInput,
+  type IndividualCombatConservationInput,
+} from "./unitEnergyBehaviour";
 
 export interface IndividualCombatPipelineStores {
   readonly profileStore: IndividualCombatProfileStore;
@@ -175,6 +179,7 @@ export interface IndividualCombatPipelineAdvanceOptions {
   readonly ordinaryParticipation?: IndividualOrdinaryParticipationSnapshot;
   readonly defenceHandAvailability?: IndividualDefenceHandAvailabilitySource;
   readonly energyCapabilities?: IndividualCombatEnergyCapabilityInput | null;
+  readonly energyConservation?: IndividualCombatConservationInput | null;
 }
 
 export interface IndividualCombatExchangeTickResult {
@@ -279,6 +284,11 @@ export function advanceIndividualCombatExchangeOneTick(
     options.energyCapabilities,
     world.entityCount,
   );
+  assertIndividualCombatConservationInput(
+    options.energyConservation,
+    world.entityCount,
+    currentTick,
+  );
   if (options.energyCapabilities !== undefined &&
       options.energyCapabilities !== null &&
       options.energyCapabilities.tick !== currentTick) {
@@ -305,6 +315,7 @@ export function advanceIndividualCombatExchangeOneTick(
       buffers.selectedTargetRecords,
       undefined,
       stores.eligibilitySnapshot,
+      options.energyConservation?.conservation,
     ),
   );
   const actionResult = runStage("action", () =>

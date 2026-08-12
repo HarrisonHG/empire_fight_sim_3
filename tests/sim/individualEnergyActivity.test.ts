@@ -24,6 +24,7 @@ import {
   deriveIndividualEnergyMovementIntensity,
   deriveIndividualEnergyApplicationRequest,
   getIndividualEnergyActivityInspection,
+  getIndividualEnergyActivityHistoryInspection,
   observeIndividualEnergyMovementAuthority,
   selectIndividualEnergyActivityContext,
   type IndividualEnergyActivityContextEvidence,
@@ -271,6 +272,54 @@ describe("individual energy activity classification", () => {
 });
 
 describe("individual energy base expenditure and recovery", () => {
+  it("accumulates bounded activity history without retaining per-tick objects", () => {
+    const harness = createEnergyHarness({ maximumEnergy: 1_000, startingEnergy: 1_000 });
+    beginIndividualEnergyActivityObservation(harness.fixture.activity, harness.fixture.world, 0);
+    harness.fixture.world.positionsX[0] = 4;
+    observeIndividualEnergyMovementAuthority(
+      harness.fixture.activity,
+      harness.fixture.world,
+      "ordinaryMovement",
+      "sprinting",
+    );
+    classifyIndividualEnergyActivityOneTick(harness.fixture.activity, {
+      ...dependencies(harness.fixture, 0),
+      attackAttempts: [attack(0, "attempted")],
+      defenceAttempts: [defence(0, "parried"), defence(0, "landed")],
+    });
+    applyIndividualEnergyActivityOneTick(
+      harness.fixture.activity,
+      harness.profiles,
+      harness.energy,
+      0,
+    );
+
+    beginIndividualEnergyActivityObservation(harness.fixture.activity, harness.fixture.world, 1);
+    classifyIndividualEnergyActivityOneTick(
+      harness.fixture.activity,
+      dependencies(harness.fixture, 1),
+    );
+    applyIndividualEnergyActivityOneTick(
+      harness.fixture.activity,
+      harness.profiles,
+      harness.energy,
+      1,
+    );
+
+    expect(getIndividualEnergyActivityHistoryInspection(
+      harness.fixture.activity,
+      0,
+    )).toEqual({
+      attackExertionCount: 1,
+      defenceExertionCount: 2,
+      sprintTicks: 1,
+      dragTicks: 0,
+      restTicks: 1,
+      waitingAtRespawnTicks: 0,
+    });
+    expect(Object.keys(harness.fixture.activity)).toEqual(["entityCount"]);
+  });
+
   it.each([
     ["walking", INDIVIDUAL_ENERGY_WALKING_COST_PER_TICK],
     ["jogging", INDIVIDUAL_ENERGY_JOGGING_COST_PER_TICK],
