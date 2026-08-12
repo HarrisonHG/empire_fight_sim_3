@@ -69,7 +69,8 @@ async function startApplication(
   renderer.setCasualtyVisualsVisible(
     isMainBattle || visualTestEntry?.showCasualtyVisuals === true,
   );
-  const energyVisualsEnabled = visualTestEntry?.showEnergyVisuals === true;
+  const energyVisualsEnabled = isMainBattle ||
+    visualTestEntry?.showEnergyVisuals === true;
   renderer.setEnergyVisualsVisible(energyVisualsEnabled);
   const workerClient = new SimulationWorkerClient();
   const metricsPanel = new MetricsPanel(energyVisualsEnabled);

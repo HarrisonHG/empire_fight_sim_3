@@ -9,7 +9,7 @@ import {
   ENERGY_EXERTION_VISUAL_SCENARIO_ID,
 } from "../../src/content/energyExertionVisualScenario";
 import { findVisualTestEntry } from "../../src/content/visualTestRegistry";
-import { MAIN_BATTLE_MEDICAL_SCENARIO } from "../../src/content/mainBattleMedicalScenario";
+import { CASUALTY_LIFECYCLE_VISUAL_SCENARIO } from "../../src/content/casualtyLifecycleVisualScenario";
 import {
   advanceSimulationOneTick,
   createInitialSnapshot,
@@ -132,10 +132,12 @@ describe("Milestone 7I retained energy visual scenario", () => {
     expect(runTrace()).toEqual(runTrace());
   }, 30_000);
 
-  it("keeps the extra visual evidence opt-in and out of the main battle snapshot", () => {
-    const main = createInitialSnapshot(createSimulation(MAIN_BATTLE_MEDICAL_SCENARIO));
-    expect(main.combatDebug?.units[0]?.energyAverageCurrent).toBeUndefined();
-    expect(main.combatDebug?.inspectedIndividuals[0]
+  it("keeps the extra visual evidence opt-in and out of unrelated retained snapshots", () => {
+    const casualty = createInitialSnapshot(createSimulation(
+      CASUALTY_LIFECYCLE_VISUAL_SCENARIO,
+    ));
+    expect(casualty.combatDebug?.units[0]?.energyAverageCurrent).toBeUndefined();
+    expect(casualty.combatDebug?.inspectedIndividuals[0]
       ?.energyAttackRecoveryDurationMultiplierPercent).toBeUndefined();
   });
 });

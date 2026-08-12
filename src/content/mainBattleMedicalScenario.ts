@@ -3,12 +3,13 @@ import type {
   CombatSandboxUnitScenario,
   SimulationScenario,
 } from "../sim/types";
+import type { TrustedIndividualEnergyProfileValues } from "../sim/individualEnergy";
 
 export const MAIN_BATTLE_MEDICAL_SEED = 0x65_ba_7701;
 export const MAIN_BATTLE_MEDICAL_ENTITY_COUNT = 44;
 export const MAIN_BATTLE_MEDICAL_WORLD_WIDTH = 1_440;
 export const MAIN_BATTLE_MEDICAL_WORLD_HEIGHT = 900;
-export const MAIN_BATTLE_BARBARIAN_DEATH_COUNT_TICKS = 1_200;
+export const MAIN_BATTLE_BARBARIAN_DEATH_COUNT_TICKS = 400;
 
 export const MAIN_BATTLE_SIDE_LABELS = Object.freeze(new Map([
   [1, "Citizens"],
@@ -40,14 +41,10 @@ export const MAIN_BATTLE_MEDICAL_SCENARIO: SimulationScenario = Object.freeze({
   }),
   minSpeedUnitsPerTick: 1,
   maxSpeedUnitsPerTick: 1,
-  energyProfile: Object.freeze({
-    maximumEnergy: 10_000,
-    startingEnergy: 10_000,
-    safeRestRecoveryPerTick: 5,
-  }),
   combatSandbox: Object.freeze({
     kind: "liveCombatSandbox" as const,
     appliedDamagePressureScale: 2,
+    includeEnergyDebug: true,
     inspectedEntityIds: Object.freeze(
       Array.from({ length: MAIN_BATTLE_MEDICAL_ENTITY_COUNT }, (_, id) => id),
     ),
@@ -69,6 +66,7 @@ export const MAIN_BATTLE_MEDICAL_SCENARIO: SimulationScenario = Object.freeze({
         casualtyProcedure: CITIZEN_PROCEDURE,
         profiles: citizenShieldProfiles(),
         confidence: 68,
+        energyProfile: energyProfile(11_000, 11_000, 5),
       }),
       battleUnit({
         unitId: 102,
@@ -87,6 +85,8 @@ export const MAIN_BATTLE_MEDICAL_SCENARIO: SimulationScenario = Object.freeze({
         casualtyProcedure: CITIZEN_PROCEDURE,
         profiles: citizenPolearmProfiles(),
         confidence: 62,
+        energyProfile: energyProfile(1_800, 1_800, 8),
+        order: "advanceCautious",
       }),
       battleUnit({
         unitId: 201,
@@ -105,6 +105,7 @@ export const MAIN_BATTLE_MEDICAL_SCENARIO: SimulationScenario = Object.freeze({
         casualtyProcedure: barbarianProcedure(1_350, 285),
         profiles: barbarianSpearProfiles(),
         confidence: 76,
+        energyProfile: energyProfile(7_500, 7_500, 4),
       }),
       battleUnit({
         unitId: 202,
@@ -123,6 +124,7 @@ export const MAIN_BATTLE_MEDICAL_SCENARIO: SimulationScenario = Object.freeze({
         casualtyProcedure: barbarianProcedure(1_350, 615),
         profiles: barbarianGreatWeaponProfiles(),
         confidence: 72,
+        energyProfile: energyProfile(6_000, 6_000, 5),
       }),
     ]),
   }),
@@ -145,6 +147,8 @@ interface BattleUnitOptions {
   readonly casualtyProcedure: CombatSandboxUnitScenario["casualtyProcedure"];
   readonly profiles: readonly CombatSandboxMemberProfileScenario[];
   readonly confidence: number;
+  readonly energyProfile: TrustedIndividualEnergyProfileValues;
+  readonly order?: CombatSandboxUnitScenario["order"];
 }
 
 function battleUnit(options: BattleUnitOptions): CombatSandboxUnitScenario {
@@ -166,7 +170,7 @@ function battleUnit(options: BattleUnitOptions): CombatSandboxUnitScenario {
     rows: options.rows,
     cols: options.cols,
     unitSpeed: 2,
-    order: "advance" as const,
+    order: options.order ?? "advance",
     role: "regular" as const,
     fortitudeLevels: options.factionId === 2 ? 2 : 1,
     memberMaxStep: 3,
@@ -180,7 +184,20 @@ function battleUnit(options: BattleUnitOptions): CombatSandboxUnitScenario {
     label: options.label,
     initialCohesion: 100,
     individualConfidence: options.confidence,
+    energyProfile: options.energyProfile,
     memberProfiles: Object.freeze(options.profiles.slice()),
+  });
+}
+
+function energyProfile(
+  maximumEnergy: number,
+  startingEnergy: number,
+  safeRestRecoveryPerTick: number,
+): TrustedIndividualEnergyProfileValues {
+  return Object.freeze({
+    maximumEnergy,
+    startingEnergy,
+    safeRestRecoveryPerTick,
   });
 }
 

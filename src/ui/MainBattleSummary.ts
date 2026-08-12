@@ -14,7 +14,7 @@ export class MainBattleSummary {
   ) {
     this.element = document.createElement("section");
     this.element.className = "main-battle-summary";
-    this.element.setAttribute("aria-label", "Battlefield medical summary");
+    this.element.setAttribute("aria-label", "Battlefield state summary");
     const title = document.createElement("h2");
     title.textContent = "Battlefield state";
     this.body = document.createElement("div");
@@ -54,7 +54,30 @@ function renderSide(side: MainBattleSideSummaryValue): HTMLElement {
     `Egress ${side.respawnEgress}`,
     `Waiting ${side.waitingAtRespawn}`,
     `Herbs ${side.currentHerbs}/${side.reservedHerbs} reserved`,
+    `Energy ${formatRatio(side.energyAverageRatioFixedPoint)} avg / ` +
+      `${formatRatio(side.energyMinimumRatioFixedPoint)} min`,
+    `Bands ${side.energyFresh}/${side.energyWorking}/` +
+      `${side.energyWinded}/${side.energySpent}`,
+    `Tick -${side.energySpentThisTick}/+${side.energyRecoveredThisTick}`,
+    `Resting ${side.energyResting}`,
   ].join(" · ");
-  card.append(title, values);
+  const units = document.createElement("div");
+  units.className = "main-battle-summary__units";
+  for (const unit of side.units) {
+    const value = document.createElement("p");
+    value.textContent =
+      `${unit.label}: ${formatRatio(unit.averageRatioFixedPoint)} avg, ` +
+      `${formatRatio(unit.minimumRatioFixedPoint)} min · ` +
+      `F/W/Wd/S ${unit.fresh}/${unit.working}/${unit.winded}/${unit.spent} · ` +
+      `J/S/D ${unit.jogCapable}/${unit.sprintOrChargeCapable}/${unit.dragCapable} · ` +
+      `-${unit.spentThisTick}/+${unit.recoveredThisTick} · ` +
+      `${unit.recommendation}` + (unit.resting > 0 ? ` · resting ${unit.resting}` : "");
+    units.append(value);
+  }
+  card.append(title, values, units);
   return card;
+}
+
+function formatRatio(value: number | null): string {
+  return value === null ? "-" : `${Math.floor(value / 100)}%`;
 }

@@ -3,9 +3,6 @@ import { describe, expect, it } from "vitest";
 import { MAIN_BATTLE_MEDICAL_SCENARIO } from "../../src/content/mainBattleMedicalScenario";
 import { CASUALTY_LIFECYCLE_VISUAL_SCENARIO } from "../../src/content/casualtyLifecycleVisualScenario";
 import {
-  DEFAULT_MAXIMUM_ENERGY,
-  DEFAULT_SAFE_REST_RECOVERY_PER_TICK,
-  DEFAULT_STARTING_ENERGY,
   getIndividualEnergyHistoryInspection,
   getIndividualEnergyInspection,
   getTrustedIndividualEnergyProfile,
@@ -111,7 +108,7 @@ describe("Milestone 7A production energy integration", () => {
       });
   });
 
-  it("instantiates trusted default energy for every production entity without inference", () => {
+  it("instantiates the main battle's trusted explicit unit energy without inference", () => {
     const simulation = createSimulation(MAIN_BATTLE_MEDICAL_SCENARIO);
     expect(simulation.trustedIndividualEnergyProfileStore.entityCount).toBe(44);
     expect(simulation.individualEnergyStore.entityCount).toBe(44);
@@ -120,15 +117,22 @@ describe("Milestone 7A production energy integration", () => {
     expect(simulation.combatSandbox!.individualEnergyStore)
       .toBe(simulation.individualEnergyStore);
 
+    const expectedProfiles = [
+      { end: 12, maximumEnergy: 11_000, safeRestRecoveryPerTick: 5 },
+      { end: 24, maximumEnergy: 1_800, safeRestRecoveryPerTick: 8 },
+      { end: 34, maximumEnergy: 7_500, safeRestRecoveryPerTick: 4 },
+      { end: 44, maximumEnergy: 6_000, safeRestRecoveryPerTick: 5 },
+    ] as const;
     for (let entityId = 0; entityId < 44; entityId += 1) {
+      const expected = expectedProfiles.find(({ end }) => entityId < end)!;
       expect(getTrustedIndividualEnergyProfile(
         simulation.trustedIndividualEnergyProfileStore,
         entityId,
       )).toEqual({
         entityId,
-        maximumEnergy: DEFAULT_MAXIMUM_ENERGY,
-        startingEnergy: DEFAULT_STARTING_ENERGY,
-        safeRestRecoveryPerTick: DEFAULT_SAFE_REST_RECOVERY_PER_TICK,
+        maximumEnergy: expected.maximumEnergy,
+        startingEnergy: expected.maximumEnergy,
+        safeRestRecoveryPerTick: expected.safeRestRecoveryPerTick,
       });
     }
   });
@@ -1283,8 +1287,11 @@ function smallUnit(
   source: CombatSandboxUnitScenario,
   options: SmallUnitOptions,
 ): CombatSandboxUnitScenario {
+  const { energyProfile: inheritedMainBattleEnergyProfile, ...sourceWithoutEnergyProfile } =
+    source;
+  void inheritedMainBattleEnergyProfile;
   return {
-    ...source,
+    ...sourceWithoutEnergyProfile,
     unitId: options.unitId,
     factionId: options.factionId,
     memberCount: 2,

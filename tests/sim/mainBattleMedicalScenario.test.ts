@@ -13,6 +13,7 @@ import { VISUAL_TEST_REGISTRY } from "../../src/content/visualTestRegistry";
 import { getIndividualCasualtyProcedureProfile } from "../../src/sim/individualCasualtyProcedureProfile";
 import { getIndividualCombatProfile } from "../../src/sim/individualCombatProfile";
 import { getIndividualGenericHerbInspection } from "../../src/sim/individualMedicalProfile";
+import { getTrustedIndividualEnergyProfile } from "../../src/sim/individualEnergy";
 import { getTrustedIndividualMedicalProfile } from "../../src/sim/individualMedicalProfile";
 import {
   advanceSimulationOneTick,
@@ -111,6 +112,44 @@ describe("Spike 6.5 main battle medical integration sandbox", () => {
     expect(allShields).toEqual(new Set(["none", "buckler", "shield"]));
   });
 
+  it("authors mixed explicit unit energy profiles and opt-in bounded visual evidence", () => {
+    const expected = new Map([
+      [101, { maximumEnergy: 11_000, safeRestRecoveryPerTick: 5 }],
+      [102, { maximumEnergy: 1_800, safeRestRecoveryPerTick: 8 }],
+      [201, { maximumEnergy: 7_500, safeRestRecoveryPerTick: 4 }],
+      [202, { maximumEnergy: 6_000, safeRestRecoveryPerTick: 5 }],
+    ]);
+    const simulation = createSimulation(MAIN_BATTLE_MEDICAL_SCENARIO);
+    const combat = requireCombat(simulation);
+    expect(MAIN_BATTLE_MEDICAL_SCENARIO.energyProfile).toBeUndefined();
+    expect(MAIN_BATTLE_MEDICAL_SCENARIO.combatSandbox?.includeEnergyDebug)
+      .toBe(true);
+    for (const unitId of getUnitIds(combat.identityStore)) {
+      const authored = expected.get(unitId)!;
+      for (const entityId of getUnitMembers(combat.identityStore, unitId)) {
+        expect(getTrustedIndividualEnergyProfile(
+          combat.trustedIndividualEnergyProfileStore,
+          entityId,
+        )).toMatchObject({
+          maximumEnergy: authored.maximumEnergy,
+          startingEnergy: authored.maximumEnergy,
+          safeRestRecoveryPerTick: authored.safeRestRecoveryPerTick,
+        });
+      }
+    }
+    advanceSimulationOneTick(simulation);
+    const snapshot = createPositionSnapshot(simulation);
+    expect(snapshot.combatDebug?.units.every((unit) =>
+      unit.energyAverageRatioFixedPoint !== undefined &&
+      unit.energyBehaviourRecommendation !== undefined
+    )).toBe(true);
+    expect(snapshot.combatDebug?.inspectedIndividuals.every((individual) =>
+      individual.energyAttackRecoveryDurationMultiplierPercent !== undefined &&
+      individual.energyGuardReadinessRecoveryMultiplierPercent !== undefined &&
+      individual.energyPressureRecoveryMultiplierPercent !== undefined
+    )).toBe(true);
+  });
+
   it("resets and replays deterministically from the same authored battle", () => {
     expect(createInitialSnapshot(createSimulation(MAIN_BATTLE_MEDICAL_SCENARIO)))
       .toEqual(createInitialSnapshot(createSimulation(MAIN_BATTLE_MEDICAL_SCENARIO)));
@@ -126,6 +165,13 @@ describe("Spike 6.5 main battle medical integration sandbox", () => {
       claim: true,
       treatment: true,
       routing: true,
+      winded: true,
+      spent: true,
+      resting: true,
+      reengaged: true,
+      egress: true,
+      waiting: true,
+      waitingEnergyContinuous: true,
     });
     const snapshot = createPositionSnapshot(simulation);
     expect(snapshot.combatDebug?.inspectedIndividuals).toHaveLength(44);
@@ -180,8 +226,16 @@ function executeSmoke() {
     claim: false,
     treatment: false,
     routing: false,
+    winded: false,
+    spent: false,
+    resting: false,
+    reengaged: false,
+    egress: false,
+    waiting: false,
+    waitingEnergyContinuous: false,
   };
-  for (let index = 0; index < 1_200; index += 1) {
+  let observedRest = false;
+  for (let index = 0; index < 1_500; index += 1) {
     advanceSimulationOneTick(simulation);
     const combat = requireCombat(simulation);
     seen.combat ||= combat.individualAttackAttemptCount > 0;
@@ -190,8 +244,33 @@ function executeSmoke() {
       combat.casualtyAssistanceDecisionResult.rescueRequestedRecords.length > 0;
     seen.claim ||= combat.individualMedicalClaimResult.claimRecords.length > 0;
     seen.treatment ||= combat.individualTreatmentActionResult.activeActionCount > 0;
-    seen.routing ||= createPositionSnapshot(simulation).combatDebug!.units.some(
+    const snapshot = createPositionSnapshot(simulation);
+    seen.routing ||= snapshot.combatDebug!.units.some(
       (unit) => unit.persistentMoraleState === "routing",
+    );
+    seen.winded ||= snapshot.combatDebug!.inspectedIndividuals.some(
+      (individual) => individual.energyBand === "winded",
+    );
+    seen.spent ||= snapshot.combatDebug!.inspectedIndividuals.some(
+      (individual) => individual.energyBand === "spent",
+    );
+    const resting = snapshot.combatDebug!.units.some(
+      (unit) => (unit.energyCurrentlyRestingMemberCount ?? 0) > 0,
+    );
+    seen.resting ||= resting;
+    observedRest ||= resting;
+    seen.reengaged ||= observedRest && !resting && snapshot.combatDebug!.units.some(
+      (unit) => unit.unitId === 102 && unit.movementStyle !== "orderedHalt",
+    );
+    seen.egress ||= combat.individualRespawnEgressResult.movementRecords.length > 0;
+    seen.waiting ||= snapshot.combatDebug!.inspectedIndividuals.some(
+      (individual) => individual.playerPresenceState === "waitingAtRespawn",
+    );
+    seen.waitingEnergyContinuous ||= snapshot.combatDebug!.inspectedIndividuals.some(
+      (individual) =>
+        individual.playerPresenceState === "waitingAtRespawn" &&
+        (individual.totalEnergySpent ?? 0) > 0 &&
+        (individual.currentEnergy ?? 0) < (individual.maximumEnergy ?? 0),
     );
   }
   return { simulation, seen };

@@ -71,7 +71,7 @@ export const ENERGY_EXERTION_EXPECTED_TIMELINE = Object.freeze([
   "2 · sprint drains first, jog lasts longer, and walking remains viable; low bands visibly cap later gait.",
   "3 · equal jogging expenditure removes the same points while the smaller capacity crosses bands first.",
   "4 · repeated canonical attacks and defences produce visible action costs and readiness recovery evidence.",
-  "5 · equal walking with heavy armour, held shield and polearm costs more than light unarmed movement.",
+  "5 · equal walking with heavy armour and polearm costs more than light unarmed movement; the polearm user's slung shield correctly adds no burden.",
   "6 · the ordinary walker pays walking only while moving helpers pay walking plus drag surcharge and the patient is externally moved free.",
   "7 · fresh and exhausted pairs retain the same combat identity while attack and guard recovery multipliers differ.",
   "8 · the isolated fighter recovers; the otherwise-equal staredown remains constrained by nearby hostile threat.",

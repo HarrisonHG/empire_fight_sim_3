@@ -98,6 +98,17 @@ body {
   margin: 0;
 }
 
+.main-battle-summary__units {
+  margin-top: 5px;
+  padding-top: 4px;
+  border-top: 1px solid rgb(100 116 139 / 55%);
+}
+
+.main-battle-summary__units p {
+  color: #e2e8f0;
+  font-size: 0.68rem;
+}
+
 .main-battle-summary__side h3 {
   color: #fff;
   font-size: 0.82rem;

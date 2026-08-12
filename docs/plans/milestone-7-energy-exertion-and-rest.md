@@ -1,12 +1,7 @@
 # Milestone 7: Energy, Exertion, and Rest
 
-Status: active; 7A and 7B are complete. 7C-1 gait authority and capability
-projection and 7C-2 formation and routing movement enforcement are
-implemented. 7C specialist movement enforcement and consolidation is complete.
-7D combat exertion, attack tempo, and guard recovery is complete. 7E-1 exertion-
-modifier projection and 7E-2 burden, injury, and drag expenditure enforcement
-are implemented; 7E-3 and 7E-4 are implemented. Milestone 7E is complete, 7F
-through 7H are implemented, and 7I is next.
+Status: implementation complete; 7A through 7J are implemented. Milestone 7
+awaits human acceptance of the retained visual suite and main-battle inspection.
 
 Implementation begins after Milestone 6 is accepted and the post-Milestone-6 main-battle medical integration spike is retained as the evolving `/` scenario.
 
@@ -2231,7 +2226,7 @@ Human questions:
 
 ## 7J — Main battle integration and milestone acceptance
 
-Status: next.
+Status: implemented.
 
 Update the evolving `/` main battle sandbox to:
 

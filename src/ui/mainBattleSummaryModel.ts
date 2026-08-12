@@ -14,6 +14,36 @@ export interface MainBattleSideSummaryValue {
   readonly waitingAtRespawn: number;
   readonly currentHerbs: number;
   readonly reservedHerbs: number;
+  readonly energyActive: number;
+  readonly energyAverageRatioFixedPoint: number | null;
+  readonly energyMinimumRatioFixedPoint: number | null;
+  readonly energyFresh: number;
+  readonly energyWorking: number;
+  readonly energyWinded: number;
+  readonly energySpent: number;
+  readonly energySpentThisTick: number;
+  readonly energyRecoveredThisTick: number;
+  readonly energyResting: number;
+  readonly units: readonly MainBattleUnitEnergySummaryValue[];
+}
+
+export interface MainBattleUnitEnergySummaryValue {
+  readonly unitId: number;
+  readonly label: string;
+  readonly active: number;
+  readonly averageRatioFixedPoint: number | null;
+  readonly minimumRatioFixedPoint: number | null;
+  readonly fresh: number;
+  readonly working: number;
+  readonly winded: number;
+  readonly spent: number;
+  readonly jogCapable: number;
+  readonly sprintOrChargeCapable: number;
+  readonly dragCapable: number;
+  readonly spentThisTick: number;
+  readonly recoveredThisTick: number;
+  readonly recommendation: import("../sim/unitEnergyBehaviour").UnitEnergyBehaviourRecommendation;
+  readonly resting: number;
 }
 
 export function deriveMainBattleSideSummaries(
@@ -40,6 +70,18 @@ export function deriveMainBattleSideSummaries(
         waitingAtRespawn: 0,
         currentHerbs: 0,
         reservedHerbs: 0,
+        energyActive: 0,
+        energyRatioTotal: 0,
+        energyAverageRatioFixedPoint: null,
+        energyMinimumRatioFixedPoint: null,
+        energyFresh: 0,
+        energyWorking: 0,
+        energyWinded: 0,
+        energySpent: 0,
+        energySpentThisTick: 0,
+        energyRecoveredThisTick: 0,
+        energyResting: 0,
+        units: [],
       };
       summaries.set(unit.factionId, side);
     }
@@ -56,14 +98,60 @@ export function deriveMainBattleSideSummaries(
     side.waitingAtRespawn += casualty.waitingAtRespawnCount;
     side.currentHerbs += casualty.currentGenericHerbCount;
     side.reservedHerbs += casualty.reservedGenericHerbCount;
+    const activeEnergyMembers = unit.energyActiveMemberCount ?? 0;
+    side.energyActive += activeEnergyMembers;
+    side.energyRatioTotal +=
+      (unit.energyAverageRatioFixedPoint ?? 0) * activeEnergyMembers;
+    if (unit.energyMinimumRatioFixedPoint !== null &&
+        unit.energyMinimumRatioFixedPoint !== undefined) {
+      side.energyMinimumRatioFixedPoint =
+        side.energyMinimumRatioFixedPoint === null
+          ? unit.energyMinimumRatioFixedPoint
+          : Math.min(
+              side.energyMinimumRatioFixedPoint,
+              unit.energyMinimumRatioFixedPoint,
+            );
+    }
+    side.energyFresh += unit.energyFreshMemberCount ?? 0;
+    side.energyWorking += unit.energyWorkingMemberCount ?? 0;
+    side.energyWinded += unit.energyWindedMemberCount ?? 0;
+    side.energySpent += unit.energySpentMemberCount ?? 0;
+    side.energySpentThisTick += unit.energySpentThisTick ?? 0;
+    side.energyRecoveredThisTick += unit.energyRecoveredThisTick ?? 0;
+    side.energyResting += unit.energyCurrentlyRestingMemberCount ?? 0;
+    side.units.push(Object.freeze({
+      unitId: unit.unitId,
+      label: unit.label,
+      active: activeEnergyMembers,
+      averageRatioFixedPoint: unit.energyAverageRatioFixedPoint ?? null,
+      minimumRatioFixedPoint: unit.energyMinimumRatioFixedPoint ?? null,
+      fresh: unit.energyFreshMemberCount ?? 0,
+      working: unit.energyWorkingMemberCount ?? 0,
+      winded: unit.energyWindedMemberCount ?? 0,
+      spent: unit.energySpentMemberCount ?? 0,
+      jogCapable: unit.energyJogCapableMemberCount ?? 0,
+      sprintOrChargeCapable:
+        unit.energySprintOrChargeCapableMemberCount ?? 0,
+      dragCapable: unit.energyDragCapableHelperCount ?? 0,
+      spentThisTick: unit.energySpentThisTick ?? 0,
+      recoveredThisTick: unit.energyRecoveredThisTick ?? 0,
+      recommendation: unit.energyBehaviourRecommendation ?? "normal",
+      resting: unit.energyCurrentlyRestingMemberCount ?? 0,
+    }));
   }
   return Object.freeze(
     [...summaries.values()]
       .sort((left, right) => left.factionId - right.factionId)
-      .map((summary) => Object.freeze({ ...summary })),
+      .map(({ energyRatioTotal, ...summary }) => Object.freeze({
+        ...summary,
+        energyAverageRatioFixedPoint: summary.energyActive === 0
+          ? null
+          : Math.floor(energyRatioTotal / summary.energyActive),
+        units: Object.freeze(summary.units.slice()),
+      })),
   );
 }
 
 type MutableSideSummary = {
   -readonly [Key in keyof MainBattleSideSummaryValue]: MainBattleSideSummaryValue[Key];
-};
+} & { energyRatioTotal: number; units: MainBattleUnitEnergySummaryValue[] };
