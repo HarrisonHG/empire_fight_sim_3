@@ -916,6 +916,7 @@ function createCombatSandbox(
     );
   const combatSandbox: CombatSandboxSimulationState = {
     battleSeed: seed >>> 0,
+    includeEnergyDebug: scenario.includeEnergyDebug === true,
     ...(scenario.retainedCasualtyVisualFixture === undefined
       ? {}
       : {
@@ -3050,6 +3051,10 @@ function createCombatDebugSnapshot(
       combatSandbox.formationStore,
       unitId,
     );
+    const energySummary = combatSandbox.unitEnergySummaries[unitIndex];
+    if (energySummary === undefined || energySummary.unitId !== unitId) {
+      throw new Error("Live combat unit energy summaries are out of sync.");
+    }
     units.push({
       unitId,
       label: combatSandbox.unitLabels.get(unitId) ?? `Unit ${unitId}`,
@@ -3076,6 +3081,27 @@ function createCombatDebugSnapshot(
         energyGaitDiagnostics.anchorMovementReducedByEnergy,
       anchorEnergyPolicyApplied:
         energyGaitDiagnostics.anchorEnergyPolicyApplied,
+      ...(combatSandbox.includeEnergyDebug ? {
+        energyActiveMemberCount: energySummary.activeMemberCount,
+        energyAverageCurrent: energySummary.averageCurrentEnergy,
+        energyMinimumCurrent: energySummary.minimumCurrentEnergy,
+        energyAverageRatioFixedPoint: energySummary.averageEnergyRatioFixedPoint,
+        energyMinimumRatioFixedPoint: energySummary.minimumEnergyRatioFixedPoint,
+        energyFreshMemberCount: energySummary.freshMemberCount,
+        energyWorkingMemberCount: energySummary.workingMemberCount,
+        energyWindedMemberCount: energySummary.windedMemberCount,
+        energySpentMemberCount: energySummary.spentMemberCount,
+        energyJogCapableMemberCount: energySummary.jogCapableMemberCount,
+        energySprintOrChargeCapableMemberCount:
+          energySummary.sprintOrChargeCapableMemberCount,
+        energyDragCapableHelperCount: energySummary.dragCapableHelperCount,
+        energySpentThisTick: energySummary.energySpentThisTick,
+        energyRecoveredThisTick: energySummary.energyRecoveredThisTick,
+        energyBehaviourRecommendation:
+          energySummary.energyBehaviourRecommendation,
+        energyCurrentlyRestingMemberCount:
+          energySummary.currentlyRestingMemberCount,
+      } : {}),
       assessmentPressureAverage: moraleAssessment.pressureAverage,
       assessmentMoraleState: moraleAssessment.moraleState,
       persistentMoraleState: persistentMorale.state,
@@ -3470,6 +3496,14 @@ function collectInspectedIndividualSnapshots(
         energyCapability.canInitiateOrdinarySprintOrCharge,
       energyMinimumSafeWalkAvailable:
         energyCapability.minimumSafeWalkAvailable,
+      ...(combatSandbox.includeEnergyDebug ? {
+        energyAttackRecoveryDurationMultiplierPercent:
+          energyCapability.attackRecoveryDurationPercent,
+        energyGuardReadinessRecoveryMultiplierPercent:
+          energyCapability.guardReadinessRecoveryPercent,
+        energyPressureRecoveryMultiplierPercent:
+          energyCapability.pressureRecoveryPercent,
+      } : {}),
       energyAttackImpulsesThisTick:
         energyActivity.validAttackAttemptCount,
       energyDefenceImpulsesThisTick:

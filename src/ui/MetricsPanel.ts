@@ -10,6 +10,7 @@ import type {
 } from "../worker/protocol";
 import {
   buildIndividualInspectionRows,
+  formatEnergyInspection,
   formatCasualtyProcedureInspection,
   formatIncomingCounts,
   formatRetainedInspectionEvent,
@@ -51,7 +52,7 @@ export class MetricsPanel {
   private sampleStartedAt: number | undefined;
   private sampledFrames = 0;
 
-  public constructor() {
+  public constructor(private readonly showEnergyDetails = false) {
     this.element = document.createElement("section");
     this.element.className = "metrics-panel";
     this.element.setAttribute("aria-label", "Simulation metrics");
@@ -122,18 +123,10 @@ export class MetricsPanel {
       hitLoss: combatDebug.totalAppliedHitLoss,
       zero: combatDebug.totalNewlyZeroMemberCount,
     });
-    this.combatUnitStateValue.textContent = combatDebug.units
-      .map(
-        (unit) =>
-          `${unit.label} · U${unit.unitId}/F${unit.factionId} (${unit.memberCount}): ` +
-          `${unit.movementStyle}, H ${unit.endOfTickEligibleMembers}/${unit.memberCount}, ` +
-          `Z ${unit.endOfTickZeroHitMembers}, Loss ${unit.appliedHitLoss}, ` +
-          `M ${unit.persistentMoraleState}, ${formatMoraleOverlayValues(unit)}, ` +
-          `P ${formatCombatNumber(unit.persistentPressure)}, ` +
-          `C ${unit.currentCohesion} ` +
-          `(assessment ${unit.assessmentMoraleState}/P ${formatCombatNumber(unit.assessmentPressureAverage)})`,
-      )
-      .join("\n");
+    this.renderCombatUnitState(
+      combatDebug.units,
+      combatDebug.inspectedIndividuals,
+    );
     this.renderIndividualInspection(
       snapshot.tick,
       combatDebug.inspectedIndividuals,
@@ -166,12 +159,35 @@ export class MetricsPanel {
   public setIndividualInspectionFocus(selection: VisualTestFocusSelection): void {
     this.individualInspectionFocus = selection;
     if (this.latestInspectionTick !== undefined) {
+      this.renderCombatUnitState(
+        this.latestInspectedUnits,
+        this.latestInspectedIndividuals,
+      );
       this.renderIndividualInspection(
         this.latestInspectionTick,
         this.latestInspectedIndividuals,
         this.latestInspectedUnits,
       );
     }
+  }
+
+  private renderCombatUnitState(
+    units: readonly LiveCombatDebugUnitSnapshot[],
+    individuals: readonly LiveCombatDebugIndividualSnapshot[],
+  ): void {
+    const visibleUnits = this.showEnergyDetails &&
+        this.individualInspectionFocus.id !== "all"
+      ? filterUnitsByFocusedIndividuals(
+          units,
+          filterIndividualInspectionByFocus(
+            individuals,
+            this.individualInspectionFocus,
+          ),
+        )
+      : units;
+    this.combatUnitStateValue.textContent = visibleUnits
+      .map((unit) => formatCombatUnitState(unit, this.showEnergyDetails))
+      .join("\n");
   }
 
   public destroy(): void {
@@ -251,8 +267,9 @@ export class MetricsPanel {
     table.className = "individual-inspection-table";
     const header = document.createElement("thead");
     const headerRow = document.createElement("tr");
-    for (const label of [
+    const labels = [
       "E/U",
+      ...(this.showEnergyDetails ? ["Energy"] : []),
       "Elig",
       "Target",
       "Action",
@@ -264,7 +281,8 @@ export class MetricsPanel {
       "Latest",
       "In",
       "Loss",
-    ]) {
+    ];
+    for (const label of labels) {
       const cell = document.createElement("th");
       cell.textContent = label;
       headerRow.append(cell);
@@ -277,6 +295,7 @@ export class MetricsPanel {
       const row = document.createElement("tr");
       for (const value of [
         inspectionRow.identity,
+        ...(this.showEnergyDetails ? [formatEnergyInspection(individual)] : []),
         individual.tickStartCombatEligible ? "Y" : "N",
         formatTarget(individual),
         formatAction(individual),
@@ -356,6 +375,48 @@ function formatCombatCounts(counts: {
 
 function formatCombatNumber(value: number): string {
   return Number.isInteger(value) ? value.toString() : value.toFixed(2);
+}
+
+function formatCombatUnitState(
+  unit: LiveCombatDebugUnitSnapshot,
+  showEnergyDetails: boolean,
+): string {
+  if (showEnergyDetails && unit.energyActiveMemberCount !== undefined) {
+    const ratio = unit.energyAverageRatioFixedPoint === null ||
+        unit.energyAverageRatioFixedPoint === undefined
+      ? "-"
+      : `${Math.floor(unit.energyAverageRatioFixedPoint / 100)}%`;
+    return `${unit.label} · U${unit.unitId}: ` +
+      `avg ${unit.energyAverageCurrent ?? "-"} (${ratio}), ` +
+      `min ${unit.energyMinimumCurrent ?? "-"}, ` +
+      `bands F/W/Wd/S ${unit.energyFreshMemberCount ?? 0}/` +
+      `${unit.energyWorkingMemberCount ?? 0}/` +
+      `${unit.energyWindedMemberCount ?? 0}/` +
+      `${unit.energySpentMemberCount ?? 0}, ` +
+      `gait J ${unit.energyJogCapableMemberCount ?? 0} ` +
+      `S ${unit.energySprintOrChargeCapableMemberCount ?? 0} ` +
+      `D ${unit.energyDragCapableHelperCount ?? 0}, ` +
+      `tick -${unit.energySpentThisTick ?? 0}/+${unit.energyRecoveredThisTick ?? 0}, ` +
+      `${unit.energyBehaviourRecommendation ?? "normal"}, ` +
+      `resting ${unit.energyCurrentlyRestingMemberCount ?? 0}`;
+  }
+  const base =
+    `${unit.label} · U${unit.unitId}/F${unit.factionId} (${unit.memberCount}): ` +
+    `${unit.movementStyle}, H ${unit.endOfTickEligibleMembers}/${unit.memberCount}, ` +
+    `Z ${unit.endOfTickZeroHitMembers}, Loss ${unit.appliedHitLoss}, ` +
+    `M ${unit.persistentMoraleState}, ${formatMoraleOverlayValues(unit)}, ` +
+    `P ${formatCombatNumber(unit.persistentPressure)}, ` +
+    `C ${unit.currentCohesion} ` +
+    `(assessment ${unit.assessmentMoraleState}/P ${formatCombatNumber(unit.assessmentPressureAverage)})`;
+  return base;
+}
+
+function filterUnitsByFocusedIndividuals(
+  units: readonly LiveCombatDebugUnitSnapshot[],
+  individuals: readonly LiveCombatDebugIndividualSnapshot[],
+): readonly LiveCombatDebugUnitSnapshot[] {
+  const unitIds = new Set(individuals.map((individual) => individual.unitId));
+  return units.filter((unit) => unitIds.has(unit.unitId));
 }
 
 function formatTarget(individual: LiveCombatDebugIndividualSnapshot): string {

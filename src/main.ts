@@ -69,8 +69,10 @@ async function startApplication(
   renderer.setCasualtyVisualsVisible(
     isMainBattle || visualTestEntry?.showCasualtyVisuals === true,
   );
+  const energyVisualsEnabled = visualTestEntry?.showEnergyVisuals === true;
+  renderer.setEnergyVisualsVisible(energyVisualsEnabled);
   const workerClient = new SimulationWorkerClient();
-  const metricsPanel = new MetricsPanel();
+  const metricsPanel = new MetricsPanel(energyVisualsEnabled);
   const mainBattleSummary = isMainBattle
     ? new MainBattleSummary(MAIN_BATTLE_SIDE_LABELS)
     : undefined;
@@ -93,6 +95,7 @@ async function startApplication(
     if (visualTestScenarioPanel !== undefined) {
       visualTestScenarioPanel.hidden = hidden;
     }
+    renderer.setEnergyVisualsVisible(energyVisualsEnabled && !hidden);
   };
   let reachOverlayVisibility = createInitialReachOverlayVisibilityState();
   let combatEventVisibility = createInitialCombatEventVisibilityState();

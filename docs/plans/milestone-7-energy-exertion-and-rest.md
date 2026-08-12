@@ -2171,9 +2171,7 @@ Prove:
 
 ---
 
-## 7I — Retained energy visual suite
-
-Status: next.
+## 7I — Retained energy visual suite — implemented
 
 Add:
 
@@ -2232,6 +2230,8 @@ Human questions:
 ---
 
 ## 7J — Main battle integration and milestone acceptance
+
+Status: next.
 
 Update the evolving `/` main battle sandbox to:
 

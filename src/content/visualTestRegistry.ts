@@ -23,6 +23,14 @@ import {
   CASUALTY_LIFECYCLE_VISUAL_SCENARIO_ID,
 } from "./casualtyLifecycleVisualScenario";
 import type { SimulationScenario } from "../sim/types";
+import {
+  ENERGY_EXERTION_EXPECTED_TIMELINE,
+  ENERGY_EXERTION_RECOMMENDED_END_TICK,
+  ENERGY_EXERTION_VISUAL_CHAMBERS,
+  ENERGY_EXERTION_VISUAL_LEGEND_LINES,
+  ENERGY_EXERTION_VISUAL_SCENARIO,
+  ENERGY_EXERTION_VISUAL_SCENARIO_ID,
+} from "./energyExertionVisualScenario";
 
 export interface VisualTestEntry {
   readonly id: string;
@@ -34,6 +42,7 @@ export interface VisualTestEntry {
   readonly worldLabels?: readonly VisualTestWorldLabel[];
   readonly focusAreas?: readonly VisualTestFocusArea[];
   readonly showCasualtyVisuals?: boolean;
+  readonly showEnergyVisuals?: boolean;
   readonly recommendedTickRange: Readonly<{
     readonly start: number;
     readonly end: number;
@@ -56,6 +65,41 @@ export interface VisualTestFocusArea extends VisualTestWorldLabel {
 }
 
 export const VISUAL_TEST_REGISTRY: readonly VisualTestEntry[] = Object.freeze([
+  Object.freeze({
+    id: ENERGY_EXERTION_VISUAL_SCENARIO_ID,
+    title: "Energy, exertion, and rest regression",
+    milestone: "Milestone 7 retained visual suite",
+    purpose:
+      "Retains ten isolated production-authority chambers for gait expenditure, combat exertion, burden, drag, recovery, conservation and respawn continuity.",
+    expectedObservations: ENERGY_EXERTION_EXPECTED_TIMELINE,
+    legendLines: ENERGY_EXERTION_VISUAL_LEGEND_LINES,
+    worldLabels: Object.freeze(ENERGY_EXERTION_VISUAL_CHAMBERS.map((area) =>
+      Object.freeze({
+        text: `${area.id} ${area.label}`,
+        x: area.centreX,
+        y: area.centreY - 190,
+      }),
+    )),
+    focusAreas: Object.freeze(ENERGY_EXERTION_VISUAL_CHAMBERS.map((area) =>
+      Object.freeze({
+        id: area.id,
+        entityIds: area.entityIds,
+        text: area.label,
+        x: area.centreX,
+        y: area.centreY,
+        width: area.focusWidth,
+        height: area.focusHeight,
+      }),
+    )),
+    showCasualtyVisuals: true,
+    showEnergyVisuals: true,
+    recommendedTickRange: Object.freeze({
+      start: 0,
+      end: ENERGY_EXERTION_RECOMMENDED_END_TICK,
+    }),
+    scenario: ENERGY_EXERTION_VISUAL_SCENARIO,
+    scenarioFactory: () => ENERGY_EXERTION_VISUAL_SCENARIO,
+  }),
   Object.freeze({
     id: CASUALTY_LIFECYCLE_VISUAL_SCENARIO_ID,
     title: "Casualty lifecycle regression",

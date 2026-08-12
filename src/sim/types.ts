@@ -259,6 +259,8 @@ export interface CombatSandboxScenario {
   readonly appliedDamagePressureScale: number;
   /** Optional bounded debug list; normal scenarios omit per-entity inspection. */
   readonly inspectedEntityIds?: readonly number[];
+  /** Opt-in bounded energy evidence for retained visual inspection only. */
+  readonly includeEnergyDebug?: boolean;
   /**
    * Explicit deterministic inputs for the retained Milestone 6 visual fixture.
    * Normal scenarios omit this; production authorities still own every result.
@@ -435,6 +437,22 @@ export interface LiveCombatDebugUnitSnapshot {
   readonly postEnergyAnchorStep?: number;
   readonly anchorMovementReducedByEnergy?: boolean;
   readonly anchorEnergyPolicyApplied?: boolean;
+  readonly energyActiveMemberCount?: number;
+  readonly energyAverageCurrent?: number | null;
+  readonly energyMinimumCurrent?: number | null;
+  readonly energyAverageRatioFixedPoint?: number | null;
+  readonly energyMinimumRatioFixedPoint?: number | null;
+  readonly energyFreshMemberCount?: number;
+  readonly energyWorkingMemberCount?: number;
+  readonly energyWindedMemberCount?: number;
+  readonly energySpentMemberCount?: number;
+  readonly energyJogCapableMemberCount?: number;
+  readonly energySprintOrChargeCapableMemberCount?: number;
+  readonly energyDragCapableHelperCount?: number;
+  readonly energySpentThisTick?: number;
+  readonly energyRecoveredThisTick?: number;
+  readonly energyBehaviourRecommendation?: import("./unitEnergyBehaviour").UnitEnergyBehaviourRecommendation;
+  readonly energyCurrentlyRestingMemberCount?: number;
   readonly assessmentPressureAverage: number;
   readonly assessmentMoraleState: CombatMoraleState;
   /** Persistent Milestone 4 interpretation consumed by next tick's movement. */
@@ -577,6 +595,9 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly energyMaximumRespawnEgressGait?: IndividualPhysicalGait;
   readonly energyCanInitiateOrdinarySprintOrCharge?: boolean;
   readonly energyMinimumSafeWalkAvailable?: boolean;
+  readonly energyAttackRecoveryDurationMultiplierPercent?: number;
+  readonly energyGuardReadinessRecoveryMultiplierPercent?: number;
+  readonly energyPressureRecoveryMultiplierPercent?: number;
   readonly energyAttackImpulsesThisTick?: number;
   readonly energyDefenceImpulsesThisTick?: number;
   readonly energyMovementOccurredThisTick?: boolean;
@@ -792,6 +813,7 @@ export interface LiveCombatDebugSnapshot {
  */
 export interface CombatSandboxSimulationState {
   readonly battleSeed: number;
+  readonly includeEnergyDebug: boolean;
   readonly retainedCasualtyVisualFixture?: RetainedCasualtyVisualFixture;
   readonly identityStore: UnitIdentityStore;
   readonly loadoutStore: UnitLoadoutStore;

@@ -8,6 +8,44 @@ export interface IndividualInspectionRow {
   readonly latestEvent: string;
 }
 
+export function formatEnergyInspection(
+  individual: LiveCombatDebugIndividualSnapshot,
+): string {
+  if (
+    individual.currentEnergy === undefined ||
+    individual.maximumEnergy === undefined ||
+    individual.energyBand === undefined
+  ) {
+    return "--";
+  }
+  const ratioPercent = Math.floor((individual.energyRatioFixedPoint ?? 0) / 100);
+  return [
+    `${individual.currentEnergy}/${individual.maximumEnergy} (${ratioPercent}%, ${individual.energyBand})`,
+    `activity ${individual.energyActivityContext ?? "none"}`,
+    `gait ${individual.energyRequestedPhysicalGait ?? "stationary"}` +
+      `>${individual.energyEffectivePhysicalGait ?? "stationary"}` +
+      `>${individual.energyActualPhysicalGait ?? "stationary"}` +
+      `; allowed ${individual.energyMaximumOrdinaryGait ?? "stationary"}`,
+    `cost move ${individual.energyMovementBaseExpenditureThisTick ?? 0}` +
+      `+drag ${individual.energyDragSurchargeThisTick ?? 0}` +
+      `; attack ${individual.energyAttackBaseExpenditureThisTick ?? 0}` +
+      `; defence ${individual.energyDefenceBaseExpenditureThisTick ?? 0}` +
+      `; applied ${individual.energyExpenditureAppliedThisTick ?? 0}`,
+    `recovery ${individual.energyRecoveryAppliedThisTick ?? 0}` +
+      `/${individual.energyRecoveryRequestedThisTick ?? 0}`,
+    `burden ${individual.energyArmourBurdenPoints ?? 0}` +
+      `+${individual.energyHeldShieldBurdenPoints ?? 0}` +
+      `+${individual.energyPrimaryWeaponBurdenPoints ?? 0}` +
+      `=${individual.energyTotalBurdenPoints ?? 0}` +
+      ` ×${individual.energyBurdenExertionMultiplierPercent ?? 100}%`,
+    `multipliers attack ${individual.energyAttackRecoveryDurationMultiplierPercent ?? 100}%` +
+      `; guard ${individual.energyGuardReadinessRecoveryMultiplierPercent ?? 100}%` +
+      `; pressure ${individual.energyPressureRecoveryMultiplierPercent ?? 100}%`,
+    `unit ${individual.energyBehaviourRecommendation ?? "normal"}` +
+      `; resting ${individual.unitEnergyResting ? "yes" : "no"}`,
+  ].join(" · ");
+}
+
 export function formatCasualtyProcedureInspection(
   individual: LiveCombatDebugIndividualSnapshot,
 ): string {

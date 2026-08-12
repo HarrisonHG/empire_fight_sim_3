@@ -33,6 +33,11 @@ import {
   type CasualtyVisualGlyphSpec,
 } from "./casualtyVisualGrammar";
 import { createProgressClockGlyphSpec } from "./progressClockGrammar";
+import {
+  createEnergyVisualGlyphSpec,
+  ENERGY_VISUAL_RING_RADIUS,
+  type EnergyVisualGlyphSpec,
+} from "./energyVisualGrammar";
 
 const DOT_RADIUS = 2;
 const DOT_COLOR = 0xe8_f1_ff;
@@ -71,6 +76,7 @@ export class PixiEntityRenderer {
   private readonly entityLayer = new Container();
   private readonly combatGlyphLayer = new Container();
   private readonly casualtyGlyphLayer = new Container();
+  private readonly energyGlyphLayer = new Container();
   private readonly combatEventLayer = new Container();
   private readonly combatEventGraphics = new Graphics();
   private readonly casualtyRelationshipGraphics = new Graphics();
@@ -80,6 +86,7 @@ export class PixiEntityRenderer {
   private readonly combatGlyphsByEntityId = new Map<number, Graphics>();
   private readonly reachGlyphsByEntityId = new Map<number, Graphics>();
   private readonly casualtyGlyphsByEntityId = new Map<number, Graphics>();
+  private readonly energyGlyphsByEntityId = new Map<number, Graphics>();
   private readonly worldLabelsByText = new Map<string, Text>();
   private readonly retainedCombatVisualEvents: RetainedCombatVisualEvent[] = [];
   private readonly retainedCombatVisualEventKeys = new Set<string>();
@@ -98,12 +105,14 @@ export class PixiEntityRenderer {
       this.entityLayer,
       this.combatGlyphLayer,
       this.casualtyGlyphLayer,
+      this.energyGlyphLayer,
       this.combatEventLayer,
       this.worldLabelLayer,
     );
     this.casualtyRelationshipLayer.addChild(this.casualtyRelationshipGraphics);
     this.casualtyRelationshipLayer.visible = false;
     this.casualtyGlyphLayer.visible = false;
+    this.energyGlyphLayer.visible = false;
     this.combatEventLayer.addChild(
       this.combatEventGraphics,
       this.combatEventTextLayer,
@@ -185,6 +194,10 @@ export class PixiEntityRenderer {
     this.casualtyGlyphLayer.visible = visible;
   }
 
+  public setEnergyVisualsVisible(visible: boolean): void {
+    this.energyGlyphLayer.visible = visible;
+  }
+
   public setWorldFocus(focus?: RenderWorldFocus): void {
     this.worldFocus = focus;
     this.layoutWorld();
@@ -216,6 +229,9 @@ export class PixiEntityRenderer {
     for (const glyph of this.casualtyGlyphsByEntityId.values()) {
       glyph.destroy();
     }
+    for (const glyph of this.energyGlyphsByEntityId.values()) {
+      glyph.destroy();
+    }
     for (const label of this.worldLabelsByText.values()) {
       label.destroy();
     }
@@ -225,6 +241,7 @@ export class PixiEntityRenderer {
     this.combatGlyphsByEntityId.clear();
     this.reachGlyphsByEntityId.clear();
     this.casualtyGlyphsByEntityId.clear();
+    this.energyGlyphsByEntityId.clear();
     this.worldLabelsByText.clear();
     this.dotTexture.destroy(true);
     this.application.destroy(true, { children: true });
@@ -284,6 +301,10 @@ export class PixiEntityRenderer {
       snapshot.positions,
       snapshot.combatDebug?.inspectedIndividuals ?? [],
     );
+    this.updateEnergyGlyphs(
+      snapshot.positions,
+      snapshot.combatDebug?.inspectedIndividuals ?? [],
+    );
     this.layoutWorld();
   }
 
@@ -313,6 +334,10 @@ export class PixiEntityRenderer {
       snapshot.combatDebug?.inspectedCombatVisualEvents ?? [],
     );
     this.updateCasualtyGlyphs(
+      snapshot.positions,
+      snapshot.combatDebug?.inspectedIndividuals ?? [],
+    );
+    this.updateEnergyGlyphs(
       snapshot.positions,
       snapshot.combatDebug?.inspectedIndividuals ?? [],
     );
@@ -458,6 +483,33 @@ export class PixiEntityRenderer {
       individuals,
       positionsByEntityId,
     );
+  }
+
+  private updateEnergyGlyphs(
+    positions: Int32Array,
+    individuals: readonly LiveCombatDebugIndividualSnapshot[],
+  ): void {
+    const activeEntityIds = new Set<number>();
+    for (const individual of individuals) {
+      const spec = createEnergyVisualGlyphSpec(individual);
+      if (!spec.visible) continue;
+      activeEntityIds.add(individual.entityId);
+      const offset = this.getPositionOffsetForEntity(individual.entityId);
+      let glyph = this.energyGlyphsByEntityId.get(individual.entityId);
+      if (glyph === undefined) {
+        glyph = new Graphics();
+        this.energyGlyphsByEntityId.set(individual.entityId, glyph);
+        this.energyGlyphLayer.addChild(glyph);
+      }
+      glyph.position.set(positions[offset]!, positions[offset + 1]!);
+      drawEnergyGlyph(glyph, spec);
+    }
+    for (const [entityId, glyph] of this.energyGlyphsByEntityId) {
+      if (activeEntityIds.has(entityId)) continue;
+      this.energyGlyphLayer.removeChild(glyph);
+      glyph.destroy();
+      this.energyGlyphsByEntityId.delete(entityId);
+    }
   }
 
   private updateCombatVisualEvents(
@@ -795,6 +847,39 @@ function drawProgressClock(
     }
   }
   graphics.stroke({ color: progressColor, width: progressWidth, alpha: 0.95 });
+}
+
+function drawEnergyGlyph(
+  graphics: Graphics,
+  spec: EnergyVisualGlyphSpec,
+): void {
+  graphics.clear();
+  if (!spec.visible) return;
+  graphics.circle(0, 0, ENERGY_VISUAL_RING_RADIUS).stroke({
+    color: 0x33_41_55,
+    width: 1,
+    alpha: 0.65,
+  });
+  if (spec.ratio >= 1) {
+    graphics.circle(0, 0, ENERGY_VISUAL_RING_RADIUS);
+  } else if (spec.ratio > 0) {
+    graphics
+      .moveTo(
+        Math.cos(spec.startAngle) * ENERGY_VISUAL_RING_RADIUS,
+        Math.sin(spec.startAngle) * ENERGY_VISUAL_RING_RADIUS,
+      )
+      .arc(
+        0,
+        0,
+        ENERGY_VISUAL_RING_RADIUS,
+        spec.startAngle,
+        spec.endAngle,
+      );
+  }
+  if (spec.ratio > 0) {
+    graphics.stroke({ color: spec.color, width: 2, alpha: 0.95 });
+  }
+  graphics.circle(0, 0, 1.5).fill({ color: spec.changeColor, alpha: 0.95 });
 }
 
 function drawCasualtyLifecycleGlyph(
