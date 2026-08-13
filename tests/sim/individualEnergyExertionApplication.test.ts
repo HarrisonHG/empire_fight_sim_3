@@ -62,8 +62,8 @@ describe("7E-2 exertion expenditure composition", () => {
   });
 
   it.each([
-    ["jogging", 8, 9, 13],
-    ["sprinting", 40, 44, 64],
+    ["jogging", 4, 5, 7],
+    ["sprinting", 20, 22, 32],
   ] as const)(
     "makes equal %s work cost more in heavy kit than light kit",
     (gait, base, lightCost, heavyCost) => {
@@ -90,7 +90,7 @@ describe("7E-2 exertion expenditure composition", () => {
     },
   );
 
-  it("keeps walking available and charges at least its accepted base", () => {
+  it("keeps burdened and injured walking recuperative", () => {
     const harness = createHarness([{
       armourCategory: "heavy", primaryWeapon: "greatWeapon",
     }]);
@@ -101,8 +101,10 @@ describe("7E-2 exertion expenditure composition", () => {
     apply(harness, 0);
     expect(inspect(harness, 0)).toMatchObject({
       actualPhysicalGait: "walking",
-      movementBaseExpenditure: 1,
-      movementExpenditureRequested: 2,
+      movementBaseExpenditure: 0,
+      movementExpenditureRequested: 0,
+      totalExpenditureRequested: 0,
+      recoveryRequested: 0,
     });
   });
 
@@ -119,28 +121,28 @@ describe("7E-2 exertion expenditure composition", () => {
     apply(harness, 0);
     expect(inspect(harness, 0)).toMatchObject({
       physicalGaitSource: source,
-      movementBaseExpenditure: 1,
+      movementBaseExpenditure: 0,
       dragSurcharge: 0,
-      movementExpenditureRequested: 2,
+      movementExpenditureRequested: 0,
     });
   });
 
-  it("charges a moving drag helper gait plus 12 before modifiers", () => {
+  it("charges a moving drag helper only its normal walking semantics", () => {
     const harness = createHarness([{ armourCategory: "light" }]);
     damage(harness, 0);
     beginAndMove(harness, 0, "walking", "activeDragHelper", [0]);
     project(harness, 0);
     classify(harness, 0);
     apply(harness, 0);
-    expect(INDIVIDUAL_ENERGY_ACTIVE_DRAG_HELPER_SURCHARGE).toBe(12);
+    expect(INDIVIDUAL_ENERGY_ACTIVE_DRAG_HELPER_SURCHARGE).toBe(0);
     expect(inspect(harness, 0)).toMatchObject({
-      movementBaseExpenditure: 1,
-      dragSurcharge: 12,
+      movementBaseExpenditure: 0,
+      dragSurcharge: 0,
       burdenExertionMultiplierPercent: 110,
       injuryExertionMultiplierPercent: 110,
-      movementExpenditureRequested: 16,
-      totalExpenditureRequested: 16,
-      expenditureApplied: 16,
+      movementExpenditureRequested: 0,
+      totalExpenditureRequested: 0,
+      expenditureApplied: 0,
     });
   });
 
@@ -196,7 +198,7 @@ describe("7E-2 exertion expenditure composition", () => {
       classify(harness, 0);
       apply(harness, 0);
       expect(helperIds.map((id) => inspect(harness, id).movementExpenditureRequested))
-        .toEqual(new Array(helperCount).fill(13));
+        .toEqual(new Array(helperCount).fill(0));
       expect(inspect(harness, patientId).movementExpenditureRequested).toBe(0);
     }
   });
@@ -217,12 +219,12 @@ describe("7E-2 exertion expenditure composition", () => {
     apply(harness, 0);
     for (const entityId of [0, 1]) {
       expect(inspect(harness, entityId)).toMatchObject({
-        attackBaseExpenditure: 80,
-        attackExpenditureRequested: 88,
-        defenceBaseExpenditure: 50,
-        defenceExpenditureRequested: 55,
+        attackBaseExpenditure: 40,
+        attackExpenditureRequested: 44,
+        defenceBaseExpenditure: 25,
+        defenceExpenditureRequested: 28,
         injuryExertionMultiplierPercent: 110,
-        totalExpenditureRequested: 143,
+        totalExpenditureRequested: 72,
       });
     }
     expect(inspect(harness, 0).burdenExertionMultiplierPercent).toBe(100);
@@ -236,13 +238,13 @@ describe("7E-2 exertion expenditure composition", () => {
     damage(harness, 0);
     classify(harness, 0, { attacks: [attack(0)] });
     apply(harness, 0);
-    expect(inspect(harness, 0).attackExpenditureRequested).toBe(80);
+    expect(inspect(harness, 0).attackExpenditureRequested).toBe(40);
 
     beginIndividualEnergyActivityObservation(harness.activity, harness.world, 1);
     project(harness, 1);
     classify(harness, 1, { attacks: [attack(0)] });
     apply(harness, 1);
-    expect(inspect(harness, 0).attackExpenditureRequested).toBe(88);
+    expect(inspect(harness, 0).attackExpenditureRequested).toBe(44);
   });
 
   it("preserves legacy low-level values when the modifier input is omitted", () => {
@@ -255,12 +257,12 @@ describe("7E-2 exertion expenditure composition", () => {
       harness.activity, harness.energyProfiles, harness.energy, 0,
     );
     expect(inspect(harness, 0)).toMatchObject({
-      movementBaseExpenditure: 1,
+      movementBaseExpenditure: 0,
       dragSurcharge: 0,
-      movementExpenditureRequested: 1,
-      attackExpenditureRequested: 80,
-      defenceExpenditureRequested: 50,
-      totalExpenditureRequested: 131,
+      movementExpenditureRequested: 0,
+      attackExpenditureRequested: 40,
+      defenceExpenditureRequested: 25,
+      totalExpenditureRequested: 65,
       exertionModifierProjectionTickUsed: null,
     });
   });

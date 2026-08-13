@@ -8,7 +8,7 @@ import type { TrustedIndividualEnergyProfileValues } from "../sim/individualEner
  */
 export const RETAINED_SCENARIO_ISOLATION_ENERGY_PROFILE:
   Readonly<TrustedIndividualEnergyProfileValues> = Object.freeze({
-    maximumEnergy: 400_000,
-    startingEnergy: 400_000,
+    maximumEnergy: 800_000,
+    startingEnergy: 800_000,
     safeRestRecoveryPerTick: 0,
   });

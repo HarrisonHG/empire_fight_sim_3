@@ -628,9 +628,9 @@ describe("individual casualty assistance and sparse drag groups", () => {
   });
 
   it.each([
-    [100, 4, "sprinting", 40],
-    [20, 2, "jogging", 8],
-    [0, 1, "walking", 1],
+    [100, 4, "sprinting", 20],
+    [20, 2, "jogging", 4],
+    [0, 1, "walking", 0],
   ] as const)(
     "enforces gathering capability from starting energy %i",
     (startingEnergy, expectedStep, expectedEffectiveGait, expectedCost) => {
@@ -673,7 +673,7 @@ describe("individual casualty assistance and sparse drag groups", () => {
     },
   );
 
-  it("keeps the gathering tick-start projection after same-tick exhaustion", () => {
+  it("keeps the gathering tick-start projection after same-tick energy reduction", () => {
     const simulation = createSimulation(scenario([
       unit(1, 1, 100),
       {
@@ -699,19 +699,19 @@ describe("individual casualty assistance and sparse drag groups", () => {
     )).toMatchObject({
       effectivePhysicalGait: "sprinting",
       actualPhysicalGait: "sprinting",
-      movementExpenditureRequested: 40,
+      movementExpenditureRequested: 20,
     });
     const beforeNextX = simulation.world.positionsX[1]!;
 
     advanceSimulationOneTick(simulation);
-    expect(beforeNextX - simulation.world.positionsX[1]!).toBe(1);
+    expect(beforeNextX - simulation.world.positionsX[1]!).toBe(2);
     expect(getIndividualEnergyActivityInspection(
       combat.individualEnergyActivityStore, 1,
     )).toMatchObject({
       requestedPhysicalGait: "sprinting",
-      effectivePhysicalGait: "walking",
-      actualPhysicalGait: "walking",
-      movementExpenditureRequested: 1,
+      effectivePhysicalGait: "jogging",
+      actualPhysicalGait: "jogging",
+      movementExpenditureRequested: 4,
     });
   });
 
@@ -769,8 +769,8 @@ describe("individual casualty assistance and sparse drag groups", () => {
       gaitReducedByCapability: false,
       physicalGaitSource: "activeDragHelper",
       gaitProducedDisplacement: true,
-      movementExpenditureRequested: 20,
-      expenditureApplied: 20,
+      movementExpenditureRequested: 4,
+      expenditureApplied: 4,
     });
     expect(getIndividualEnergyActivityInspection(
       combat.individualEnergyActivityStore, 0,
@@ -886,7 +886,7 @@ describe("individual casualty assistance and sparse drag groups", () => {
         actualPhysicalGait: "walking",
         gaitReducedByCapability: true,
         physicalGaitSource: "activeDragHelper",
-        movementExpenditureRequested: 13,
+        movementExpenditureRequested: 0,
       }),
       expect.objectContaining({
         requestedPhysicalGait: "jogging",
@@ -894,11 +894,11 @@ describe("individual casualty assistance and sparse drag groups", () => {
         actualPhysicalGait: "walking",
         gaitReducedByCapability: true,
         physicalGaitSource: "activeDragHelper",
-        movementExpenditureRequested: 13,
+        movementExpenditureRequested: 0,
       }),
     ]);
-    expect(canonical.helperEnergy).toEqual([0, 86]);
-    expect(canonical.helperExpenditureApplied).toEqual([0, 13]);
+    expect(canonical.helperEnergy).toEqual([1, 100]);
+    expect(canonical.helperExpenditureApplied).toEqual([0, 0]);
     expect(canonical.patientActivity).toMatchObject({
       requestedPhysicalGait: "stationary",
       effectivePhysicalGait: "stationary",
@@ -950,7 +950,7 @@ describe("individual casualty assistance and sparse drag groups", () => {
       effectivePhysicalGait: "sprinting",
       actualPhysicalGait: "sprinting",
       gaitReducedByCapability: false,
-      movementExpenditureRequested: 52,
+      movementExpenditureRequested: 20,
     });
   });
 
@@ -963,7 +963,7 @@ describe("individual casualty assistance and sparse drag groups", () => {
         medicalProfile: physick(),
         energyProfile: {
           maximumEnergy: 100,
-          startingEnergy: 17,
+          startingEnergy: 12,
           safeRestRecoveryPerTick: 0,
         },
       },
@@ -993,9 +993,9 @@ describe("individual casualty assistance and sparse drag groups", () => {
       requestedPhysicalGait: "jogging",
       effectivePhysicalGait: "jogging",
       actualPhysicalGait: "jogging",
-      movementExpenditureRequested: 20,
-      expenditureApplied: 17,
-      energyAfter: 0,
+      movementExpenditureRequested: 4,
+      expenditureApplied: 4,
+      energyAfter: 8,
     });
     const beforeFollowingTick = simulation.world.positionsX[1]!;
 
@@ -1010,7 +1010,7 @@ describe("individual casualty assistance and sparse drag groups", () => {
       effectivePhysicalGait: "walking",
       actualPhysicalGait: "walking",
       gaitReducedByCapability: true,
-      movementExpenditureRequested: 13,
+      movementExpenditureRequested: 0,
       expenditureApplied: 0,
     });
   });
@@ -1125,7 +1125,7 @@ describe("individual casualty assistance and sparse drag groups", () => {
       requestedPhysicalGait: "walking",
       effectivePhysicalGait: "walking",
       actualPhysicalGait: "walking",
-      movementExpenditureRequested: 13,
+      movementExpenditureRequested: 0,
     });
   });
 

@@ -457,9 +457,9 @@ describe("individual energy activity structural performance", () => {
       const inspectionMilliseconds = performance.now() - inspectionStart;
 
       expect(returned).toBe(activity);
-      expect(idleRecoveryApplied).toBe(entityCount * 5);
+      expect(idleRecoveryApplied).toBe(entityCount * 2);
       expect(mixedMovementRequested).toBeGreaterThan(0);
-      expect(denseImpulseRequested).toBe(entityCount * 180);
+      expect(denseImpulseRequested).toBe(entityCount * 90);
       expect(fieldCount).toBeLessThanOrEqual(32);
       expect(Object.keys(activity)).toEqual(["entityCount"]);
 

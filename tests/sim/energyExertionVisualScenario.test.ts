@@ -72,16 +72,16 @@ describe("Milestone 7I retained energy visual scenario", () => {
     const first = createPositionSnapshot(simulation);
     expect(inspected(first, 0)).toMatchObject({
       energyActivityContext: "safeStationaryRest",
-      energyRecoveryAppliedThisTick: 12,
-      currentEnergy: 162,
+      energyRecoveryAppliedThisTick: 6,
+      currentEnergy: 156,
     });
     expect(inspected(first, 1)).toMatchObject({
       energyRequestedPhysicalGait: "walking",
       energyActualPhysicalGait: "walking",
-      energyMovementBaseExpenditureThisTick: 1,
+      energyMovementBaseExpenditureThisTick: 0,
     });
-    expect(inspected(first, 2).energyMovementBaseExpenditureThisTick).toBe(8);
-    expect(inspected(first, 3).energyMovementBaseExpenditureThisTick).toBe(40);
+    expect(inspected(first, 2).energyMovementBaseExpenditureThisTick).toBe(4);
+    expect(inspected(first, 3).energyMovementBaseExpenditureThisTick).toBe(20);
     expect(inspected(first, 8).energyTotalBurdenPoints).toBe(0);
     expect(inspected(first, 9)).toMatchObject({
       energyTotalBurdenPoints: 6,
@@ -103,20 +103,18 @@ describe("Milestone 7I retained energy visual scenario", () => {
   it("exercises every chamber through existing production authorities", () => {
     const trace = runTrace();
     expect(trace.safeRestRecovery).toBeGreaterThan(0);
-    expect(trace.walkSpent).toBeGreaterThan(0);
+    expect(trace.walkSpent).toBe(0);
     expect(trace.jogSpent ?? -1).toBeGreaterThan(trace.walkSpent ?? -1);
     expect(trace.sprintSpent ?? -1).toBeGreaterThan(trace.jogSpent ?? -1);
     expect(trace.smallCapacityFirstWindedTick).not.toBeNull();
-    expect(trace.largeCapacityFirstWindedTick).not.toBeNull();
-    expect(trace.smallCapacityFirstWindedTick!)
-      .toBeLessThan(trace.largeCapacityFirstWindedTick!);
+    expect(trace.largeCapacityFirstWindedTick).toBeNull();
     expect(trace.attackExertionCount).toBeGreaterThan(0);
     expect(trace.defenceExertionCount).toBeGreaterThan(0);
-    expect(trace.heavyWalkingSpent ?? -1)
-      .toBeGreaterThan(trace.lightWalkingSpent ?? -1);
+    expect(trace.heavyWalkingSpent).toBe(trace.lightWalkingSpent);
     expect(trace.draggingTicks).toBeGreaterThan(0);
     expect(trace.dragHelperSpent ?? -1)
       .toBeGreaterThan(trace.walkComparisonSpent ?? -1);
+    expect(trace.maximumDragHelperSurcharge).toBe(0);
     expect(trace.freshAttackMultiplier).toBe(100);
     expect(trace.spentAttackMultiplier).toBe(175);
     expect(trace.safeEnergyAt20).toBeGreaterThan(trace.staredownEnergyAt20);
@@ -146,6 +144,7 @@ function runTrace() {
   const simulation = createSimulation(ENERGY_EXERTION_VISUAL_SCENARIO);
   const startX = simulation.world.positionsX.slice();
   let draggingTicks = 0;
+  let maximumDragHelperSurcharge = 0;
   let restingTicks = 0;
   let reengagedAfterRest = false;
   let observedRest = false;
@@ -159,7 +158,13 @@ function runTrace() {
     advanceSimulationOneTick(simulation);
     const snapshot = createPositionSnapshot(simulation);
     const dragPatient = inspected(snapshot, 11);
-    if (dragPatient.casualtyDragGroupPhase === "dragging") draggingTicks += 1;
+    if (dragPatient.casualtyDragGroupPhase === "dragging") {
+      draggingTicks += 1;
+      maximumDragHelperSurcharge = Math.max(
+        maximumDragHelperSurcharge,
+        inspected(snapshot, 12).energyDragSurchargeThisTick ?? 0,
+      );
+    }
     const restingUnitMember = inspected(snapshot, 23);
     if (restingUnitMember.unitEnergyResting) {
       restingTicks += 1;
@@ -203,6 +208,7 @@ function runTrace() {
     walkComparisonSpent: finalById(10).totalEnergySpent,
     draggingTicks,
     dragHelperSpent: finalById(12).totalEnergySpent,
+    maximumDragHelperSurcharge,
     freshAttackMultiplier,
     spentAttackMultiplier,
     safeEnergyAt20,

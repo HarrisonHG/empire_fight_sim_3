@@ -66,7 +66,7 @@ export const MAIN_BATTLE_MEDICAL_SCENARIO: SimulationScenario = Object.freeze({
         casualtyProcedure: CITIZEN_PROCEDURE,
         profiles: citizenShieldProfiles(),
         confidence: 68,
-        energyProfile: energyProfile(11_000, 11_000, 5),
+        energyProfile: energyProfile(22_000, 22_000, 5),
       }),
       battleUnit({
         unitId: 102,
@@ -85,7 +85,7 @@ export const MAIN_BATTLE_MEDICAL_SCENARIO: SimulationScenario = Object.freeze({
         casualtyProcedure: CITIZEN_PROCEDURE,
         profiles: citizenPolearmProfiles(),
         confidence: 62,
-        energyProfile: energyProfile(1_800, 1_800, 8),
+        energyProfile: energyProfile(3_600, 3_600, 8),
         order: "advanceCautious",
       }),
       battleUnit({
@@ -105,7 +105,7 @@ export const MAIN_BATTLE_MEDICAL_SCENARIO: SimulationScenario = Object.freeze({
         casualtyProcedure: barbarianProcedure(1_350, 285),
         profiles: barbarianSpearProfiles(),
         confidence: 76,
-        energyProfile: energyProfile(7_500, 7_500, 4),
+        energyProfile: energyProfile(15_000, 15_000, 4),
       }),
       battleUnit({
         unitId: 202,
@@ -124,7 +124,7 @@ export const MAIN_BATTLE_MEDICAL_SCENARIO: SimulationScenario = Object.freeze({
         casualtyProcedure: barbarianProcedure(1_350, 615),
         profiles: barbarianGreatWeaponProfiles(),
         confidence: 72,
-        energyProfile: energyProfile(6_000, 6_000, 5),
+        energyProfile: energyProfile(12_000, 12_000, 5),
       }),
     ]),
   }),

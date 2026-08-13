@@ -69,9 +69,9 @@ describe("Milestone 7A production energy integration", () => {
     expect(simulation.world.positionsX.slice(0, 2)).toEqual(initialPositions);
     expect(getUnitEnergySummary(simulation.combatSandbox!.unitEnergySummaryStore, 1))
       .toMatchObject({
-        energyBehaviourRecommendation: "conserve",
+        energyBehaviourRecommendation: "restWhenSafe",
         currentlyRestingMemberCount: 2,
-        energyRecoveredThisTick: 10,
+        energyRecoveredThisTick: 4,
       });
 
     simulation.world.positionsX[2] = 90;
@@ -118,10 +118,10 @@ describe("Milestone 7A production energy integration", () => {
       .toBe(simulation.individualEnergyStore);
 
     const expectedProfiles = [
-      { end: 12, maximumEnergy: 11_000, safeRestRecoveryPerTick: 5 },
-      { end: 24, maximumEnergy: 1_800, safeRestRecoveryPerTick: 8 },
-      { end: 34, maximumEnergy: 7_500, safeRestRecoveryPerTick: 4 },
-      { end: 44, maximumEnergy: 6_000, safeRestRecoveryPerTick: 5 },
+      { end: 12, maximumEnergy: 22_000, safeRestRecoveryPerTick: 5 },
+      { end: 24, maximumEnergy: 3_600, safeRestRecoveryPerTick: 8 },
+      { end: 34, maximumEnergy: 15_000, safeRestRecoveryPerTick: 4 },
+      { end: 44, maximumEnergy: 12_000, safeRestRecoveryPerTick: 5 },
     ] as const;
     for (let entityId = 0; entityId < 44; entityId += 1) {
       const expected = expectedProfiles.find(({ end }) => entityId < end)!;
@@ -193,8 +193,8 @@ describe("Milestone 7A production energy integration", () => {
         simulation.individualEnergyStore,
         entityId,
       )).toMatchObject({
-        currentEnergy: 10_000,
-        maximumEnergy: 10_000,
+        currentEnergy: 20_000,
+        maximumEnergy: 20_000,
         band: "fresh",
         totalEnergySpent: 0,
         totalEnergyRecovered: 0,
@@ -208,13 +208,13 @@ describe("Milestone 7A production energy integration", () => {
       .inspectedIndividuals;
     expect(inspected).toHaveLength(4);
     expect(inspected[0]).toMatchObject({
-      currentEnergy: 10_000,
-      maximumEnergy: 10_000,
+      currentEnergy: 20_000,
+      maximumEnergy: 20_000,
       energyRatioFixedPoint: 10_000,
       energyBand: "fresh",
       safeRestRecoveryPerTick: 5,
-      startingEnergy: 10_000,
-      minimumEnergyReached: 10_000,
+      startingEnergy: 20_000,
+      minimumEnergyReached: 20_000,
       firstWindedTick: null,
       firstSpentTick: null,
       totalEnergySpent: 0,
@@ -228,7 +228,7 @@ describe("Milestone 7A production energy integration", () => {
       .inspectedIndividuals[0]!;
     expect(inspected).toMatchObject({
       energyCapabilityProjectionTick: null,
-      energyCapabilitySourceEnergy: 10_000,
+      energyCapabilitySourceEnergy: 20_000,
       energyCapabilitySourceBand: "fresh",
       energyMaximumOrdinaryGait: "sprinting",
       energyMaximumRoutingGait: "sprinting",
@@ -326,14 +326,14 @@ describe("Milestone 7A production energy integration", () => {
       formationMovementReducedByEnergy: true,
       energyRequestedPhysicalGait: "walking",
       energyActualPhysicalGait: "walking",
-      energyMovementExpenditureRequestedThisTick: 2,
+      energyMovementExpenditureRequestedThisTick: 0,
     });
     expect(freshInspection).toMatchObject({
       formationRequestedPhysicalGait: "jogging",
       formationEffectivePhysicalGait: "jogging",
       formationGaitReducedByCapability: false,
       energyActualPhysicalGait: "jogging",
-      energyMovementExpenditureRequestedThisTick: 10,
+      energyMovementExpenditureRequestedThisTick: 5,
     });
     expect(Array.from(fresh.world.positionsX)).not.toEqual(Array.from(spent.world.positionsX));
     expect(gameplayDigest(spent)).not.toEqual(gameplayDigest(fresh));
@@ -477,9 +477,10 @@ describe("Milestone 7A production energy integration", () => {
     });
 
     const expected = [
-      { tick: 0, band: "fresh", gait: "sprinting", cost: 48, step: 4 },
-      { tick: 1, band: "winded", gait: "jogging", cost: 10, step: 2 },
-      { tick: 2, band: "spent", gait: "walking", cost: 2, step: 1 },
+      { tick: 0, band: "fresh", gait: "sprinting", cost: 24, step: 4 },
+      { tick: 1, band: "working", gait: "sprinting", cost: 24, step: 3 },
+      { tick: 2, band: "winded", gait: "jogging", cost: 5, step: 2 },
+      { tick: 3, band: "spent", gait: "walking", cost: 0, step: 1 },
     ] as const;
     for (const row of expected) {
       advanceSimulationOneTick(simulation);
@@ -549,9 +550,10 @@ describe("Milestone 7A production energy integration", () => {
 
     const simulation = createRoutingSimulation(58);
     for (const expected of [
-      { tick: 0, band: "fresh", gait: "sprinting", step: 4, cost: 48 },
-      { tick: 1, band: "winded", gait: "jogging", step: 2, cost: 10 },
-      { tick: 2, band: "spent", gait: "walking", step: 1, cost: 2 },
+      { tick: 0, band: "fresh", gait: "sprinting", step: 4, cost: 24 },
+      { tick: 1, band: "working", gait: "sprinting", step: 4, cost: 24 },
+      { tick: 2, band: "winded", gait: "jogging", step: 2, cost: 5 },
+      { tick: 3, band: "spent", gait: "walking", step: 1, cost: 0 },
     ] as const) {
       simulation.combatSandbox!.moraleMovementStates.set(1, "routing");
       advanceSimulationOneTick(simulation);
@@ -585,7 +587,7 @@ describe("Milestone 7A production energy integration", () => {
         formationRequestedPhysicalGait: "sprinting",
         formationEffectivePhysicalGait: "sprinting",
         energyActualPhysicalGait: "sprinting",
-        energyMovementExpenditureRequestedThisTick: 48,
+        energyMovementExpenditureRequestedThisTick: 24,
       });
 
     const empty = createRoutingSimulation(0);
@@ -600,7 +602,7 @@ describe("Milestone 7A production energy integration", () => {
       formationEffectivePhysicalGait: "walking",
       energyRequestedPhysicalGait: "walking",
       energyActualPhysicalGait: "walking",
-      energyMovementExpenditureRequestedThisTick: 2,
+      energyMovementExpenditureRequestedThisTick: 0,
     });
   });
 
@@ -810,7 +812,7 @@ describe("Milestone 7B-1 production activity observation", () => {
           entityId,
         );
         expect(activity.movementExpenditureRequested).toBe(Math.ceil(
-          8 * expenditure.burdenExertionMultiplierPercent / 100,
+          4 * expenditure.burdenExertionMultiplierPercent / 100,
         ));
       }
     }
@@ -998,7 +1000,7 @@ describe("Milestone 7B-1 production activity observation", () => {
       formationRequestedPhysicalGait: "walking",
       formationEffectivePhysicalGait: "walking",
       energyActualPhysicalGait: "walking",
-      energyMovementExpenditureRequestedThisTick: 2,
+      energyMovementExpenditureRequestedThisTick: 0,
     });
 
     const aligned = run(100);
@@ -1028,7 +1030,7 @@ describe("Milestone 7B-1 production activity observation", () => {
             activity.physicalGaitSource === "respawnEgress" &&
             activity.gaitProducedDisplacement) {
           expect(activity.actualPhysicalGait).toBe("walking");
-          expect(activity.movementExpenditureRequested).toBe(2);
+          expect(activity.movementExpenditureRequested).toBe(0);
           sawWalkingRespawnEgress = true;
         }
       }

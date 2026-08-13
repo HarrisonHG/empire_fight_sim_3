@@ -195,21 +195,21 @@ describe("individual energy state and bands", () => {
     });
     const energy = createIndividualEnergyStore(profiles);
 
-    spendIndividualEnergy(energy, 0, 7_100, 5);
-    recoverIndividualEnergy(energy, 0, 500, 6);
-    spendIndividualEnergy(energy, 0, 3_000, 7);
-    spendIndividualEnergy(energy, 0, 1_000, 8);
-    recoverIndividualEnergy(energy, 0, 100, 9);
-    spendIndividualEnergy(energy, 0, 100, 10);
+    spendIndividualEnergy(energy, 0, 14_200, 5);
+    recoverIndividualEnergy(energy, 0, 1_000, 6);
+    spendIndividualEnergy(energy, 0, 6_000, 7);
+    spendIndividualEnergy(energy, 0, 2_000, 8);
+    recoverIndividualEnergy(energy, 0, 200, 9);
+    spendIndividualEnergy(energy, 0, 200, 10);
 
     expect(getIndividualEnergyHistoryInspection(energy, 0)).toEqual({
-      startingEnergy: 10_000,
+      startingEnergy: 20_000,
       minimumEnergyReached: 0,
       firstWindedTick: 5,
       firstSpentTick: 7,
       lastStrenuousTick: 10,
-      totalEnergySpent: 10_600,
-      totalEnergyRecovered: 600,
+      totalEnergySpent: 21_200,
+      totalEnergyRecovered: 1_200,
     });
     expect(Object.keys(getIndividualEnergyInspection(profiles, energy, 0)))
       .toHaveLength(13);

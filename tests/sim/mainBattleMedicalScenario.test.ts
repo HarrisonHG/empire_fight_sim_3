@@ -114,10 +114,10 @@ describe("Spike 6.5 main battle medical integration sandbox", () => {
 
   it("authors mixed explicit unit energy profiles and opt-in bounded visual evidence", () => {
     const expected = new Map([
-      [101, { maximumEnergy: 11_000, safeRestRecoveryPerTick: 5 }],
-      [102, { maximumEnergy: 1_800, safeRestRecoveryPerTick: 8 }],
-      [201, { maximumEnergy: 7_500, safeRestRecoveryPerTick: 4 }],
-      [202, { maximumEnergy: 6_000, safeRestRecoveryPerTick: 5 }],
+      [101, { maximumEnergy: 22_000, safeRestRecoveryPerTick: 5 }],
+      [102, { maximumEnergy: 3_600, safeRestRecoveryPerTick: 8 }],
+      [201, { maximumEnergy: 15_000, safeRestRecoveryPerTick: 4 }],
+      [202, { maximumEnergy: 12_000, safeRestRecoveryPerTick: 5 }],
     ]);
     const simulation = createSimulation(MAIN_BATTLE_MEDICAL_SCENARIO);
     const combat = requireCombat(simulation);
@@ -167,8 +167,6 @@ describe("Spike 6.5 main battle medical integration sandbox", () => {
       routing: true,
       winded: true,
       spent: true,
-      resting: true,
-      reengaged: true,
       egress: true,
       waiting: true,
       waitingEnergyContinuous: true,
@@ -235,7 +233,7 @@ function executeSmoke() {
     waitingEnergyContinuous: false,
   };
   let observedRest = false;
-  for (let index = 0; index < 1_500; index += 1) {
+  for (let index = 0; index < 1_800; index += 1) {
     advanceSimulationOneTick(simulation);
     const combat = requireCombat(simulation);
     seen.combat ||= combat.individualAttackAttemptCount > 0;

@@ -1,7 +1,7 @@
 # Milestone 7: Energy, Exertion, and Rest
 
-Status: implementation complete; 7A through 7J are implemented. Milestone 7
-awaits human acceptance of the retained visual suite and main-battle inspection.
+Status: 7A through 7J are implemented. Human-tuning correction 7K-1 is
+implemented, 7K-2 is next, and Milestone 7 remains awaiting human acceptance.
 
 Implementation begins after Milestone 6 is accepted and the post-Milestone-6 main-battle medical integration spike is retained as the evolving `/` scenario.
 

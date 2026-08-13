@@ -55,12 +55,14 @@ import {
 export type { IndividualPhysicalGait } from "./individualPhysicalGait";
 import type { WorldState } from "./types";
 
-export const INDIVIDUAL_ENERGY_WALKING_COST_PER_TICK = 1;
-export const INDIVIDUAL_ENERGY_JOGGING_COST_PER_TICK = 8;
-export const INDIVIDUAL_ENERGY_SPRINTING_COST_PER_TICK = 40;
-export const INDIVIDUAL_ENERGY_VALID_ATTACK_IMPULSE = 80;
-export const INDIVIDUAL_ENERGY_VALID_DEFENCE_IMPULSE = 50;
-export const INDIVIDUAL_ENERGY_ACTIVE_DRAG_HELPER_SURCHARGE = 12;
+export const INDIVIDUAL_ENERGY_RECOVERY_FIXED_POINT_SCALE = 2;
+export const INDIVIDUAL_ENERGY_WALKING_COST_PER_TICK = 0;
+export const INDIVIDUAL_ENERGY_WALKING_RECOVERY_NUMERATOR = 1;
+export const INDIVIDUAL_ENERGY_JOGGING_COST_PER_TICK = 4;
+export const INDIVIDUAL_ENERGY_SPRINTING_COST_PER_TICK = 20;
+export const INDIVIDUAL_ENERGY_VALID_ATTACK_IMPULSE = 40;
+export const INDIVIDUAL_ENERGY_VALID_DEFENCE_IMPULSE = 25;
+export const INDIVIDUAL_ENERGY_ACTIVE_DRAG_HELPER_SURCHARGE = 0;
 export const INDIVIDUAL_ENERGY_ALERT_STATIONARY_RECOVERY = 2;
 export const INDIVIDUAL_ENERGY_DOWNED_REST_RECOVERY = 4;
 export const INDIVIDUAL_ENERGY_UNDER_TREATMENT_RECOVERY = 3;
@@ -183,6 +185,8 @@ interface InternalIndividualEnergyActivityStore
   readonly expenditureAppliedByEntity: Uint32Array;
   readonly recoveryRequestedByEntity: Uint32Array;
   readonly recoveryAppliedByEntity: Uint32Array;
+  readonly recoveryNumeratorByEntity: Uint32Array;
+  readonly recoveryRemainderByEntity: Uint8Array;
   readonly energyBeforeByEntity: Uint32Array;
   readonly energyAfterByEntity: Uint32Array;
   readonly expenditureClampedByEntity: Uint8Array;
@@ -365,6 +369,8 @@ export function createIndividualEnergyActivityStore(
     expenditureAppliedByEntity: new Uint32Array(entityCount),
     recoveryRequestedByEntity: new Uint32Array(entityCount),
     recoveryAppliedByEntity: new Uint32Array(entityCount),
+    recoveryNumeratorByEntity: new Uint32Array(entityCount),
+    recoveryRemainderByEntity: new Uint8Array(entityCount),
     energyBeforeByEntity: new Uint32Array(entityCount),
     energyAfterByEntity: new Uint32Array(entityCount),
     expenditureClampedByEntity: new Uint8Array(entityCount),
@@ -933,13 +939,7 @@ export function applyIndividualEnergyActivityOneTick(
       request,
     );
     const movementBaseExpenditure = request.movementExpenditureRequested;
-    const movingDragHelper = exertionModifiers !== undefined &&
-      movementBaseExpenditure > 0 &&
-      (internal.movementAuthorityMaskByEntity[entityId]! &
-        AUTHORITY_BITS.activeDragHelper) !== 0;
-    const dragSurcharge = movingDragHelper
-      ? INDIVIDUAL_ENERGY_ACTIVE_DRAG_HELPER_SURCHARGE
-      : 0;
+    const dragSurcharge = 0;
     const burdenMultiplier = exertionModifiers === undefined
       ? INDIVIDUAL_EXERTION_PERCENT_SCALE
       : getIndividualBurdenExertionMultiplierPercent(
@@ -984,8 +984,17 @@ export function applyIndividualEnergyActivityOneTick(
       defenceExpenditure,
       "total expenditure",
     );
+    const recoveryFixedPoint = totalExpenditure === 0
+      ? checkedAddition(
+          request.recoveryRequested,
+          internal.recoveryRemainderByEntity[entityId]!,
+          "recovery fixed-point remainder",
+        )
+      : internal.recoveryRemainderByEntity[entityId]!;
     const recoveryRequested = totalExpenditure === 0
-      ? request.recoveryRequested
+      ? Math.floor(
+          recoveryFixedPoint / INDIVIDUAL_ENERGY_RECOVERY_FIXED_POINT_SCALE,
+        )
       : 0;
     internal.movementBaseExpenditureByEntity[entityId] =
       movementBaseExpenditure;
@@ -1005,6 +1014,9 @@ export function applyIndividualEnergyActivityOneTick(
     internal.totalExpenditureRequestedByEntity[entityId] =
       totalExpenditure;
     internal.recoveryRequestedByEntity[entityId] = recoveryRequested;
+    internal.recoveryNumeratorByEntity[entityId] = totalExpenditure === 0
+      ? request.recoveryRequested
+      : 0;
     internal.expenditureAppliedByEntity[entityId] = 0;
     internal.recoveryAppliedByEntity[entityId] = 0;
     internal.expenditureClampedByEntity[entityId] = 0;
@@ -1047,6 +1059,15 @@ export function applyIndividualEnergyActivityOneTick(
       internal.recoveryClampedByEntity[entityId] =
         result.appliedAmount < recoveryRequested ? 1 : 0;
     }
+    const profile = getTrustedIndividualEnergyProfile(profiles, entityId);
+    const recoveryNumerator = internal.recoveryNumeratorByEntity[entityId]!;
+    if (getIndividualCurrentEnergy(energy, entityId) >= profile.maximumEnergy) {
+      internal.recoveryRemainderByEntity[entityId] = 0;
+    } else if (recoveryNumerator > 0) {
+      internal.recoveryRemainderByEntity[entityId] =
+        (internal.recoveryRemainderByEntity[entityId]! + recoveryNumerator) %
+        INDIVIDUAL_ENERGY_RECOVERY_FIXED_POINT_SCALE;
+    }
     accumulateBoundedActivityHistory(internal, entityId);
   }
   internal.applicationCompletedTick = tick;
@@ -1074,7 +1095,16 @@ export function deriveIndividualEnergyApplicationRequest(
     evidence.safeRestRecoveryPerTick,
     request,
   );
-  return request;
+  return {
+    movementExpenditureRequested: request.movementExpenditureRequested,
+    attackExpenditureRequested: request.attackExpenditureRequested,
+    defenceExpenditureRequested: request.defenceExpenditureRequested,
+    totalExpenditureRequested: request.totalExpenditureRequested,
+    recoveryRequested: Math.floor(
+      request.recoveryRequested /
+      INDIVIDUAL_ENERGY_RECOVERY_FIXED_POINT_SCALE,
+    ),
+  };
 }
 
 function deriveIndividualEnergyApplicationRequestInto(
@@ -1124,10 +1154,13 @@ function deriveIndividualEnergyApplicationRequestInto(
     "total expenditure",
   );
   const recoveryRequested = totalExpenditureRequested === 0
-    ? recoveryForContext(
-        dominantContext,
-        safeRestRecoveryPerTick,
-      )
+    ? movementOccurred && personalMovementObserved && !beingDragged &&
+        actualPhysicalGait === "walking"
+      ? INDIVIDUAL_ENERGY_WALKING_RECOVERY_NUMERATOR
+      : recoveryForContext(
+          dominantContext,
+          safeRestRecoveryPerTick,
+        )
     : 0;
   out.movementExpenditureRequested = movementExpenditureRequested;
   out.attackExpenditureRequested = attackExpenditureRequested;
@@ -1691,6 +1724,7 @@ function resetApplicationOutputs(
   store.expenditureAppliedByEntity.fill(0);
   store.recoveryRequestedByEntity.fill(0);
   store.recoveryAppliedByEntity.fill(0);
+  store.recoveryNumeratorByEntity.fill(0);
   store.expenditureClampedByEntity.fill(0);
   store.recoveryClampedByEntity.fill(0);
   store.exertionModifierProjectionTickByEntity.fill(-1);

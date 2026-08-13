@@ -1,5 +1,5 @@
-export const DEFAULT_MAXIMUM_ENERGY = 10_000;
-export const DEFAULT_STARTING_ENERGY = 10_000;
+export const DEFAULT_MAXIMUM_ENERGY = 20_000;
+export const DEFAULT_STARTING_ENERGY = 20_000;
 export const DEFAULT_SAFE_REST_RECOVERY_PER_TICK = 5;
 export const MAX_REPRESENTABLE_ENERGY = 0xffff_ffff;
 export const MAX_ENERGY_HISTORY_TOTAL = 0xffff_ffff;

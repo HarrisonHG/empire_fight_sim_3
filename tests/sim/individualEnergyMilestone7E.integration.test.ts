@@ -62,7 +62,7 @@ describe("Milestone 7E full production integration", () => {
     expect(first.hitApplicationCount).toBeGreaterThan(0);
     expect(first.sawExternallyMovedPatientWithoutExpenditure).toBe(true);
     expect(first.sawAdjustedMovementExpenditure).toBe(true);
-    expect(first.sawDragSurcharge).toBe(true);
+    expect(first.sawDragSurcharge).toBe(false);
     expect(first.sawRecoveryWithoutExpenditure).toBe(true);
     expect(first.checkpoints).toHaveLength(CHECKPOINT_TICKS.size);
     expect(first.checkpoints.every((checkpoint) =>
@@ -134,7 +134,7 @@ function runIntegratedReplay() {
           activity.recoveryApplied,
       );
       expect(activity.energyAfter).toBeGreaterThanOrEqual(0);
-      expect(activity.energyAfter).toBeLessThanOrEqual(10_000);
+      expect(activity.energyAfter).toBeLessThanOrEqual(20_000);
       expect(expenditure.totalExpenditureRequested).toBe(
         expenditure.movementAdjustedExpenditure +
           expenditure.attackAdjustedExpenditure +

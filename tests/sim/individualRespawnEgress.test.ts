@@ -70,8 +70,8 @@ describe("Milestone 6H-2B respawn egress", () => {
       actualPhysicalGait: "walking",
       gaitReducedByCapability: false,
       physicalGaitSource: "respawnEgress",
-      movementExpenditureRequested: 2,
-      expenditureApplied: Math.min(startingEnergy, 2),
+      movementExpenditureRequested: 0,
+      expenditureApplied: 0,
     });
   });
 
@@ -111,7 +111,7 @@ describe("Milestone 6H-2B respawn egress", () => {
       actualPhysicalGait: "walking",
       gaitReducedByCapability: false,
       physicalGaitSource: "respawnEgress",
-      movementExpenditureRequested: 2,
+      movementExpenditureRequested: 0,
     });
   });
 
@@ -221,7 +221,7 @@ describe("Milestone 6H-2B respawn egress", () => {
     expect(getIndividualPlayerPresenceState(
       combat.individualPlayerPresenceStore, 0,
     )).toBe("waitingAtRespawn");
-    expect(getIndividualCurrentEnergy(simulation.individualEnergyStore, 0)).toBe(96);
+    expect(getIndividualCurrentEnergy(simulation.individualEnergyStore, 0)).toBe(98);
     expect(getIndividualEnergyActivityInspection(
       combat.individualEnergyActivityStore, 0,
     )).toMatchObject({
@@ -230,11 +230,11 @@ describe("Milestone 6H-2B respawn egress", () => {
       actualPhysicalGait: "walking",
       gaitReducedByCapability: false,
       physicalGaitSource: "respawnEgress",
-      movementExpenditureRequested: 2,
-      expenditureApplied: 2,
+      movementExpenditureRequested: 0,
+      expenditureApplied: 0,
       recoveryRequested: 0,
       energyBefore: 98,
-      energyAfter: 96,
+      energyAfter: 98,
     });
 
     advanceSimulationOneTick(simulation);
@@ -248,10 +248,10 @@ describe("Milestone 6H-2B respawn egress", () => {
       actualPhysicalGait: "stationary",
       movementExpenditureRequested: 0,
       expenditureApplied: 0,
-      recoveryRequested: 5,
-      recoveryApplied: 4,
+      recoveryRequested: 3,
+      recoveryApplied: 2,
       recoveryClamped: true,
-      energyBefore: 96,
+      energyBefore: 98,
       energyAfter: 100,
     });
     expect(getIndividualCurrentEnergy(simulation.individualEnergyStore, 0)).toBe(100);
@@ -331,9 +331,9 @@ describe("Milestone 6H-2B respawn egress", () => {
       physicalGaitSource: "respawnEgress",
       movementExpenditureRequested: 0,
       expenditureApplied: 0,
-      recoveryRequested: 5,
+      recoveryRequested: 2,
       energyBefore: 50,
-      energyAfter: 55,
+      energyAfter: 52,
     });
 
     advanceSimulationOneTick(simulation);
@@ -342,10 +342,10 @@ describe("Milestone 6H-2B respawn egress", () => {
       combat.individualEnergyActivityStore, 0,
     )).toMatchObject({
       actualPhysicalGait: "stationary",
-      recoveryRequested: 5,
-      recoveryApplied: 5,
-      energyBefore: 55,
-      energyAfter: 60,
+      recoveryRequested: 3,
+      recoveryApplied: 3,
+      energyBefore: 52,
+      energyAfter: 55,
     });
   });
 

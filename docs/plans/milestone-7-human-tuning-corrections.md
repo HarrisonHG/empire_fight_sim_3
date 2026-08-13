@@ -1,12 +1,14 @@
 # Milestone 7 Human-Tuning Corrections
 
-Status: required before Milestone 7 human acceptance.
+Status: active; 7K-1 is implemented and 7K-2 is next.
 
 This addendum supersedes conflicting Milestone 7 tuning text in
 `docs/plans/milestone-7-energy-exertion-and-rest.md` until these corrections
 are merged back into that plan.
 
 ## 7K-1 — Energy scale and movement economics
+
+Status: implemented.
 
 Human visual inspection found the current energy cycle too short and casualty
 dragging too expensive for LARP reality.
@@ -69,6 +71,8 @@ In LARP, the casualty player gets up and moves with the helpers. Therefore:
   this correction.
 
 ## 7K-2 — Reserve conservation and distance-aware gait choice
+
+Status: next.
 
 Energy is a reserve people conserve, not a fuel bar they voluntarily empty.
 

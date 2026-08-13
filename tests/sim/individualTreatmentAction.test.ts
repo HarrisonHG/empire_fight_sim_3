@@ -151,10 +151,10 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
       combat.individualEnergyActivityStore, 0,
     )).toMatchObject({
       dominantContext: "underTreatment",
-      recoveryRequested: 3,
-      recoveryApplied: 3,
+      recoveryRequested: 1,
+      recoveryApplied: 1,
       energyBefore: 100,
-      energyAfter: 103,
+      energyAfter: 101,
     });
     expect(getIndividualEnergyActivityInspection(
       combat.individualEnergyActivityStore, 1,
@@ -203,8 +203,8 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
       dominantContext: "inactiveTerminal",
       recoveryRequested: 0,
       recoveryApplied: 0,
-      energyBefore: 103,
-      energyAfter: 103,
+      energyBefore: 101,
+      energyAfter: 101,
     });
     expect(getIndividualEnergyActivityInspection(
       combat.individualEnergyActivityStore, 1,
@@ -235,15 +235,15 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
       combat.individualCasualtyLifecycleStore, 0,
     )).toBe("terminal");
     expect(getIndividualCurrentGlobalHits(combat.individualGlobalHitStore, 0)).toBe(0);
-    expect(getIndividualCurrentEnergy(simulation.individualEnergyStore, 0)).toBe(103);
+    expect(getIndividualCurrentEnergy(simulation.individualEnergyStore, 0)).toBe(101);
     expect(getIndividualEnergyActivityInspection(
       combat.individualEnergyActivityStore, 0,
     )).toMatchObject({
       dominantContext: "inactiveTerminal",
       recoveryRequested: 0,
       expenditureApplied: 0,
-      energyBefore: 103,
-      energyAfter: 103,
+      energyBefore: 101,
+      energyAfter: 101,
     });
     expect(getIndividualMedicalClaimInspection(
       combat.individualMedicalClaimStore, 0,
@@ -532,14 +532,14 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
     );
 
     expect(energyAtTreatmentStart).toBeGreaterThan(100);
-    expect(energyAtTreatmentStart - 103).toBeGreaterThanOrEqual(4);
-    expect((energyAtTreatmentStart - 103) % 4).toBe(0);
+    expect(energyAtTreatmentStart - 101).toBeGreaterThanOrEqual(2);
+    expect((energyAtTreatmentStart - 101) % 2).toBe(0);
     expect(getIndividualEnergyActivityInspection(
       combat.individualEnergyActivityStore, 0,
     )).toMatchObject({
       dominantContext: "underTreatment",
-      recoveryRequested: 3,
-      recoveryApplied: 3,
+      recoveryRequested: 1,
+      recoveryApplied: 1,
       energyAfter: energyAtTreatmentStart,
     });
 
@@ -619,15 +619,15 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
     expect(getIndividualCurrentGlobalHits(combat.individualGlobalHitStore, 0)).toBe(1);
     expect(getIndividualCharacterLifecycleState(combat.individualCasualtyLifecycleStore, 0)).toBe("active");
     expect(getIndividualCurrentEnergy(simulation.individualEnergyStore, 0))
-      .toBe(energyBeforeRevival + 3);
+      .toBe(energyBeforeRevival + 1);
     expect(getIndividualEnergyActivityInspection(
       combat.individualEnergyActivityStore, 0,
     )).toMatchObject({
       dominantContext: "underTreatment",
-      recoveryRequested: 3,
-      recoveryApplied: 3,
+      recoveryRequested: 1,
+      recoveryApplied: 1,
       energyBefore: energyBeforeRevival,
-      energyAfter: energyBeforeRevival + 3,
+      energyAfter: energyBeforeRevival + 1,
     });
     expect(getIndividualEnergyActivityInspection(
       combat.individualEnergyActivityStore, 1,
@@ -917,9 +917,9 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
   });
 
   it.each([
-    [100, 4, "sprinting", 40],
-    [20, 2, "jogging", 8],
-    [0, 1, "walking", 1],
+    [100, 4, "sprinting", 20],
+    [20, 2, "jogging", 4],
+    [0, 1, "walking", 0],
   ] as const)(
     "enforces claimed-Physick approach capability from energy %i",
     (currentEnergy, expectedStep, expectedEffectiveGait, expectedCost) => {
@@ -975,20 +975,20 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
     )).toMatchObject({
       effectivePhysicalGait: "sprinting",
       actualPhysicalGait: "sprinting",
-      movementExpenditureRequested: 40,
-      expenditureApplied: 30,
+      movementExpenditureRequested: 20,
+      expenditureApplied: 20,
     });
     const beforeNextX = simulation.world.positionsX[3]!;
 
     advanceSimulationOneTick(simulation);
-    expect(beforeNextX - simulation.world.positionsX[3]!).toBe(1);
+    expect(beforeNextX - simulation.world.positionsX[3]!).toBe(2);
     expect(getIndividualEnergyActivityInspection(
       combat.individualEnergyActivityStore, 3,
     )).toMatchObject({
       requestedPhysicalGait: "sprinting",
-      effectivePhysicalGait: "walking",
-      actualPhysicalGait: "walking",
-      movementExpenditureRequested: 1,
+      effectivePhysicalGait: "jogging",
+      actualPhysicalGait: "jogging",
+      movementExpenditureRequested: 4,
     });
   });
 
