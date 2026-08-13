@@ -5,6 +5,8 @@ import {
   createFormationBehaviourStore,
   getIndividualMovementMode,
   getUnitAnchor,
+  getUnitEnergyGaitDiagnostics,
+  getUnitOrder,
 } from "../../src/sim/formationBehaviour";
 import {
   createIndividualCasualtyLifecycleStore,
@@ -96,7 +98,7 @@ describe("Milestone 7G unit energy behaviour", () => {
     expect(isIndividualOrdinaryParticipationEligible(fixture.ordinary, 0)).toBe(true);
   });
 
-  it("interrupts rest for local threat, contact, routing, forced advance, and commitments", () => {
+  it("interrupts rest for local threat, contact, routing, and commitments", () => {
     const cases = [
       (fixture: Fixture) => { fixture.threats[0] = { unitId: 1, hostileNearby: true }; },
       (fixture: Fixture) => { fixture.morale.set(1, "routing"); },
@@ -109,10 +111,6 @@ describe("Milestone 7G unit energy behaviour", () => {
       expect(getUnitEnergyBehaviourInspection(fixture.behaviour, 1).resting).toBe(false);
     }
 
-    const forced = createFixture(5, "advance");
-    project(forced, 0);
-    expect(getUnitEnergyBehaviourInspection(forced.behaviour, 1).resting).toBe(false);
-
     const contact = createFixture(5, "advanceCautious");
     project(contact, 0);
     (contact.formation as unknown as {
@@ -121,6 +119,61 @@ describe("Milestone 7G unit energy behaviour", () => {
     project(contact, 1);
     expect(getUnitEnergyBehaviourInspection(contact.behaviour, 1).resting).toBe(false);
   });
+
+  it.each(["advance", "advanceCautious"] as const)(
+    "temporarily suspends and then resumes the configured %s order",
+    (order) => {
+      const fixture = createFixture(5, order);
+      const anchorBeforeRest = getUnitAnchor(fixture.formation, 1);
+
+      project(fixture, 0);
+      expect(getUnitOrder(fixture.formation, 1)).toBe(order);
+      expect(getUnitEnergyBehaviourInspection(fixture.behaviour, 1).resting)
+        .toBe(true);
+      advanceFormationOneTick(
+        fixture.world,
+        fixture.identity,
+        fixture.formation,
+        fixture.morale,
+        undefined,
+        fixture.lifecycle,
+        fixture.ordinary,
+        undefined,
+        { tick: 0, rest: getUnitEnergyRestSource(fixture.behaviour) },
+      );
+      expect(getUnitAnchor(fixture.formation, 1)).toEqual(anchorBeforeRest);
+      expect(getUnitEnergyGaitDiagnostics(fixture.formation, 1))
+        .toMatchObject({ requestedUnitPhysicalGait: "stationary" });
+      expect(getUnitOrder(fixture.formation, 1)).toBe(order);
+
+      setIndividualCurrentEnergyForTrustedSetup(fixture.energy, 0, 14, 1);
+      project(fixture, 1);
+      expect(getUnitEnergyBehaviourInspection(fixture.behaviour, 1).resting)
+        .toBe(true);
+      expect(getUnitOrder(fixture.formation, 1)).toBe(order);
+
+      setIndividualCurrentEnergyForTrustedSetup(fixture.energy, 0, 15, 2);
+      project(fixture, 2);
+      expect(getUnitEnergyBehaviourInspection(fixture.behaviour, 1).resting)
+        .toBe(false);
+      advanceFormationOneTick(
+        fixture.world,
+        fixture.identity,
+        fixture.formation,
+        fixture.morale,
+        undefined,
+        fixture.lifecycle,
+        fixture.ordinary,
+        undefined,
+        { tick: 2, rest: getUnitEnergyRestSource(fixture.behaviour) },
+      );
+      expect(getUnitOrder(fixture.formation, 1)).toBe(order);
+      expect(getUnitEnergyGaitDiagnostics(fixture.formation, 1))
+        .toMatchObject({ requestedUnitPhysicalGait: "walking" });
+      expect(getUnitAnchor(fixture.formation, 1).x)
+        .toBeGreaterThan(anchorBeforeRest.x);
+    },
+  );
 
   it.each(["rescue", "treatment", "execution"])(
     "keeps an existing %s commitment ahead of voluntary rest",

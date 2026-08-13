@@ -296,7 +296,7 @@ describe("Milestone 7A production energy integration", () => {
     expect(history.totalEnergySpent).toBeGreaterThan(0);
   });
 
-  it("requests voluntary walking at spent energy with distinct inspection", () => {
+  it("temporarily rests a safe critical advance with distinct inspection", () => {
     const fresh = createSimulation(createSmallBattleScenario({}));
     const spent = createSimulation(createSmallBattleScenario({
       firstUnitEnergy: {
@@ -315,17 +315,17 @@ describe("Milestone 7A production energy integration", () => {
     const spentInspection = createPositionSnapshot(spent).combatDebug!
       .inspectedIndividuals[0]!;
     expect(spentInspection).toMatchObject({
-      formationRequestedPhysicalGait: "walking",
-      formationEffectivePhysicalGait: "walking",
+      formationRequestedPhysicalGait: "stationary",
+      formationEffectivePhysicalGait: "stationary",
       formationGaitReducedByCapability: false,
       formationEnergyGaitProjectionTickUsed: 0,
       formationPreEnergyStepX: expect.any(Number),
       formationPreEnergyStepY: expect.any(Number),
       formationPostEnergyStepX: expect.any(Number),
       formationPostEnergyStepY: expect.any(Number),
-      formationMovementReducedByEnergy: true,
-      energyRequestedPhysicalGait: "walking",
-      energyActualPhysicalGait: "walking",
+      formationMovementReducedByEnergy: false,
+      energyRequestedPhysicalGait: "stationary",
+      energyActualPhysicalGait: "stationary",
       energyMovementExpenditureRequestedThisTick: 0,
     });
     expect(freshInspection).toMatchObject({
@@ -938,7 +938,7 @@ describe("Milestone 7B-1 production activity observation", () => {
       const source = createSmallBattleScenario({
         scenarioEnergy: {
           maximumEnergy: 100,
-          startingEnergy: 0,
+          startingEnergy: 15,
           safeRestRecoveryPerTick: 0,
         },
       });

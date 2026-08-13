@@ -95,6 +95,8 @@ When safe:
 
 - below 10%, a unit may enter stationary rest;
 - once it reaches 15%, it may leave stationary rest;
+- configured `advance` and `advanceCautious` orders are temporarily suspended
+  during critical rest, not replaced, and resume unchanged on rest exit;
 - from 15% upward, a unit that still needs to move may walk;
 - walking slowly recovers energy;
 - below 20%, do not voluntarily attack, jog, sprint, or charge;

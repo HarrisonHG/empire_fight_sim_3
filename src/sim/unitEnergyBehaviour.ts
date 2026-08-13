@@ -1,6 +1,5 @@
 import {
   getUnitMovementStyle,
-  getUnitOrder,
   isHostileContactMovementStyle,
   type FormationBehaviourStore,
 } from "./formationBehaviour";
@@ -211,8 +210,7 @@ export function projectUnitEnergyBehaviourOneTick(
       moraleMovementStates.get(unitId) !== "routing" &&
       !isHostileContactMovementStyle(getUnitMovementStyle(formation, unitId)) &&
       !recoveryThreats[unitIndex]!.hostileNearby &&
-      !hasCompulsoryCommitment &&
-      getUnitOrder(formation, unitId) !== "advance";
+      !hasCompulsoryCommitment;
     const wasResting = internal.restingByUnit[unitIndex] !== 0;
     const resting = safeToRest && (
       recommendation === "restWhenSafe" ||
