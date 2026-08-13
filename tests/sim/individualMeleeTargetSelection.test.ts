@@ -138,6 +138,7 @@ describe("individual melee threat and target selection", () => {
       projectionTick: 0,
       isReluctantToReacquireDistantCombat: (entityId: number) =>
         entityId === 0 && reluctantToReengage,
+      canInitiateVoluntaryAttack: () => true,
     };
     const first = advanceIndividualMeleeTargetSelection(
       harness.world, harness.identity, harness.formation, harness.profiles,
@@ -172,6 +173,32 @@ describe("individual melee threat and target selection", () => {
       targetEntityId: 1,
       selectionReason: "previousTargetContinued",
     });
+  });
+
+  it("does not query or retain a target when voluntary attack reserve is unavailable", () => {
+    const harness = createHarness([
+      entity(100, 100, 1, "oneHanded", 1),
+      entity(108, 100, 2, "oneHanded", -1),
+    ]);
+    expect(sourceRecord(select(harness).records, 0).targetEntityId).toBe(1);
+    const conservation = {
+      entityCount: 2,
+      projectionTick: 1,
+      isReluctantToReacquireDistantCombat: () => false,
+      canInitiateVoluntaryAttack: (entityId: number) => entityId !== 0,
+    };
+    const result = advanceIndividualMeleeTargetSelection(
+      harness.world, harness.identity, harness.formation, harness.profiles,
+      harness.store, harness.records, undefined, undefined, conservation,
+    );
+    expect(sourceRecord(result.records, 0)).toMatchObject({
+      targetEntityId: NO_INDIVIDUAL_TARGET,
+      selectionReason: "noValidTarget",
+    });
+    expect(getSelectedTargetEntityId(harness.store, 0)).toBe(
+      NO_INDIVIDUAL_TARGET,
+    );
+    expect(result.queryCount).toBe(1);
   });
 
   it("releases a previous target that becomes distant or invalid", () => {

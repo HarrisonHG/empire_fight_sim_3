@@ -90,6 +90,8 @@ export interface FormationEnergyRestSource {
   readonly unitCount: number;
   readonly projectionTick: number | null;
   isUnitResting(unitId: UnitId): boolean;
+  getMaximumVoluntaryGait(unitId: UnitId): IndividualPhysicalGait;
+  getAffordableSprintTicks(unitId: UnitId): number;
 }
 
 export interface FormationEnergyRestTickContext {
@@ -1191,12 +1193,39 @@ function processUnit(
     );
     return;
   }
+  const style = chooseUnitMovementStyle(
+    identityStore,
+    store,
+    blockerGrid,
+    unitId,
+    unitIndex,
+    isAdvancing,
+    moraleMovementState,
+    diagnostics,
+    lifecycleStore,
+    ordinaryParticipation,
+  );
+  store.unitMovementStyle[unitIndex] = style;
+  if (store.lastEmittedUnitStyle[unitIndex] !== style) {
+    store.lastEmittedUnitStyle[unitIndex] = style;
+    events.push({ kind: "unit_movement_choice", unitId, style });
+  }
+
+  const voluntaryPhysicalGait = selectVoluntaryUnitPhysicalGait(
+    identityStore,
+    store,
+    unitId,
+    unitIndex,
+    style,
+    unitSpeed,
+    energyRestContext?.rest,
+  );
   const requestedUnitPhysicalGait = order === "hold"
     ? "stationary"
-    : store.ordinaryPhysicalGait[unitIndex]!;
+    : voluntaryPhysicalGait;
   const requestedMemberPhysicalGait = order === "hold"
     ? FORMATION_REFORMATION_PHYSICAL_GAIT
-    : store.ordinaryPhysicalGait[unitIndex]!;
+    : voluntaryPhysicalGait;
   projectOrdinaryUnitPhysicalGaits(
     store,
     unitMembers,
@@ -1218,24 +1247,6 @@ function processUnit(
     (anchorMovementScale === 0 && moraleMovementState !== "wavering")
   ) {
     store.anchorMovementRemainder[unitIndex] = 0;
-  }
-
-  const style = chooseUnitMovementStyle(
-    identityStore,
-    store,
-    blockerGrid,
-    unitId,
-    unitIndex,
-    isAdvancing,
-    moraleMovementState,
-    diagnostics,
-    lifecycleStore,
-    ordinaryParticipation,
-  );
-  store.unitMovementStyle[unitIndex] = style;
-  if (store.lastEmittedUnitStyle[unitIndex] !== style) {
-    store.lastEmittedUnitStyle[unitIndex] = style;
-    events.push({ kind: "unit_movement_choice", unitId, style });
   }
 
   if (style === "pushThrough") {
@@ -1614,6 +1625,40 @@ function processUnit(
       }
     }
   }
+}
+
+function selectVoluntaryUnitPhysicalGait(
+  identityStore: UnitIdentityStore,
+  store: InternalFormationBehaviourStore,
+  unitId: UnitId,
+  unitIndex: number,
+  style: UnitMovementStyle,
+  unitSpeed: number,
+  energyPolicy: FormationEnergyRestSource | undefined,
+): IndividualPhysicalGait {
+  const configured = store.ordinaryPhysicalGait[unitIndex]!;
+  if (energyPolicy === undefined || style === "giveGround") return configured;
+  const maximumVoluntary = energyPolicy.getMaximumVoluntaryGait(unitId);
+  const bounded = clampPhysicalGait(configured, maximumVoluntary);
+  if (
+    configured !== "sprinting" ||
+    maximumVoluntary !== "jogging" ||
+    !isHostileContactMovementStyle(style) ||
+    unitSpeed <= 0
+  ) return bounded;
+
+  const blockerUnitId = store.activeBlockerUnitId[unitIndex]!;
+  const distance = store.activeBlockerDistance[unitIndex]!;
+  if (
+    blockerUnitId === NO_ACTIVE_BLOCKER_UNIT_ID ||
+    distance <= 0 ||
+    getFactionIdForUnit(identityStore, blockerUnitId) ===
+      getFactionIdForUnit(identityStore, unitId)
+  ) return bounded;
+  const requiredTicks = Math.ceil(distance / unitSpeed);
+  return requiredTicks <= energyPolicy.getAffordableSprintTicks(unitId)
+    ? "sprinting"
+    : bounded;
 }
 
 function resetEnergyMovementDiagnostics(

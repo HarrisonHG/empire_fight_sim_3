@@ -2055,6 +2055,7 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.formationStore,
       combatSandbox.unitEnergySummaries,
       combatSandbox.individualEnergyStore,
+      combatSandbox.individualEnergyExertionModifierStore,
       combatSandbox.individualCasualtyLifecycleStore,
       combatSandbox.individualPlayerPresenceStore,
       combatSandbox.individualOrdinaryParticipationSnapshot,

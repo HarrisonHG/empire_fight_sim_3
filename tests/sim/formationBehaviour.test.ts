@@ -580,6 +580,41 @@ function createOrdinaryBoundaryHarness(options: {
 }
 
 describe("formation behaviour: physical gait authority", () => {
+  it("caps voluntary advance by reserve and permits only affordable local sprint", () => {
+    const run = (
+      maximumVoluntaryGait: IndividualPhysicalGait,
+      affordableSprintTicks: number,
+      relationship: "allied" | "hostile" = "allied",
+    ) => {
+      const harness = createBlockerHarness({
+        relationship,
+        sourceUnitSpeed: 4,
+        sourceMemberMaxStep: 4,
+      });
+      const rest = {
+        entityCount: 2,
+        unitCount: 2,
+        projectionTick: 7,
+        isUnitResting: () => false,
+        getMaximumVoluntaryGait: (unitId: number) =>
+          unitId === 1 ? maximumVoluntaryGait : "stationary" as const,
+        getAffordableSprintTicks: (unitId: number) =>
+          unitId === 1 ? affordableSprintTicks : 0,
+      };
+      advanceFormationOneTick(
+        harness.world, harness.identity, harness.store, undefined, undefined,
+        undefined, undefined, undefined, { tick: 7, rest },
+      );
+      return getIndividualRequestedPhysicalGait(harness.store, 0);
+    };
+
+    expect(run("walking", 0)).toBe("walking");
+    expect(run("jogging", 0)).toBe("jogging");
+    expect(run("jogging", 100, "allied")).toBe("jogging");
+    expect(run("jogging", 2, "hostile")).toBe("jogging");
+    expect(run("jogging", 3, "hostile")).toBe("sprinting");
+  });
+
   it("applies a caller ceiling without allowing it to increase configured movement", () => {
     const bounded = createEnergyEnforcementHarness({
       requestedGait: "sprinting",

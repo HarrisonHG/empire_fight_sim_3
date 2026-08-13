@@ -382,10 +382,10 @@ function createPerformanceScenario(caseName: PerformanceCase): SimulationScenari
       : caseName === "idle" ? 220
       : 80;
     const anchorX = representativeCasualtyUnit
-      ? unitIndex === 96 ? 100
-        : unitIndex === 97 ? 112
-        : unitIndex === 98 ? 300
-        : 312
+      ? unitIndex === 96 ? 50
+        : unitIndex === 97 ? 62
+        : unitIndex === 98 ? 130
+        : 142
       : factionId === 1 ? leftX : leftX + gap;
     const anchorY = representativeCasualtyUnit
       ? 790
@@ -417,7 +417,7 @@ function createPerformanceScenario(caseName: PerformanceCase): SimulationScenari
           representativeCasualtyUnit
         ? "hold"
         : "advanceCautious",
-      memberMaxStep: 4,
+      memberMaxStep: representativeCasualtyUnit ? 16 : 4,
       weaponCategory: caseName === "idle" || representativeCasualtyUnit
         ? "unarmed"
         : equipment === 0 ? "oneHanded"
@@ -457,7 +457,8 @@ function createPerformanceScenario(caseName: PerformanceCase): SimulationScenari
         : { hasChirurgeon: false, hasPhysick: false },
       energyProfile: {
         maximumEnergy: 10_000,
-        startingEnergy: caseName === "sprintHeavy" ? 10_000
+        startingEnergy: caseName === "sprintHeavy" || representativeCasualtyUnit
+          ? 10_000
           : energy === 0 ? 0
           : energy === 1 ? 2_000
           : energy === 2 ? 5_000

@@ -461,10 +461,10 @@ describe("7D-2 attack recovery capability", () => {
   });
 
   it.each([
-    [50, 110, 4],
-    [20, 135, 5],
-    [5, 175, 6],
-    [0, 175, 6],
+    [50, 120, 4],
+    [20, 160, 5],
+    [5, 220, 7],
+    [0, 220, 7],
   ] as const)(
     "assigns exact ceiling recovery at energy %i",
     (startingEnergy, multiplier, assigned) => {
@@ -549,7 +549,7 @@ describe("7D-2 attack recovery capability", () => {
     expect(spent.attempt).toEqual(fresh.attempt);
     expect(fresh.attempt.recoveryDurationTicks).toBe(3);
     expect(fresh.recovery.assignedRecoveryTicks).toBe(3);
-    expect(spent.recovery.assignedRecoveryTicks).toBe(6);
+    expect(spent.recovery.assignedRecoveryTicks).toBe(7);
   });
 
   it("assigns equal recovery to attempted and committed-invalidated outcomes", () => {
@@ -575,7 +575,7 @@ describe("7D-2 attack recovery capability", () => {
       base: 3,
       recovery: {
         weaponBaseRecoveryTicks: 3,
-        attackRecoveryMultiplierPercent: 135,
+        attackRecoveryMultiplierPercent: 160,
         assignedRecoveryTicks: 5,
         remainingRecoveryTicks: 5,
         capabilityProjectionTickUsed: 3,
@@ -586,7 +586,7 @@ describe("7D-2 attack recovery capability", () => {
       base: 3,
       recovery: {
         weaponBaseRecoveryTicks: 3,
-        attackRecoveryMultiplierPercent: 135,
+        attackRecoveryMultiplierPercent: 160,
         assignedRecoveryTicks: 5,
         remainingRecoveryTicks: 5,
         capabilityProjectionTickUsed: 3,
@@ -664,17 +664,17 @@ describe("7D-2 attack recovery capability", () => {
     while (advanceAtTick().attackAttempts.length === 0) { /* commit */ }
     expect(getIndividualAttackRecoveryInspection(harness.actions, 0))
       .toMatchObject({
-        attackRecoveryMultiplierPercent: 175,
-        assignedRecoveryTicks: 6,
+        attackRecoveryMultiplierPercent: 220,
+        assignedRecoveryTicks: 7,
       });
 
     setIndividualCurrentEnergyForTrustedSetup(energy.energy, 0, 100, tick);
     advanceAtTick();
     expect(getIndividualAttackRecoveryInspection(harness.actions, 0))
       .toMatchObject({
-        attackRecoveryMultiplierPercent: 175,
-        assignedRecoveryTicks: 6,
-        remainingRecoveryTicks: 5,
+        attackRecoveryMultiplierPercent: 220,
+        assignedRecoveryTicks: 7,
+        remainingRecoveryTicks: 6,
       });
   });
 

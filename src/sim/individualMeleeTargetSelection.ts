@@ -160,6 +160,14 @@ export function advanceIndividualMeleeTargetSelection(
       out.push(noTargetRecord(sourceEntityId, sourceDistances));
       continue;
     }
+    if (
+      conservation !== undefined &&
+      !conservation.canInitiateVoluntaryAttack(sourceEntityId)
+    ) {
+      internal.selectedTargetByEntity[sourceEntityId] = NO_INDIVIDUAL_TARGET;
+      out.push(noTargetRecord(sourceEntityId, sourceDistances));
+      continue;
+    }
 
     queryCount += 1;
     const sourceX = world.positionsX[sourceEntityId]!;

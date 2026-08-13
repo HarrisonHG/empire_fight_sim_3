@@ -15,7 +15,10 @@ import {
   getIndividualEnergyCapabilityInspection,
   projectIndividualEnergyCapabilitiesOneTick,
 } from "../../src/sim/individualEnergyCapability";
-import { getIndividualEnergyHistoryInspection } from "../../src/sim/individualEnergy";
+import {
+  getIndividualEnergyHistoryInspection,
+  setIndividualCurrentEnergyForTrustedSetup,
+} from "../../src/sim/individualEnergy";
 import { getIndividualEnergyActivityInspection } from "../../src/sim/individualEnergyActivity";
 import { getIndividualCombatProfile } from "../../src/sim/individualCombatProfile";
 import {
@@ -347,7 +350,98 @@ describe("integrated individual combat authority pipeline", () => {
     }
   });
 
-  it("keeps fresh and spent defence-roll evidence identical while assigned recovery differs", () => {
+  it("blocks voluntary attacks below reserve while retaining canonical defence", () => {
+    const scenario: SimulationScenario = {
+      seed: 0x7c_0201,
+      entityCount: 2,
+      bounds: { width: 160, height: 120 },
+      minSpeedUnitsPerTick: 1,
+      maxSpeedUnitsPerTick: 1,
+      combatSandbox: {
+        kind: "liveCombatSandbox",
+        appliedDamagePressureScale: 1,
+        units: [
+          baseUnit(1, 1, 0, 50, {}),
+          baseUnit(2, 2, 1, 58, {}),
+        ],
+      },
+      energyProfile: {
+        maximumEnergy: 100,
+        startingEnergy: 100,
+        safeRestRecoveryPerTick: 0,
+      },
+    };
+    const simulation = createSimulation(scenario);
+    const combat = requireCombatSandbox(simulation);
+    setIndividualCurrentEnergyForTrustedSetup(
+      combat.individualEnergyStore,
+      0,
+      0,
+      0,
+    );
+    let lowEnergyAttackCount = 0;
+    let lowEnergyDefenceCount = 0;
+    for (let tick = 0; tick < 12; tick += 1) {
+      advanceSimulationOneTick(simulation);
+      lowEnergyAttackCount += combat.individualCombatPipelineBuffers.attackAttempts
+        .filter((attempt) => attempt.attackerEntityId === 0).length;
+      lowEnergyDefenceCount += combat.individualCombatPipelineBuffers.defenceRecords
+        .filter((defence) => defence.defenderEntityId === 0).length;
+    }
+    expect(lowEnergyAttackCount).toBe(0);
+    expect(lowEnergyDefenceCount).toBeGreaterThan(0);
+  });
+
+  it("finishes an active commitment below reserve but does not initiate another", () => {
+    const simulation = createSimulation({
+      seed: 0x7c_0202,
+      entityCount: 2,
+      bounds: { width: 160, height: 120 },
+      minSpeedUnitsPerTick: 1,
+      maxSpeedUnitsPerTick: 1,
+      energyProfile: {
+        maximumEnergy: 100,
+        startingEnergy: 100,
+        safeRestRecoveryPerTick: 0,
+      },
+      combatSandbox: {
+        kind: "liveCombatSandbox",
+        appliedDamagePressureScale: 1,
+        units: [
+          baseUnit(1, 1, 0, 50, {}),
+          baseUnit(2, 2, 1, 58, {
+            weaponCategory: "unarmed",
+            armourClass: "heavy",
+          }),
+        ],
+      },
+    });
+    const combat = requireCombatSandbox(simulation);
+    advanceSimulationOneTick(simulation);
+    expect(getIndividualCombatActionState(
+      combat.individualCombatActionStore,
+      0,
+    )).toBe("committingAttack");
+    setIndividualCurrentEnergyForTrustedSetup(
+      combat.individualEnergyStore,
+      0,
+      0,
+      simulation.tick,
+    );
+    let completedAttempts = 0;
+    for (let tick = 0; tick < 15; tick += 1) {
+      advanceSimulationOneTick(simulation);
+      completedAttempts += combat.individualCombatPipelineBuffers.attackAttempts
+        .filter((attempt) => attempt.attackerEntityId === 0).length;
+    }
+    expect(completedAttempts).toBe(1);
+    expect(getIndividualCombatActionState(
+      combat.individualCombatActionStore,
+      0,
+    )).toBe("ready");
+  });
+
+  it("keeps fresh and reserve-floor defence-roll evidence identical while recovery differs", () => {
     const run = (startingEnergy: number) => {
       const scenario: SimulationScenario = {
         ...closeMeleeScenario(),
@@ -375,22 +469,22 @@ describe("integrated individual combat authority pipeline", () => {
       throw new Error("Expected a production defence record.");
     };
     const fresh = run(100);
-    const spent = run(0);
+    const tired = run(20);
     const {
       guardRecoveryMultiplierPercent: _freshMultiplier,
       energyAdjustedRequestedReadinessRecovery: _freshRequested,
       ...freshIdentity
     } = fresh.defence;
     const {
-      guardRecoveryMultiplierPercent: _spentMultiplier,
-      energyAdjustedRequestedReadinessRecovery: _spentRequested,
-      ...spentIdentity
-    } = spent.defence;
-    expect(spentIdentity).toEqual(freshIdentity);
-    expect(spent.defence.deterministicDefenceRollFixedPoint)
+      guardRecoveryMultiplierPercent: _tiredMultiplier,
+      energyAdjustedRequestedReadinessRecovery: _tiredRequested,
+      ...tiredIdentity
+    } = tired.defence;
+    expect(tiredIdentity).toEqual(freshIdentity);
+    expect(tired.defence.deterministicDefenceRollFixedPoint)
       .toBe(fresh.defence.deterministicDefenceRollFixedPoint);
     expect(fresh.recovery.assignedRecoveryTicks).toBe(3);
-    expect(spent.recovery.assignedRecoveryTicks).toBe(6);
+    expect(tired.recovery.assignedRecoveryTicks).toBe(5);
   });
 
   it("holds the one-second relationship gate under the integrated tick counter", () => {

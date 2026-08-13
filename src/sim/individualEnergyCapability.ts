@@ -25,9 +25,9 @@ export const INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_SCALE = 100;
 export const INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_STORAGE_MAX = 0xffff;
 export const INDIVIDUAL_ATTACK_RECOVERY_PERCENT_BY_ENERGY_BAND = Object.freeze({
   fresh: 100,
-  working: 110,
-  winded: 135,
-  spent: 175,
+  working: 120,
+  winded: 160,
+  spent: 220,
 } satisfies Readonly<Record<IndividualEnergyBand, number>>);
 export const INDIVIDUAL_GUARD_READINESS_RECOVERY_PERCENT_BY_ENERGY_BAND =
   Object.freeze({

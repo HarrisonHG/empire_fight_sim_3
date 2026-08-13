@@ -109,7 +109,7 @@ describe("individual tick-start energy capability", () => {
   it("projects the exact named combat multipliers for every energy band", () => {
     expect(INDIVIDUAL_COMBAT_CAPABILITY_PERCENT_SCALE).toBe(100);
     expect(INDIVIDUAL_ATTACK_RECOVERY_PERCENT_BY_ENERGY_BAND).toEqual({
-      fresh: 100, working: 110, winded: 135, spent: 175,
+      fresh: 100, working: 120, winded: 160, spent: 220,
     });
     expect(INDIVIDUAL_GUARD_READINESS_RECOVERY_PERCENT_BY_ENERGY_BAND).toEqual({
       fresh: 100, working: 90, winded: 70, spent: 50,
@@ -149,7 +149,7 @@ describe("individual tick-start energy capability", () => {
 
     expect([0, 1, 2, 3].map((entityId) =>
       getIndividualAttackRecoveryDurationPercent(capability, entityId),
-    )).toEqual([100, 110, 135, 175]);
+    )).toEqual([100, 120, 160, 220]);
     expect([0, 1, 2, 3].map((entityId) =>
       getIndividualGuardReadinessRecoveryPercent(capability, entityId),
     )).toEqual([100, 90, 70, 50]);
@@ -160,7 +160,7 @@ describe("individual tick-start energy capability", () => {
       .toMatchObject({
         sourceEnergy: 0,
         sourceEnergyBand: "spent",
-        attackRecoveryDurationPercent: 175,
+        attackRecoveryDurationPercent: 220,
         guardReadinessRecoveryPercent: 50,
         pressureRecoveryPercent: 50,
       });
@@ -343,11 +343,11 @@ describe("individual tick-start energy capability", () => {
       attack: getIndividualAttackRecoveryDurationPercent(capability, entityId),
       guard: getIndividualGuardReadinessRecoveryPercent(capability, entityId),
     }))).toEqual([
-      { lifecycle: "active", presence: "activePresence", attack: 135, guard: 70 },
-      { lifecycle: "dying", presence: "downedPresence", attack: 135, guard: 70 },
-      { lifecycle: "terminal", presence: "terminalAwaitingComfort", attack: 135, guard: 70 },
-      { lifecycle: "terminal", presence: "respawnEgress", attack: 135, guard: 70 },
-      { lifecycle: "terminal", presence: "waitingAtRespawn", attack: 135, guard: 70 },
+      { lifecycle: "active", presence: "activePresence", attack: 160, guard: 70 },
+      { lifecycle: "dying", presence: "downedPresence", attack: 160, guard: 70 },
+      { lifecycle: "terminal", presence: "terminalAwaitingComfort", attack: 160, guard: 70 },
+      { lifecycle: "terminal", presence: "respawnEgress", attack: 160, guard: 70 },
+      { lifecycle: "terminal", presence: "waitingAtRespawn", attack: 160, guard: 70 },
     ]);
   });
 

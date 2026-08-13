@@ -81,7 +81,7 @@ describe("Milestone 7I retained energy visual scenario", () => {
       energyMovementBaseExpenditureThisTick: 0,
     });
     expect(inspected(first, 2).energyMovementBaseExpenditureThisTick).toBe(4);
-    expect(inspected(first, 3).energyMovementBaseExpenditureThisTick).toBe(20);
+    expect(inspected(first, 3).energyMovementBaseExpenditureThisTick).toBe(4);
     expect(inspected(first, 8).energyTotalBurdenPoints).toBe(0);
     expect(inspected(first, 9)).toMatchObject({
       energyTotalBurdenPoints: 6,
@@ -89,7 +89,7 @@ describe("Milestone 7I retained energy visual scenario", () => {
     });
     expect(inspected(first, 18)).toMatchObject({
       energyBand: "spent",
-      energyAttackRecoveryDurationMultiplierPercent: 175,
+      energyAttackRecoveryDurationMultiplierPercent: 220,
       energyGuardReadinessRecoveryMultiplierPercent: 50,
       energyPressureRecoveryMultiplierPercent: 50,
     });
@@ -106,7 +106,7 @@ describe("Milestone 7I retained energy visual scenario", () => {
     expect(trace.walkSpent).toBe(0);
     expect(trace.jogSpent ?? -1).toBeGreaterThan(trace.walkSpent ?? -1);
     expect(trace.sprintSpent ?? -1).toBeGreaterThan(trace.jogSpent ?? -1);
-    expect(trace.smallCapacityFirstWindedTick).not.toBeNull();
+    expect(trace.smallCapacityFirstWindedTick).toBeNull();
     expect(trace.largeCapacityFirstWindedTick).toBeNull();
     expect(trace.attackExertionCount).toBeGreaterThan(0);
     expect(trace.defenceExertionCount).toBeGreaterThan(0);
@@ -116,7 +116,7 @@ describe("Milestone 7I retained energy visual scenario", () => {
       .toBeGreaterThan(trace.walkComparisonSpent ?? -1);
     expect(trace.maximumDragHelperSurcharge).toBe(0);
     expect(trace.freshAttackMultiplier).toBe(100);
-    expect(trace.spentAttackMultiplier).toBe(175);
+    expect(trace.spentAttackMultiplier).toBe(220);
     expect(trace.safeEnergyAt20).toBeGreaterThan(trace.staredownEnergyAt20);
     expect(trace.restingTicks).toBeGreaterThan(0);
     expect(trace.reengagedAfterRest).toBe(true);

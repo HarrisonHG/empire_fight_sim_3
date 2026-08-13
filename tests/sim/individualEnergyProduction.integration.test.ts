@@ -296,7 +296,7 @@ describe("Milestone 7A production energy integration", () => {
     expect(history.totalEnergySpent).toBeGreaterThan(0);
   });
 
-  it("enforces spent ordinary gait while retaining distinct formation and energy inspection", () => {
+  it("requests voluntary walking at spent energy with distinct inspection", () => {
     const fresh = createSimulation(createSmallBattleScenario({}));
     const spent = createSimulation(createSmallBattleScenario({
       firstUnitEnergy: {
@@ -315,9 +315,9 @@ describe("Milestone 7A production energy integration", () => {
     const spentInspection = createPositionSnapshot(spent).combatDebug!
       .inspectedIndividuals[0]!;
     expect(spentInspection).toMatchObject({
-      formationRequestedPhysicalGait: "jogging",
+      formationRequestedPhysicalGait: "walking",
       formationEffectivePhysicalGait: "walking",
-      formationGaitReducedByCapability: true,
+      formationGaitReducedByCapability: false,
       formationEnergyGaitProjectionTickUsed: 0,
       formationPreEnergyStepX: expect.any(Number),
       formationPreEnergyStepY: expect.any(Number),
@@ -417,11 +417,11 @@ describe("Milestone 7A production energy integration", () => {
       anchorEnergyPolicyApplied: true,
     });
     expect(run([0, 1])).toMatchObject({
-      requestedUnitPhysicalGait: "jogging",
+      requestedUnitPhysicalGait: "walking",
       effectiveAnchorPhysicalGait: "walking",
       eligibleEnergyGaitMemberCount: 4,
-      walkingEffectiveMemberCount: 2,
-      joggingEffectiveMemberCount: 2,
+      walkingEffectiveMemberCount: 4,
+      joggingEffectiveMemberCount: 0,
       preEnergyAnchorStep: 2,
       postEnergyAnchorStep: 1,
       anchorMovementReducedByEnergy: true,
@@ -429,7 +429,7 @@ describe("Milestone 7A production energy integration", () => {
     });
   });
 
-  it("uses following-tick capability for sprint then jog then minimum walk", () => {
+  it("uses following-tick reserve policy for jog then voluntary walking", () => {
     const source = createSmallBattleScenario({});
     const combat = source.combatSandbox!;
     const simulation = createSimulation({
@@ -452,7 +452,7 @@ describe("Milestone 7A production energy integration", () => {
               memberMaxStep: 4,
               energyProfile: {
                 maximumEnergy: 96,
-                startingEnergy: 58,
+                startingEnergy: 80,
                 safeRestRecoveryPerTick: 0,
               },
               ...(unit.memberProfiles === undefined
@@ -477,19 +477,25 @@ describe("Milestone 7A production energy integration", () => {
     });
 
     const expected = [
-      { tick: 0, band: "fresh", gait: "sprinting", cost: 24, step: 4 },
-      { tick: 1, band: "working", gait: "sprinting", cost: 24, step: 3 },
-      { tick: 2, band: "winded", gait: "jogging", cost: 5, step: 2 },
-      { tick: 3, band: "spent", gait: "walking", cost: 0, step: 1 },
+      { tick: 0, energy: 80, band: "fresh", gait: "jogging", cost: 5, step: 2 },
+      { tick: 1, energy: 57, band: "working", gait: "jogging", cost: 5, step: 2 },
+      { tick: 2, energy: 19, band: "winded", gait: "walking", cost: 0, step: 1 },
+      { tick: 3, energy: 9, band: "spent", gait: "walking", cost: 0, step: 1 },
     ] as const;
     for (const row of expected) {
+      setIndividualCurrentEnergyForTrustedSetup(
+        simulation.individualEnergyStore,
+        0,
+        row.energy,
+        row.tick,
+      );
       advanceSimulationOneTick(simulation);
       const inspected = createPositionSnapshot(simulation).combatDebug!
         .inspectedIndividuals[0]!;
       expect(inspected).toMatchObject({
         energyCapabilityProjectionTick: row.tick,
         energyCapabilitySourceBand: row.band,
-        formationRequestedPhysicalGait: "sprinting",
+        formationRequestedPhysicalGait: row.gait,
         formationEffectivePhysicalGait: row.gait,
         formationPostEnergyStepX: row.step,
         energyRequestedPhysicalGait: row.gait,

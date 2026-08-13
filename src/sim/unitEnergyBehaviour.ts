@@ -11,15 +11,29 @@ import {
   type IndividualPlayerPresenceStore,
 } from "./individualCasualtyLifecycle";
 import {
+  ENERGY_RATIO_FIXED_POINT_SCALE,
+  getIndividualCurrentEnergy,
   getIndividualEnergyBand,
+  getIndividualMaximumEnergy,
   getIndividualEnergyRatioFixedPoint,
   type IndividualEnergyStore,
 } from "./individualEnergy";
+import {
+  calculateIndividualEnergyExertionAdjustedValue,
+  INDIVIDUAL_ENERGY_SPRINTING_COST_PER_TICK,
+} from "./individualEnergyActivity";
+import {
+  assertIndividualEnergyExertionModifierProjectionTick,
+  getIndividualBurdenExertionMultiplierPercent,
+  getIndividualInjuryExertionMultiplierPercent,
+  type IndividualEnergyExertionModifierStore,
+} from "./individualEnergyExertionModifier";
 import {
   isIndividualOrdinaryParticipationEligible,
   type IndividualOrdinaryParticipationSnapshot,
 } from "./individualOrdinaryParticipation";
 import type { MoraleMovementState } from "./moraleMovement";
+import type { IndividualPhysicalGait } from "./individualPhysicalGait";
 import type { UnitRecoveryThreatSummary } from "./recoveryThreat";
 import type { UnitEnergySummary } from "./unitEnergySummary";
 import {
@@ -31,7 +45,10 @@ import {
 } from "./unitIdentity";
 
 export const UNIT_SAFE_REST_ENTER_RATIO_FIXED_POINT = 1_000;
-export const UNIT_SAFE_REST_EXIT_RATIO_FIXED_POINT = 3_000;
+export const UNIT_SAFE_REST_EXIT_RATIO_FIXED_POINT = 1_500;
+export const INDIVIDUAL_VOLUNTARY_RESERVE_RATIO_FIXED_POINT = 2_000;
+export const UNIT_VOLUNTARY_JOG_RATIO_FIXED_POINT = 6_000;
+export const UNIT_VOLUNTARY_SPRINT_RATIO_FIXED_POINT = 8_000;
 
 export type UnitEnergyBehaviourRecommendation =
   | "normal"
@@ -48,6 +65,8 @@ export interface UnitEnergyBehaviourInspection {
   readonly projectionTick: number | null;
   readonly recommendation: UnitEnergyBehaviourRecommendation;
   readonly resting: boolean;
+  readonly maximumVoluntaryGait: IndividualPhysicalGait;
+  readonly affordableSprintTicks: number;
 }
 
 export interface UnitEnergyRestSource {
@@ -55,12 +74,15 @@ export interface UnitEnergyRestSource {
   readonly unitCount: number;
   readonly projectionTick: number | null;
   isUnitResting(unitId: UnitId): boolean;
+  getMaximumVoluntaryGait(unitId: UnitId): IndividualPhysicalGait;
+  getAffordableSprintTicks(unitId: UnitId): number;
 }
 
 export interface IndividualCombatConservationSource {
   readonly entityCount: number;
   readonly projectionTick: number | null;
   isReluctantToReacquireDistantCombat(entityId: number): boolean;
+  canInitiateVoluntaryAttack(entityId: number): boolean;
 }
 
 export interface IndividualCombatConservationInput {
@@ -74,7 +96,10 @@ interface InternalUnitEnergyBehaviourStore extends UnitEnergyBehaviourStore {
   readonly unitIndexById: ReadonlyMap<UnitId, number>;
   readonly recommendationByUnit: Uint8Array;
   readonly restingByUnit: Uint8Array;
+  readonly maximumVoluntaryGaitByUnit: Uint8Array;
+  readonly affordableSprintTicksByUnit: Uint32Array;
   readonly reluctantByEntity: Uint8Array;
+  readonly voluntaryAttackAvailableByEntity: Uint8Array;
   restSource: UnitEnergyRestSource;
   combatSource: IndividualCombatConservationSource;
   combatInput: IndividualCombatConservationInput;
@@ -103,12 +128,18 @@ export function createUnitEnergyBehaviourStore(
     unitCount: store.unitCount,
     get projectionTick() { return internal.projectionTick; },
     isUnitResting: (unitId: UnitId) => isUnitEnergyResting(store, unitId),
+    getMaximumVoluntaryGait: (unitId: UnitId) =>
+      getUnitMaximumVoluntaryGait(store, unitId),
+    getAffordableSprintTicks: (unitId: UnitId) =>
+      getUnitAffordableSprintTicks(store, unitId),
   });
   const combatSource: IndividualCombatConservationSource = Object.freeze({
     entityCount: store.entityCount,
     get projectionTick() { return internal.projectionTick; },
     isReluctantToReacquireDistantCombat: (entityId: number) =>
       isIndividualReluctantToReacquireDistantCombat(store, entityId),
+    canInitiateVoluntaryAttack: (entityId: number) =>
+      canIndividualInitiateVoluntaryAttack(store, entityId),
   });
   const combatInput: IndividualCombatConservationInput = Object.freeze({
     get tick() { return internal.projectionTick ?? -1; },
@@ -121,7 +152,10 @@ export function createUnitEnergyBehaviourStore(
     unitIndexById,
     recommendationByUnit: new Uint8Array(identity.unitCount),
     restingByUnit: new Uint8Array(identity.unitCount),
+    maximumVoluntaryGaitByUnit: new Uint8Array(identity.unitCount),
+    affordableSprintTicksByUnit: new Uint32Array(identity.unitCount),
     reluctantByEntity: new Uint8Array(identity.entityCount),
+    voluntaryAttackAvailableByEntity: new Uint8Array(identity.entityCount),
     restSource,
     combatSource,
     combatInput,
@@ -137,6 +171,7 @@ export function projectUnitEnergyBehaviourOneTick(
   formation: FormationBehaviourStore,
   summaries: readonly UnitEnergySummary[],
   energy: IndividualEnergyStore,
+  exertionModifiers: IndividualEnergyExertionModifierStore,
   lifecycle: IndividualCasualtyLifecycleStore,
   presence: IndividualPlayerPresenceStore,
   ordinaryParticipation: IndividualOrdinaryParticipationSnapshot,
@@ -147,7 +182,7 @@ export function projectUnitEnergyBehaviourOneTick(
   const internal = requireStore(store);
   validateProjectionInputs(
     internal, identity, formation, summaries, energy, lifecycle, presence,
-    ordinaryParticipation, recoveryThreats, tick,
+    ordinaryParticipation, recoveryThreats, exertionModifiers, tick,
   );
 
   for (let unitIndex = 0; unitIndex < internal.unitCount; unitIndex += 1) {
@@ -181,7 +216,8 @@ export function projectUnitEnergyBehaviourOneTick(
     const wasResting = internal.restingByUnit[unitIndex] !== 0;
     const resting = safeToRest && (
       recommendation === "restWhenSafe" ||
-      (wasResting && recommendation === "conserve")
+      (wasResting && ratio !== null &&
+        ratio < UNIT_SAFE_REST_EXIT_RATIO_FIXED_POINT)
     );
     internal.recommendationByUnit[unitIndex] = recommendation === "normal"
       ? 0
@@ -189,6 +225,23 @@ export function projectUnitEnergyBehaviourOneTick(
         ? 1
         : 2;
     internal.restingByUnit[unitIndex] = resting ? 1 : 0;
+    internal.maximumVoluntaryGaitByUnit[unitIndex] = ratio === null
+      ? 0
+      : ratio < UNIT_VOLUNTARY_JOG_RATIO_FIXED_POINT
+        ? 1
+        : 2;
+    internal.affordableSprintTicksByUnit[unitIndex] =
+      ratio !== null && ratio >= UNIT_VOLUNTARY_SPRINT_RATIO_FIXED_POINT
+        ? minimumAffordableSprintTicks(
+            identity,
+            unitId,
+            energy,
+            exertionModifiers,
+            lifecycle,
+            presence,
+            ordinaryParticipation,
+          )
+        : 0;
   }
 
   for (let entityId = 0; entityId < internal.entityCount; entityId += 1) {
@@ -197,6 +250,11 @@ export function projectUnitEnergyBehaviourOneTick(
     internal.reluctantByEntity[entityId] =
       internal.restingByUnit[unitIndex] !== 0 ||
       getIndividualEnergyBand(energy, entityId) === "spent"
+        ? 1
+        : 0;
+    internal.voluntaryAttackAvailableByEntity[entityId] =
+      getIndividualEnergyRatioFixedPoint(energy, entityId) >=
+        INDIVIDUAL_VOLUNTARY_RESERVE_RATIO_FIXED_POINT
         ? 1
         : 0;
   }
@@ -210,7 +268,7 @@ export function deriveUnitEnergyBehaviourRecommendation(
   if (averageEnergyRatioFixedPoint < UNIT_SAFE_REST_ENTER_RATIO_FIXED_POINT) {
     return "restWhenSafe";
   }
-  if (averageEnergyRatioFixedPoint < UNIT_SAFE_REST_EXIT_RATIO_FIXED_POINT) {
+  if (averageEnergyRatioFixedPoint < UNIT_VOLUNTARY_JOG_RATIO_FIXED_POINT) {
     return "conserve";
   }
   return "normal";
@@ -247,6 +305,36 @@ export function isIndividualReluctantToReacquireDistantCombat(
   return internal.reluctantByEntity[entityId] !== 0;
 }
 
+export function canIndividualInitiateVoluntaryAttack(
+  store: UnitEnergyBehaviourStore,
+  entityId: number,
+): boolean {
+  const internal = requireStore(store);
+  assertEntityId(entityId, internal.entityCount);
+  return internal.voluntaryAttackAvailableByEntity[entityId] !== 0;
+}
+
+export function getUnitMaximumVoluntaryGait(
+  store: UnitEnergyBehaviourStore,
+  unitId: UnitId,
+): IndividualPhysicalGait {
+  const internal = requireStore(store);
+  const gait = internal.maximumVoluntaryGaitByUnit[
+    requireUnitIndex(internal, unitId)
+  ]!;
+  return gait === 0 ? "stationary" : gait === 1 ? "walking" : "jogging";
+}
+
+export function getUnitAffordableSprintTicks(
+  store: UnitEnergyBehaviourStore,
+  unitId: UnitId,
+): number {
+  const internal = requireStore(store);
+  return internal.affordableSprintTicksByUnit[
+    requireUnitIndex(internal, unitId)
+  ]!;
+}
+
 export function getUnitEnergyBehaviourInspection(
   store: UnitEnergyBehaviourStore,
   unitId: UnitId,
@@ -258,6 +346,8 @@ export function getUnitEnergyBehaviourInspection(
     projectionTick: internal.projectionTick,
     recommendation: recommendationNames[internal.recommendationByUnit[unitIndex]!]!,
     resting: internal.restingByUnit[unitIndex] !== 0,
+    maximumVoluntaryGait: getUnitMaximumVoluntaryGait(store, unitId),
+    affordableSprintTicks: internal.affordableSprintTicksByUnit[unitIndex]!,
   };
 }
 
@@ -327,6 +417,7 @@ function validateProjectionInputs(
   presence: IndividualPlayerPresenceStore,
   ordinary: IndividualOrdinaryParticipationSnapshot,
   threats: readonly UnitRecoveryThreatSummary[],
+  exertionModifiers: IndividualEnergyExertionModifierStore,
   tick: number,
 ): void {
   if (!Number.isSafeInteger(tick) || tick < 0) throw new RangeError("Behaviour tick must be non-negative.");
@@ -338,8 +429,10 @@ function validateProjectionInputs(
     formation.entityCount !== store.entityCount || formation.unitCount !== store.unitCount ||
     energy.entityCount !== store.entityCount || lifecycle.entityCount !== store.entityCount ||
     presence.entityCount !== store.entityCount || ordinary.entityCount !== store.entityCount ||
+    exertionModifiers.entityCount !== store.entityCount ||
     summaries.length !== store.unitCount || threats.length !== store.unitCount
   ) throw new RangeError("Unit energy behaviour dependencies must match store counts.");
+  assertIndividualEnergyExertionModifierProjectionTick(exertionModifiers, tick);
   for (let index = 0; index < store.unitCount; index += 1) {
     if (summaries[index]?.unitId !== store.unitIds[index] || threats[index]?.unitId !== store.unitIds[index]) {
       throw new Error("Unit energy behaviour evidence must preserve unit order.");
@@ -349,6 +442,48 @@ function validateProjectionInputs(
       throw new Error("Unit energy behaviour requires the previous completed summary tick.");
     }
   }
+}
+
+function minimumAffordableSprintTicks(
+  identity: UnitIdentityStore,
+  unitId: UnitId,
+  energy: IndividualEnergyStore,
+  exertionModifiers: IndividualEnergyExertionModifierStore,
+  lifecycle: IndividualCasualtyLifecycleStore,
+  presence: IndividualPlayerPresenceStore,
+  ordinary: IndividualOrdinaryParticipationSnapshot,
+): number {
+  const members = getUnitMembers(identity, unitId);
+  let minimumTicks = 0xffff_ffff;
+  let participantCount = 0;
+  for (let index = 0; index < members.length; index += 1) {
+    const entityId = members[index]!;
+    if (
+      getIndividualCharacterLifecycleState(lifecycle, entityId) !== "active" ||
+      getIndividualPlayerPresenceState(presence, entityId) !== "activePresence" ||
+      !isIndividualOrdinaryParticipationEligible(ordinary, entityId)
+    ) continue;
+    if (getIndividualEnergyRatioFixedPoint(energy, entityId) <
+        UNIT_VOLUNTARY_SPRINT_RATIO_FIXED_POINT) return 0;
+    participantCount += 1;
+    const maximum = getIndividualMaximumEnergy(energy, entityId);
+    const reserve = Math.ceil(
+      maximum * INDIVIDUAL_VOLUNTARY_RESERVE_RATIO_FIXED_POINT /
+        ENERGY_RATIO_FIXED_POINT_SCALE,
+    );
+    const available = Math.max(
+      0,
+      getIndividualCurrentEnergy(energy, entityId) - reserve,
+    );
+    const sprintCost = calculateIndividualEnergyExertionAdjustedValue(
+      INDIVIDUAL_ENERGY_SPRINTING_COST_PER_TICK,
+      getIndividualBurdenExertionMultiplierPercent(exertionModifiers, entityId),
+      getIndividualInjuryExertionMultiplierPercent(exertionModifiers, entityId),
+      "voluntary sprint budget",
+    );
+    minimumTicks = Math.min(minimumTicks, Math.floor(available / sprintCost));
+  }
+  return participantCount === 0 ? 0 : minimumTicks;
 }
 
 function requireStore(store: UnitEnergyBehaviourStore): InternalUnitEnergyBehaviourStore {

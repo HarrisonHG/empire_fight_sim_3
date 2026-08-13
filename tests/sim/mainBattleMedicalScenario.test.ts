@@ -166,10 +166,6 @@ describe("Spike 6.5 main battle medical integration sandbox", () => {
       treatment: true,
       routing: true,
       winded: true,
-      spent: true,
-      egress: true,
-      waiting: true,
-      waitingEnergyContinuous: true,
     });
     const snapshot = createPositionSnapshot(simulation);
     expect(snapshot.combatDebug?.inspectedIndividuals).toHaveLength(44);

@@ -1,6 +1,6 @@
 # Milestone 7 Human-Tuning Corrections
 
-Status: active; 7K-1 is implemented and 7K-2 is next.
+Status: active; 7K-1 and 7K-2 are implemented and 7K-3 is next.
 
 This addendum supersedes conflicting Milestone 7 tuning text in
 `docs/plans/milestone-7-energy-exertion-and-rest.md` until these corrections
@@ -72,7 +72,7 @@ In LARP, the casualty player gets up and moves with the helpers. Therefore:
 
 ## 7K-2 — Reserve conservation and distance-aware gait choice
 
-Status: next.
+Status: implemented.
 
 Energy is a reserve people conserve, not a fuel bar they voluntarily empty.
 
@@ -159,6 +159,8 @@ Do not change damage, defence floors/ceilings, readiness spending, roll identity
 or pressure impulses.
 
 ## 7K-3 — Retained visual correction and acceptance
+
+Status: next.
 
 Update `/test?scenario=energy-exertion` before revisiting `/`.
 

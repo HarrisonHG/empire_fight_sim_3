@@ -48,7 +48,7 @@ describe("combined Milestone 4 visual regression scenario", () => {
     expect(runCombinedScenario()).toEqual(runCombinedScenario());
   }, 10_000);
 
-  it("retains comparison and pursuit outcomes without downed contagion", () => {
+  it("retains comparison while reserve conservation delays pursuit collapse", () => {
     const simulation = createSimulation(MILESTONE_4_VISUAL_SCENARIO);
     const combat = simulation.combatSandbox;
     if (combat === undefined) throw new Error("Expected combat sandbox.");
@@ -110,20 +110,21 @@ describe("combined Milestone 4 visual regression scenario", () => {
         veteranMovementStyle !== "routeAway";
     }
 
+    const regularFinal = getPersistentUnitMorale(combat.persistentMoraleStore, 31);
+    const veteranFinal = getPersistentUnitMorale(combat.persistentMoraleStore, 51);
     expect(recruitRouted).toBe(true);
     expect(reserveDisrupted).toBe(true);
     expect(regularMoreDegraded).toBe(true);
-    expect(regularPursuitRouted).toBe(true);
-    expect(veteranPursuitRouted).toBe(true);
-    expect(recruitRouteTick).toBeLessThan(regularRouteTick!);
-    expect(recruitRouteTick).toBeLessThan(veteranRouteTick!);
-    expect(veteranReturnTick).toBeDefined();
+    expect(regularPursuitRouted).toBe(false);
+    expect(veteranPursuitRouted).toBe(false);
+    expect(recruitRouteTick).toBe(99);
+    expect(regularRouteTick).toBeUndefined();
+    expect(veteranRouteTick).toBeUndefined();
     expect(regularReturnTick).toBeUndefined();
-    expect(veteranReengaged).toBe(true);
-    const regularFinal = getPersistentUnitMorale(combat.persistentMoraleStore, 31);
-    const veteranFinal = getPersistentUnitMorale(combat.persistentMoraleStore, 51);
-    expect(regularFinal.state).not.toBe("steady");
-    expect(veteranFinal.state).toBe("steady");
+    expect(veteranReturnTick).toBeUndefined();
+    expect(veteranReengaged).toBe(false);
+    expect(regularFinal.state).toBe("strained");
+    expect(veteranFinal.state).toBe("strained");
   }, 10_000);
 });
 

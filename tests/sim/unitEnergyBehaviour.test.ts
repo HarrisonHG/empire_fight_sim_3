@@ -15,6 +15,12 @@ import {
   createTrustedIndividualEnergyProfileStore,
   setIndividualCurrentEnergyForTrustedSetup,
 } from "../../src/sim/individualEnergy";
+import { createIndividualCombatProfileStore } from "../../src/sim/individualCombatProfile";
+import {
+  createIndividualEnergyExertionModifierStore,
+  projectIndividualEnergyExertionModifiersOneTick,
+} from "../../src/sim/individualEnergyExertionModifier";
+import { createIndividualGlobalHitStore } from "../../src/sim/individualGlobalHits";
 import {
   createIndividualOrdinaryParticipationSnapshot,
   isIndividualOrdinaryParticipationEligible,
@@ -23,13 +29,19 @@ import {
 import type { UnitRecoveryThreatSummary } from "../../src/sim/recoveryThreat";
 import {
   createUnitEnergyBehaviourStore,
+  canIndividualInitiateVoluntaryAttack,
   deriveUnitEnergyBehaviourRecommendation,
+  getUnitAffordableSprintTicks,
   getUnitEnergyBehaviourInspection,
   getUnitEnergyRestSource,
+  getUnitMaximumVoluntaryGait,
   isIndividualReluctantToReacquireDistantCombat,
   projectUnitEnergyBehaviourOneTick,
   UNIT_SAFE_REST_ENTER_RATIO_FIXED_POINT,
   UNIT_SAFE_REST_EXIT_RATIO_FIXED_POINT,
+  INDIVIDUAL_VOLUNTARY_RESERVE_RATIO_FIXED_POINT,
+  UNIT_VOLUNTARY_JOG_RATIO_FIXED_POINT,
+  UNIT_VOLUNTARY_SPRINT_RATIO_FIXED_POINT,
 } from "../../src/sim/unitEnergyBehaviour";
 import {
   createUnitEnergySummaryStore,
@@ -42,12 +54,15 @@ import type { WorldState } from "../../src/sim/types";
 describe("Milestone 7G unit energy behaviour", () => {
   it("uses exact deterministic recommendation thresholds", () => {
     expect(UNIT_SAFE_REST_ENTER_RATIO_FIXED_POINT).toBe(1_000);
-    expect(UNIT_SAFE_REST_EXIT_RATIO_FIXED_POINT).toBe(3_000);
+    expect(UNIT_SAFE_REST_EXIT_RATIO_FIXED_POINT).toBe(1_500);
+    expect(INDIVIDUAL_VOLUNTARY_RESERVE_RATIO_FIXED_POINT).toBe(2_000);
+    expect(UNIT_VOLUNTARY_JOG_RATIO_FIXED_POINT).toBe(6_000);
+    expect(UNIT_VOLUNTARY_SPRINT_RATIO_FIXED_POINT).toBe(8_000);
     expect(deriveUnitEnergyBehaviourRecommendation(null)).toBe("normal");
     expect(deriveUnitEnergyBehaviourRecommendation(999)).toBe("restWhenSafe");
     expect(deriveUnitEnergyBehaviourRecommendation(1_000)).toBe("conserve");
-    expect(deriveUnitEnergyBehaviourRecommendation(2_999)).toBe("conserve");
-    expect(deriveUnitEnergyBehaviourRecommendation(3_000)).toBe("normal");
+    expect(deriveUnitEnergyBehaviourRecommendation(5_999)).toBe("conserve");
+    expect(deriveUnitEnergyBehaviourRecommendation(6_000)).toBe("normal");
   });
 
   it("rests a safe spent cautious unit without replacing ordinary authority", () => {
@@ -58,6 +73,8 @@ describe("Milestone 7G unit energy behaviour", () => {
       projectionTick: 0,
       recommendation: "restWhenSafe",
       resting: true,
+      maximumVoluntaryGait: "walking",
+      affordableSprintTicks: 0,
     });
 
     const anchorBefore = getUnitAnchor(fixture.formation, 1);
@@ -119,20 +136,46 @@ describe("Milestone 7G unit energy behaviour", () => {
   it("retains rest through winded recovery and rejoins at working energy", () => {
     const fixture = createFixture(5, "advanceCautious");
     project(fixture, 0);
-    setIndividualCurrentEnergyForTrustedSetup(fixture.energy, 0, 20, 1);
+    setIndividualCurrentEnergyForTrustedSetup(fixture.energy, 0, 14, 1);
     project(fixture, 1);
     expect(getUnitEnergyBehaviourInspection(fixture.behaviour, 1)).toMatchObject({
       recommendation: "conserve",
       resting: true,
     });
-    setIndividualCurrentEnergyForTrustedSetup(fixture.energy, 0, 30, 2);
+    setIndividualCurrentEnergyForTrustedSetup(fixture.energy, 0, 15, 2);
     project(fixture, 2);
     expect(getUnitEnergyBehaviourInspection(fixture.behaviour, 1)).toMatchObject({
-      recommendation: "normal",
+      recommendation: "conserve",
       resting: false,
     });
     expect(isIndividualReluctantToReacquireDistantCombat(fixture.behaviour, 0))
       .toBe(false);
+  });
+
+  it.each([
+    [19, "walking", false, 0],
+    [20, "walking", true, 0],
+    [59, "walking", true, 0],
+    [60, "jogging", true, 0],
+    [79, "jogging", true, 0],
+    [80, "jogging", true, 3],
+  ] as const)(
+    "projects exact reserve policy at %i percent",
+    (energy, gait, canAttack, sprintTicks) => {
+      const fixture = createFixture(energy, "advance");
+      project(fixture, 0);
+      expect(getUnitMaximumVoluntaryGait(fixture.behaviour, 1)).toBe(gait);
+      expect(canIndividualInitiateVoluntaryAttack(fixture.behaviour, 0))
+        .toBe(canAttack);
+      expect(getUnitAffordableSprintTicks(fixture.behaviour, 1))
+        .toBe(sprintTicks);
+    },
+  );
+
+  it("budgets sprint against authoritative burden-adjusted expenditure", () => {
+    const fixture = createFixture(80, "advance", "heavy");
+    project(fixture, 0);
+    expect(getUnitAffordableSprintTicks(fixture.behaviour, 1)).toBe(2);
   });
 
   it("replays threat interruption and recovery identically", () => {
@@ -147,6 +190,9 @@ interface Fixture {
   readonly lifecycle: ReturnType<typeof createIndividualCasualtyLifecycleStore>;
   readonly presence: ReturnType<typeof createIndividualPlayerPresenceStore>;
   readonly energy: ReturnType<typeof createIndividualEnergyStore>;
+  readonly exertionProfiles: ReturnType<typeof createIndividualCombatProfileStore>;
+  readonly exertionHits: ReturnType<typeof createIndividualGlobalHitStore>;
+  readonly exertion: ReturnType<typeof createIndividualEnergyExertionModifierStore>;
   readonly ordinary: ReturnType<typeof createIndividualOrdinaryParticipationSnapshot>;
   readonly summaries: ReturnType<typeof createUnitEnergySummaryStore>;
   readonly behaviour: ReturnType<typeof createUnitEnergyBehaviourStore>;
@@ -154,7 +200,11 @@ interface Fixture {
   readonly threats: UnitRecoveryThreatSummary[];
 }
 
-function createFixture(startingEnergy: number, order: "advance" | "advanceCautious"): Fixture {
+function createFixture(
+  startingEnergy: number,
+  order: "advance" | "advanceCautious",
+  armourCategory: "none" | "heavy" = "none",
+): Fixture {
   const world: WorldState = {
     entityCount: 1,
     bounds: { width: 200, height: 100 },
@@ -190,6 +240,29 @@ function createFixture(startingEnergy: number, order: "advance" | "advanceCautio
     worldHeight: 100,
     procedures: [{ entityId: 0, procedureKind: "citizen" }],
   });
+  const exertionProfiles = createIndividualCombatProfileStore({
+    entityCount: 1,
+    profiles: [{
+      entityId: 0,
+      primaryWeapon: "unarmed",
+      shieldCategory: "none",
+      shieldCarriedState: "none",
+      armourCategory,
+      hasQualifyingHelmet: false,
+      qualifications: {
+        hasWeaponMaster: false, hasShield: false, hasMarksman: false,
+        hasThrown: false, hasAmbidexterity: false, enduranceLevels: 0,
+        fortitudeLevels: 0, hasDreadnought: false,
+      },
+      magicalCapabilities: {
+        canUseRod: false, canUseStaff: false, canWearMageArmour: false,
+        canDeliverCombatMagic: false,
+      },
+    }],
+  });
+  const exertionHits = createIndividualGlobalHitStore(exertionProfiles, {
+    entityCount: 1,
+  });
   return {
     world,
     identity,
@@ -197,6 +270,9 @@ function createFixture(startingEnergy: number, order: "advance" | "advanceCautio
     lifecycle,
     presence,
     energy: createIndividualEnergyStore(profiles),
+    exertionProfiles,
+    exertionHits,
+    exertion: createIndividualEnergyExertionModifierStore(1),
     ordinary: createIndividualOrdinaryParticipationSnapshot(1),
     summaries: createUnitEnergySummaryStore(identity),
     behaviour: createUnitEnergyBehaviourStore(identity),
@@ -206,12 +282,19 @@ function createFixture(startingEnergy: number, order: "advance" | "advanceCautio
 }
 
 function project(fixture: Fixture, tick: number): void {
+  projectIndividualEnergyExertionModifiersOneTick(
+    fixture.exertion,
+    fixture.exertionProfiles,
+    fixture.exertionHits,
+    tick,
+  );
   projectUnitEnergyBehaviourOneTick(
     fixture.behaviour,
     fixture.identity,
     fixture.formation,
     getUnitEnergySummaries(fixture.summaries),
     fixture.energy,
+    fixture.exertion,
     fixture.lifecycle,
     fixture.presence,
     fixture.ordinary,

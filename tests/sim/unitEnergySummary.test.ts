@@ -86,7 +86,7 @@ describe("unit energy summaries", () => {
       sprintOrChargeCapableFractionFixedPoint: 5_000,
       energySpentThisTick: 0,
       energyRecoveredThisTick: 0,
-      energyBehaviourRecommendation: "normal",
+      energyBehaviourRecommendation: "conserve",
       currentlyRestingMemberCount: 0,
     });
   });
