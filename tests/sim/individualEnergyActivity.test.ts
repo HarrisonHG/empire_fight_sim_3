@@ -9,7 +9,6 @@ import { createIndividualCasualtyProcedureProfileStore } from "../../src/sim/ind
 import type { IndividualMeleeAttackAttemptRecord } from "../../src/sim/individualCombatAction";
 import {
   INDIVIDUAL_ENERGY_ALERT_STATIONARY_RECOVERY,
-  INDIVIDUAL_ENERGY_DOWNED_REST_RECOVERY,
   INDIVIDUAL_ENERGY_RECOVERY_FIXED_POINT_SCALE,
   INDIVIDUAL_ENERGY_UNDER_TREATMENT_RECOVERY,
   INDIVIDUAL_ENERGY_WAITING_AT_RESPAWN_RECOVERY,
@@ -279,7 +278,7 @@ describe("individual energy base expenditure and recovery", () => {
       recoveryScale: INDIVIDUAL_ENERGY_RECOVERY_FIXED_POINT_SCALE,
       safeStationaryNumerator: 5,
       alertStationaryNumerator: INDIVIDUAL_ENERGY_ALERT_STATIONARY_RECOVERY,
-      downedRestNumerator: INDIVIDUAL_ENERGY_DOWNED_REST_RECOVERY,
+      downedRestUsesProfile: true,
       walkingNumerator: INDIVIDUAL_ENERGY_WALKING_RECOVERY_NUMERATOR,
       joggingCost: INDIVIDUAL_ENERGY_JOGGING_COST_PER_TICK,
       sprintingCost: INDIVIDUAL_ENERGY_SPRINTING_COST_PER_TICK,
@@ -291,7 +290,7 @@ describe("individual energy base expenditure and recovery", () => {
       recoveryScale: 2,
       safeStationaryNumerator: 5,
       alertStationaryNumerator: 2,
-      downedRestNumerator: 4,
+      downedRestUsesProfile: true,
       walkingNumerator: 1,
       joggingCost: 4,
       sprintingCost: 20,
@@ -376,7 +375,7 @@ describe("individual energy base expenditure and recovery", () => {
   it.each([
     ["safeStationaryRest", 4],
     ["alertStationary", INDIVIDUAL_ENERGY_ALERT_STATIONARY_RECOVERY / 2],
-    ["downedRest", INDIVIDUAL_ENERGY_DOWNED_REST_RECOVERY / 2],
+    ["downedRest", 4],
     ["underTreatment", Math.floor(INDIVIDUAL_ENERGY_UNDER_TREATMENT_RECOVERY / 2)],
     ["waitingAtRespawn", Math.floor(INDIVIDUAL_ENERGY_WAITING_AT_RESPAWN_RECOVERY / 2)],
     ["inactiveTerminal", 0],
@@ -865,8 +864,12 @@ describe("individual energy base expenditure and recovery", () => {
       });
   });
 
-  it("applies exactly two recovery to an authoritative downed-rest patient", () => {
-    const harness = createEnergyHarness({ maximumEnergy: 100, startingEnergy: 50 });
+  it("applies full trusted safe-rest recovery while downed even when alert", () => {
+    const harness = createEnergyHarness({
+      maximumEnergy: 100,
+      startingEnergy: 50,
+      safeRestRecoveryPerTick: 9,
+    });
     const procedures = createIndividualCasualtyProcedureProfileStore({
       entityCount: 1,
       profiles: [{
@@ -883,21 +886,28 @@ describe("individual energy base expenditure and recovery", () => {
       [{ entityId: 0, attackerEntityId: 0, previousHits: 1 }],
       5,
     );
-    beginIndividualEnergyActivityObservation(harness.fixture.activity, harness.fixture.world, 6);
-    classifyIndividualEnergyActivityOneTick(
-      harness.fixture.activity, dependencies(harness.fixture, 6),
-    );
-    applyIndividualEnergyActivityOneTick(
-      harness.fixture.activity, harness.profiles, harness.energy, 6,
-    );
-    expect(getIndividualEnergyActivityInspection(harness.fixture.activity, 0))
-      .toMatchObject({
-        dominantContext: "downedRest",
-        recoveryRequested: 2,
-        recoveryApplied: 2,
-        energyBefore: 50,
-        energyAfter: 52,
-      });
+    const applied: number[] = [];
+    for (const tick of [6, 7]) {
+      beginIndividualEnergyActivityObservation(
+        harness.fixture.activity, harness.fixture.world, tick,
+      );
+      classifyIndividualEnergyActivityOneTick(
+        harness.fixture.activity, {
+          ...dependencies(harness.fixture, tick),
+          isAlert: () => true,
+        },
+      );
+      applyIndividualEnergyActivityOneTick(
+        harness.fixture.activity, harness.profiles, harness.energy, tick,
+      );
+      const inspection = getIndividualEnergyActivityInspection(
+        harness.fixture.activity, 0,
+      );
+      expect(inspection.dominantContext).toBe("downedRest");
+      applied.push(inspection.recoveryApplied);
+    }
+    expect(applied).toEqual([4, 5]);
+    expect(getIndividualCurrentEnergy(harness.energy, 0)).toBe(59);
   });
 
   it("applies alert recovery exactly and resets current-tick fields on reuse", () => {

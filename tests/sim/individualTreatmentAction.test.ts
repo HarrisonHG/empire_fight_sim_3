@@ -58,8 +58,14 @@ import {
 import { advanceSimulationOneTick, createSimulation } from "../../src/sim/simulation";
 import { getIndividualCasualtyHistoryInspection as getConsolidatedCasualtyHistory } from "../../src/sim/individualCasualtyConsolidation";
 import { submitIndividualExecutionIntent } from "../../src/sim/individualExecutionAction";
-import { getIndividualEnergyActivityInspection } from "../../src/sim/individualEnergyActivity";
 import {
+  getIndividualEnergyActivityHistoryInspection,
+  getIndividualEnergyActivityInspection,
+  INDIVIDUAL_ENERGY_RECOVERY_FIXED_POINT_SCALE,
+  INDIVIDUAL_ENERGY_UNDER_TREATMENT_RECOVERY,
+} from "../../src/sim/individualEnergyActivity";
+import {
+  DEFAULT_SAFE_REST_RECOVERY_PER_TICK,
   getIndividualCurrentEnergy,
   setIndividualCurrentEnergyForTrustedSetup,
 } from "../../src/sim/individualEnergy";
@@ -530,16 +536,27 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
     const energyAtTreatmentStart = getIndividualCurrentEnergy(
       simulation.individualEnergyStore, 0,
     );
+    const downedRestTicks = getIndividualEnergyActivityHistoryInspection(
+      combat.individualEnergyActivityStore, 0,
+    ).restTicks;
+    const recoveryBeforeTreatment = Math.floor(
+      downedRestTicks * DEFAULT_SAFE_REST_RECOVERY_PER_TICK /
+        INDIVIDUAL_ENERGY_RECOVERY_FIXED_POINT_SCALE,
+    );
+    const recoveryThroughTreatmentStart = Math.floor(
+      (downedRestTicks * DEFAULT_SAFE_REST_RECOVERY_PER_TICK +
+        INDIVIDUAL_ENERGY_UNDER_TREATMENT_RECOVERY) /
+        INDIVIDUAL_ENERGY_RECOVERY_FIXED_POINT_SCALE,
+    );
 
-    expect(energyAtTreatmentStart).toBeGreaterThan(100);
-    expect(energyAtTreatmentStart - 101).toBeGreaterThanOrEqual(2);
-    expect((energyAtTreatmentStart - 101) % 2).toBe(0);
+    expect(downedRestTicks).toBeGreaterThan(0);
+    expect(energyAtTreatmentStart).toBe(100 + recoveryThroughTreatmentStart);
     expect(getIndividualEnergyActivityInspection(
       combat.individualEnergyActivityStore, 0,
     )).toMatchObject({
       dominantContext: "underTreatment",
       recoveryRequested: 1,
-      recoveryApplied: 1,
+      recoveryApplied: recoveryThroughTreatmentStart - recoveryBeforeTreatment,
       energyAfter: energyAtTreatmentStart,
     });
 

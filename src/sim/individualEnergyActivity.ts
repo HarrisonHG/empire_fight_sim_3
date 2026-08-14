@@ -64,7 +64,6 @@ export const INDIVIDUAL_ENERGY_VALID_ATTACK_IMPULSE = 40;
 export const INDIVIDUAL_ENERGY_VALID_DEFENCE_IMPULSE = 25;
 export const INDIVIDUAL_ENERGY_ACTIVE_DRAG_HELPER_SURCHARGE = 0;
 export const INDIVIDUAL_ENERGY_ALERT_STATIONARY_RECOVERY = 2;
-export const INDIVIDUAL_ENERGY_DOWNED_REST_RECOVERY = 4;
 export const INDIVIDUAL_ENERGY_UNDER_TREATMENT_RECOVERY = 3;
 export const INDIVIDUAL_ENERGY_WAITING_AT_RESPAWN_RECOVERY = 5;
 
@@ -1606,7 +1605,7 @@ function recoveryForContext(
   switch (context) {
     case "safeStationaryRest": return safeRestRecoveryPerTick;
     case "alertStationary": return INDIVIDUAL_ENERGY_ALERT_STATIONARY_RECOVERY;
-    case "downedRest": return INDIVIDUAL_ENERGY_DOWNED_REST_RECOVERY;
+    case "downedRest": return safeRestRecoveryPerTick;
     case "underTreatment": return INDIVIDUAL_ENERGY_UNDER_TREATMENT_RECOVERY;
     case "waitingAtRespawn":
       return INDIVIDUAL_ENERGY_WAITING_AT_RESPAWN_RECOVERY;

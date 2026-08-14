@@ -28,7 +28,7 @@ const CHAMBER_LABELS = Object.freeze([
   "Equal work, different capacities",
   "Repeated attack and defence exertion",
   "Jogging: light versus heavy burden",
-  "Ordinary gait and zero-surcharge drag",
+  "Full downed recovery and zero-surcharge drag",
   "Fresh versus tired combat recovery",
   "Safe rest versus hostile staredown",
   "Rest → walk → jog → close sprint",
@@ -72,7 +72,7 @@ export const ENERGY_EXERTION_EXPECTED_TIMELINE = Object.freeze([
   "3 · equal jogging expenditure removes the same points while the smaller capacity crosses bands first.",
   "4 · repeated canonical attacks and defences produce visible action costs and readiness recovery evidence.",
   "5 · equal jogging makes the heavy-armour polearm user spend more than the light unarmed mover; the polearm user's slung shield correctly adds no burden.",
-  "6 · the ordinary mover and dragging helpers use the same effective-gait energy semantics with zero drag surcharge; the externally moved patient spends no movement energy.",
+  "6 · the downed patient receives their full safe-rest recovery despite the nearby hostile, then remains externally moved without personal movement expenditure; helpers pay ordinary gait cost with zero drag surcharge.",
   "7 · otherwise-identical fresh and tired pairs both fight above reserve; compare attack count, attack recovery, guard recovery and readiness over the same window.",
   "8 · the isolated fighter recovers; the otherwise-equal staredown remains constrained by nearby hostile threat.",
   "9 · four staged guides show critical rest, walking recovery, sustained jog and an affordable close sprint; the resting guide later resumes its unchanged cautious advance.",
@@ -80,6 +80,7 @@ export const ENERGY_EXERTION_EXPECTED_TIMELINE = Object.freeze([
 ] as const);
 
 const FIXTURE_EVENTS: readonly RetainedCasualtyVisualFixtureEvent[] = Object.freeze([
+  hitAll(10, 14, 0),
   hitAll(11, 14, 0),
   hitAll(28, 28, 0),
 ]);
@@ -147,8 +148,8 @@ export const ENERGY_EXERTION_VISUAL_SCENARIO: SimulationScenario = Object.freeze
         weaponReachBand: "long",
       }),
 
-      mover(601, 7, 6, -120, -80, "Ordinary walking comparison", "walking", {
-        energyProfile: energy(1_400, 1_400, 0),
+      unit(601, 20, 6, 40, -80, "Downed recovery near hostile", {
+        energyProfile: energy(1_400, 700, 8),
       }),
       unit(602, 7, 6, 0, 24, "Drag patient", {
         energyProfile: energy(1_400, 700, 8),
@@ -203,8 +204,8 @@ export const ENERGY_EXERTION_VISUAL_SCENARIO: SimulationScenario = Object.freeze
       mover(902, 16, 9, -130, -24, "2 Walking recovery", "sprinting", {
         energyProfile: energy(1_200, 360, 0),
       }),
-      mover(903, 16, 9, -40, 24, "3 Jogging reserve", "sprinting", {
-        energyProfile: energy(1_200, 840, 0),
+      mover(903, 16, 9, -40, 24, "3 High-energy distant jog", "sprinting", {
+        energyProfile: energy(1_200, 1_080, 0),
       }),
       mover(904, 16, 9, 100, 72, "4 Affordable close sprint", "sprinting", {
         energyProfile: energy(1_200, 1_080, 0),

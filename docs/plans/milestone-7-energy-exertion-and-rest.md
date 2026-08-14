@@ -1,6 +1,6 @@
 # Milestone 7: Energy, Exertion, and Rest
 
-Status: 7A through 7J and human-tuning corrections 7K-1 through 7K-3 are
+Status: 7A through 7J and human-tuning corrections 7K-1 through 7K-4 are
 implemented. Milestone 7 remains awaiting human visual acceptance.
 
 Implementation begins after Milestone 6 is accepted and the post-Milestone-6 main-battle medical integration spike is retained as the evolving `/` scenario.

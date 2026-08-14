@@ -123,6 +123,12 @@ describe("Milestone 7I retained energy visual scenario", () => {
     expect(trace.maximumDragHelperSurcharge).toBe(0);
     expect(trace.maximumDraggedPatientExpenditure).toBe(0);
     expect(trace.draggedPatientMoved).toBe(true);
+    expect(trace.downedRecoveryNearHostile).toEqual({
+      requested: 4,
+      applied: 4,
+    });
+    expect(trace.downedWitnessInitialHostileDistanceSquared)
+      .toBeLessThan(192 * 192);
     expect(trace.freshAttackMultiplier).toBe(100);
     expect(trace.tiredAttackMultiplier).toBe(160);
     expect(trace.freshGuardMultiplier).toBe(100);
@@ -143,6 +149,9 @@ describe("Milestone 7I retained energy visual scenario", () => {
     expect(trace.reengagedAfterRest).toBe(true);
     expect(trace.stagedInitialGaits).toEqual([
       "stationary", "walking", "jogging", "sprinting",
+    ]);
+    expect(trace.stagedInitialEnergyRatios).toEqual([
+      550, 3_000, 8_966, 8_833,
     ]);
     expect(trace.egressMovementTicks).toBeGreaterThan(0);
     expect(trace.waitingTicks).toBeGreaterThan(0);
@@ -168,11 +177,14 @@ function runTrace() {
   const simulation = createSimulation(ENERGY_EXERTION_VISUAL_SCENARIO);
   const startX = simulation.world.positionsX.slice();
   const startY = simulation.world.positionsY.slice();
+  const downedWitnessInitialHostileDistanceSquared =
+    (startX[10]! - startX[14]!) ** 2 + (startY[10]! - startY[14]!) ** 2;
   let draggingTicks = 0;
   let maximumDragHelperSurcharge = 0;
   let maximumDragHelperMovementBase = 0;
   let maximumDraggedPatientExpenditure = 0;
   let draggedPatientMoved = false;
+  let downedRecoveryNearHostile: { requested: number; applied: number } | null = null;
   let restingTicks = 0;
   let reengagedAfterRest = false;
   let observedRest = false;
@@ -192,6 +204,7 @@ function runTrace() {
   let freshGuardRecoveryOnSharedTick = 0;
   let tiredGuardRecoveryOnSharedTick = 0;
   let stagedInitialGaits: readonly string[] = [];
+  let stagedInitialEnergyRatios: readonly number[] = [];
   let maximumJogTickCost = 0;
   let maximumSprintTickCost = 0;
   let lightFirstWalkingTick: number | null = null;
@@ -215,6 +228,16 @@ function runTrace() {
       heavyFirstWalkingTick === null &&
       inspected(snapshot, 9).energyRequestedPhysicalGait === "walking"
     ) heavyFirstWalkingTick = simulation.tick;
+    const downedWitness = inspected(snapshot, 10);
+    if (
+      downedRecoveryNearHostile === null &&
+      downedWitness.energyActivityContext === "downedRest"
+    ) {
+      downedRecoveryNearHostile = {
+        requested: downedWitness.energyRecoveryRequestedThisTick ?? 0,
+        applied: downedWitness.energyRecoveryAppliedThisTick ?? 0,
+      };
+    }
     const dragPatient = inspected(snapshot, 11);
     if (dragPatient.casualtyDragGroupPhase === "dragging") {
       draggingTicks += 1;
@@ -264,6 +287,9 @@ function runTrace() {
         inspected(snapshot, 19).energyGuardReadinessRecoveryMultiplierPercent ?? 0;
       stagedInitialGaits = [23, 24, 25, 26].map((entityId) =>
         inspected(snapshot, entityId).energyRequestedPhysicalGait ?? "stationary"
+      );
+      stagedInitialEnergyRatios = [23, 24, 25, 26].map((entityId) =>
+        inspected(snapshot, entityId).energyRatioFixedPoint ?? 0
       );
     }
     maximumFreshAttackRecoveryRemaining = Math.max(
@@ -315,13 +341,14 @@ function runTrace() {
     heavyJoggingSpent: finalById(9).totalEnergySpent,
     lightFirstWalkingTick,
     heavyFirstWalkingTick,
-    walkComparisonSpent: finalById(10).totalEnergySpent,
     draggingTicks,
     dragHelperSpent: finalById(12).totalEnergySpent,
     maximumDragHelperSurcharge,
     maximumDragHelperMovementBase,
     maximumDraggedPatientExpenditure,
     draggedPatientMoved,
+    downedRecoveryNearHostile,
+    downedWitnessInitialHostileDistanceSquared,
     freshAttackMultiplier,
     tiredAttackMultiplier,
     freshGuardMultiplier,
@@ -340,6 +367,7 @@ function runTrace() {
     restingTicks,
     reengagedAfterRest,
     stagedInitialGaits,
+    stagedInitialEnergyRatios,
     egressMovementTicks,
     waitingTicks,
     barbarianLifecycle: finalById(28).characterLifecycleState,

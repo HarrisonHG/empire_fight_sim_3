@@ -610,6 +610,7 @@ describe("formation behaviour: physical gait authority", () => {
 
     expect(run("walking", 0)).toBe("walking");
     expect(run("jogging", 0)).toBe("jogging");
+    // Sprint capability alone is not sprint intent during ordinary travel.
     expect(run("jogging", 100, "allied")).toBe("jogging");
     expect(run("jogging", 2, "hostile")).toBe("jogging");
     expect(run("jogging", 3, "hostile")).toBe("sprinting");

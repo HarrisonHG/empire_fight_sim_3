@@ -1,6 +1,6 @@
 # Milestone 7 Human-Tuning Corrections
 
-Status: 7K-1 through 7K-3 are implemented; Milestone 7 remains awaiting human
+Status: 7K-1 through 7K-4 are implemented; Milestone 7 remains awaiting human
 visual acceptance.
 
 This addendum supersedes conflicting Milestone 7 tuning text in
@@ -189,3 +189,19 @@ preserving intended starting percentages.
 Milestone 7 remains awaiting human acceptance after these corrections.
 Do not tune the main-battle presentation further until the retained targeted
 suite has been re-inspected.
+
+## 7K-4 — Human-feedback correction
+
+Status: implemented; awaiting human visual acceptance.
+
+- Dying/downed people recover at their own full trusted safe-rest recovery
+  rate. Nearby hostile presence does not downgrade that recovery.
+- Energy remains sprint capability, not sprint intent. Ordinary advance/travel
+  continues to walk or jog under conservation policy even at 80% or above.
+- Voluntary sprint remains limited to an existing urgent movement authority:
+  an affordable short final hostile contact, routing/panic, or an already
+  requested urgent casualty/medical movement.
+- The retained energy suite demonstrates full downed recovery near a hostile
+  and contrasts a distant high-energy jog with a close affordable sprint.
+
+Milestone 7 remains awaiting human visual acceptance. Do not tune `/` yet.
