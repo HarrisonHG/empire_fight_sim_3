@@ -30,10 +30,13 @@ describe("energy inspection formatting", () => {
       energyAttackRecoveryDurationMultiplierPercent: 135,
       energyGuardReadinessRecoveryMultiplierPercent: 70,
       energyPressureRecoveryMultiplierPercent: 70,
+      energyAttackExertionHistoryCount: 6,
+      attackRecoveryTicksRemaining: 9,
+      storedGuardReadinessFixedPoint: 7_500,
       energyBehaviourRecommendation: "restWhenSafe",
       unitEnergyResting: true,
     } as unknown as LiveCombatDebugIndividualSnapshot)).toMatch(
-      /20\/100.*winded.*dragHelperMovement.*jogging>walking>walking.*cost move 1\+drag 12.*recovery 0\/5.*burden 4\+2\+2=8 ×180%.*attack 135%.*guard 70%.*pressure 70%.*restWhenSafe.*resting yes/,
+      /20\/100.*winded.*dragHelperMovement.*jogging>walking>walking.*cost move 1\+drag 12.*recovery 0\/5.*burden 4\+2\+2=8 ×180%.*attack 135%.*guard 70%.*pressure 70%.*combat attacks 6.*attack recovery 9.*readiness 75%.*restWhenSafe.*resting yes/,
     );
   });
 

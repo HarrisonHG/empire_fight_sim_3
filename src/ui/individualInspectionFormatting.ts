@@ -41,6 +41,9 @@ export function formatEnergyInspection(
     `multipliers attack ${individual.energyAttackRecoveryDurationMultiplierPercent ?? 100}%` +
       `; guard ${individual.energyGuardReadinessRecoveryMultiplierPercent ?? 100}%` +
       `; pressure ${individual.energyPressureRecoveryMultiplierPercent ?? 100}%`,
+    `combat attacks ${individual.energyAttackExertionHistoryCount ?? 0}` +
+      `; attack recovery ${individual.attackRecoveryTicksRemaining ?? 0}` +
+      `; readiness ${Math.round((individual.storedGuardReadinessFixedPoint ?? 0) / 100)}%`,
     `unit ${individual.energyBehaviourRecommendation ?? "normal"}` +
       `; resting ${individual.unitEnergyResting ? "yes" : "no"}`,
   ].join(" · ");

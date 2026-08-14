@@ -27,11 +27,11 @@ const CHAMBER_LABELS = Object.freeze([
   "Walk versus jog versus sprint",
   "Equal work, different capacities",
   "Repeated attack and defence exertion",
-  "Light versus heavy burden",
-  "Walking versus casualty dragging",
-  "Fresh versus exhausted combat recovery",
+  "Jogging: light versus heavy burden",
+  "Ordinary gait and zero-surcharge drag",
+  "Fresh versus tired combat recovery",
   "Safe rest versus hostile staredown",
-  "Unit rest and re-engagement",
+  "Rest → walk → jog → close sprint",
   "Barbarian downed, egress and waiting",
 ] as const);
 
@@ -71,11 +71,11 @@ export const ENERGY_EXERTION_EXPECTED_TIMELINE = Object.freeze([
   "2 · sprint drains first, jog lasts longer, and walking remains viable; low bands visibly cap later gait.",
   "3 · equal jogging expenditure removes the same points while the smaller capacity crosses bands first.",
   "4 · repeated canonical attacks and defences produce visible action costs and readiness recovery evidence.",
-  "5 · equal walking with heavy armour and polearm costs more than light unarmed movement; the polearm user's slung shield correctly adds no burden.",
-  "6 · the ordinary walker pays walking only while moving helpers pay walking plus drag surcharge and the patient is externally moved free.",
-  "7 · fresh and exhausted pairs retain the same combat identity while attack and guard recovery multipliers differ.",
+  "5 · equal jogging makes the heavy-armour polearm user spend more than the light unarmed mover; the polearm user's slung shield correctly adds no burden.",
+  "6 · the ordinary mover and dragging helpers use the same effective-gait energy semantics with zero drag surcharge; the externally moved patient spends no movement energy.",
+  "7 · otherwise-identical fresh and tired pairs both fight above reserve; compare attack count, attack recovery, guard recovery and readiness over the same window.",
   "8 · the isolated fighter recovers; the otherwise-equal staredown remains constrained by nearby hostile threat.",
-  "9 · the exhausted unit rests while safe, leaves rest after recovery, and resumes its existing cautious advance.",
+  "9 · four staged guides show critical rest, walking recovery, sustained jog and an affordable close sprint; the resting guide later resumes its unchanged cautious advance.",
   "10 · one continuous energy value recovers while downed, pays walking during egress, then recovers while waiting without revival.",
 ] as const);
 
@@ -104,41 +104,43 @@ export const ENERGY_EXERTION_VISUAL_SCENARIO: SimulationScenario = Object.freeze
     }),
     units: Object.freeze([
       unit(101, 1, 1, 0, 0, "Recovering stationary", {
-        energyProfile: energy(500, 150, 12),
+        energyProfile: energy(1_000, 300, 12),
       }),
 
       mover(201, 2, 2, -80, -44, "Walking", "walking", {
-        energyProfile: energy(2_000, 2_000, 0),
+        energyProfile: energy(4_000, 4_000, 0),
       }),
       mover(202, 2, 2, -80, 0, "Jogging", "jogging", {
-        energyProfile: energy(2_000, 2_000, 0),
+        energyProfile: energy(4_000, 4_000, 0),
       }),
-      mover(203, 2, 2, -80, 44, "Sprinting", "sprinting", {
-        energyProfile: energy(2_000, 2_000, 0),
+      mover(203, 19, 2, -80, 16, "Affordable contact sprint", "sprinting", {
+        energyProfile: energy(4_000, 4_000, 0),
+        headingY: -1,
+        spacing: 10,
       }),
 
       mover(301, 3, 3, -80, -28, "Small capacity jog", "jogging", {
-        energyProfile: energy(500, 500, 0),
+        energyProfile: energy(1_000, 1_000, 0),
       }),
       mover(302, 3, 3, -80, 28, "Large capacity jog", "jogging", {
-        energyProfile: energy(1_000, 1_000, 0),
+        energyProfile: energy(2_000, 2_000, 0),
       }),
 
       fighter(401, 4, 4, -8, 0, "Repeated attacker", 1, {
-        energyProfile: energy(700, 700, 8),
+        energyProfile: energy(1_400, 1_400, 8),
       }),
       fighter(402, 5, 4, 8, 0, "Repeated defender", -1, {
-        energyProfile: energy(700, 700, 8),
+        energyProfile: energy(1_400, 1_400, 8),
         shieldClass: "shield",
         weaponCategory: "oneHanded",
         weaponReachBand: "medium",
       }),
 
-      mover(501, 6, 5, -80, -28, "Light walking", "walking", {
-        energyProfile: energy(600, 600, 0),
+      mover(501, 6, 5, -80, -28, "Light jogging", "jogging", {
+        energyProfile: energy(1_200, 1_200, 0),
       }),
-      mover(502, 6, 5, -80, 28, "Heavy walking", "walking", {
-        energyProfile: energy(600, 600, 0),
+      mover(502, 6, 5, -80, 28, "Heavy jogging", "jogging", {
+        energyProfile: energy(1_200, 1_200, 0),
         armourClass: "heavy",
         shieldClass: "shield",
         weaponCategory: "polearm",
@@ -146,16 +148,16 @@ export const ENERGY_EXERTION_VISUAL_SCENARIO: SimulationScenario = Object.freeze
       }),
 
       mover(601, 7, 6, -120, -80, "Ordinary walking comparison", "walking", {
-        energyProfile: energy(700, 700, 0),
+        energyProfile: energy(1_400, 1_400, 0),
       }),
       unit(602, 7, 6, 0, 24, "Drag patient", {
-        energyProfile: energy(700, 350, 8),
+        energyProfile: energy(1_400, 700, 8),
       }),
       unit(603, 7, 6, 24, 12, "Drag helper A", {
-        energyProfile: energy(700, 700, 0),
+        energyProfile: energy(1_400, 1_400, 0),
       }),
       unit(604, 7, 6, 24, 36, "Drag helper B", {
-        energyProfile: energy(700, 700, 0),
+        energyProfile: energy(1_400, 1_400, 0),
       }),
       fighter(605, 8, 6, 82, 24, "Extraction threat", -1, {
         attackIntervalTicks: 1_000,
@@ -169,41 +171,51 @@ export const ENERGY_EXERTION_VISUAL_SCENARIO: SimulationScenario = Object.freeze
       }),
 
       fighter(701, 9, 7, -70, -28, "Fresh attacker", 1, {
-        energyProfile: energy(600, 600, 0),
+        energyProfile: energy(1_200, 1_200, 0),
       }),
       fighter(702, 10, 7, -54, -28, "Fresh defender", -1, {
-        energyProfile: energy(600, 600, 0),
+        energyProfile: energy(1_200, 1_200, 0),
         shieldClass: "shield",
         weaponCategory: "oneHanded",
         weaponReachBand: "medium",
       }),
-      fighter(703, 11, 7, 54, 28, "Spent attacker", 1, {
-        energyProfile: energy(600, 30, 0),
+      fighter(703, 11, 7, 54, 28, "Tired attacker", 1, {
+        energyProfile: energy(1_200, 300, 0),
       }),
-      fighter(704, 12, 7, 70, 28, "Spent defender", -1, {
-        energyProfile: energy(600, 30, 0),
+      fighter(704, 12, 7, 70, 28, "Tired defender", -1, {
+        energyProfile: energy(1_200, 300, 0),
         shieldClass: "shield",
         weaponCategory: "oneHanded",
         weaponReachBand: "medium",
       }),
 
       unit(801, 13, 8, -100, -44, "Safe recovery", {
-        energyProfile: energy(500, 150, 10),
+        energyProfile: energy(1_000, 300, 10),
       }),
       unit(802, 14, 8, -20, 44, "Hostile staredown subject", {
-        energyProfile: energy(500, 150, 10),
+        energyProfile: energy(1_000, 300, 10),
       }),
       unit(803, 15, 8, 20, 44, "Staredown threat"),
 
-      group(901, 16, 9, -120, 0, "Exhausted resting unit", 4, {
-        order: "advanceCautious",
-        unitSpeed: 2,
-        ordinaryPhysicalGait: "jogging",
-        energyProfile: energy(500, 25, 12),
+      mover(901, 16, 9, -220, -72, "1 Critical rest then walk", "sprinting", {
+        energyProfile: energy(1_200, 60, 12),
       }),
-      unit(902, 17, 9, 220, 0, "Distant re-engagement target", {
+      mover(902, 16, 9, -130, -24, "2 Walking recovery", "sprinting", {
+        energyProfile: energy(1_200, 360, 0),
+      }),
+      mover(903, 16, 9, -40, 24, "3 Jogging reserve", "sprinting", {
+        energyProfile: energy(1_200, 840, 0),
+      }),
+      mover(904, 16, 9, 100, 72, "4 Affordable close sprint", "sprinting", {
+        energyProfile: energy(1_200, 1_080, 0),
+        headingX: 1,
+        headingY: 0,
+        spacing: 10,
+      }),
+      unit(905, 17, 9, 116, 72, "Close sprint target", {
         weaponCategory: "unarmed",
         weaponReachBand: "none",
+        spacing: 10,
       }),
 
       unit(1001, 18, 10, -80, 0, "Barbarian energy continuity", {
@@ -216,7 +228,7 @@ export const ENERGY_EXERTION_VISUAL_SCENARIO: SimulationScenario = Object.freeze
           x: chamber(10).centreX + 100,
           y: chamber(10).centreY,
         }),
-        energyProfile: energy(500, 80, 10),
+        energyProfile: energy(1_000, 160, 10),
       }),
     ]),
   }),
@@ -247,7 +259,7 @@ function mover(
     unitSpeed: 3,
     ordinaryPhysicalGait: gait,
     headingX: 0,
-    headingY: chamberId <= 5 ? -1 : 1,
+    headingY: 1,
     ...overrides,
   });
 }
@@ -268,24 +280,6 @@ function fighter(
     weaponReachBand: "long",
     attackIntervalTicks: 8,
     maxDamageCapacity: 1_000_000,
-    ...overrides,
-  });
-}
-
-function group(
-  unitId: number,
-  factionId: number,
-  chamberId: number,
-  offsetX: number,
-  offsetY: number,
-  label: string,
-  memberCount: number,
-  overrides: UnitOverrides = {},
-): CombatSandboxUnitScenario {
-  return unit(unitId, factionId, chamberId, offsetX, offsetY, label, {
-    memberCount,
-    rows: 2,
-    cols: 2,
     ...overrides,
   });
 }

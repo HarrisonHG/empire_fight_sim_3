@@ -1,6 +1,7 @@
 # Milestone 7 Human-Tuning Corrections
 
-Status: active; 7K-1 and 7K-2 are implemented and 7K-3 is next.
+Status: 7K-1 through 7K-3 are implemented; Milestone 7 remains awaiting human
+visual acceptance.
 
 This addendum supersedes conflicting Milestone 7 tuning text in
 `docs/plans/milestone-7-energy-exertion-and-rest.md` until these corrections
@@ -162,7 +163,7 @@ or pressure impulses.
 
 ## 7K-3 — Retained visual correction and acceptance
 
-Status: next.
+Status: implemented; awaiting human visual acceptance.
 
 Update `/test?scenario=energy-exertion` before revisiting `/`.
 
