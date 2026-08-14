@@ -133,6 +133,11 @@ describe("Milestone 7I retained energy visual scenario", () => {
       .toBeGreaterThan(trace.maximumFreshAttackRecoveryRemaining);
     expect(trace.minimumFreshReadiness).toBeLessThan(10_000);
     expect(trace.minimumTiredReadiness).toBeLessThan(10_000);
+    expect(trace.sharedGuardRecoveryComparisonTick).not.toBeNull();
+    expect({
+      fresh: trace.freshGuardRecoveryOnSharedTick,
+      tired: trace.tiredGuardRecoveryOnSharedTick,
+    }).toEqual({ fresh: 100, tired: 70 });
     expect(trace.safeEnergyAt20).toBeGreaterThan(trace.staredownEnergyAt20);
     expect(trace.restingTicks).toBeGreaterThan(0);
     expect(trace.reengagedAfterRest).toBe(true);
@@ -183,6 +188,9 @@ function runTrace() {
   let maximumTiredAttackRecoveryRemaining = 0;
   let minimumFreshReadiness = 10_000;
   let minimumTiredReadiness = 10_000;
+  let sharedGuardRecoveryComparisonTick: number | null = null;
+  let freshGuardRecoveryOnSharedTick = 0;
+  let tiredGuardRecoveryOnSharedTick = 0;
   let stagedInitialGaits: readonly string[] = [];
   let maximumJogTickCost = 0;
   let maximumSprintTickCost = 0;
@@ -274,6 +282,17 @@ function runTrace() {
       minimumTiredReadiness,
       inspected(snapshot, 19).storedGuardReadinessFixedPoint,
     );
+    const freshGuardRecovery = inspected(snapshot, 17).guardReadinessRecoveredThisTick;
+    const tiredGuardRecovery = inspected(snapshot, 19).guardReadinessRecoveredThisTick;
+    if (
+      sharedGuardRecoveryComparisonTick === null &&
+      freshGuardRecovery > 0 &&
+      tiredGuardRecovery > 0
+    ) {
+      sharedGuardRecoveryComparisonTick = simulation.tick;
+      freshGuardRecoveryOnSharedTick = freshGuardRecovery;
+      tiredGuardRecoveryOnSharedTick = tiredGuardRecovery;
+    }
   }
   const final = createPositionSnapshot(simulation);
   const finalIndividuals = final.combatDebug!.inspectedIndividuals;
@@ -313,6 +332,9 @@ function runTrace() {
     maximumTiredAttackRecoveryRemaining,
     minimumFreshReadiness,
     minimumTiredReadiness,
+    sharedGuardRecoveryComparisonTick,
+    freshGuardRecoveryOnSharedTick,
+    tiredGuardRecoveryOnSharedTick,
     safeEnergyAt20,
     staredownEnergyAt20,
     restingTicks,

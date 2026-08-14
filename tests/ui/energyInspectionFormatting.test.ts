@@ -16,7 +16,7 @@ describe("energy inspection formatting", () => {
       energyActualPhysicalGait: "walking",
       energyMaximumOrdinaryGait: "walking",
       energyMovementBaseExpenditureThisTick: 1,
-      energyDragSurchargeThisTick: 12,
+      energyDragSurchargeThisTick: 0,
       energyAttackBaseExpenditureThisTick: 4,
       energyDefenceBaseExpenditureThisTick: 3,
       energyExpenditureAppliedThisTick: 20,
@@ -27,7 +27,7 @@ describe("energy inspection formatting", () => {
       energyPrimaryWeaponBurdenPoints: 2,
       energyTotalBurdenPoints: 8,
       energyBurdenExertionMultiplierPercent: 180,
-      energyAttackRecoveryDurationMultiplierPercent: 135,
+      energyAttackRecoveryDurationMultiplierPercent: 160,
       energyGuardReadinessRecoveryMultiplierPercent: 70,
       energyPressureRecoveryMultiplierPercent: 70,
       energyAttackExertionHistoryCount: 6,
@@ -36,7 +36,7 @@ describe("energy inspection formatting", () => {
       energyBehaviourRecommendation: "restWhenSafe",
       unitEnergyResting: true,
     } as unknown as LiveCombatDebugIndividualSnapshot)).toMatch(
-      /20\/100.*winded.*dragHelperMovement.*jogging>walking>walking.*cost move 1\+drag 12.*recovery 0\/5.*burden 4\+2\+2=8 ×180%.*attack 135%.*guard 70%.*pressure 70%.*combat attacks 6.*attack recovery 9.*readiness 75%.*restWhenSafe.*resting yes/,
+      /20\/100.*winded.*dragHelperMovement.*jogging>walking>walking.*cost move 1\+drag 0.*recovery 0\/5.*burden 4\+2\+2=8 ×180%.*attack 160%.*guard 70%.*pressure 70%.*combat attacks 6.*attack recovery 9.*readiness 75%.*restWhenSafe.*resting yes/,
     );
   });
 
