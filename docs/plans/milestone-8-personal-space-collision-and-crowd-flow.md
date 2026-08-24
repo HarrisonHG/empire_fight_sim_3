@@ -1,7 +1,8 @@
 # Milestone 8: Personal Space, Collision, and Crowd Flow
 
-Status: Milestone 8A corrected after follow-up human inspection; awaiting retained-route reinspection.
-Milestone 8B and production integration have not started.
+Status: Milestone 8A accepted as feasibility evidence. Milestone 8B is implemented
+and awaiting technical review. Production collision resolution remains disabled;
+Milestone 8C and later have not started.
 
 Milestone 7 is accepted. This milestone is inserted before command behaviour because the evolving main battle exposed a foundational physical omission: individual player-presence entities can currently occupy/pass through the same space too freely.
 
@@ -511,7 +512,7 @@ Do not reorder combat/casualty semantics casually. Any orchestration refactor mu
 
 ## 8A — Collision/spacing feasibility spike
 
-Status: corrected after follow-up human inspection; awaiting human visual reinspection.
+Status: accepted feasibility evidence. The spike is not production architecture.
 
 Purpose:
 
@@ -699,6 +700,8 @@ Production-design findings for 8B and later:
 
 ## 8B — Occupancy contract and collision authority boundary
 
+Status: implemented; awaiting technical review. Production collision is disabled.
+
 Deliver:
 
 - final occupancy class vocabulary;
@@ -710,6 +713,85 @@ Deliver:
 - no broad behaviour retuning.
 
 Prefer to establish the contract before changing every movement authority.
+
+### 8B implementation evidence
+
+The production-facing occupancy vocabulary is finalised as:
+
+```text
+activeStanding
+downedSoft
+assistedMoving
+yieldingEgress
+nonBattlefield
+```
+
+`IndividualPhysicalOccupancyStore` is an entity-indexed derived projection. It
+reads only the accepted lifecycle, player-presence, and sparse active drag-group
+authorities. Active characters with active presence become `activeStanding`;
+downed, terminal-awaiting-comfort, and terminal-comforted presences become
+`downedSoft`; the patient and required helpers of a currently dragging group
+become `assistedMoving`; `respawnEgress` becomes `yieldingEgress`; and
+`waitingAtRespawn`/`removedFromBattlefield` become `nonBattlefield`. Gathering
+helpers remain active standing and a not-yet-moving patient remains downed soft.
+The projection owns none of those source states.
+
+Accepted production geometry is integer circular occupancy with radius four for
+active standing, assisted moving, and yielding egress, radius five for downed
+soft occupancy, and radius zero for non-battlefield presence. The geometry is
+explicit immutable configuration rather than equipment/body-weight inference.
+Typed flags separately expose hard standing, soft downed, assisted-group, and
+strongly-yielding semantics.
+
+`IndividualCollisionResolutionStore` provides reusable typed current-tick
+evidence for permitted and resolved deltas, local neighbour/candidate counts,
+relationship, blocked/reduced/redirected flags, and bounded local
+detour/courtesy/overtake decision memory. Its movement adapter validates that a
+resolved integer step cannot exceed the squared-distance budget of the already
+permitted step and can apply only from the mover's current in-bounds position.
+There are no target, destination, gait-selection, lifecycle, strategic query,
+or pathfinding inputs.
+
+Production orchestration now projects occupancy beside the existing tick-start
+movement authorities and opens the collision evidence boundary. During 8B the
+adapter is explicitly disabled and records exact pass-through evidence only:
+
+```text
+existing movement authorities mutate the canonical world position
+→ permitted delta == collision-resolved delta == final actual delta
+→ existing energy classification consumes that same final displacement
+```
+
+No production position, gait, combat, casualty, assistance, presence, energy,
+target, destination, or event outcome is changed. Bounded inspected-individual
+debug state exposes occupancy class/radius and permitted/resolved evidence, but
+no renderer or UI behavior is added.
+
+Headless evidence covers all five derived occupancy classes, dragging-only
+assisted-group projection, hard/soft/yielding flags, geometry validation, typed
+array identity reuse, backwards/stale projection rejection, non-increasing
+preserve/shorten/redirect/stop outcomes, current-position/world-bound commit
+validation, disabled production resolution, and exact equality between final
+collision evidence and the displacement consumed by energy. Existing casualty,
+specialist movement, combat, replay, and production integration suites remain
+the unchanged-behaviour evidence.
+
+The retained typed storage is 45 bytes per entity: seven bytes for occupancy
+projection and 38 bytes for collision evidence/local state, or 90,000 bytes at
+2,000 entities. Isolated 40-tick structural measurements on the implementation
+machine were:
+
+| entities | mean ms/tick | max ms/tick | storage bytes |
+| ---: | ---: | ---: | ---: |
+| 100 | 0.053 | 0.367 | 4,500 |
+| 500 | 0.085 | 0.183 | 22,500 |
+| 1,000 | 0.035 | 0.139 | 45,000 |
+| 2,000 | 0.051 | 0.103 | 90,000 |
+
+These timings cover projection plus disabled pass-through evidence only. They
+are not 8C solver predictions. No spatial query, collision pass, connected-
+component fallback, cardinal-axis preference, or entity-ID passing policy has
+entered production.
 
 ## 8C — Active standing collision and hostile fronts
 

@@ -116,6 +116,17 @@ import {
   hasUnreservedDragEligiblePatient,
 } from "./individualCasualtyAssistance";
 import {
+  createIndividualPhysicalOccupancyStore,
+  getIndividualPhysicalOccupancyInspection,
+  projectIndividualPhysicalOccupancyOneTick,
+} from "./individualPhysicalOccupancy";
+import {
+  beginIndividualCollisionResolutionTick,
+  createIndividualCollisionResolutionStore,
+  finalizeDisabledIndividualCollisionResolutionTick,
+  getIndividualCollisionResolutionInspection,
+} from "./individualCollisionResolution";
+import {
   advanceIndividualDeathCountsOneTick,
   createIndividualDeathCountStore,
   getIndividualCasualtyHistoryInspection,
@@ -334,6 +345,18 @@ export const MILESTONE_7_PRODUCTION_TICK_ORDER = Object.freeze([
   "unitEnergyAggregation",
   "pressureRecoveryRoutingAndMorale",
   "boundedHistoryAndDebugSnapshot",
+] as const);
+
+/**
+ * 8B installs these ownership seams without activating resolution. Later 8C+
+ * slices call the collision adapter beside each existing movement authority.
+ */
+export const MILESTONE_8B_PRODUCTION_COLLISION_BOUNDARY = Object.freeze([
+  "deriveOccupancyFromLifecyclePresenceAndAssistance",
+  "existingAuthoritiesProduceEnergyLimitedBoundedMovement",
+  "collisionMayOnlyResolveAnAlreadyPermittedStep",
+  "worldPositionsRemainTheSingleCommittedPositionAuthority",
+  "finalActualDisplacementRemainsEnergyEvidence",
 ] as const);
 
 export type CombatSandboxTickStage =
@@ -891,6 +914,20 @@ function createCombatSandbox(
     createIndividualCasualtyUnitSummaryStore(identityStore);
   const individualCasualtyAssistanceStore =
     createIndividualCasualtyAssistanceStore(world.entityCount);
+  const casualtyDragGroupStore = createCasualtyDragGroupStore(
+    world.entityCount,
+  );
+  const individualPhysicalOccupancyStore =
+    createIndividualPhysicalOccupancyStore(world.entityCount);
+  projectIndividualPhysicalOccupancyOneTick(
+    individualPhysicalOccupancyStore,
+    individualCasualtyLifecycleStore,
+    individualPlayerPresenceStore,
+    getActiveCasualtyDragGroups(casualtyDragGroupStore),
+    0,
+  );
+  const individualCollisionResolutionStore =
+    createIndividualCollisionResolutionStore(world.entityCount);
   const individualDragHandCommitmentStore =
     createIndividualDragHandCommitmentStore(world.entityCount);
   const individualMedicalClaimStore =
@@ -997,7 +1034,9 @@ function createCombatSandbox(
       world.bounds,
     ),
     individualCasualtyAssistanceStore,
-    casualtyDragGroupStore: createCasualtyDragGroupStore(world.entityCount),
+    casualtyDragGroupStore,
+    individualPhysicalOccupancyStore,
+    individualCollisionResolutionStore,
     individualDragHandCommitmentStore,
     individualDefenceHandAvailabilitySource,
     casualtyDragMovementBuffers,
@@ -1987,6 +2026,19 @@ export function advanceCombatSandboxOneTick(
     "externalDisplacement",
     "stationary",
   );
+  projectIndividualPhysicalOccupancyOneTick(
+    combatSandbox.individualPhysicalOccupancyStore,
+    combatSandbox.individualCasualtyLifecycleStore,
+    combatSandbox.individualPlayerPresenceStore,
+    getActiveCasualtyDragGroups(combatSandbox.casualtyDragGroupStore),
+    tick,
+  );
+  beginIndividualCollisionResolutionTick(
+    combatSandbox.individualCollisionResolutionStore,
+    combatSandbox.individualPhysicalOccupancyStore,
+    world,
+    tick,
+  );
 
   const formationResult = runStage("formation", () => {
     projectIndividualMedicalUrgency(
@@ -2691,6 +2743,11 @@ export function advanceCombatSandboxOneTick(
       },
     ),
   );
+  finalizeDisabledIndividualCollisionResolutionTick(
+    combatSandbox.individualCollisionResolutionStore,
+    world,
+    tick,
+  );
   classifyIndividualEnergyActivityOneTick(
     combatSandbox.individualEnergyActivityStore,
     {
@@ -2802,6 +2859,13 @@ export function advanceCombatSandboxOneTick(
         casualtySummaryDependencies(world, combatSandbox),
       );
     });
+    projectIndividualPhysicalOccupancyOneTick(
+      combatSandbox.individualPhysicalOccupancyStore,
+      combatSandbox.individualCasualtyLifecycleStore,
+      combatSandbox.individualPlayerPresenceStore,
+      getActiveCasualtyDragGroups(combatSandbox.casualtyDragGroupStore),
+      tick,
+    );
     combatSandbox.debugSnapshot = createCombatDebugSnapshot(world, combatSandbox, tick);
   });
 }
@@ -3331,6 +3395,14 @@ function collectInspectedIndividualSnapshots(
       combatSandbox.individualCasualtyAssistanceStore,
       entityId,
     );
+    const physicalOccupancy = getIndividualPhysicalOccupancyInspection(
+      combatSandbox.individualPhysicalOccupancyStore,
+      entityId,
+    );
+    const collisionResolution = getIndividualCollisionResolutionInspection(
+      combatSandbox.individualCollisionResolutionStore,
+      entityId,
+    );
     const casualtyDragFreeHands =
       combatSandbox.individualDragHandCommitmentStore.getFreeHands(entityId);
     const medicalClaim = getIndividualMedicalClaimInspection(
@@ -3387,6 +3459,19 @@ function collectInspectedIndividualSnapshots(
         combatSandbox.individualPlayerPresenceStore,
         entityId,
       ),
+      physicalOccupancyClass: physicalOccupancy.occupancyClass,
+      personalSpaceRadius: physicalOccupancy.effectiveRadius,
+      physicalOccupancyAssistanceGroupId:
+        physicalOccupancy.assistanceGroupId,
+      collisionPermittedDeltaX: collisionResolution.permittedDeltaX,
+      collisionPermittedDeltaY: collisionResolution.permittedDeltaY,
+      collisionResolvedDeltaX: collisionResolution.resolvedDeltaX,
+      collisionResolvedDeltaY: collisionResolution.resolvedDeltaY,
+      collisionBlocked: collisionResolution.blocked,
+      collisionReduced: collisionResolution.reduced,
+      collisionRedirected: collisionResolution.redirected,
+      collisionLocalNeighbourCount: collisionResolution.localNeighbourCount,
+      collisionLocalCandidateCount: collisionResolution.localCandidateCount,
       deathCountDurationTicks: deathCount.durationTicks,
       deathCountRemainingTicks: deathCount.remainingTicks,
       deathCountPaused: deathCount.paused,

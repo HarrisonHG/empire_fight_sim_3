@@ -78,6 +78,13 @@ import type {
   IndividualCasualtyAssistanceStore,
 } from "./individualCasualtyAssistance";
 import type {
+  IndividualPhysicalOccupancyClass,
+  IndividualPhysicalOccupancyStore,
+} from "./individualPhysicalOccupancy";
+import type {
+  IndividualCollisionResolutionStore,
+} from "./individualCollisionResolution";
+import type {
   IndividualDeathCountStore,
   IndividualDeathCountPauseSource,
   IndividualDeathCountTerminalTransitionRecord,
@@ -601,6 +608,18 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly casualtyProcedureKind?: CasualtyProcedureKind;
   readonly characterLifecycleState?: CharacterLifecycleState;
   readonly playerPresenceState?: PlayerPresenceState;
+  readonly physicalOccupancyClass?: IndividualPhysicalOccupancyClass;
+  readonly personalSpaceRadius?: number;
+  readonly physicalOccupancyAssistanceGroupId?: number;
+  readonly collisionPermittedDeltaX?: number;
+  readonly collisionPermittedDeltaY?: number;
+  readonly collisionResolvedDeltaX?: number;
+  readonly collisionResolvedDeltaY?: number;
+  readonly collisionBlocked?: boolean;
+  readonly collisionReduced?: boolean;
+  readonly collisionRedirected?: boolean;
+  readonly collisionLocalNeighbourCount?: number;
+  readonly collisionLocalCandidateCount?: number;
   readonly deathCountDurationTicks?: number;
   readonly deathCountRemainingTicks?: number;
   readonly deathCountPaused?: boolean;
@@ -950,6 +969,8 @@ export interface CombatSandboxSimulationState {
   readonly individualCasualtyLocalQueryStore: IndividualCasualtyLocalQueryStore;
   readonly individualCasualtyAssistanceStore: IndividualCasualtyAssistanceStore;
   readonly casualtyDragGroupStore: CasualtyDragGroupStore;
+  readonly individualPhysicalOccupancyStore: IndividualPhysicalOccupancyStore;
+  readonly individualCollisionResolutionStore: IndividualCollisionResolutionStore;
   readonly individualDragHandCommitmentStore: IndividualDragHandCommitmentStore;
   readonly individualDefenceHandAvailabilitySource: IndividualDefenceHandAvailabilitySource;
   readonly casualtyDragMovementBuffers: CasualtyDragMovementBuffers;
