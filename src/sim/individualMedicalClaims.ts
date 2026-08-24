@@ -257,6 +257,7 @@ export function advanceIndividualMedicalClaimApproachMovementOneTick(
       "medicalApproach",
       requestedGait,
       requiredSprintTicks,
+      patientId,
     ) ?? requestedGait;
     const gaitCoordinateCeiling = physicalGaitCoordinateCeiling(effectiveGait);
     const finalMaximumStep = gaitCoordinateCeiling === null

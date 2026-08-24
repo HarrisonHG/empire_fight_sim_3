@@ -83,7 +83,7 @@ Named initial thresholds:
 critical-rest enter:       <10%
 critical-rest exit:        >=15%
 voluntary reserve floor:    20%
-voluntary sprint threshold: 80%
+voluntary sprint entry/re-arm threshold: 90%
 voluntary jog threshold:    60%
 ```
 
@@ -107,7 +107,7 @@ When safe:
 
 Voluntary sprint/charge is exceptional:
 
-- only consider it at or above 80%;
+- only enter or re-arm it at or above 90%;
 - only use it for a known nearby destination/contact where the remaining
   distance can plausibly be completed at sprint gait;
 - predicted completion must not take the relevant member/unit below the 20%
@@ -203,10 +203,14 @@ Status: implemented; awaiting human visual acceptance.
   requested urgent casualty/medical movement.
 - Urgent self-propelled specialist sprint requests use their already-selected
   bounded destination and the exertion-adjusted tick-start sprint budget:
-  sprint requires at least 80% energy and enough budget to arrive without
-  crossing the 20% voluntary reserve; otherwise the existing jog/walk
-  capability applies. Routing/panic remains forced and exempt.
+  sprint entry/re-arm requires at least 90% energy and enough budget to arrive
+  without crossing the 20% voluntary reserve. Once begun, the same urgent
+  sprint episode may continue below 90% while that completion proof remains
+  valid. If conservation ends the sprint, continued ordinary movement remains
+  at jog/walk until energy recovers to 90%; it does not chatter back into
+  sprint. Routing/panic remains forced and exempt.
 - The retained energy suite demonstrates full downed recovery near a hostile
-  and contrasts a distant high-energy jog with a close affordable sprint.
+  and contrasts a distant high-energy jog with a stable close sprint burst
+  followed by sustained jog/walk activity.
 
 Milestone 7 remains awaiting human visual acceptance. Do not tune `/` yet.

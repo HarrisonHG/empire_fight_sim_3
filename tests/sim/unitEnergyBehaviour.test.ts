@@ -43,7 +43,7 @@ import {
   UNIT_SAFE_REST_EXIT_RATIO_FIXED_POINT,
   INDIVIDUAL_VOLUNTARY_RESERVE_RATIO_FIXED_POINT,
   UNIT_VOLUNTARY_JOG_RATIO_FIXED_POINT,
-  UNIT_VOLUNTARY_SPRINT_RATIO_FIXED_POINT,
+  UNIT_VOLUNTARY_SPRINT_ENTRY_RATIO_FIXED_POINT,
 } from "../../src/sim/unitEnergyBehaviour";
 import {
   createUnitEnergySummaryStore,
@@ -59,7 +59,7 @@ describe("Milestone 7G unit energy behaviour", () => {
     expect(UNIT_SAFE_REST_EXIT_RATIO_FIXED_POINT).toBe(1_500);
     expect(INDIVIDUAL_VOLUNTARY_RESERVE_RATIO_FIXED_POINT).toBe(2_000);
     expect(UNIT_VOLUNTARY_JOG_RATIO_FIXED_POINT).toBe(6_000);
-    expect(UNIT_VOLUNTARY_SPRINT_RATIO_FIXED_POINT).toBe(8_000);
+    expect(UNIT_VOLUNTARY_SPRINT_ENTRY_RATIO_FIXED_POINT).toBe(9_000);
     expect(deriveUnitEnergyBehaviourRecommendation(null)).toBe("normal");
     expect(deriveUnitEnergyBehaviourRecommendation(999)).toBe("restWhenSafe");
     expect(deriveUnitEnergyBehaviourRecommendation(1_000)).toBe("conserve");
@@ -76,6 +76,7 @@ describe("Milestone 7G unit energy behaviour", () => {
       recommendation: "restWhenSafe",
       resting: true,
       maximumVoluntaryGait: "walking",
+      voluntarySprintEntryAvailable: false,
       affordableSprintTicks: 0,
     });
 
@@ -206,27 +207,29 @@ describe("Milestone 7G unit energy behaviour", () => {
   });
 
   it.each([
-    [19, "walking", false, 0],
-    [20, "walking", true, 0],
-    [59, "walking", true, 0],
-    [60, "jogging", true, 0],
-    [79, "jogging", true, 0],
-    [80, "jogging", true, 3],
+    [19, "walking", false, false, 0],
+    [20, "walking", true, false, 0],
+    [59, "walking", true, false, 1],
+    [60, "jogging", true, false, 2],
+    [89, "jogging", true, false, 3],
+    [90, "jogging", true, true, 3],
   ] as const)(
     "projects exact reserve policy at %i percent",
-    (energy, gait, canAttack, sprintTicks) => {
+    (energy, gait, canAttack, sprintEntry, sprintTicks) => {
       const fixture = createFixture(energy, "advance");
       project(fixture, 0);
       expect(getUnitMaximumVoluntaryGait(fixture.behaviour, 1)).toBe(gait);
       expect(canIndividualInitiateVoluntaryAttack(fixture.behaviour, 0))
         .toBe(canAttack);
+      expect(getUnitEnergyBehaviourInspection(fixture.behaviour, 1)
+        .voluntarySprintEntryAvailable).toBe(sprintEntry);
       expect(getUnitAffordableSprintTicks(fixture.behaviour, 1))
         .toBe(sprintTicks);
     },
   );
 
   it("budgets sprint against authoritative burden-adjusted expenditure", () => {
-    const fixture = createFixture(80, "advance", "heavy");
+    const fixture = createFixture(90, "advance", "heavy");
     project(fixture, 0);
     expect(getUnitAffordableSprintTicks(fixture.behaviour, 1)).toBe(2);
   });

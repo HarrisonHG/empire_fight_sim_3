@@ -129,6 +129,7 @@ export interface IndividualSpecialistPhysicalGaitAdapter {
     authority: IndividualSpecialistMovementAuthority,
     requestedGait: IndividualPhysicalGait,
     requiredSprintTicks: number,
+    sprintEpisodeId: number,
   ): IndividualPhysicalGait;
   constrainPreflightedActiveDragHelperGait(
     entityId: number,

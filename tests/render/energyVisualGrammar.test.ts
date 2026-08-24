@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createEnergyVisualGlyphSpec,
+  ENERGY_VISUAL_ACTIVITY_COLOR,
   ENERGY_VISUAL_COLOR_BY_BAND,
   ENERGY_VISUAL_RING_START_ANGLE,
 } from "../../src/render/energyVisualGrammar";
@@ -38,6 +39,32 @@ describe("energy world glyph grammar", () => {
       energyBand: "winded",
       energyRecoveryAppliedThisTick: 4,
     }).change).toBe("recovery");
+  });
+
+  it("uses the centre indicator for stable actual gait and fallback activity", () => {
+    expect(createEnergyVisualGlyphSpec({
+      currentEnergy: 90,
+      maximumEnergy: 100,
+      energyBand: "fresh",
+      energyActualPhysicalGait: "sprinting",
+      energyExpenditureAppliedThisTick: 20,
+    })).toMatchObject({
+      activity: "sprinting",
+      activityColor: ENERGY_VISUAL_ACTIVITY_COLOR.sprinting,
+    });
+    expect(createEnergyVisualGlyphSpec({
+      currentEnergy: 89,
+      maximumEnergy: 100,
+      energyBand: "fresh",
+      energyActualPhysicalGait: "jogging",
+      energyExpenditureAppliedThisTick: 4,
+    }).activity).toBe("jogging");
+    expect(createEnergyVisualGlyphSpec({
+      currentEnergy: 50,
+      maximumEnergy: 100,
+      energyBand: "working",
+      energyRecoveryAppliedThisTick: 1,
+    }).activity).toBe("recovery");
   });
 
   it("hides absent or invalid evidence instead of inventing visual state", () => {

@@ -31,7 +31,7 @@ import {
   type IndividualEnergyStore,
   type TrustedIndividualEnergyProfileStore,
   INDIVIDUAL_VOLUNTARY_RESERVE_RATIO_FIXED_POINT,
-  INDIVIDUAL_VOLUNTARY_SPRINT_RATIO_FIXED_POINT,
+  INDIVIDUAL_VOLUNTARY_SPRINT_ENTRY_RATIO_FIXED_POINT,
 } from "./individualEnergy";
 import {
   assertIndividualEnergyCapabilityProjectionTick,
@@ -521,6 +521,10 @@ interface InternalSpecialistPhysicalGaitAdapter {
   readonly pendingSourceByEntity: Int8Array;
   readonly pendingRequestedGaitByEntity: Uint8Array;
   readonly pendingEffectiveGaitByEntity: Uint8Array;
+  readonly voluntarySprintSourceByEntity: Int8Array;
+  readonly voluntarySprintEpisodeIdByEntity: Float64Array;
+  readonly voluntarySprintLastTickByEntity: Float64Array;
+  readonly pendingSprintEpisodeIdByEntity: Float64Array;
   acceptedProjectionTick: number | null;
 }
 
@@ -543,9 +547,17 @@ export function createIndividualSpecialistPhysicalGaitAdapter(
     pendingSourceByEntity: new Int8Array(activity.entityCount),
     pendingRequestedGaitByEntity: new Uint8Array(activity.entityCount),
     pendingEffectiveGaitByEntity: new Uint8Array(activity.entityCount),
+    voluntarySprintSourceByEntity: new Int8Array(activity.entityCount),
+    voluntarySprintEpisodeIdByEntity: new Float64Array(activity.entityCount),
+    voluntarySprintLastTickByEntity: new Float64Array(activity.entityCount),
+    pendingSprintEpisodeIdByEntity: new Float64Array(activity.entityCount),
     acceptedProjectionTick: null,
   };
   internal.pendingSourceByEntity.fill(-1);
+  internal.voluntarySprintSourceByEntity.fill(-1);
+  internal.voluntarySprintEpisodeIdByEntity.fill(-1);
+  internal.voluntarySprintLastTickByEntity.fill(-1);
+  internal.pendingSprintEpisodeIdByEntity.fill(-1);
   let adapter: IndividualSpecialistPhysicalGaitAdapter;
   adapter = Object.freeze({
     entityCount: activity.entityCount,
@@ -562,12 +574,14 @@ export function createIndividualSpecialistPhysicalGaitAdapter(
       authority: IndividualSpecialistMovementAuthority,
       requestedGait: IndividualPhysicalGait,
       requiredSprintTicks: number,
+      sprintEpisodeId: number,
     ) => preflightSpecialistMovement(
       adapter,
       entityId,
       authority,
       requestedGait,
       requiredSprintTicks,
+      sprintEpisodeId,
     ),
     constrainPreflightedActiveDragHelperGait: (
       entityId: number,
@@ -601,6 +615,7 @@ export function createIndividualSpecialistPhysicalGaitAdapter(
         "respawnEgress",
         "walking",
         0,
+        -1,
       ),
     completeRespawnEgressMovement: (
       entityId: number,
@@ -622,6 +637,7 @@ export function createIndividualSpecialistPhysicalGaitAdapter(
         "draggedPatient",
         "stationary",
         0,
+        -1,
       ),
     completeDraggedPatientMovement: (
       entityId: number,
@@ -743,6 +759,7 @@ function preflightSpecialistMovement(
   source: IndividualSpecialistMovementAuthority | "respawnEgress" | "draggedPatient",
   requestedGait: IndividualPhysicalGait,
   requiredSprintTicks: number,
+  sprintEpisodeId: number,
 ): IndividualPhysicalGait {
   const adapterInternal = validateSpecialistAdapterCurrentTick(adapter);
   const activity = requireStore(adapterInternal.activity);
@@ -750,6 +767,12 @@ function preflightSpecialistMovement(
   if (!Number.isSafeInteger(requiredSprintTicks) || requiredSprintTicks < 0) {
     throw new RangeError(
       "Specialist gait required sprint ticks must be a non-negative safe integer.",
+    );
+  }
+  if (!Number.isSafeInteger(sprintEpisodeId) || sprintEpisodeId < -1 ||
+      (requestedGait === "sprinting" && sprintEpisodeId < 0)) {
+    throw new RangeError(
+      "Specialist sprint episode ID must identify every sprint request.",
     );
   }
   if (adapterInternal.pendingSourceByEntity[entityId] !== -1) {
@@ -769,21 +792,36 @@ function preflightSpecialistMovement(
           adapterInternal.capabilities,
           entityId,
         );
-  const voluntaryMaximumGait = requestedGait === "sprinting" &&
-      source !== "respawnEgress" && source !== "draggedPatient" &&
-      !canAffordSpecialistSprintToDestination(
-        adapterInternal,
-        entityId,
-        requiredSprintTicks,
-      )
-    ? clampPhysicalGait(maximumGait, "jogging")
-    : maximumGait;
+  const continuingSprint = requestedGait === "sprinting" &&
+    adapterInternal.voluntarySprintLastTickByEntity[entityId] ===
+      adapterInternal.acceptedProjectionTick! - 1 &&
+    adapterInternal.voluntarySprintSourceByEntity[entityId] === sourceIndex &&
+    adapterInternal.voluntarySprintEpisodeIdByEntity[entityId] ===
+      sprintEpisodeId;
+  const sprintAffordable = requestedGait === "sprinting" &&
+    canAffordSpecialistSprintToDestination(
+      adapterInternal,
+      entityId,
+      requiredSprintTicks,
+    );
+  const sprintEntryAvailable = getIndividualEnergyRatioFixedPoint(
+    adapterInternal.energy,
+    entityId,
+  ) >= INDIVIDUAL_VOLUNTARY_SPRINT_ENTRY_RATIO_FIXED_POINT;
+  const voluntaryMaximumGait = sprintAffordable &&
+      (continuingSprint || sprintEntryAvailable) &&
+      maximumGait !== "stationary"
+    ? "sprinting"
+    : requestedGait === "sprinting"
+      ? clampPhysicalGait(maximumGait, "jogging")
+      : maximumGait;
   const effectiveGait = clampPhysicalGait(requestedGait, voluntaryMaximumGait);
   adapterInternal.pendingSourceByEntity[entityId] = sourceIndex;
   adapterInternal.pendingRequestedGaitByEntity[entityId] =
     INTENSITIES.indexOf(requestedGait);
   adapterInternal.pendingEffectiveGaitByEntity[entityId] =
     INTENSITIES.indexOf(effectiveGait);
+  adapterInternal.pendingSprintEpisodeIdByEntity[entityId] = sprintEpisodeId;
   return effectiveGait;
 }
 
@@ -792,8 +830,6 @@ function canAffordSpecialistSprintToDestination(
   entityId: number,
   requiredSprintTicks: number,
 ): boolean {
-  if (getIndividualEnergyRatioFixedPoint(internal.energy, entityId) <
-      INDIVIDUAL_VOLUNTARY_SPRINT_RATIO_FIXED_POINT) return false;
   const maximum = getIndividualMaximumEnergy(internal.energy, entityId);
   const reserve = Math.ceil(
     maximum * INDIVIDUAL_VOLUNTARY_RESERVE_RATIO_FIXED_POINT /
@@ -842,6 +878,8 @@ function completeSpecialistMovement(
   const effectiveGait = INTENSITIES[
     adapterInternal.pendingEffectiveGaitByEntity[entityId]!
   ]!;
+  const sprintEpisodeId =
+    adapterInternal.pendingSprintEpisodeIdByEntity[entityId]!;
   activity.movementAuthorityMaskByEntity[entityId] =
     activity.movementAuthorityMaskByEntity[entityId]! | AUTHORITY_BITS[source];
   if (external) activity.externallyMovedByEntity[entityId] = 1;
@@ -854,7 +892,23 @@ function completeSpecialistMovement(
     effectiveGait,
     actualGaitWhenDisplaced,
   );
+  if (
+    requestedGait === "sprinting" &&
+    effectiveGait === "sprinting" &&
+    actualGaitWhenDisplaced === "sprinting" &&
+    producedDisplacement
+  ) {
+    adapterInternal.voluntarySprintSourceByEntity[entityId] = sourceIndex;
+    adapterInternal.voluntarySprintEpisodeIdByEntity[entityId] = sprintEpisodeId;
+    adapterInternal.voluntarySprintLastTickByEntity[entityId] =
+      adapterInternal.acceptedProjectionTick!;
+  } else {
+    adapterInternal.voluntarySprintSourceByEntity[entityId] = -1;
+    adapterInternal.voluntarySprintEpisodeIdByEntity[entityId] = -1;
+    adapterInternal.voluntarySprintLastTickByEntity[entityId] = -1;
+  }
   adapterInternal.pendingSourceByEntity[entityId] = -1;
+  adapterInternal.pendingSprintEpisodeIdByEntity[entityId] = -1;
 }
 
 function constrainPreflightedActiveDragHelperGait(

@@ -31,7 +31,7 @@ const CHAMBER_LABELS = Object.freeze([
   "Full downed recovery and zero-surcharge drag",
   "Fresh versus tired combat recovery",
   "Safe rest versus hostile staredown",
-  "Rest → walk → jog → close sprint",
+  "Rest → walk → jog → stable sprint burst",
   "Barbarian downed, egress and waiting",
 ] as const);
 
@@ -61,7 +61,7 @@ export const ENERGY_EXERTION_VISUAL_CHAMBERS: readonly EnergyExertionVisualChamb
 
 export const ENERGY_EXERTION_VISUAL_LEGEND_LINES = Object.freeze([
   "Energy arc: cyan fresh · green working · amber winded · red spent; the missing arc is expended capacity.",
-  "Centre pip: white expenditure · blue recovery · grey stationary/no change. Detailed numeric evidence is in the hideable Individuals table.",
+  "Centre gait/activity pip: pink sprint · white jog · pale blue walk · blue recovery · amber other exertion · grey stationary. Detailed numeric evidence is in the hideable Individuals table.",
   "Movement requests remain production walking, jogging and sprinting; gait capability may reduce the effective and actual gait.",
   "Fixture-only energy capacities and recovery values shorten observation time. Production expenditure and recovery rules are unchanged.",
 ] as const);
@@ -75,7 +75,7 @@ export const ENERGY_EXERTION_EXPECTED_TIMELINE = Object.freeze([
   "6 · the downed patient receives their full safe-rest recovery despite the nearby hostile, then remains externally moved without personal movement expenditure; helpers pay ordinary gait cost with zero drag surcharge.",
   "7 · otherwise-identical fresh and tired pairs both fight above reserve; compare attack count, attack recovery, guard recovery and readiness over the same window.",
   "8 · the isolated fighter recovers; the otherwise-equal staredown remains constrained by nearby hostile threat.",
-  "9 · four staged guides show critical rest, walking recovery, sustained jog and an affordable close sprint; the resting guide later resumes its unchanged cautious advance.",
+  "9 · four staged guides show critical rest, walking recovery, sustained jog and one stable affordable sprint burst that falls back to sustained jog without threshold chatter; the resting guide later resumes its unchanged cautious advance.",
   "10 · one continuous energy value recovers while downed, pays walking during egress, then recovers while waiting without revival.",
 ] as const);
 
@@ -207,13 +207,17 @@ export const ENERGY_EXERTION_VISUAL_SCENARIO: SimulationScenario = Object.freeze
       mover(903, 16, 9, -40, 24, "3 High-energy distant jog", "sprinting", {
         energyProfile: energy(1_200, 1_080, 0),
       }),
-      mover(904, 16, 9, 100, 72, "4 Affordable close sprint", "sprinting", {
-        energyProfile: energy(1_200, 1_080, 0),
+      mover(904, 16, 9, 100, 72, "4 Stable sprint then jog", "sprinting", {
+        energyProfile: energy(160, 144, 0),
         headingX: 1,
         headingY: 0,
         spacing: 10,
       }),
-      unit(905, 17, 9, 116, 72, "Close sprint target", {
+      mover(905, 17, 9, 116, 72, "Moving sprint target", "walking", {
+        unitSpeed: 1,
+        memberMaxStep: 1,
+        headingX: 1,
+        headingY: 0,
         weaponCategory: "unarmed",
         weaponReachBand: "none",
         spacing: 10,

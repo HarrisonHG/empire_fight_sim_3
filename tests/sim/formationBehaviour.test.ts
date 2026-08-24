@@ -598,6 +598,7 @@ describe("formation behaviour: physical gait authority", () => {
         isUnitResting: () => false,
         getMaximumVoluntaryGait: (unitId: number) =>
           unitId === 1 ? maximumVoluntaryGait : "stationary" as const,
+        canInitiateVoluntarySprint: (unitId: number) => unitId === 1,
         getAffordableSprintTicks: (unitId: number) =>
           unitId === 1 ? affordableSprintTicks : 0,
       };
@@ -614,6 +615,51 @@ describe("formation behaviour: physical gait authority", () => {
     expect(run("jogging", 100, "allied")).toBe("jogging");
     expect(run("jogging", 2, "hostile")).toBe("jogging");
     expect(run("jogging", 3, "hostile")).toBe("sprinting");
+  });
+
+  it("keeps one affordable contact sprint episode armed without threshold chatter", () => {
+    const harness = createBlockerHarness({
+      relationship: "hostile",
+      sourceUnitSpeed: 4,
+      sourceMemberMaxStep: 4,
+    });
+    let tick = 7;
+    let sprintEntryAvailable = true;
+    let affordableSprintTicks = 3;
+    let maximumVoluntaryGait: IndividualPhysicalGait = "jogging";
+    const rest = {
+      entityCount: 2,
+      unitCount: 2,
+      get projectionTick() { return tick; },
+      isUnitResting: () => false,
+      getMaximumVoluntaryGait: (unitId: number) =>
+        unitId === 1 ? maximumVoluntaryGait : "stationary" as const,
+      canInitiateVoluntarySprint: (unitId: number) =>
+        unitId === 1 && sprintEntryAvailable,
+      getAffordableSprintTicks: (unitId: number) =>
+        unitId === 1 ? affordableSprintTicks : 0,
+    };
+    const advance = () => {
+      advanceFormationOneTick(
+        harness.world, harness.identity, harness.store, undefined, undefined,
+        undefined, undefined, undefined, { tick, rest },
+      );
+      const gait = getIndividualRequestedPhysicalGait(harness.store, 0);
+      tick += 1;
+      return gait;
+    };
+
+    expect(advance()).toBe("sprinting");
+    sprintEntryAvailable = false;
+    maximumVoluntaryGait = "walking";
+    affordableSprintTicks = 100;
+    expect(advance()).toBe("sprinting");
+    affordableSprintTicks = 0;
+    expect(advance()).toBe("walking");
+    affordableSprintTicks = 100;
+    expect(advance()).toBe("walking");
+    sprintEntryAvailable = true;
+    expect(advance()).toBe("sprinting");
   });
 
   it("applies a caller ceiling without allowing it to increase configured movement", () => {

@@ -14,6 +14,22 @@ export const ENERGY_VISUAL_COLOR_BY_BAND = Object.freeze({
 } satisfies Readonly<Record<IndividualEnergyBand, number>>);
 
 export type EnergyVisualChange = "expenditure" | "recovery" | "stationary";
+export type EnergyVisualActivity =
+  | "sprinting"
+  | "jogging"
+  | "walking"
+  | "recovery"
+  | "exertion"
+  | "stationary";
+
+export const ENERGY_VISUAL_ACTIVITY_COLOR = Object.freeze({
+  sprinting: 0xf4_72_b6,
+  jogging: 0xf8_fa_fc,
+  walking: 0x93_c5_fd,
+  recovery: 0x60_a5_fa,
+  exertion: 0xff_c8_57,
+  stationary: 0x64_74_8b,
+} satisfies Readonly<Record<EnergyVisualActivity, number>>);
 
 export interface EnergyVisualGlyphSpec {
   readonly visible: boolean;
@@ -24,6 +40,8 @@ export interface EnergyVisualGlyphSpec {
   readonly endAngle: number;
   readonly change: EnergyVisualChange;
   readonly changeColor: number;
+  readonly activity: EnergyVisualActivity;
+  readonly activityColor: number;
 }
 
 export function createEnergyVisualGlyphSpec(
@@ -34,6 +52,7 @@ export function createEnergyVisualGlyphSpec(
     | "energyBand"
     | "energyExpenditureAppliedThisTick"
     | "energyRecoveryAppliedThisTick"
+    | "energyActualPhysicalGait"
   >,
 ): EnergyVisualGlyphSpec {
   const maximum = individual.maximumEnergy;
@@ -54,6 +73,15 @@ export function createEnergyVisualGlyphSpec(
     : recovery > 0
       ? "recovery"
       : "stationary";
+  const actualGait = individual.energyActualPhysicalGait;
+  const activity: EnergyVisualActivity = actualGait === "sprinting" ||
+      actualGait === "jogging" || actualGait === "walking"
+    ? actualGait
+    : recovery > 0
+      ? "recovery"
+      : expenditure > 0
+        ? "exertion"
+        : "stationary";
   return Object.freeze({
     visible: true,
     ratio,
@@ -67,6 +95,8 @@ export function createEnergyVisualGlyphSpec(
       : change === "recovery"
         ? 0x60_a5_fa
         : 0x64_74_8b,
+    activity,
+    activityColor: ENERGY_VISUAL_ACTIVITY_COLOR[activity],
   });
 }
 
@@ -80,5 +110,7 @@ function hiddenSpec(): EnergyVisualGlyphSpec {
     endAngle: ENERGY_VISUAL_RING_START_ANGLE,
     change: "stationary" as const,
     changeColor: 0x64_74_8b,
+    activity: "stationary" as const,
+    activityColor: ENERGY_VISUAL_ACTIVITY_COLOR.stationary,
   });
 }

@@ -91,6 +91,7 @@ export interface FormationEnergyRestSource {
   readonly projectionTick: number | null;
   isUnitResting(unitId: UnitId): boolean;
   getMaximumVoluntaryGait(unitId: UnitId): IndividualPhysicalGait;
+  canInitiateVoluntarySprint(unitId: UnitId): boolean;
   getAffordableSprintTicks(unitId: UnitId): number;
 }
 
@@ -259,6 +260,8 @@ interface InternalFormationBehaviourStore extends FormationBehaviourStore {
   readonly postEnergyAnchorStep: Int32Array;
   readonly anchorMovementReducedByEnergy: Uint8Array;
   readonly anchorEnergyPolicyApplied: Uint8Array;
+  readonly voluntarySprintTargetUnitId: Int32Array;
+  readonly voluntarySprintLastTick: Float64Array;
 
   readonly roles: IndividualRole[];
   readonly slotRow: Int32Array;
@@ -408,6 +411,8 @@ export function createFormationBehaviourStore(
     postEnergyAnchorStep: new Int32Array(unitCount),
     anchorMovementReducedByEnergy: new Uint8Array(unitCount),
     anchorEnergyPolicyApplied: new Uint8Array(unitCount),
+    voluntarySprintTargetUnitId: new Int32Array(unitCount),
+    voluntarySprintLastTick: new Float64Array(unitCount),
     roles: new Array<IndividualRole>(config.entityCount).fill("regular"),
     slotRow: new Int32Array(config.entityCount),
     slotCol: new Int32Array(config.entityCount),
@@ -456,6 +461,8 @@ export function createFormationBehaviourStore(
   };
   store.activeBlockerUnitId.fill(NO_ACTIVE_BLOCKER_UNIT_ID);
   store.activeBlockerDistance.fill(NO_ACTIVE_BLOCKER_DISTANCE);
+  store.voluntarySprintTargetUnitId.fill(NO_ACTIVE_BLOCKER_UNIT_ID);
+  store.voluntarySprintLastTick.fill(-1);
 
   for (let index = 0; index < unitCount; index += 1) {
     const unitId = unitIdList[index]!;
@@ -1121,6 +1128,7 @@ function processUnit(
   const order: UnitOrder =
     moraleMovementState === "recovering" ? "hold" : storedOrder;
   if (!hasFormationParticipant(unitMembers, lifecycleStore, ordinaryParticipation)) {
+    endVoluntaryUnitSprintEpisode(store, unitIndex);
     store.requestedUnitPhysicalGait[unitIndex] = moraleMovementState === "routing"
       ? "sprinting"
       : order === "hold"
@@ -1145,6 +1153,7 @@ function processUnit(
     moraleMovementState !== "routing" &&
     energyRestContext?.rest.isUnitResting(unitId) === true
   ) {
+    endVoluntaryUnitSprintEpisode(store, unitIndex);
     store.requestedUnitPhysicalGait[unitIndex] = "stationary";
     store.effectiveAnchorPhysicalGait[unitIndex] = "stationary";
     store.anchorEnergyPolicyApplied[unitIndex] = 1;
@@ -1178,6 +1187,7 @@ function processUnit(
   const centerCol = Math.floor(cols / 2);
   const isAdvancing = order === "advance" || order === "advanceCautious";
   if (moraleMovementState === "routing") {
+    endVoluntaryUnitSprintEpisode(store, unitIndex);
     processRoutingUnit(
       world,
       identityStore,
@@ -1211,15 +1221,17 @@ function processUnit(
     events.push({ kind: "unit_movement_choice", unitId, style });
   }
 
-  const voluntaryPhysicalGait = selectVoluntaryUnitPhysicalGait(
-    identityStore,
-    store,
-    unitId,
-    unitIndex,
-    style,
-    unitSpeed,
-    energyRestContext?.rest,
-  );
+  const voluntaryPhysicalGait = order === "hold"
+    ? endVoluntaryUnitSprintEpisode(store, unitIndex)
+    : selectVoluntaryUnitPhysicalGait(
+        identityStore,
+        store,
+        unitId,
+        unitIndex,
+        style,
+        unitSpeed,
+        energyRestContext?.rest,
+      );
   const requestedUnitPhysicalGait = order === "hold"
     ? "stationary"
     : voluntaryPhysicalGait;
@@ -1235,6 +1247,9 @@ function processUnit(
     lifecycleStore,
     ordinaryParticipation,
     energyGaitContext,
+    voluntaryPhysicalGait === "sprinting" &&
+      energyRestContext !== undefined &&
+      store.voluntarySprintLastTick[unitIndex] === energyRestContext.tick,
   );
   const anchorMovementScale = anchorMovementScaleForMorale(
     moraleMovementState,
@@ -1637,15 +1652,20 @@ function selectVoluntaryUnitPhysicalGait(
   energyPolicy: FormationEnergyRestSource | undefined,
 ): IndividualPhysicalGait {
   const configured = store.ordinaryPhysicalGait[unitIndex]!;
-  if (energyPolicy === undefined || style === "giveGround") return configured;
+  if (energyPolicy === undefined || style === "giveGround") {
+    endVoluntaryUnitSprintEpisode(store, unitIndex);
+    return configured;
+  }
   const maximumVoluntary = energyPolicy.getMaximumVoluntaryGait(unitId);
   const bounded = clampPhysicalGait(configured, maximumVoluntary);
   if (
     configured !== "sprinting" ||
-    maximumVoluntary !== "jogging" ||
     !isHostileContactMovementStyle(style) ||
     unitSpeed <= 0
-  ) return bounded;
+  ) {
+    endVoluntaryUnitSprintEpisode(store, unitIndex);
+    return bounded;
+  }
 
   const blockerUnitId = store.activeBlockerUnitId[unitIndex]!;
   const distance = store.activeBlockerDistance[unitIndex]!;
@@ -1654,11 +1674,38 @@ function selectVoluntaryUnitPhysicalGait(
     distance <= 0 ||
     getFactionIdForUnit(identityStore, blockerUnitId) ===
       getFactionIdForUnit(identityStore, unitId)
-  ) return bounded;
+  ) {
+    endVoluntaryUnitSprintEpisode(store, unitIndex);
+    return bounded;
+  }
   const requiredTicks = Math.ceil(distance / unitSpeed);
-  return requiredTicks <= energyPolicy.getAffordableSprintTicks(unitId)
-    ? "sprinting"
-    : bounded;
+  const projectionTick = energyPolicy.projectionTick;
+  if (projectionTick === null) {
+    endVoluntaryUnitSprintEpisode(store, unitIndex);
+    return bounded;
+  }
+  const continuing =
+    store.voluntarySprintLastTick[unitIndex] === projectionTick - 1 &&
+    store.voluntarySprintTargetUnitId[unitIndex] === blockerUnitId;
+  if (
+    requiredTicks <= energyPolicy.getAffordableSprintTicks(unitId) &&
+    (continuing || energyPolicy.canInitiateVoluntarySprint(unitId))
+  ) {
+    store.voluntarySprintTargetUnitId[unitIndex] = blockerUnitId;
+    store.voluntarySprintLastTick[unitIndex] = projectionTick;
+    return "sprinting";
+  }
+  endVoluntaryUnitSprintEpisode(store, unitIndex);
+  return bounded;
+}
+
+function endVoluntaryUnitSprintEpisode(
+  store: InternalFormationBehaviourStore,
+  unitIndex: number,
+): "stationary" {
+  store.voluntarySprintTargetUnitId[unitIndex] = NO_ACTIVE_BLOCKER_UNIT_ID;
+  store.voluntarySprintLastTick[unitIndex] = -1;
+  return "stationary";
 }
 
 function resetEnergyMovementDiagnostics(
@@ -1691,6 +1738,7 @@ function projectOrdinaryUnitPhysicalGaits(
   lifecycleStore: IndividualCasualtyLifecycleStore | undefined,
   ordinaryParticipation: IndividualOrdinaryParticipationSnapshot | undefined,
   energyGaitContext: FormationEnergyGaitTickContext | undefined,
+  preserveAffordableSprintEpisode: boolean,
 ): void {
   let stationaryCount = 0;
   let walkingCount = 0;
@@ -1708,12 +1756,14 @@ function projectOrdinaryUnitPhysicalGaits(
     }
 
     store.requestedPhysicalGait[entityId] = requestedMemberPhysicalGait;
-    const effectivePhysicalGait = effectiveGaitFor(
-      requestedMemberPhysicalGait,
-      entityId,
-      false,
-      energyGaitContext,
-    );
+    const effectivePhysicalGait = preserveAffordableSprintEpisode
+      ? requestedMemberPhysicalGait
+      : effectiveGaitFor(
+          requestedMemberPhysicalGait,
+          entityId,
+          false,
+          energyGaitContext,
+        );
     store.effectivePhysicalGait[entityId] = effectivePhysicalGait;
     if (effectivePhysicalGait === "stationary") stationaryCount += 1;
     else if (effectivePhysicalGait === "walking") walkingCount += 1;

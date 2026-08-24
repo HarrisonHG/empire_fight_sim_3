@@ -737,6 +737,7 @@ export function advanceCasualtyDragGroupsBeforeCombat(
             "casualtyGathering",
             requestedGait,
             requiredSprintTicks,
+            group.groupId,
           ) ?? requestedGait;
           const gaitCoordinateCeiling = physicalGaitCoordinateCeiling(
             effectiveGait,
@@ -811,6 +812,7 @@ export function advanceCasualtyDragGroupsBeforeCombat(
           "activeDragHelper",
           requestedGroupGait,
           requiredSprintTicks,
+          group.groupId,
         ) ?? requestedGroupGait;
         groupEffectiveGait = clampPhysicalGait(
           groupEffectiveGait,

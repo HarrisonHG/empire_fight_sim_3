@@ -151,8 +151,16 @@ describe("Milestone 7I retained energy visual scenario", () => {
       "stationary", "walking", "jogging", "sprinting",
     ]);
     expect(trace.stagedInitialEnergyRatios).toEqual([
-      550, 3_000, 8_966, 8_833,
+      550, 3_000, 8_966, 7_750,
     ]);
+    expect(trace.chamber9CentreGaitRuns.slice(0, 3)).toEqual([
+      { gait: "sprinting", ticks: 2 },
+      { gait: "jogging", ticks: 3 },
+      { gait: "walking", ticks: 8 },
+    ]);
+    expect(trace.chamber9CentreGaitRuns.slice(1).some(
+      (run) => run.gait === "sprinting",
+    )).toBe(false);
     expect(trace.egressMovementTicks).toBeGreaterThan(0);
     expect(trace.waitingTicks).toBeGreaterThan(0);
     expect(trace.barbarianLifecycle).toBe("terminal");
@@ -209,9 +217,18 @@ function runTrace() {
   let maximumSprintTickCost = 0;
   let lightFirstWalkingTick: number | null = null;
   let heavyFirstWalkingTick: number | null = null;
+  const chamber9CentreGaitRuns: Array<{ gait: string; ticks: number }> = [];
   for (let tick = 0; tick < ENERGY_EXERTION_RECOMMENDED_END_TICK; tick += 1) {
     advanceSimulationOneTick(simulation);
     const snapshot = createPositionSnapshot(simulation);
+    const chamber9CentreGait =
+      inspected(snapshot, 26).energyActualPhysicalGait ?? "stationary";
+    const previousChamber9Run = chamber9CentreGaitRuns.at(-1);
+    if (previousChamber9Run?.gait === chamber9CentreGait) {
+      previousChamber9Run.ticks += 1;
+    } else {
+      chamber9CentreGaitRuns.push({ gait: chamber9CentreGait, ticks: 1 });
+    }
     maximumJogTickCost = Math.max(
       maximumJogTickCost,
       inspected(snapshot, 2).energyMovementBaseExpenditureThisTick ?? 0,
@@ -368,6 +385,7 @@ function runTrace() {
     reengagedAfterRest,
     stagedInitialGaits,
     stagedInitialEnergyRatios,
+    chamber9CentreGaitRuns,
     egressMovementTicks,
     waitingTicks,
     barbarianLifecycle: finalById(28).characterLifecycleState,

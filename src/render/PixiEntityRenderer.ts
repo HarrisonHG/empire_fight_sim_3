@@ -879,7 +879,7 @@ function drawEnergyGlyph(
   if (spec.ratio > 0) {
     graphics.stroke({ color: spec.color, width: 2, alpha: 0.95 });
   }
-  graphics.circle(0, 0, 1.5).fill({ color: spec.changeColor, alpha: 0.95 });
+  graphics.circle(0, 0, 1.5).fill({ color: spec.activityColor, alpha: 0.95 });
 }
 
 function drawCasualtyLifecycleGlyph(

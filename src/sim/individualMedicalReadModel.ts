@@ -728,6 +728,9 @@ export function advanceIndividualTraumaWithdrawalMovementOneTick(
       "traumaWithdrawal",
       requestedGait,
       requiredSprintTicks,
+      internal.withdrawalTargetPhysickByEntity[entityId]! >= 0
+        ? internal.withdrawalTargetPhysickByEntity[entityId]!
+        : entityId,
     ) ?? requestedGait;
     const gaitCoordinateCeiling = physicalGaitCoordinateCeiling(effectiveGait);
     const finalMaximumStep = gaitCoordinateCeiling === null

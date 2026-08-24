@@ -292,7 +292,7 @@ describe("specialist gait boundary structural performance", () => {
       for (let entityId = 0; entityId < specialistCount; entityId += 1) {
         const authority = authorities[entityId % authorities.length]!;
         const effectiveGait = adapter.preflightActiveSpecialistMovement(
-          entityId, authority, "sprinting", 1,
+          entityId, authority, "sprinting", 1, entityId,
         );
         const ceiling = physicalGaitCoordinateCeiling(effectiveGait);
         const appliedStep = ceiling ?? 4;
