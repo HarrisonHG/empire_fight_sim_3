@@ -97,7 +97,9 @@ export class MetricsPanel {
           `${personalSpaceDebug.reducedCount} reduced · ` +
           `${personalSpaceDebug.redirectedCount} redirected · ` +
           `${personalSpaceDebug.downedSoftCrossingCount} soft crossings · ` +
-          `${personalSpaceDebug.yieldingEgressYieldCount} egress yields`;
+          `${personalSpaceDebug.yieldingEgressYieldCount} egress yields · ` +
+          `${personalSpaceDebug.courtesyYieldCount} courtesy · ` +
+          `${personalSpaceDebug.overtakingCount} overtaking`;
         this.combatEventLogValue.textContent =
           `${personalSpaceDebug.detourStrategyChangeCount} detour changes · ` +
           `${personalSpaceDebug.fallbackResetCount} conservative fallback resets`;

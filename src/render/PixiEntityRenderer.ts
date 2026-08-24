@@ -555,7 +555,12 @@ export class PixiEntityRenderer {
       debug.resolutionFlags.length !== entityOrder.length ||
       debug.detourPhaseCodes.length !== entityOrder.length ||
       debug.detourSideByEntity.length !== entityOrder.length ||
-      debug.detourTicksRemaining.length !== entityOrder.length
+      debug.detourTicksRemaining.length !== entityOrder.length ||
+      debug.courtesyBlockerByEntity.length !== entityOrder.length ||
+      debug.courtesyTicksRemaining.length !== entityOrder.length ||
+      debug.overtakeLeaderByEntity.length !== entityOrder.length ||
+      debug.overtakeSideByEntity.length !== entityOrder.length ||
+      debug.overtakeClearanceByEntity.length !== entityOrder.length
     ) throw new Error("Personal-space debug snapshot has invalid array lengths.");
 
     const activeEntityIds = new Set<number>();
@@ -997,15 +1002,19 @@ function drawPersonalSpaceGlyph(
         alpha: 0.95,
       });
   }
-  const stateColor = spec.blocked
-    ? PERSONAL_SPACE_VISUAL_COLOR.blocked
-    : spec.downedSoftCrossing || spec.reduced
-      ? PERSONAL_SPACE_VISUAL_COLOR.reduced
-      : spec.redirected || spec.yieldingEgressYield
-      ? PERSONAL_SPACE_VISUAL_COLOR.redirected
-        : spec.detourActive
-          ? PERSONAL_SPACE_VISUAL_COLOR.detour
-          : undefined;
+  const stateColor = spec.courtesyYieldActive
+    ? PERSONAL_SPACE_VISUAL_COLOR.courtesy
+    : spec.overtakingActive
+      ? PERSONAL_SPACE_VISUAL_COLOR.overtaking
+      : spec.blocked
+        ? PERSONAL_SPACE_VISUAL_COLOR.blocked
+        : spec.downedSoftCrossing || spec.reduced
+          ? PERSONAL_SPACE_VISUAL_COLOR.reduced
+          : spec.redirected || spec.yieldingEgressYield
+            ? PERSONAL_SPACE_VISUAL_COLOR.redirected
+            : spec.detourActive
+              ? PERSONAL_SPACE_VISUAL_COLOR.detour
+              : undefined;
   if (stateColor !== undefined) {
     graphics.circle(0, 0, 1.25).fill({ color: stateColor, alpha: 0.95 });
   }

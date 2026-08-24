@@ -29,6 +29,12 @@ describe("Milestone 8A personal-space debug grammar", () => {
       detourActive: true,
       detourPhase: 1,
       detourTicksRemaining: 32,
+      courtesyYieldActive: false,
+      courtesyBlockerId: -1,
+      courtesyTicksRemaining: 0,
+      overtakingActive: false,
+      overtakeLeaderId: -1,
+      overtakeSide: 0,
     });
     expect(createPersonalSpaceVisualGlyphSpec(debug, 1)).toMatchObject({
       radius: 5,
@@ -60,6 +66,8 @@ function fixture(): PersonalSpaceSpikeDebugSnapshot {
     downedSoftCrossingCount: 0,
     yieldingEgressYieldCount: 0,
     detourStrategyChangeCount: 1,
+    courtesyYieldCount: 0,
+    overtakingCount: 0,
     occupancyClassCodes: new Uint8Array([
       PERSONAL_SPACE_OCCUPANCY_CLASS_CODE.activeStanding,
       PERSONAL_SPACE_OCCUPANCY_CLASS_CODE.downedSoft,
@@ -77,5 +85,10 @@ function fixture(): PersonalSpaceSpikeDebugSnapshot {
     detourPhaseCodes: new Uint8Array([1, 0]),
     detourSideByEntity: new Int8Array([1, 0]),
     detourTicksRemaining: new Uint16Array([32, 0]),
+    courtesyBlockerByEntity: new Int32Array([-1, -1]),
+    courtesyTicksRemaining: new Uint8Array(2),
+    overtakeLeaderByEntity: new Int32Array([-1, -1]),
+    overtakeSideByEntity: new Int8Array(2),
+    overtakeClearanceByEntity: new Uint8Array(2),
   };
 }

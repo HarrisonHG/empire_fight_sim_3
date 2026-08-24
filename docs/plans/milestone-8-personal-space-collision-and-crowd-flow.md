@@ -1,6 +1,6 @@
 # Milestone 8: Personal Space, Collision, and Crowd Flow
 
-Status: Milestone 8A corrected after initial human inspection; awaiting retained-route reinspection.
+Status: Milestone 8A corrected after follow-up human inspection; awaiting retained-route reinspection.
 Milestone 8B and production integration have not started.
 
 Milestone 7 is accepted. This milestone is inserted before command behaviour because the evolving main battle exposed a foundational physical omission: individual player-presence entities can currently occupy/pass through the same space too freely.
@@ -511,7 +511,7 @@ Do not reorder combat/casualty semantics casually. Any orchestration refactor mu
 
 ## 8A — Collision/spacing feasibility spike
 
-Status: corrected after initial human inspection; awaiting human visual reinspection.
+Status: corrected after follow-up human inspection; awaiting human visual reinspection.
 
 Purpose:
 
@@ -608,17 +608,29 @@ changed desire resets its origin and state. A tactic never exposes its opposite
 side within the same phase.
 
 Same-direction allied resolution gives the forward leader right-of-way from
-start-of-tick ordering, so only the rear follower yields. Perpendicular allied
-ties use a deterministic desire-axis ordering in this spike. Assisted movement
-still outranks ordinary standing movement and `yieldingEgress` remains lowest.
-Hostile contact searches only reduced-forward/stationary fallbacks. Downed soft
-occupancy retains early avoidance and permits reduced careful crossing after a
-bounded unsuccessful detour. The final safety fallback expands through only
-the locally connected hard-standing component before restoring its tick-start
-positions; unrelated chambers are not reset.
+start-of-tick ordering, so only the rear follower yields. In open space a
+faster follower commits to one passing side, clears the leader by the combined
+radii plus a one-unit margin, remains laterally clear until safely ahead, and
+then reacquires its original desire line without displacing the leader.
+
+Perpendicular allied conflicts first use a bounded 20-tick pair-local
+prediction. When one mover can wait while the other naturally clears, exactly
+one enters explicit courtesy-yield state; the recipient cannot reciprocate or
+form a courtesy chain. Yield selection compares predicted clearance and lost
+goal progress before using entity ID as the exact final tie-break. There is no
+cardinal-axis right-of-way. An expired or failed courtesy attempt is not reset
+against the same conflict and falls through to the persistent detour policy.
+
+Assisted movement still outranks ordinary standing movement and
+`yieldingEgress` remains lowest. Hostile contact searches only
+reduced-forward/stationary fallbacks. Downed soft occupancy retains early
+avoidance and permits reduced careful crossing after a bounded unsuccessful
+detour. The final safety fallback expands through only the locally connected
+hard-standing component before restoring its tick-start positions; unrelated
+chambers are not reset.
 
 The implementation stores all proposal, candidate, diagnostic, and replay state
-in fixed-size typed arrays. Candidate output is monotonic through a fixed ten
+in fixed-size typed arrays. Candidate output is monotonic through a fixed twelve
 slot entity budget. The spatial grid and caller-owned query output are reused;
 there is no entity-against-all-entities production path or per-candidate result
 object. The spike remains an exclusive sandbox authority and is not reachable
@@ -629,13 +641,15 @@ Headless evidence covers:
 - hostile fronts settling without late position vibration;
 - a southbound allied stream retaining southward progress, bounded lateral
   displacement, and desire-line reacquisition while crossing east/west traffic;
-- a faster rear ally yielding/detouring without slowing or displacing its
-  slower leader;
+- a bounded non-reciprocal courtesy wait plus exact 90-degree rotational
+  equivalence for an otherwise identical allied crossing conflict;
+- a faster rear ally using a committed radius-aware open-space bypass, then
+  reacquiring its desire line without slowing or displacing its slower leader;
 - both avoidance and reduced crossing of downed soft occupancy;
 - respawn egress using bounded sidestep/retreat rather than following a living
   stream sideways, then resuming progress toward respawn;
 - exact 40/100/200-tick tactic commitments and bounded dense-front
-  direction/strategy changes;
+  direction/strategy changes across 1,000 ticks;
 - deterministic replay and reversed-input-order equivalence;
 - world bounds, bounded passes, blocked termination, and zero final standing
   overlap;
@@ -647,14 +661,14 @@ machine (40 measured ticks after 5 warm-up ticks; structural assertions only):
 
 | entities | mean ms/tick | p95 ms/tick | max ms/tick | max passes | max local candidates | unresolved overlaps | fallback resets |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 100 | 0.565 | 1.001 | 1.949 | 2 | 1,943 | 0 | 0 |
-| 500 | 1.781 | 2.196 | 2.967 | 2 | 10,657 | 0 | 0 |
-| 1,000 | 8.105 | 9.029 | 10.543 | 3 | 53,971 | 0 | 2,322 |
-| 2,000 | 16.142 | 16.936 | 17.184 | 3 | 108,930 | 0 | 4,412 |
+| 100 | 0.666 | 1.294 | 2.249 | 2 | 2,370 | 0 | 0 |
+| 500 | 2.048 | 2.268 | 2.337 | 2 | 11,596 | 0 | 0 |
+| 1,000 | 8.269 | 8.985 | 11.331 | 3 | 55,358 | 0 | 2,322 |
+| 2,000 | 16.712 | 17.703 | 18.089 | 3 | 110,445 | 0 | 4,412 |
 
 These values are not production-collision acceptance thresholds. The retained
 121-entity mixed chamber retains zero unresolved standing overlap across the
-360-tick inspection interval. The deliberately extreme 1,000/2,000 compact
+1,000-tick stability interval. The deliberately extreme 1,000/2,000 compact
 front fixtures activate the connected-component safety fallback; this visible
 cost and conservative stall are spike findings, not accepted production policy.
 
@@ -670,8 +684,10 @@ Production-design findings for 8B and later:
 - the connected-component origin fallback guarantees bounded termination but
   is expensive and deliberately over-stalls extreme compact fronts; production
   must not adopt it without replacement or explicit acceptance;
-- retained detour phases prevent tick chatter, though deterministic axis and
-  entity-ID tie-breaks may produce visible directional bias;
+- retained detour phases prevent timer-expiry re-entry chatter. Courtesy and
+  bypass choices are geometry/progress based, with entity ID reserved for exact
+  ties; production integration should still inspect emergent local bias at
+  larger battle scales;
 - 8D must add formation/cohesion-dependent lateral freedom: loose groups may
   spill around a front, while formed or disciplined groups should resist
   lateral peel-off. That behavior is intentionally absent from 8A;

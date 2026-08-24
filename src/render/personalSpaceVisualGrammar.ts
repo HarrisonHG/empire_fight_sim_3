@@ -20,6 +20,12 @@ export interface PersonalSpaceVisualGlyphSpec {
   readonly detourActive: boolean;
   readonly detourPhase: number;
   readonly detourTicksRemaining: number;
+  readonly courtesyYieldActive: boolean;
+  readonly courtesyBlockerId: number;
+  readonly courtesyTicksRemaining: number;
+  readonly overtakingActive: boolean;
+  readonly overtakeLeaderId: number;
+  readonly overtakeSide: number;
 }
 
 export const PERSONAL_SPACE_VISUAL_COLOR = Object.freeze({
@@ -33,6 +39,8 @@ export const PERSONAL_SPACE_VISUAL_COLOR = Object.freeze({
   reduced: 0xf5_b9_42,
   redirected: 0xc0_84_fc,
   detour: 0x60_a5_fa,
+  courtesy: 0xf9_a8_d4,
+  overtaking: 0x2d_d4_bf,
 } as const);
 
 export function createPersonalSpaceVisualGlyphSpec(
@@ -69,6 +77,14 @@ export function createPersonalSpaceVisualGlyphSpec(
       (flags & PERSONAL_SPACE_RESOLUTION_FLAG.detourActive) !== 0,
     detourPhase: debug.detourPhaseCodes[entityId]!,
     detourTicksRemaining: debug.detourTicksRemaining[entityId]!,
+    courtesyYieldActive:
+      (flags & PERSONAL_SPACE_RESOLUTION_FLAG.courtesyYieldActive) !== 0,
+    courtesyBlockerId: debug.courtesyBlockerByEntity[entityId]!,
+    courtesyTicksRemaining: debug.courtesyTicksRemaining[entityId]!,
+    overtakingActive:
+      (flags & PERSONAL_SPACE_RESOLUTION_FLAG.overtakingActive) !== 0,
+    overtakeLeaderId: debug.overtakeLeaderByEntity[entityId]!,
+    overtakeSide: debug.overtakeSideByEntity[entityId]!,
   };
 }
 

@@ -16,7 +16,9 @@ import {
 } from "./types";
 
 const MAXIMUM_SPIKE_STEP_PER_AXIS = 2;
-const MAXIMUM_CANDIDATES_PER_ENTITY = 10;
+const MAXIMUM_CANDIDATES_PER_ENTITY = 12;
+const COURTESY_PREDICTION_TICKS = 20;
+const OVERTAKE_CLEARANCE_MARGIN = 1;
 const INITIAL_DETOUR_TICKS = 2 * 20;
 const OPPOSITE_DETOUR_TICKS = 5 * 20;
 const WIDE_DETOUR_TICKS = 10 * 20;
@@ -25,6 +27,7 @@ const CANDIDATE_AVOIDANCE = 1;
 const CANDIDATE_REDUCED_FORWARD = 2;
 const CANDIDATE_STATIONARY = 3;
 const CANDIDATE_WIDE_ALTERNATIVE = 4;
+const CANDIDATE_OVERTAKE = 5;
 const NO_RELATIONSHIP = PERSONAL_SPACE_RELATIONSHIP_CODE.none;
 
 const occupancyClassNames = [
@@ -53,6 +56,8 @@ interface MutablePersonalSpaceSpikeDebugSnapshot
   downedSoftCrossingCount: number;
   yieldingEgressYieldCount: number;
   detourStrategyChangeCount: number;
+  courtesyYieldCount: number;
+  overtakingCount: number;
 }
 
 interface InternalPersonalSpaceSpikeStore extends PersonalSpaceSpikeStore {
@@ -78,6 +83,9 @@ interface InternalPersonalSpaceSpikeStore extends PersonalSpaceSpikeStore {
   readonly fallbackMarkedByEntity: Uint8Array;
   readonly fallbackQueue: Uint32Array;
   readonly normalProgressStreakByEntity: Uint8Array;
+  readonly courtesyAttemptedBlockerByEntity: Int32Array;
+  readonly courtesyRecipientByEntity: Int32Array;
+  readonly courtesyPotentialByEntity: Uint8Array;
   readonly proposalWorld: WorldState;
   readonly proposalGrid: SpatialGrid;
   readonly nearbyEntityIds: number[];
@@ -175,6 +183,8 @@ export function createPersonalSpaceSpikeStore(
     downedSoftCrossingCount: 0,
     yieldingEgressYieldCount: 0,
     detourStrategyChangeCount: 0,
+    courtesyYieldCount: 0,
+    overtakingCount: 0,
     occupancyClassCodes,
     radii,
     intendedDeltas: new Int32Array(entityCount * 2),
@@ -185,6 +195,11 @@ export function createPersonalSpaceSpikeStore(
     detourPhaseCodes: new Uint8Array(entityCount),
     detourSideByEntity: new Int8Array(entityCount),
     detourTicksRemaining: new Uint16Array(entityCount),
+    courtesyBlockerByEntity: filledInt32(entityCount, -1),
+    courtesyTicksRemaining: new Uint8Array(entityCount),
+    overtakeLeaderByEntity: filledInt32(entityCount, -1),
+    overtakeSideByEntity: new Int8Array(entityCount),
+    overtakeClearanceByEntity: new Uint8Array(entityCount),
   };
   const store: InternalPersonalSpaceSpikeStore = {
     entityCount,
@@ -217,6 +232,13 @@ export function createPersonalSpaceSpikeStore(
     fallbackMarkedByEntity: new Uint8Array(entityCount),
     fallbackQueue: new Uint32Array(entityCount),
     normalProgressStreakByEntity: new Uint8Array(entityCount),
+    courtesyAttemptedBlockerByEntity: filledInt32(entityCount, -1),
+    courtesyRecipientByEntity: filledInt32(entityCount, -1),
+    courtesyPotentialByEntity: createCourtesyPotentialByEntity(
+      teamIdByEntity,
+      requestedDeltaXByEntity,
+      requestedDeltaYByEntity,
+    ),
     proposalWorld,
     proposalGrid,
     nearbyEntityIds: [],
@@ -238,6 +260,12 @@ export function advancePersonalSpaceSpikeOneTick(
   resetTickDiagnostics(internal);
   internal.startXByEntity.set(world.positionsX);
   internal.startYByEntity.set(world.positionsY);
+  internal.proposedXByEntity.set(world.positionsX);
+  internal.proposedYByEntity.set(world.positionsY);
+  refreshDesireEpisodes(internal);
+  buildSpatialGrid(internal.proposalGrid, internal.proposalWorld);
+  prepareCourtesyYieldState(internal);
+  prepareOvertakingState(internal);
 
   for (let entityId = 0; entityId < internal.entityCount; entityId += 1) {
     buildMovementCandidates(internal, world, entityId);
@@ -313,6 +341,458 @@ export function advancePersonalSpaceSpikeOneTick(
   finalizeResolvedMovement(world, internal);
 }
 
+function refreshDesireEpisodes(store: InternalPersonalSpaceSpikeStore): void {
+  for (let entityId = 0; entityId < store.entityCount; entityId += 1) {
+    const requestedDeltaX = store.requestedDeltaXByEntity[entityId]!;
+    const requestedDeltaY = store.requestedDeltaYByEntity[entityId]!;
+    if (
+      requestedDeltaX === store.previousRequestedDeltaXByEntity[entityId] &&
+      requestedDeltaY === store.previousRequestedDeltaYByEntity[entityId]
+    ) {
+      continue;
+    }
+    store.desireOriginXByEntity[entityId] = store.startXByEntity[entityId]!;
+    store.desireOriginYByEntity[entityId] = store.startYByEntity[entityId]!;
+    store.previousRequestedDeltaXByEntity[entityId] = requestedDeltaX;
+    store.previousRequestedDeltaYByEntity[entityId] = requestedDeltaY;
+    resetDetourEpisode(store, entityId);
+    endCourtesyYield(store, entityId, false);
+    endOvertake(store, entityId);
+  }
+}
+
+function prepareCourtesyYieldState(
+  store: InternalPersonalSpaceSpikeStore,
+): void {
+  store.courtesyRecipientByEntity.fill(-1);
+  for (let entityId = 0; entityId < store.entityCount; entityId += 1) {
+    const blockerId = store.debug.courtesyBlockerByEntity[entityId]!;
+    if (blockerId < 0) continue;
+    const clearanceTicks = predictCourtesyClearanceTicks(
+      store,
+      entityId,
+      blockerId,
+    );
+    if (
+      clearanceTicks === 0 ||
+      store.debug.courtesyTicksRemaining[entityId]! <= 1
+    ) {
+      endCourtesyYield(store, entityId, true);
+      continue;
+    }
+    store.debug.courtesyTicksRemaining[entityId] =
+      store.debug.courtesyTicksRemaining[entityId]! - 1;
+    store.courtesyRecipientByEntity[blockerId] = entityId;
+  }
+
+  for (let entityId = 0; entityId < store.entityCount; entityId += 1) {
+    const attemptedBlocker = store.courtesyAttemptedBlockerByEntity[entityId]!;
+    if (attemptedBlocker < 0) continue;
+    if (!hasPredictedCrossingConflict(store, entityId, attemptedBlocker)) {
+      store.courtesyAttemptedBlockerByEntity[entityId] = -1;
+    }
+  }
+
+  const queryRadius = store.maximumNeighbourQueryRadius +
+    COURTESY_PREDICTION_TICKS * MAXIMUM_SPIKE_STEP_PER_AXIS;
+  for (let entityId = 0; entityId < store.entityCount; entityId += 1) {
+    if (!canEnterCourtesyPair(store, entityId)) continue;
+    const nearby = queryEntitiesWithinRadiusInto(
+      store.proposalGrid,
+      store.startXByEntity[entityId]!,
+      store.startYByEntity[entityId]!,
+      queryRadius,
+      store.nearbyEntityIds,
+    );
+    store.debug.localQueryCount += 1;
+    store.debug.localCandidateCount += nearby.length;
+    for (let index = 0; index < nearby.length; index += 1) {
+      const neighbourId = nearby[index]!;
+      if (neighbourId <= entityId || !canEnterCourtesyPair(store, neighbourId)) {
+        continue;
+      }
+      if (store.teamIdByEntity[entityId] !== store.teamIdByEntity[neighbourId] ||
+        !areCrossingDesires(store, entityId, neighbourId)) continue;
+      const entityClearance = predictCourtesyClearanceTicks(
+        store,
+        entityId,
+        neighbourId,
+      );
+      const neighbourClearance = predictCourtesyClearanceTicks(
+        store,
+        neighbourId,
+        entityId,
+      );
+      if (entityClearance === 0 && neighbourClearance === 0) continue;
+      const yielderId = chooseCourtesyYielder(
+        store,
+        entityId,
+        neighbourId,
+        entityClearance,
+        neighbourClearance,
+      );
+      const blockerId = yielderId === entityId ? neighbourId : entityId;
+      const waitTicks = yielderId === entityId
+        ? entityClearance
+        : neighbourClearance;
+      beginCourtesyYield(store, yielderId, blockerId, waitTicks);
+      store.courtesyRecipientByEntity[blockerId] = yielderId;
+      break;
+    }
+  }
+  let courtesyCount = 0;
+  for (let entityId = 0; entityId < store.entityCount; entityId += 1) {
+    if (store.debug.courtesyBlockerByEntity[entityId]! >= 0) courtesyCount += 1;
+  }
+  store.debug.courtesyYieldCount = courtesyCount;
+}
+
+function canEnterCourtesyPair(
+  store: InternalPersonalSpaceSpikeStore,
+  entityId: number,
+): boolean {
+  const classCode = store.occupancyClassByEntity[entityId]!;
+  return (classCode !== PERSONAL_SPACE_OCCUPANCY_CLASS_CODE.yieldingEgress &&
+    isSelfPropelledClass(classCode) &&
+    store.courtesyPotentialByEntity[entityId] !== 0 &&
+    (store.requestedDeltaXByEntity[entityId] !== 0 ||
+      store.requestedDeltaYByEntity[entityId] !== 0))
+      ? store.debug.courtesyBlockerByEntity[entityId] === -1 &&
+        store.courtesyRecipientByEntity[entityId] === -1 &&
+        store.courtesyAttemptedBlockerByEntity[entityId] === -1 &&
+        store.debug.detourPhaseCodes[entityId] === PERSONAL_SPACE_DETOUR_PHASE.none &&
+        store.debug.overtakeLeaderByEntity[entityId] === -1
+      : false;
+}
+
+function areCrossingDesires(
+  store: InternalPersonalSpaceSpikeStore,
+  leftId: number,
+  rightId: number,
+): boolean {
+  const leftX = store.requestedDeltaXByEntity[leftId]!;
+  const leftY = store.requestedDeltaYByEntity[leftId]!;
+  const rightX = store.requestedDeltaXByEntity[rightId]!;
+  const rightY = store.requestedDeltaYByEntity[rightId]!;
+  const leftMagnitude = leftX * leftX + leftY * leftY;
+  const rightMagnitude = rightX * rightX + rightY * rightY;
+  if (leftMagnitude === 0 || rightMagnitude === 0) return false;
+  const dot = leftX * rightX + leftY * rightY;
+  return dot * dot * 4 <= leftMagnitude * rightMagnitude;
+}
+
+function hasPredictedCrossingConflict(
+  store: InternalPersonalSpaceSpikeStore,
+  leftId: number,
+  rightId: number,
+): boolean {
+  if (rightId < 0 || rightId >= store.entityCount ||
+    store.teamIdByEntity[leftId] !== store.teamIdByEntity[rightId] ||
+    !areCrossingDesires(store, leftId, rightId)) return false;
+  const minimumDistance = store.debug.radii[leftId]! +
+    store.debug.radii[rightId]!;
+  const minimumDistanceSquared = minimumDistance * minimumDistance;
+  for (let tick = 1; tick <= COURTESY_PREDICTION_TICKS; tick += 1) {
+    const dx = store.startXByEntity[leftId]! +
+        store.requestedDeltaXByEntity[leftId]! * tick -
+      (store.startXByEntity[rightId]! +
+        store.requestedDeltaXByEntity[rightId]! * tick);
+    const dy = store.startYByEntity[leftId]! +
+        store.requestedDeltaYByEntity[leftId]! * tick -
+      (store.startYByEntity[rightId]! +
+        store.requestedDeltaYByEntity[rightId]! * tick);
+    if (dx * dx + dy * dy < minimumDistanceSquared) return true;
+  }
+  return false;
+}
+
+function predictCourtesyClearanceTicks(
+  store: InternalPersonalSpaceSpikeStore,
+  yielderId: number,
+  blockerId: number,
+): number {
+  if (!hasPredictedCrossingConflict(store, yielderId, blockerId)) return 0;
+  const minimumDistance = store.debug.radii[yielderId]! +
+    store.debug.radii[blockerId]!;
+  const minimumDistanceSquared = minimumDistance * minimumDistance;
+  let lastMovingConflictTick = 0;
+  for (let tick = 1; tick <= COURTESY_PREDICTION_TICKS; tick += 1) {
+    const movingDx = store.startXByEntity[yielderId]! +
+        store.requestedDeltaXByEntity[yielderId]! * tick -
+      (store.startXByEntity[blockerId]! +
+        store.requestedDeltaXByEntity[blockerId]! * tick);
+    const movingDy = store.startYByEntity[yielderId]! +
+        store.requestedDeltaYByEntity[yielderId]! * tick -
+      (store.startYByEntity[blockerId]! +
+        store.requestedDeltaYByEntity[blockerId]! * tick);
+    if (movingDx * movingDx + movingDy * movingDy < minimumDistanceSquared) {
+      lastMovingConflictTick = tick;
+    }
+    const waitingDx = store.startXByEntity[yielderId]! -
+      (store.startXByEntity[blockerId]! +
+        store.requestedDeltaXByEntity[blockerId]! * tick);
+    const waitingDy = store.startYByEntity[yielderId]! -
+      (store.startYByEntity[blockerId]! +
+        store.requestedDeltaYByEntity[blockerId]! * tick);
+    if (waitingDx * waitingDx + waitingDy * waitingDy < minimumDistanceSquared) {
+      return 0;
+    }
+  }
+  return lastMovingConflictTick > 0 &&
+      lastMovingConflictTick < COURTESY_PREDICTION_TICKS
+    ? lastMovingConflictTick + 1
+    : 0;
+}
+
+function chooseCourtesyYielder(
+  store: InternalPersonalSpaceSpikeStore,
+  leftId: number,
+  rightId: number,
+  leftClearance: number,
+  rightClearance: number,
+): number {
+  if (leftClearance === 0) return rightId;
+  if (rightClearance === 0) return leftId;
+  if (leftClearance !== rightClearance) {
+    return leftClearance < rightClearance ? leftId : rightId;
+  }
+  const leftProgressCost = leftClearance * (
+    store.requestedDeltaXByEntity[leftId]! ** 2 +
+    store.requestedDeltaYByEntity[leftId]! ** 2
+  );
+  const rightProgressCost = rightClearance * (
+    store.requestedDeltaXByEntity[rightId]! ** 2 +
+    store.requestedDeltaYByEntity[rightId]! ** 2
+  );
+  if (leftProgressCost !== rightProgressCost) {
+    return leftProgressCost < rightProgressCost ? leftId : rightId;
+  }
+  return Math.max(leftId, rightId);
+}
+
+function beginCourtesyYield(
+  store: InternalPersonalSpaceSpikeStore,
+  yielderId: number,
+  blockerId: number,
+  waitTicks: number,
+): void {
+  store.debug.courtesyBlockerByEntity[yielderId] = blockerId;
+  store.debug.courtesyTicksRemaining[yielderId] = Math.min(
+    COURTESY_PREDICTION_TICKS,
+    Math.max(1, waitTicks),
+  );
+  store.courtesyAttemptedBlockerByEntity[yielderId] = blockerId;
+}
+
+function endCourtesyYield(
+  store: InternalPersonalSpaceSpikeStore,
+  entityId: number,
+  retainAttempt: boolean,
+): void {
+  if (!retainAttempt) store.courtesyAttemptedBlockerByEntity[entityId] = -1;
+  store.debug.courtesyBlockerByEntity[entityId] = -1;
+  store.debug.courtesyTicksRemaining[entityId] = 0;
+}
+
+function prepareOvertakingState(store: InternalPersonalSpaceSpikeStore): void {
+  let overtakingCount = 0;
+  for (let entityId = 0; entityId < store.entityCount; entityId += 1) {
+    const leaderId = store.debug.overtakeLeaderByEntity[entityId]!;
+    if (leaderId < 0) continue;
+    if (!isValidOvertakePair(store, entityId, leaderId)) {
+      endOvertake(store, entityId);
+      continue;
+    }
+    const forwardScale = Math.max(
+      1,
+      Math.abs(store.requestedDeltaXByEntity[entityId]!),
+      Math.abs(store.requestedDeltaYByEntity[entityId]!),
+    );
+    const forwardSeparation =
+      (store.startXByEntity[entityId]! - store.startXByEntity[leaderId]!) *
+        store.requestedDeltaXByEntity[entityId]! +
+      (store.startYByEntity[entityId]! - store.startYByEntity[leaderId]!) *
+        store.requestedDeltaYByEntity[entityId]!;
+    const clearance = store.debug.overtakeClearanceByEntity[entityId]!;
+    const forwardX = Math.sign(store.requestedDeltaXByEntity[entityId]!);
+    const forwardY = Math.sign(store.requestedDeltaYByEntity[entityId]!);
+    const lateralOffset =
+      (store.startXByEntity[entityId]! - store.desireOriginXByEntity[entityId]!) *
+        -forwardY +
+      (store.startYByEntity[entityId]! - store.desireOriginYByEntity[entityId]!) *
+        forwardX;
+    const leaderClearance =
+      clearance +
+      store.debug.radii[entityId]! +
+      store.debug.radii[leaderId]!;
+    if (clearance > 0 && forwardSeparation > leaderClearance * forwardScale) {
+      store.debug.overtakeClearanceByEntity[entityId] = 0;
+    } else if (clearance === 0 && lateralOffset === 0) {
+      endOvertake(store, entityId);
+      continue;
+    }
+    overtakingCount += 1;
+  }
+
+  const detectionRadius = store.maximumNeighbourQueryRadius + 16;
+  for (let followerId = 0; followerId < store.entityCount; followerId += 1) {
+    if (!canBeginOvertake(store, followerId)) continue;
+    const nearby = queryEntitiesWithinRadiusInto(
+      store.proposalGrid,
+      store.startXByEntity[followerId]!,
+      store.startYByEntity[followerId]!,
+      detectionRadius,
+      store.nearbyEntityIds,
+    );
+    store.debug.localQueryCount += 1;
+    store.debug.localCandidateCount += nearby.length;
+    for (let index = 0; index < nearby.length; index += 1) {
+      const leaderId = nearby[index]!;
+      if (!isValidOvertakePair(store, followerId, leaderId)) continue;
+      const followerSpeedSquared = movementMagnitudeSquared(store, followerId);
+      const leaderSpeedSquared = movementMagnitudeSquared(store, leaderId);
+      if (followerSpeedSquared <= leaderSpeedSquared) continue;
+      const behindProgress =
+        (store.startXByEntity[followerId]! - store.startXByEntity[leaderId]!) *
+          store.requestedDeltaXByEntity[followerId]! +
+        (store.startYByEntity[followerId]! - store.startYByEntity[leaderId]!) *
+          store.requestedDeltaYByEntity[followerId]!;
+      if (behindProgress >= 0) continue;
+      const clearance = store.debug.radii[followerId]! +
+        store.debug.radii[leaderId]! + OVERTAKE_CLEARANCE_MARGIN;
+      const positiveScore = overtakeSideClearanceScore(
+        store,
+        followerId,
+        leaderId,
+        1,
+        clearance,
+      );
+      const negativeScore = overtakeSideClearanceScore(
+        store,
+        followerId,
+        leaderId,
+        -1,
+        clearance,
+      );
+      if (positiveScore < 0 && negativeScore < 0) continue;
+      const side = positiveScore === negativeScore
+        ? ((followerId & 1) === 0 ? 1 : -1)
+        : positiveScore > negativeScore ? 1 : -1;
+      store.debug.overtakeLeaderByEntity[followerId] = leaderId;
+      store.debug.overtakeSideByEntity[followerId] = side;
+      store.debug.overtakeClearanceByEntity[followerId] = clearance;
+      resetDetourEpisode(store, followerId);
+      overtakingCount += 1;
+      break;
+    }
+  }
+  store.debug.overtakingCount = overtakingCount;
+}
+
+function canBeginOvertake(
+  store: InternalPersonalSpaceSpikeStore,
+  entityId: number,
+): boolean {
+  return store.debug.overtakeLeaderByEntity[entityId] === -1 &&
+    store.debug.courtesyBlockerByEntity[entityId] === -1 &&
+    store.courtesyRecipientByEntity[entityId] === -1 &&
+    store.debug.detourPhaseCodes[entityId] === PERSONAL_SPACE_DETOUR_PHASE.none &&
+    store.occupancyClassByEntity[entityId] ===
+      PERSONAL_SPACE_OCCUPANCY_CLASS_CODE.activeStanding &&
+    movementMagnitudeSquared(store, entityId) > 0;
+}
+
+function isValidOvertakePair(
+  store: InternalPersonalSpaceSpikeStore,
+  followerId: number,
+  leaderId: number,
+): boolean {
+  return leaderId >= 0 && leaderId < store.entityCount &&
+    followerId !== leaderId &&
+    store.teamIdByEntity[followerId] === store.teamIdByEntity[leaderId] &&
+    store.occupancyClassByEntity[leaderId] ===
+      PERSONAL_SPACE_OCCUPANCY_CLASS_CODE.activeStanding &&
+    areSameDirectionDesires(store, followerId, leaderId);
+}
+
+function areSameDirectionDesires(
+  store: InternalPersonalSpaceSpikeStore,
+  leftId: number,
+  rightId: number,
+): boolean {
+  const leftX = store.requestedDeltaXByEntity[leftId]!;
+  const leftY = store.requestedDeltaYByEntity[leftId]!;
+  const rightX = store.requestedDeltaXByEntity[rightId]!;
+  const rightY = store.requestedDeltaYByEntity[rightId]!;
+  const dot = leftX * rightX + leftY * rightY;
+  if (dot <= 0) return false;
+  const cross = leftX * rightY - leftY * rightX;
+  return cross * cross * 4 <=
+    movementMagnitudeSquared(store, leftId) *
+      movementMagnitudeSquared(store, rightId);
+}
+
+function movementMagnitudeSquared(
+  store: InternalPersonalSpaceSpikeStore,
+  entityId: number,
+): number {
+  const x = store.requestedDeltaXByEntity[entityId]!;
+  const y = store.requestedDeltaYByEntity[entityId]!;
+  return x * x + y * y;
+}
+
+function overtakeSideClearanceScore(
+  store: InternalPersonalSpaceSpikeStore,
+  followerId: number,
+  leaderId: number,
+  side: number,
+  clearance: number,
+): number {
+  const forwardX = Math.sign(store.requestedDeltaXByEntity[followerId]!);
+  const forwardY = Math.sign(store.requestedDeltaYByEntity[followerId]!);
+  const targetX = store.startXByEntity[followerId]! -
+    forwardY * side * clearance;
+  const targetY = store.startYByEntity[followerId]! +
+    forwardX * side * clearance;
+  if (targetX < 0 || targetY < 0 ||
+    targetX >= store.proposalWorld.bounds.width ||
+    targetY >= store.proposalWorld.bounds.height) return -1;
+  const nearby = queryEntitiesWithinRadiusInto(
+    store.proposalGrid,
+    targetX,
+    targetY,
+    clearance + store.maximumNeighbourQueryRadius,
+    store.nearbyEntityIds,
+  );
+  store.debug.localQueryCount += 1;
+  store.debug.localCandidateCount += nearby.length;
+  let minimumClearanceSquared = 0x7f_ff_ff_ff;
+  for (let index = 0; index < nearby.length; index += 1) {
+    const neighbourId = nearby[index]!;
+    if (neighbourId === followerId || neighbourId === leaderId ||
+      !isHardStandingClass(store.occupancyClassByEntity[neighbourId]!)) {
+      continue;
+    }
+    const dx = store.startXByEntity[neighbourId]! - targetX;
+    const dy = store.startYByEntity[neighbourId]! - targetY;
+    const minimumDistance = store.debug.radii[followerId]! +
+      store.debug.radii[neighbourId]!;
+    const distanceSquared = dx * dx + dy * dy;
+    if (distanceSquared < minimumDistance * minimumDistance) return -1;
+    minimumClearanceSquared = Math.min(minimumClearanceSquared, distanceSquared);
+  }
+  return minimumClearanceSquared;
+}
+
+function endOvertake(
+  store: InternalPersonalSpaceSpikeStore,
+  entityId: number,
+): void {
+  store.debug.overtakeLeaderByEntity[entityId] = -1;
+  store.debug.overtakeSideByEntity[entityId] = 0;
+  store.debug.overtakeClearanceByEntity[entityId] = 0;
+}
+
 function buildMovementCandidates(
   store: InternalPersonalSpaceSpikeStore,
   world: WorldState,
@@ -333,16 +813,6 @@ function buildMovementCandidates(
 
   const requestedDeltaX = store.requestedDeltaXByEntity[entityId]!;
   const requestedDeltaY = store.requestedDeltaYByEntity[entityId]!;
-  if (
-    requestedDeltaX !== store.previousRequestedDeltaXByEntity[entityId] ||
-    requestedDeltaY !== store.previousRequestedDeltaYByEntity[entityId]
-  ) {
-    store.desireOriginXByEntity[entityId] = startX;
-    store.desireOriginYByEntity[entityId] = startY;
-    store.previousRequestedDeltaXByEntity[entityId] = requestedDeltaX;
-    store.previousRequestedDeltaYByEntity[entityId] = requestedDeltaY;
-    resetDetourEpisode(store, entityId);
-  }
   const requestedX = startX + requestedDeltaX;
   const requestedY = startY + requestedDeltaY;
   const intendedX = clamp(requestedX, 0, world.bounds.width - 1);
@@ -364,6 +834,38 @@ function buildMovementCandidates(
 
   const forwardX = Math.sign(intendedDeltaX);
   const forwardY = Math.sign(intendedDeltaY);
+  if (store.debug.courtesyBlockerByEntity[entityId]! >= 0) {
+    addCandidate(store, entityId, startX, startY, CANDIDATE_STATIONARY);
+  }
+  const overtakeLeader = store.debug.overtakeLeaderByEntity[entityId]!;
+  if (overtakeLeader >= 0) {
+    const perpendicularX = -forwardY;
+    const perpendicularY = forwardX;
+    const currentOffset = (startX - store.desireOriginXByEntity[entityId]!) *
+        perpendicularX +
+      (startY - store.desireOriginYByEntity[entityId]!) * perpendicularY;
+    const targetOffset = store.debug.overtakeSideByEntity[entityId]! *
+      store.debug.overtakeClearanceByEntity[entityId]!;
+    const remainingOffset = targetOffset - currentOffset;
+    if (remainingOffset !== 0) {
+      const lateralStep = clamp(
+        remainingOffset,
+        -MAXIMUM_SPIKE_STEP_PER_AXIS,
+        MAXIMUM_SPIKE_STEP_PER_AXIS,
+      );
+      addBoundedDeltaCandidate(
+        store,
+        entityId,
+        perpendicularX * lateralStep,
+        perpendicularY * lateralStep,
+        movementBudgetSquared,
+        CANDIDATE_OVERTAKE,
+      );
+    }
+    addCandidate(store, entityId, intendedX, intendedY, CANDIDATE_NORMAL);
+    addCandidate(store, entityId, startX, startY, CANDIDATE_STATIONARY);
+    return;
+  }
   const phase = store.debug.detourPhaseCodes[entityId]!;
   const crossTrack = desireLineCrossTrack(store, entityId, startX, startY);
   if (crossTrack !== 0 && phase === PERSONAL_SPACE_DETOUR_PHASE.none) {
@@ -561,7 +1063,7 @@ function evaluateCandidate(
     if (moverPriority > neighbourPriority) continue;
     if (
       moverPriority === neighbourPriority &&
-      (crossingDesireHasRightOfWay(store, entityId, neighbourId) ||
+      (store.debug.overtakeLeaderByEntity[neighbourId] === entityId ||
         sameDirectionLeaderHasRightOfWay(store, entityId, neighbourId))
     ) continue;
     return relationshipCodeFor(store, entityId, neighbourId);
@@ -789,6 +1291,12 @@ function finalizeResolvedMovement(
     if (
       debug.detourPhaseCodes[entityId] !== PERSONAL_SPACE_DETOUR_PHASE.none
     ) flags |= PERSONAL_SPACE_RESOLUTION_FLAG.detourActive;
+    if (debug.courtesyBlockerByEntity[entityId]! >= 0) {
+      flags |= PERSONAL_SPACE_RESOLUTION_FLAG.courtesyYieldActive;
+    }
+    if (debug.overtakeLeaderByEntity[entityId]! >= 0) {
+      flags |= PERSONAL_SPACE_RESOLUTION_FLAG.overtakingActive;
+    }
     debug.resolutionFlags[entityId] = flags;
     world.positionsX[entityId] = store.proposedXByEntity[entityId]!;
     world.positionsY[entityId] = store.proposedYByEntity[entityId]!;
@@ -843,6 +1351,8 @@ function resetTickDiagnostics(store: InternalPersonalSpaceSpikeStore): void {
   debug.downedSoftCrossingCount = 0;
   debug.yieldingEgressYieldCount = 0;
   debug.detourStrategyChangeCount = 0;
+  debug.courtesyYieldCount = 0;
+  debug.overtakingCount = 0;
   debug.intendedDeltas.fill(0);
   debug.resolvedDeltas.fill(0);
   debug.localNeighbourCounts.fill(0);
@@ -1022,27 +1532,6 @@ function sameDirectionLeaderHasRightOfWay(
   return relativeX * moverDesireX + relativeY * moverDesireY > 0;
 }
 
-function crossingDesireHasRightOfWay(
-  store: InternalPersonalSpaceSpikeStore,
-  entityId: number,
-  neighbourId: number,
-): boolean {
-  if (store.teamIdByEntity[entityId] !== store.teamIdByEntity[neighbourId]) {
-    return false;
-  }
-  const moverX = store.requestedDeltaXByEntity[entityId]!;
-  const moverY = store.requestedDeltaYByEntity[entityId]!;
-  const neighbourX = store.requestedDeltaXByEntity[neighbourId]!;
-  const neighbourY = store.requestedDeltaYByEntity[neighbourId]!;
-  if (moverX * neighbourX + moverY * neighbourY !== 0) return false;
-  const moverVerticalPriority = Math.abs(moverY) - Math.abs(moverX);
-  const neighbourVerticalPriority = Math.abs(neighbourY) - Math.abs(neighbourX);
-  if (moverVerticalPriority !== neighbourVerticalPriority) {
-    return moverVerticalPriority > neighbourVerticalPriority;
-  }
-  return entityId < neighbourId;
-}
-
 function updateDetourEpisode(
   store: InternalPersonalSpaceSpikeStore,
   entityId: number,
@@ -1052,6 +1541,10 @@ function updateDetourEpisode(
   intendedDeltaY: number,
 ): void {
   if (!isSelfPropelledClass(store.occupancyClassByEntity[entityId]!)) return;
+  if (
+    store.debug.courtesyBlockerByEntity[entityId]! >= 0 ||
+    store.debug.overtakeLeaderByEntity[entityId]! >= 0
+  ) return;
   const relationship = store.debug.principalRelationshipCodes[entityId]!;
   const collisionSupportsDetour =
     relationship === PERSONAL_SPACE_RELATIONSHIP_CODE.alliedStanding ||
@@ -1131,8 +1624,23 @@ function updateDetourEpisode(
       WIDE_DETOUR_TICKS,
     );
   } else {
-    resetDetourEpisode(store, entityId);
+    restartDetourAttempt(store, entityId, WIDE_DETOUR_TICKS);
   }
+}
+
+function restartDetourAttempt(
+  store: InternalPersonalSpaceSpikeStore,
+  entityId: number,
+  duration: number,
+): void {
+  store.debug.detourTicksRemaining[entityId] = duration;
+  store.detourAttemptDurationByEntity[entityId] = duration;
+  store.detourAttemptStartProgressByEntity[entityId] = desireProgressAt(
+    store,
+    entityId,
+    store.proposedXByEntity[entityId]!,
+    store.proposedYByEntity[entityId]!,
+  );
 }
 
 function beginDetourPhase(
@@ -1284,4 +1792,53 @@ function requireStore(
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return value < minimum ? minimum : value > maximum ? maximum : value;
+}
+
+function filledInt32(length: number, value: number): Int32Array {
+  const result = new Int32Array(length);
+  result.fill(value);
+  return result;
+}
+
+function createCourtesyPotentialByEntity(
+  teamIds: Uint8Array,
+  requestedX: Int8Array,
+  requestedY: Int8Array,
+): Uint8Array {
+  const directionMasksByTeam = new Uint32Array(0x100);
+  for (let entityId = 0; entityId < teamIds.length; entityId += 1) {
+    const x = requestedX[entityId]!;
+    const y = requestedY[entityId]!;
+    if (x === 0 && y === 0) continue;
+    const teamId = teamIds[entityId]!;
+    directionMasksByTeam[teamId] = directionMasksByTeam[teamId]! |
+      (1 << directionCode(x, y));
+  }
+  const result = new Uint8Array(teamIds.length);
+  for (let entityId = 0; entityId < teamIds.length; entityId += 1) {
+    const x = requestedX[entityId]!;
+    const y = requestedY[entityId]!;
+    if (x === 0 && y === 0) continue;
+    const mask = directionMasksByTeam[teamIds[entityId]!]!;
+    for (let otherX = -MAXIMUM_SPIKE_STEP_PER_AXIS;
+      otherX <= MAXIMUM_SPIKE_STEP_PER_AXIS;
+      otherX += 1) {
+      for (let otherY = -MAXIMUM_SPIKE_STEP_PER_AXIS;
+        otherY <= MAXIMUM_SPIKE_STEP_PER_AXIS;
+        otherY += 1) {
+        if ((otherX === 0 && otherY === 0) ||
+          (mask & (1 << directionCode(otherX, otherY))) === 0) continue;
+        const dot = x * otherX + y * otherY;
+        const magnitudeProduct = (x * x + y * y) *
+          (otherX * otherX + otherY * otherY);
+        if (dot * dot * 4 <= magnitudeProduct) result[entityId] = 1;
+      }
+    }
+  }
+  return result;
+}
+
+function directionCode(x: number, y: number): number {
+  return (x + MAXIMUM_SPIKE_STEP_PER_AXIS) * 5 +
+    y + MAXIMUM_SPIKE_STEP_PER_AXIS;
 }

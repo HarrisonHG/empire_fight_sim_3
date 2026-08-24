@@ -4,7 +4,7 @@ import type {
 } from "../sim/types";
 
 export const PERSONAL_SPACE_SPIKE_SCENARIO_ID = "personal-space-spike";
-export const PERSONAL_SPACE_SPIKE_RECOMMENDED_END_TICK = 360;
+export const PERSONAL_SPACE_SPIKE_RECOMMENDED_END_TICK = 1_000;
 
 export interface PersonalSpaceSpikeChamber {
   readonly id: number;
@@ -84,7 +84,7 @@ for (let row = 0; row < 6; row += 1) {
 const CHAMBER_LAYOUT = [
   [1, "Hostile fronts settle", 300, 120],
   [2, "Allied crossing streams", 900, 120],
-  [3, "Catch-up and overtaking", 300, 360],
+  [3, "Open-space overtaking", 300, 360],
   [4, "Downed soft occupancy", 900, 360],
   [5, "Yielding respawn egress", 300, 600],
   [6, "Representative dense crowd", 900, 600],
@@ -105,8 +105,8 @@ export const PERSONAL_SPACE_SPIKE_CHAMBERS: readonly PersonalSpaceSpikeChamber[]
 
 export const PERSONAL_SPACE_SPIKE_EXPECTED_OBSERVATIONS = Object.freeze([
   "1 · opposing compact files stop at standing-radius contact without interpenetration, explosive separation, or front vibration.",
-  "2 · the southbound allied file may sidestep east/west, but remains desire-anchored, resumes southward progress, and reacquires its original line.",
-  "3 · the faster rear mover yields, slows, or detours while the slower leader keeps its own forward motion; contact never becomes pushing.",
+  "2 · one predicted crossing stream takes a bounded courtesy wait while the other clears; no axis has inherent priority and neither pair member waits reciprocally.",
+  "3 · the faster rear mover takes a radius-aware committed open-space bypass while the slower leader keeps its forward motion; contact never becomes pushing.",
   "4 · movers try bounded lateral avoidance before a reduced forward step may cross the soft downed footprint.",
   "5 · the respawn-egress presence commits to bounded detours, then waits or changes tactic instead of following the living stream sideways forever.",
   "6 · the dense opposing crowd remains locally queried and bounded; persistent tactics eliminate per-tick back-corner left/right jitter.",
@@ -117,6 +117,7 @@ export const PERSONAL_SPACE_SPIKE_LEGEND_LINES = Object.freeze([
   "Amber vector: intended local step · green vector: collision-resolved step.",
   "Red centre mark: blocked · violet centre mark: redirected · amber centre mark: reduced soft-body crossing.",
   "Blue centre mark: a persistent 2s/5s/10s local-detour tactic is active; movement remains anchored to the original desire line.",
+  "Pink centre mark: bounded pair-specific courtesy wait · teal centre mark: committed radius-aware overtake.",
   "This is the isolated Milestone 8A solver only. Production battle movement remains collision-free until later Milestone 8 slices.",
 ]);
 
