@@ -176,6 +176,7 @@ describe("Spike 6.5 main battle medical integration sandbox", () => {
 
   it("keeps retained routes unchanged and contains no direct outcome fixture", () => {
     expect(VISUAL_TEST_REGISTRY.map((entry) => entry.id)).toEqual([
+      "personal-space-spike",
       "energy-exertion",
       "casualty-lifecycle",
       "movement-behaviour",
@@ -188,6 +189,7 @@ describe("Spike 6.5 main battle medical integration sandbox", () => {
       entry.scenario !== MAIN_BATTLE_MEDICAL_SCENARIO)).toBe(true);
     expect(MAIN_BATTLE_MEDICAL_SCENARIO.legacyCombatFoundationSandbox)
       .toBeUndefined();
+    expect(MAIN_BATTLE_MEDICAL_SCENARIO.personalSpaceSpike).toBeUndefined();
     expect(MAIN_BATTLE_MEDICAL_SCENARIO.combatSandbox)
       .not.toHaveProperty("retainedCasualtyVisualFixture");
     const source = readFileSync(join(

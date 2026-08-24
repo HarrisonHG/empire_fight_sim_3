@@ -80,6 +80,28 @@ export class MetricsPanel {
 
     const combatDebug = snapshot.combatDebug;
     if (combatDebug === undefined) {
+      const personalSpaceDebug = snapshot.personalSpaceDebug;
+      if (personalSpaceDebug !== undefined) {
+        this.combatTickCountsValue.textContent =
+          `${personalSpaceDebug.resolutionPassCount}/` +
+          `${personalSpaceDebug.maximumResolutionPasses} passes · ` +
+          `${personalSpaceDebug.unresolvedStandingOverlapCount} overlaps`;
+        this.combatTotalCountsValue.textContent =
+          `${personalSpaceDebug.localQueryCount} local queries · ` +
+          `${personalSpaceDebug.localCandidateCount} candidates`;
+        this.combatUnitStateValue.textContent =
+          `${personalSpaceDebug.algorithm} · standing r${personalSpaceDebug.standingRadius} · ` +
+          `soft r${personalSpaceDebug.downedSoftRadius}`;
+        this.individualInspectionValue.textContent =
+          `${personalSpaceDebug.blockedCount} blocked · ` +
+          `${personalSpaceDebug.reducedCount} reduced · ` +
+          `${personalSpaceDebug.redirectedCount} redirected · ` +
+          `${personalSpaceDebug.downedSoftCrossingCount} soft crossings · ` +
+          `${personalSpaceDebug.yieldingEgressYieldCount} egress yields`;
+        this.combatEventLogValue.textContent =
+          `${personalSpaceDebug.fallbackResetCount} conservative fallback resets`;
+        return;
+      }
       const formationDebug = snapshot.formationDebug;
       if (formationDebug === undefined) {
         this.clearCombatDebug();

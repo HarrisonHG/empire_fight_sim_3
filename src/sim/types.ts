@@ -163,6 +163,7 @@ import type {
   WeaponCategory,
   WeaponReachBand,
 } from "./unitLoadout";
+import type { PersonalSpaceSpikeStore } from "./personalSpaceSpike";
 
 declare const entityIdBrand: unique symbol;
 
@@ -354,6 +355,32 @@ export interface FormationSandboxScenario {
   readonly individuals: readonly FormationSandboxIndividualScenario[];
 }
 
+export type PersonalSpaceSpikeOccupancyClass =
+  | "activeStanding"
+  | "downedSoft"
+  | "assistedMoving"
+  | "yieldingEgress"
+  | "nonBattlefield";
+
+export interface PersonalSpaceSpikeEntityScenario {
+  readonly entityId: number;
+  readonly x: number;
+  readonly y: number;
+  readonly requestedDeltaX: number;
+  readonly requestedDeltaY: number;
+  readonly occupancyClass: PersonalSpaceSpikeOccupancyClass;
+  readonly teamId: number;
+}
+
+/** Isolated Milestone 8A experiment input; never consumed by production `/`. */
+export interface PersonalSpaceSpikeScenario {
+  readonly kind: "personalSpaceSpike";
+  readonly standingRadius: number;
+  readonly downedSoftRadius: number;
+  readonly maximumResolutionPasses: number;
+  readonly entities: readonly PersonalSpaceSpikeEntityScenario[];
+}
+
 export interface SimulationScenario {
   readonly seed: number;
   readonly entityCount: number;
@@ -369,6 +396,56 @@ export interface SimulationScenario {
    */
   readonly legacyCombatFoundationSandbox?: CombatSandboxScenario;
   readonly formationSandbox?: FormationSandboxScenario;
+  readonly personalSpaceSpike?: PersonalSpaceSpikeScenario;
+}
+
+export const PERSONAL_SPACE_OCCUPANCY_CLASS_CODE = Object.freeze({
+  activeStanding: 0,
+  downedSoft: 1,
+  assistedMoving: 2,
+  yieldingEgress: 3,
+  nonBattlefield: 4,
+} as const);
+
+export const PERSONAL_SPACE_RELATIONSHIP_CODE = Object.freeze({
+  none: 0,
+  alliedStanding: 1,
+  hostileStanding: 2,
+  downedSoft: 3,
+  yieldingEgress: 4,
+  worldBounds: 5,
+} as const);
+
+export const PERSONAL_SPACE_RESOLUTION_FLAG = Object.freeze({
+  blocked: 1 << 0,
+  reduced: 1 << 1,
+  redirected: 1 << 2,
+  downedSoftCrossing: 1 << 3,
+  yieldingEgressYield: 1 << 4,
+} as const);
+
+export interface PersonalSpaceSpikeDebugSnapshot {
+  readonly algorithm: "boundedDiscreteCandidateRelaxation";
+  readonly standingRadius: number;
+  readonly downedSoftRadius: number;
+  readonly maximumResolutionPasses: number;
+  readonly resolutionPassCount: number;
+  readonly localQueryCount: number;
+  readonly localCandidateCount: number;
+  readonly unresolvedStandingOverlapCount: number;
+  readonly fallbackResetCount: number;
+  readonly blockedCount: number;
+  readonly reducedCount: number;
+  readonly redirectedCount: number;
+  readonly downedSoftCrossingCount: number;
+  readonly yieldingEgressYieldCount: number;
+  readonly occupancyClassCodes: Uint8Array;
+  readonly radii: Uint8Array;
+  readonly intendedDeltas: Int32Array;
+  readonly resolvedDeltas: Int32Array;
+  readonly localNeighbourCounts: Uint16Array;
+  readonly principalRelationshipCodes: Uint8Array;
+  readonly resolutionFlags: Uint8Array;
 }
 
 export interface FormationDebugUnitSnapshot {
@@ -405,6 +482,7 @@ export interface InitialSimulationSnapshot {
   readonly factionIds?: Uint8Array;
   readonly combatDebug?: LiveCombatDebugSnapshot;
   readonly formationDebug?: FormationDebugSnapshot;
+  readonly personalSpaceDebug?: PersonalSpaceSpikeDebugSnapshot;
 }
 
 export interface PositionSimulationSnapshot {
@@ -414,6 +492,7 @@ export interface PositionSimulationSnapshot {
   readonly positions: Int32Array;
   readonly combatDebug?: LiveCombatDebugSnapshot;
   readonly formationDebug?: FormationDebugSnapshot;
+  readonly personalSpaceDebug?: PersonalSpaceSpikeDebugSnapshot;
 }
 
 export type SimulationSnapshot =
@@ -950,6 +1029,10 @@ export interface FormationSandboxSimulationState {
   debugSnapshot: FormationDebugSnapshot;
 }
 
+export interface PersonalSpaceSpikeSimulationState {
+  readonly store: PersonalSpaceSpikeStore;
+}
+
 /** Isolated archived Milestone 3 visual fixture state, not production combat. */
 export interface LegacyCombatFoundationSimulationState {
   readonly identityStore: UnitIdentityStore;
@@ -987,6 +1070,7 @@ export interface SimulationState {
   readonly combatSandbox?: CombatSandboxSimulationState;
   readonly legacyCombatFoundationSandbox?: LegacyCombatFoundationSimulationState;
   readonly formationSandbox?: FormationSandboxSimulationState;
+  readonly personalSpaceSpike?: PersonalSpaceSpikeSimulationState;
 }
 
 export function entityIdFromIndex(index: number): EntityId {

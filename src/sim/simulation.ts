@@ -27,6 +27,10 @@ import {
 } from "./formationBehaviour";
 import { moveWorldOneTick } from "./movement";
 import {
+  advancePersonalSpaceSpikeOneTick,
+  createPersonalSpaceSpikeStore,
+} from "./personalSpaceSpike";
+import {
   advanceCombatPressureOneTick,
   advanceIndividualCombatPressureOneTick,
   createCombatPressureStore,
@@ -397,7 +401,8 @@ export function createSimulation(
   const configuredSandboxCount =
     (scenario.combatSandbox === undefined ? 0 : 1) +
     (scenario.legacyCombatFoundationSandbox === undefined ? 0 : 1) +
-    (scenario.formationSandbox === undefined ? 0 : 1);
+    (scenario.formationSandbox === undefined ? 0 : 1) +
+    (scenario.personalSpaceSpike === undefined ? 0 : 1);
   if (configuredSandboxCount > 1) {
     throw new RangeError(
       "A scenario cannot configure more than one sandbox authority.",
@@ -429,6 +434,12 @@ export function createSimulation(
           scenario.formationSandbox,
           scenario.seed,
         );
+  const personalSpaceSpikeStore = scenario.personalSpaceSpike === undefined
+    ? undefined
+    : createPersonalSpaceSpikeStore(
+        initializedWorld.world,
+        scenario.personalSpaceSpike,
+      );
   const simulation: SimulationState = {
     tick: 0,
     rngState:
@@ -450,6 +461,9 @@ export function createSimulation(
     ...(initializedFormationSandbox === undefined
       ? {}
       : { formationSandbox: initializedFormationSandbox }),
+    ...(personalSpaceSpikeStore === undefined
+      ? {}
+      : { personalSpaceSpike: { store: personalSpaceSpikeStore } }),
   };
 
   snapshotBuffersBySimulation.set(simulation, {
@@ -461,6 +475,7 @@ export function createSimulation(
         initializedCombatSandbox?.state,
         initializedLegacyCombatFoundationSandbox?.state,
         initializedFormationSandbox,
+        scenario.personalSpaceSpike,
       ),
   });
 
@@ -473,7 +488,13 @@ export function advanceSimulationOneTick(simulation: SimulationState): void {
   const legacyCombatFoundationSandbox =
     simulation.legacyCombatFoundationSandbox;
   const formationSandbox = simulation.formationSandbox;
-  if (formationSandbox !== undefined) {
+  const personalSpaceSpike = simulation.personalSpaceSpike;
+  if (personalSpaceSpike !== undefined) {
+    advancePersonalSpaceSpikeOneTick(
+      simulation.world,
+      personalSpaceSpike.store,
+    );
+  } else if (formationSandbox !== undefined) {
     advanceFormationOneTick(
       simulation.world,
       formationSandbox.identityStore,
@@ -527,6 +548,8 @@ export function createInitialSnapshot(
     simulation.combatSandbox?.debugSnapshot ??
     simulation.legacyCombatFoundationSandbox?.debugSnapshot;
   const formationDebug = simulation.formationSandbox?.debugSnapshot;
+  const personalSpaceDebug =
+    simulation.personalSpaceSpike?.store.debugSnapshot;
 
   return {
     ...baseSnapshot,
@@ -535,6 +558,7 @@ export function createInitialSnapshot(
       : { factionIds: snapshotBuffers.factionIds }),
     ...(combatDebug === undefined ? {} : { combatDebug }),
     ...(formationDebug === undefined ? {} : { formationDebug }),
+    ...(personalSpaceDebug === undefined ? {} : { personalSpaceDebug }),
   };
 }
 
@@ -555,11 +579,14 @@ export function createPositionSnapshot(
     simulation.combatSandbox?.debugSnapshot ??
     simulation.legacyCombatFoundationSandbox?.debugSnapshot;
   const formationDebug = simulation.formationSandbox?.debugSnapshot;
+  const personalSpaceDebug =
+    simulation.personalSpaceSpike?.store.debugSnapshot;
 
   return {
     ...baseSnapshot,
     ...(combatDebug === undefined ? {} : { combatDebug }),
     ...(formationDebug === undefined ? {} : { formationDebug }),
+    ...(personalSpaceDebug === undefined ? {} : { personalSpaceDebug }),
   };
 }
 
@@ -1673,14 +1700,22 @@ function createScenarioFactionIdBuffer(
     | LegacyCombatFoundationSimulationState
     | undefined,
   formationSandbox: FormationSandboxSimulationState | undefined,
+  personalSpaceSpike?: import("./types").PersonalSpaceSpikeScenario,
 ): Uint8Array | undefined {
   const identityStore =
     combatSandbox?.identityStore ??
     legacyCombatFoundationSandbox?.identityStore ??
     formationSandbox?.identityStore;
-  return identityStore === undefined
-    ? undefined
-    : createFactionIdBuffer(world, identityStore);
+  if (identityStore !== undefined) {
+    return createFactionIdBuffer(world, identityStore);
+  }
+  if (personalSpaceSpike === undefined) return undefined;
+  const factionIds = new Uint8Array(world.entityCount);
+  for (let index = 0; index < personalSpaceSpike.entities.length; index += 1) {
+    const entity = personalSpaceSpike.entities[index]!;
+    factionIds[entity.entityId] = entity.teamId;
+  }
+  return factionIds;
 }
 
 function applyRetainedCasualtyVisualFixturePreCombatInputs(

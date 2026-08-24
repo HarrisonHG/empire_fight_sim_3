@@ -31,6 +31,14 @@ import {
   ENERGY_EXERTION_VISUAL_SCENARIO,
   ENERGY_EXERTION_VISUAL_SCENARIO_ID,
 } from "./energyExertionVisualScenario";
+import {
+  PERSONAL_SPACE_SPIKE_CHAMBERS,
+  PERSONAL_SPACE_SPIKE_EXPECTED_OBSERVATIONS,
+  PERSONAL_SPACE_SPIKE_LEGEND_LINES,
+  PERSONAL_SPACE_SPIKE_RECOMMENDED_END_TICK,
+  PERSONAL_SPACE_SPIKE_SCENARIO,
+  PERSONAL_SPACE_SPIKE_SCENARIO_ID,
+} from "./personalSpaceSpikeScenario";
 
 export interface VisualTestEntry {
   readonly id: string;
@@ -43,6 +51,7 @@ export interface VisualTestEntry {
   readonly focusAreas?: readonly VisualTestFocusArea[];
   readonly showCasualtyVisuals?: boolean;
   readonly showEnergyVisuals?: boolean;
+  readonly showPersonalSpaceVisuals?: boolean;
   readonly recommendedTickRange: Readonly<{
     readonly start: number;
     readonly end: number;
@@ -65,6 +74,40 @@ export interface VisualTestFocusArea extends VisualTestWorldLabel {
 }
 
 export const VISUAL_TEST_REGISTRY: readonly VisualTestEntry[] = Object.freeze([
+  Object.freeze({
+    id: PERSONAL_SPACE_SPIKE_SCENARIO_ID,
+    title: "Personal-space collision feasibility spike",
+    milestone: "Milestone 8A isolated spike",
+    purpose:
+      "Compares bounded deterministic local spacing behavior across hostile fronts, allied flow, overtaking, soft casualties, yielding egress, and dense crowds without changing production battle movement.",
+    expectedObservations: PERSONAL_SPACE_SPIKE_EXPECTED_OBSERVATIONS,
+    legendLines: PERSONAL_SPACE_SPIKE_LEGEND_LINES,
+    worldLabels: Object.freeze(PERSONAL_SPACE_SPIKE_CHAMBERS.map((area) =>
+      Object.freeze({
+        text: `${area.id} ${area.label}`,
+        x: area.centreX,
+        y: area.centreY - 90,
+      }),
+    )),
+    focusAreas: Object.freeze(PERSONAL_SPACE_SPIKE_CHAMBERS.map((area) =>
+      Object.freeze({
+        id: area.id,
+        entityIds: area.entityIds,
+        text: area.label,
+        x: area.centreX,
+        y: area.centreY,
+        width: area.focusWidth,
+        height: area.focusHeight,
+      }),
+    )),
+    showPersonalSpaceVisuals: true,
+    recommendedTickRange: Object.freeze({
+      start: 0,
+      end: PERSONAL_SPACE_SPIKE_RECOMMENDED_END_TICK,
+    }),
+    scenario: PERSONAL_SPACE_SPIKE_SCENARIO,
+    scenarioFactory: () => PERSONAL_SPACE_SPIKE_SCENARIO,
+  }),
   Object.freeze({
     id: ENERGY_EXERTION_VISUAL_SCENARIO_ID,
     title: "Energy, exertion, and rest regression",

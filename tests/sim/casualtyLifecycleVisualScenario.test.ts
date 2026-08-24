@@ -492,7 +492,8 @@ describe("Milestone 6 casualty lifecycle retained visual scenario", () => {
   it("does not alter existing retained entries or introduce browser dependencies into simulation", () => {
     expect(VISUAL_TEST_REGISTRY.filter((entry) =>
       entry.id !== CASUALTY_LIFECYCLE_VISUAL_SCENARIO_ID &&
-      entry.id !== "energy-exertion")
+      entry.id !== "energy-exertion" &&
+      entry.id !== "personal-space-spike")
       .map((entry) => entry.id)).toEqual([
       "movement-behaviour",
       "combat-foundation",

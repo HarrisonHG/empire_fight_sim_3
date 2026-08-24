@@ -38,6 +38,11 @@ import {
   ENERGY_VISUAL_RING_RADIUS,
   type EnergyVisualGlyphSpec,
 } from "./energyVisualGrammar";
+import {
+  createPersonalSpaceVisualGlyphSpec,
+  PERSONAL_SPACE_VISUAL_COLOR,
+  type PersonalSpaceVisualGlyphSpec,
+} from "./personalSpaceVisualGrammar";
 
 const DOT_RADIUS = 2;
 const DOT_COLOR = 0xe8_f1_ff;
@@ -55,6 +60,7 @@ const FACING_COLOR = 0xff_f3_a3;
 const SHIELD_COLOR = 0x93_c5_fd;
 const ARMOUR_COLOR = 0xe2_e8_f0;
 const EVENT_TEXT_OFFSET_Y = -16;
+const PERSONAL_SPACE_VECTOR_SCALE = 5;
 
 export interface RenderWorldLabel {
   readonly text: string;
@@ -73,6 +79,7 @@ export class PixiEntityRenderer {
   private readonly worldLayer = new Container();
   private readonly reachOverlayLayer = new Container();
   private readonly casualtyRelationshipLayer = new Container();
+  private readonly personalSpaceGlyphLayer = new Container();
   private readonly entityLayer = new Container();
   private readonly combatGlyphLayer = new Container();
   private readonly casualtyGlyphLayer = new Container();
@@ -87,6 +94,7 @@ export class PixiEntityRenderer {
   private readonly reachGlyphsByEntityId = new Map<number, Graphics>();
   private readonly casualtyGlyphsByEntityId = new Map<number, Graphics>();
   private readonly energyGlyphsByEntityId = new Map<number, Graphics>();
+  private readonly personalSpaceGlyphsByEntityId = new Map<number, Graphics>();
   private readonly worldLabelsByText = new Map<string, Text>();
   private readonly retainedCombatVisualEvents: RetainedCombatVisualEvent[] = [];
   private readonly retainedCombatVisualEventKeys = new Set<string>();
@@ -102,6 +110,7 @@ export class PixiEntityRenderer {
     this.worldLayer.addChild(
       this.reachOverlayLayer,
       this.casualtyRelationshipLayer,
+      this.personalSpaceGlyphLayer,
       this.entityLayer,
       this.combatGlyphLayer,
       this.casualtyGlyphLayer,
@@ -113,6 +122,7 @@ export class PixiEntityRenderer {
     this.casualtyRelationshipLayer.visible = false;
     this.casualtyGlyphLayer.visible = false;
     this.energyGlyphLayer.visible = false;
+    this.personalSpaceGlyphLayer.visible = false;
     this.combatEventLayer.addChild(
       this.combatEventGraphics,
       this.combatEventTextLayer,
@@ -198,6 +208,10 @@ export class PixiEntityRenderer {
     this.energyGlyphLayer.visible = visible;
   }
 
+  public setPersonalSpaceVisualsVisible(visible: boolean): void {
+    this.personalSpaceGlyphLayer.visible = visible;
+  }
+
   public setWorldFocus(focus?: RenderWorldFocus): void {
     this.worldFocus = focus;
     this.layoutWorld();
@@ -232,6 +246,9 @@ export class PixiEntityRenderer {
     for (const glyph of this.energyGlyphsByEntityId.values()) {
       glyph.destroy();
     }
+    for (const glyph of this.personalSpaceGlyphsByEntityId.values()) {
+      glyph.destroy();
+    }
     for (const label of this.worldLabelsByText.values()) {
       label.destroy();
     }
@@ -242,6 +259,7 @@ export class PixiEntityRenderer {
     this.reachGlyphsByEntityId.clear();
     this.casualtyGlyphsByEntityId.clear();
     this.energyGlyphsByEntityId.clear();
+    this.personalSpaceGlyphsByEntityId.clear();
     this.worldLabelsByText.clear();
     this.dotTexture.destroy(true);
     this.application.destroy(true, { children: true });
@@ -305,6 +323,10 @@ export class PixiEntityRenderer {
       snapshot.positions,
       snapshot.combatDebug?.inspectedIndividuals ?? [],
     );
+    this.updatePersonalSpaceGlyphs(
+      snapshot.positions,
+      snapshot.personalSpaceDebug,
+    );
     this.layoutWorld();
   }
 
@@ -340,6 +362,10 @@ export class PixiEntityRenderer {
     this.updateEnergyGlyphs(
       snapshot.positions,
       snapshot.combatDebug?.inspectedIndividuals ?? [],
+    );
+    this.updatePersonalSpaceGlyphs(
+      snapshot.positions,
+      snapshot.personalSpaceDebug,
     );
   }
 
@@ -510,6 +536,57 @@ export class PixiEntityRenderer {
       glyph.destroy();
       this.energyGlyphsByEntityId.delete(entityId);
     }
+  }
+
+  private updatePersonalSpaceGlyphs(
+    positions: Int32Array,
+    debug: import("../sim/types").PersonalSpaceSpikeDebugSnapshot | undefined,
+  ): void {
+    const entityOrder = this.entityOrder;
+    if (entityOrder === undefined || debug === undefined) {
+      this.clearPersonalSpaceGlyphs();
+      return;
+    }
+    if (
+      debug.occupancyClassCodes.length !== entityOrder.length ||
+      debug.radii.length !== entityOrder.length ||
+      debug.intendedDeltas.length !== entityOrder.length * 2 ||
+      debug.resolvedDeltas.length !== entityOrder.length * 2 ||
+      debug.resolutionFlags.length !== entityOrder.length
+    ) throw new Error("Personal-space debug snapshot has invalid array lengths.");
+
+    const activeEntityIds = new Set<number>();
+    for (let index = 0; index < entityOrder.length; index += 1) {
+      const entityId = entityOrder[index]!;
+      if (debug.radii[entityId] === 0) continue;
+      activeEntityIds.add(entityId);
+      let glyph = this.personalSpaceGlyphsByEntityId.get(entityId);
+      if (glyph === undefined) {
+        glyph = new Graphics();
+        this.personalSpaceGlyphsByEntityId.set(entityId, glyph);
+        this.personalSpaceGlyphLayer.addChild(glyph);
+      }
+      const offset = index * 2;
+      glyph.position.set(positions[offset]!, positions[offset + 1]!);
+      drawPersonalSpaceGlyph(
+        glyph,
+        createPersonalSpaceVisualGlyphSpec(debug, entityId),
+      );
+    }
+    for (const [entityId, glyph] of this.personalSpaceGlyphsByEntityId) {
+      if (activeEntityIds.has(entityId)) continue;
+      this.personalSpaceGlyphLayer.removeChild(glyph);
+      glyph.destroy();
+      this.personalSpaceGlyphsByEntityId.delete(entityId);
+    }
+  }
+
+  private clearPersonalSpaceGlyphs(): void {
+    for (const glyph of this.personalSpaceGlyphsByEntityId.values()) {
+      this.personalSpaceGlyphLayer.removeChild(glyph);
+      glyph.destroy();
+    }
+    this.personalSpaceGlyphsByEntityId.clear();
   }
 
   private updateCombatVisualEvents(
@@ -880,6 +957,53 @@ function drawEnergyGlyph(
     graphics.stroke({ color: spec.color, width: 2, alpha: 0.95 });
   }
   graphics.circle(0, 0, 1.5).fill({ color: spec.activityColor, alpha: 0.95 });
+}
+
+function drawPersonalSpaceGlyph(
+  graphics: Graphics,
+  spec: PersonalSpaceVisualGlyphSpec,
+): void {
+  graphics.clear();
+  graphics
+    .circle(0, 0, spec.radius)
+    .fill({ color: spec.footprintColor, alpha: spec.footprintAlpha * 0.25 })
+    .stroke({ color: spec.footprintColor, width: 0.75, alpha: 0.8 });
+  if (spec.intendedDeltaX !== 0 || spec.intendedDeltaY !== 0) {
+    graphics
+      .moveTo(0, 0)
+      .lineTo(
+        spec.intendedDeltaX * PERSONAL_SPACE_VECTOR_SCALE,
+        spec.intendedDeltaY * PERSONAL_SPACE_VECTOR_SCALE,
+      )
+      .stroke({
+        color: PERSONAL_SPACE_VISUAL_COLOR.intendedVector,
+        width: 0.75,
+        alpha: 0.75,
+      });
+  }
+  if (spec.resolvedDeltaX !== 0 || spec.resolvedDeltaY !== 0) {
+    graphics
+      .moveTo(0, 0)
+      .lineTo(
+        spec.resolvedDeltaX * PERSONAL_SPACE_VECTOR_SCALE,
+        spec.resolvedDeltaY * PERSONAL_SPACE_VECTOR_SCALE,
+      )
+      .stroke({
+        color: PERSONAL_SPACE_VISUAL_COLOR.resolvedVector,
+        width: 1.25,
+        alpha: 0.95,
+      });
+  }
+  const stateColor = spec.blocked
+    ? PERSONAL_SPACE_VISUAL_COLOR.blocked
+    : spec.downedSoftCrossing || spec.reduced
+      ? PERSONAL_SPACE_VISUAL_COLOR.reduced
+      : spec.redirected || spec.yieldingEgressYield
+        ? PERSONAL_SPACE_VISUAL_COLOR.redirected
+        : undefined;
+  if (stateColor !== undefined) {
+    graphics.circle(0, 0, 1.25).fill({ color: stateColor, alpha: 0.95 });
+  }
 }
 
 function drawCasualtyLifecycleGlyph(
