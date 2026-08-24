@@ -11,6 +11,8 @@ import {
 } from "./individualCasualtyLifecycle";
 import {
   ENERGY_RATIO_FIXED_POINT_SCALE,
+  INDIVIDUAL_VOLUNTARY_RESERVE_RATIO_FIXED_POINT,
+  INDIVIDUAL_VOLUNTARY_SPRINT_RATIO_FIXED_POINT,
   getIndividualCurrentEnergy,
   getIndividualEnergyBand,
   getIndividualMaximumEnergy,
@@ -43,11 +45,13 @@ import {
   type UnitIdentityStore,
 } from "./unitIdentity";
 
+export { INDIVIDUAL_VOLUNTARY_RESERVE_RATIO_FIXED_POINT } from "./individualEnergy";
+
 export const UNIT_SAFE_REST_ENTER_RATIO_FIXED_POINT = 1_000;
 export const UNIT_SAFE_REST_EXIT_RATIO_FIXED_POINT = 1_500;
-export const INDIVIDUAL_VOLUNTARY_RESERVE_RATIO_FIXED_POINT = 2_000;
 export const UNIT_VOLUNTARY_JOG_RATIO_FIXED_POINT = 6_000;
-export const UNIT_VOLUNTARY_SPRINT_RATIO_FIXED_POINT = 8_000;
+export const UNIT_VOLUNTARY_SPRINT_RATIO_FIXED_POINT =
+  INDIVIDUAL_VOLUNTARY_SPRINT_RATIO_FIXED_POINT;
 
 export type UnitEnergyBehaviourRecommendation =
   | "normal"

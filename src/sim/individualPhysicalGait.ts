@@ -56,6 +56,31 @@ export function requestedPhysicalGaitForMaximumStep(
   return "sprinting";
 }
 
+export function requiredPhysicalGaitTicksToCoordinate(
+  startX: number,
+  startY: number,
+  destinationX: number,
+  destinationY: number,
+  maximumStep: number,
+): number {
+  if (!Number.isSafeInteger(startX) || !Number.isSafeInteger(startY) ||
+      !Number.isSafeInteger(destinationX) ||
+      !Number.isSafeInteger(destinationY) ||
+      !Number.isSafeInteger(maximumStep) || maximumStep <= 0) {
+    throw new RangeError(
+      "Physical gait geometry must use safe integer coordinates and a positive step.",
+    );
+  }
+  const distance = Math.max(
+    Math.abs(destinationX - startX),
+    Math.abs(destinationY - startY),
+  );
+  if (!Number.isSafeInteger(distance)) {
+    throw new RangeError("Physical gait distance exceeds safe integer range.");
+  }
+  return Math.ceil(distance / maximumStep);
+}
+
 export interface IndividualSpecialistPhysicalGaitAdapter {
   readonly entityCount: number;
   readonly acceptedProjectionTick: number | null;
@@ -65,6 +90,7 @@ export interface IndividualSpecialistPhysicalGaitAdapter {
     entityId: number,
     authority: IndividualSpecialistMovementAuthority,
     requestedGait: IndividualPhysicalGait,
+    requiredSprintTicks: number,
   ): IndividualPhysicalGait;
   constrainPreflightedActiveDragHelperGait(
     entityId: number,

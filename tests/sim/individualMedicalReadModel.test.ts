@@ -296,7 +296,7 @@ describe("individual medical urgency and prepared discovery", () => {
 
 describe("production trauma withdrawal", () => {
   it.each([
-    [100, 4, "sprinting", 22],
+    [100, 2, "jogging", 5],
     [20, 2, "jogging", 5],
     [0, 1, "walking", 0],
   ] as const)(
@@ -333,7 +333,7 @@ describe("production trauma withdrawal", () => {
         requestedPhysicalGait: "sprinting",
         effectivePhysicalGait: expectedEffectiveGait,
         actualPhysicalGait: expectedEffectiveGait,
-        gaitReducedByCapability: expectedEffectiveGait !== "sprinting",
+        gaitReducedByCapability: true,
         physicalGaitSource: "traumaWithdrawal",
         movementExpenditureRequested: expectedCost,
         expenditureApplied: Math.min(startingEnergy, expectedCost),
@@ -349,7 +349,7 @@ describe("production trauma withdrawal", () => {
       memberMaxStep: 4,
       energyProfile: {
         maximumEnergy: 100,
-        startingEnergy: 30,
+        startingEnergy: 12,
         safeRestRecoveryPerTick: 0,
       },
     };
@@ -369,9 +369,9 @@ describe("production trauma withdrawal", () => {
     expect(getIndividualEnergyActivityInspection(
       combat.individualEnergyActivityStore, 0,
     )).toMatchObject({
-      effectivePhysicalGait: "sprinting",
-      actualPhysicalGait: "sprinting",
-      movementExpenditureRequested: 22,
+      effectivePhysicalGait: "jogging",
+      actualPhysicalGait: "jogging",
+      movementExpenditureRequested: 5,
     });
     const beforeNextX = simulation.world.positionsX[0]!;
 

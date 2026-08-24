@@ -33,6 +33,7 @@ import type { WorldState } from "./types";
 import {
   clampPhysicalGait,
   physicalGaitCoordinateCeiling,
+  requiredPhysicalGaitTicksToCoordinate,
   requestedPhysicalGaitForMaximumStep,
   type IndividualSpecialistPhysicalGaitAdapter,
 } from "./individualPhysicalGait";
@@ -720,10 +721,20 @@ export function advanceCasualtyDragGroupsBeforeCombat(
           const requestedGait = requestedPhysicalGaitForMaximumStep(
             configuredMaximumStep,
           );
+          const requiredSprintTicks = requestedGait === "sprinting"
+            ? requiredPhysicalGaitTicksToCoordinate(
+                world.positionsX[helperId]!,
+                world.positionsY[helperId]!,
+                world.positionsX[group.patientEntityId]!,
+                world.positionsY[group.patientEntityId]!,
+                configuredMaximumStep,
+              )
+            : 0;
           const effectiveGait = gaitAdapter?.preflightActiveSpecialistMovement(
             helperId,
             "casualtyGathering",
             requestedGait,
+            requiredSprintTicks,
           ) ?? requestedGait;
           const gaitCoordinateCeiling = physicalGaitCoordinateCeiling(
             effectiveGait,
@@ -780,6 +791,15 @@ export function advanceCasualtyDragGroupsBeforeCombat(
       const scaled = slowestStep * INITIAL_DRAG_SPEED_FACTOR_NUMERATOR + group.dragSpeedRemainder;
       const maxStep = Math.floor(scaled / INITIAL_DRAG_SPEED_FACTOR_DENOMINATOR);
       const requestedGroupGait = requestedPhysicalGaitForMaximumStep(maxStep);
+      const requiredSprintTicks = requestedGroupGait === "sprinting"
+        ? requiredPhysicalGaitTicksToCoordinate(
+            world.positionsX[patientId]!,
+            world.positionsY[patientId]!,
+            destinationX,
+            destinationY,
+            maxStep,
+          )
+        : 0;
       let groupEffectiveGait = requestedGroupGait;
       for (let helperIndex = 0;
         helperIndex < group.helperEntityIds.length;
@@ -788,6 +808,7 @@ export function advanceCasualtyDragGroupsBeforeCombat(
           group.helperEntityIds[helperIndex]!,
           "activeDragHelper",
           requestedGroupGait,
+          requiredSprintTicks,
         ) ?? requestedGroupGait;
         groupEffectiveGait = clampPhysicalGait(
           groupEffectiveGait,

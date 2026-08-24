@@ -60,10 +60,14 @@ import {
   createIndividualTreatmentActionStore,
 } from "../../src/sim/individualTreatmentAction";
 import {
+  createIndividualEnergyExertionModifierStore,
   getIndividualBurdenExertionMultiplierPercent,
   getIndividualEnergyExertionModifierInspection,
   getIndividualEnergyExertionModifierProjectionTick,
+  projectIndividualEnergyExertionModifiersOneTick,
 } from "../../src/sim/individualEnergyExertionModifier";
+import { createIndividualCombatProfileStore } from "../../src/sim/individualCombatProfile";
+import { createIndividualGlobalHitStore } from "../../src/sim/individualGlobalHits";
 import {
   advanceSimulationOneTick,
   createSimulation,
@@ -234,8 +238,37 @@ describe("specialist gait boundary structural performance", () => {
         entityCount, energy, lifecycle, presence,
       );
       const activity = createIndividualEnergyActivityStore(entityCount);
+      const combatProfiles = createIndividualCombatProfileStore({
+        entityCount,
+        profiles: Array.from({ length: entityCount }, (_, entityId) => ({
+          entityId,
+          primaryWeapon: "unarmed" as const,
+          shieldCategory: "none" as const,
+          shieldCarriedState: "none" as const,
+          armourCategory: "none" as const,
+          hasQualifyingHelmet: false,
+          qualifications: {
+            hasWeaponMaster: false,
+            hasShield: false,
+            hasMarksman: false,
+            hasThrown: false,
+            hasAmbidexterity: false,
+            enduranceLevels: 0,
+            fortitudeLevels: 0,
+            hasDreadnought: false,
+          },
+          magicalCapabilities: {
+            canUseRod: false,
+            canUseStaff: false,
+            canWearMageArmour: false,
+            canDeliverCombatMagic: false,
+          },
+        })),
+      });
+      const hits = createIndividualGlobalHitStore(combatProfiles, { entityCount });
+      const modifiers = createIndividualEnergyExertionModifierStore(entityCount);
       const adapter = createIndividualSpecialistPhysicalGaitAdapter(
-        activity, capability,
+        activity, capability, energy, modifiers,
       );
       const treatments = createIndividualTreatmentActionStore(entityCount);
       const executions = createIndividualExecutionActionStore(entityCount);
@@ -252,11 +285,14 @@ describe("specialist gait boundary structural performance", () => {
       projectIndividualEnergyCapabilitiesOneTick(
         capability, energy, lifecycle, presence, 0,
       );
+      projectIndividualEnergyExertionModifiersOneTick(
+        modifiers, combatProfiles, hits, 0,
+      );
       adapter.acceptCapabilityProjection(0);
       for (let entityId = 0; entityId < specialistCount; entityId += 1) {
         const authority = authorities[entityId % authorities.length]!;
         const effectiveGait = adapter.preflightActiveSpecialistMovement(
-          entityId, authority, "sprinting",
+          entityId, authority, "sprinting", 1,
         );
         const ceiling = physicalGaitCoordinateCeiling(effectiveGait);
         const appliedStep = ceiling ?? 4;

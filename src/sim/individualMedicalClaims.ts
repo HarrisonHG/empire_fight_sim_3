@@ -6,6 +6,7 @@ import {
 } from "./formationBehaviour";
 import {
   physicalGaitCoordinateCeiling,
+  requiredPhysicalGaitTicksToCoordinate,
   requestedPhysicalGaitForMaximumStep,
   type IndividualSpecialistPhysicalGaitAdapter,
 } from "./individualPhysicalGait";
@@ -241,10 +242,20 @@ export function advanceIndividualMedicalClaimApproachMovementOneTick(
     const requestedGait = requestedPhysicalGaitForMaximumStep(
       configuredMaximumStep,
     );
+    const requiredSprintTicks = requestedGait === "sprinting"
+      ? requiredPhysicalGaitTicksToCoordinate(
+          world.positionsX[physickId]!,
+          world.positionsY[physickId]!,
+          world.positionsX[patientId]!,
+          world.positionsY[patientId]!,
+          configuredMaximumStep,
+        )
+      : 0;
     const effectiveGait = gaitAdapter?.preflightActiveSpecialistMovement(
       physickId,
       "medicalApproach",
       requestedGait,
+      requiredSprintTicks,
     ) ?? requestedGait;
     const gaitCoordinateCeiling = physicalGaitCoordinateCeiling(effectiveGait);
     const finalMaximumStep = gaitCoordinateCeiling === null

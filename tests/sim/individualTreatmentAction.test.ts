@@ -934,7 +934,7 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
   });
 
   it.each([
-    [100, 4, "sprinting", 20],
+    [100, 2, "jogging", 4],
     [20, 2, "jogging", 4],
     [0, 1, "walking", 0],
   ] as const)(
@@ -961,7 +961,7 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
         requestedPhysicalGait: "sprinting",
         effectivePhysicalGait: expectedEffectiveGait,
         actualPhysicalGait: expectedEffectiveGait,
-        gaitReducedByCapability: expectedEffectiveGait !== "sprinting",
+        gaitReducedByCapability: true,
         physicalGaitSource: "medicalApproach",
         movementExpenditureRequested: expectedCost,
         expenditureApplied: Math.min(currentEnergy, expectedCost),
@@ -974,6 +974,65 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
     },
   );
 
+  it("sprints only for an affordable nearby urgent Physick approach", () => {
+    const simulation = createClaimCommitmentSimulation(
+      undefined,
+      { memberMaxStep: 4, order: "hold", healerX: 112 },
+    );
+    const combat = requireCombat(simulation);
+    down(simulation, 0, 0);
+    advanceUntilClaimCreated(simulation, 0, 3);
+    const beforeX = simulation.world.positionsX[3]!;
+
+    advanceSimulationOneTick(simulation);
+
+    expect(beforeX - simulation.world.positionsX[3]!).toBe(4);
+    expect(getIndividualEnergyActivityInspection(
+      combat.individualEnergyActivityStore, 3,
+    )).toMatchObject({
+      requestedPhysicalGait: "sprinting",
+      effectivePhysicalGait: "sprinting",
+      actualPhysicalGait: "sprinting",
+      gaitReducedByCapability: false,
+      physicalGaitSource: "medicalApproach",
+      movementExpenditureRequested: 20,
+      expenditureApplied: 20,
+    });
+  });
+
+  it("replays distant specialist casualty response deterministically apart from gait choice", () => {
+    const run = () => {
+      const simulation = createClaimCommitmentSimulation(
+        undefined,
+        { memberMaxStep: 4, order: "hold", healerX: 160 },
+      );
+      const combat = requireCombat(simulation);
+      down(simulation, 0, 0);
+      advanceUntilClaimCreated(simulation, 0, 3);
+      advanceSimulationOneTick(simulation);
+      return {
+        tick: simulation.tick,
+        positions: Array.from(simulation.world.positionsX),
+        movementMode: getIndividualMovementMode(combat.formationStore, 3),
+        claim: getIndividualMedicalClaimInspection(
+          combat.individualMedicalClaimStore,
+          3,
+        ),
+        activity: getIndividualEnergyActivityInspection(
+          combat.individualEnergyActivityStore,
+          3,
+        ),
+      };
+    };
+
+    const first = run();
+    expect(first).toEqual(run());
+    expect(first.movementMode).toBe("approachClaimedPatient");
+    expect(first.claim).toMatchObject({
+      patientEntityId: 0,
+    });
+  });
+
   it("uses following-tick capability after medical approach exhausts energy", () => {
     const simulation = createClaimCommitmentSimulation(
       undefined,
@@ -983,29 +1042,29 @@ describe("Milestone 6G-1 Chirurgeon treatment", () => {
     down(simulation, 0, 0);
     advanceUntilClaimCreated(simulation, 0, 3);
     setIndividualCurrentEnergyForTrustedSetup(
-      simulation.individualEnergyStore, 3, 30,
+      simulation.individualEnergyStore, 3, 12,
     );
 
     advanceSimulationOneTick(simulation);
     expect(getIndividualEnergyActivityInspection(
       combat.individualEnergyActivityStore, 3,
     )).toMatchObject({
-      effectivePhysicalGait: "sprinting",
-      actualPhysicalGait: "sprinting",
-      movementExpenditureRequested: 20,
-      expenditureApplied: 20,
+      effectivePhysicalGait: "jogging",
+      actualPhysicalGait: "jogging",
+      movementExpenditureRequested: 4,
+      expenditureApplied: 4,
     });
     const beforeNextX = simulation.world.positionsX[3]!;
 
     advanceSimulationOneTick(simulation);
-    expect(beforeNextX - simulation.world.positionsX[3]!).toBe(2);
+    expect(beforeNextX - simulation.world.positionsX[3]!).toBe(1);
     expect(getIndividualEnergyActivityInspection(
       combat.individualEnergyActivityStore, 3,
     )).toMatchObject({
       requestedPhysicalGait: "sprinting",
-      effectivePhysicalGait: "jogging",
-      actualPhysicalGait: "jogging",
-      movementExpenditureRequested: 4,
+      effectivePhysicalGait: "walking",
+      actualPhysicalGait: "walking",
+      movementExpenditureRequested: 0,
     });
   });
 

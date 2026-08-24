@@ -201,6 +201,11 @@ Status: implemented; awaiting human visual acceptance.
 - Voluntary sprint remains limited to an existing urgent movement authority:
   an affordable short final hostile contact, routing/panic, or an already
   requested urgent casualty/medical movement.
+- Urgent self-propelled specialist sprint requests use their already-selected
+  bounded destination and the exertion-adjusted tick-start sprint budget:
+  sprint requires at least 80% energy and enough budget to arrive without
+  crossing the 20% voluntary reserve; otherwise the existing jog/walk
+  capability applies. Routing/panic remains forced and exempt.
 - The retained energy suite demonstrates full downed recovery near a hostile
   and contrasts a distant high-energy jog with a close affordable sprint.
 

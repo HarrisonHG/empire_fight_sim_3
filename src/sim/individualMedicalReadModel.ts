@@ -43,6 +43,7 @@ import {
 import type { UnitMoraleMovementStateSource } from "./moraleMovement";
 import {
   physicalGaitCoordinateCeiling,
+  requiredPhysicalGaitTicksToCoordinate,
   requestedPhysicalGaitForMaximumStep,
   type IndividualSpecialistPhysicalGaitAdapter,
 } from "./individualPhysicalGait";
@@ -707,10 +708,26 @@ export function advanceIndividualTraumaWithdrawalMovementOneTick(
     const requestedGait = requestedPhysicalGaitForMaximumStep(
       configuredMaximumStep,
     );
+    const destinationX = Math.round(
+      internal.withdrawalGoalXByEntity[entityId]!,
+    );
+    const destinationY = Math.round(
+      internal.withdrawalGoalYByEntity[entityId]!,
+    );
+    const requiredSprintTicks = requestedGait === "sprinting"
+      ? requiredPhysicalGaitTicksToCoordinate(
+          world.positionsX[entityId]!,
+          world.positionsY[entityId]!,
+          destinationX,
+          destinationY,
+          configuredMaximumStep,
+        )
+      : 0;
     const effectiveGait = gaitAdapter?.preflightActiveSpecialistMovement(
       entityId,
       "traumaWithdrawal",
       requestedGait,
+      requiredSprintTicks,
     ) ?? requestedGait;
     const gaitCoordinateCeiling = physicalGaitCoordinateCeiling(effectiveGait);
     const finalMaximumStep = gaitCoordinateCeiling === null
@@ -720,8 +737,8 @@ export function advanceIndividualTraumaWithdrawalMovementOneTick(
       world,
       formationStore,
       entityId,
-      Math.round(internal.withdrawalGoalXByEntity[entityId]!),
-      Math.round(internal.withdrawalGoalYByEntity[entityId]!),
+      destinationX,
+      destinationY,
       "withdrawForTreatment",
       finalMaximumStep,
     );

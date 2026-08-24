@@ -628,7 +628,7 @@ describe("individual casualty assistance and sparse drag groups", () => {
   });
 
   it.each([
-    [100, 4, "sprinting", 20],
+    [100, 2, "jogging", 4],
     [20, 2, "jogging", 4],
     [0, 1, "walking", 0],
   ] as const)(
@@ -663,7 +663,7 @@ describe("individual casualty assistance and sparse drag groups", () => {
         requestedPhysicalGait: "sprinting",
         effectivePhysicalGait: expectedEffectiveGait,
         actualPhysicalGait: expectedEffectiveGait,
-        gaitReducedByCapability: expectedEffectiveGait !== "sprinting",
+        gaitReducedByCapability: true,
         physicalGaitSource: "casualtyGathering",
         movementExpenditureRequested: expectedCost,
         expenditureApplied: Math.min(startingEnergy, expectedCost),
@@ -697,9 +697,9 @@ describe("individual casualty assistance and sparse drag groups", () => {
     expect(getIndividualEnergyActivityInspection(
       combat.individualEnergyActivityStore, 1,
     )).toMatchObject({
-      effectivePhysicalGait: "sprinting",
-      actualPhysicalGait: "sprinting",
-      movementExpenditureRequested: 20,
+      effectivePhysicalGait: "jogging",
+      actualPhysicalGait: "jogging",
+      movementExpenditureRequested: 4,
     });
     const beforeNextX = simulation.world.positionsX[1]!;
 
@@ -941,16 +941,16 @@ describe("individual casualty assistance and sparse drag groups", () => {
 
     advanceSimulationOneTick(simulation);
 
-    expect(Math.abs(simulation.world.positionsX[1]! - beforeX)).toBe(4);
+    expect(Math.abs(simulation.world.positionsX[1]! - beforeX)).toBe(2);
     expect(group.dragSpeedRemainder).toBe(0);
     expect(getIndividualEnergyActivityInspection(
       combat.individualEnergyActivityStore, 1,
     )).toMatchObject({
       requestedPhysicalGait: "sprinting",
-      effectivePhysicalGait: "sprinting",
-      actualPhysicalGait: "sprinting",
-      gaitReducedByCapability: false,
-      movementExpenditureRequested: 20,
+      effectivePhysicalGait: "jogging",
+      actualPhysicalGait: "jogging",
+      gaitReducedByCapability: true,
+      movementExpenditureRequested: 4,
     });
   });
 

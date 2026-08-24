@@ -20,13 +20,18 @@ import {
 } from "./individualTreatmentAction";
 import {
   assertIndividualEnergyProfileOwnership,
+  ENERGY_RATIO_FIXED_POINT_SCALE,
   getIndividualCurrentEnergy,
   getIndividualEnergyLastStrenuousTick,
+  getIndividualEnergyRatioFixedPoint,
+  getIndividualMaximumEnergy,
   getTrustedIndividualEnergyProfile,
   recoverIndividualEnergy,
   spendIndividualEnergy,
   type IndividualEnergyStore,
   type TrustedIndividualEnergyProfileStore,
+  INDIVIDUAL_VOLUNTARY_RESERVE_RATIO_FIXED_POINT,
+  INDIVIDUAL_VOLUNTARY_SPRINT_RATIO_FIXED_POINT,
 } from "./individualEnergy";
 import {
   assertIndividualEnergyCapabilityProjectionTick,
@@ -38,10 +43,12 @@ import {
 import {
   INDIVIDUAL_EXERTION_PERCENT_SCALE,
   assertIndividualEnergyExertionModifierInput,
+  assertIndividualEnergyExertionModifierProjectionTick,
   getIndividualBurdenExertionMultiplierPercent,
   getIndividualEnergyExertionModifierProjectionTick,
   getIndividualInjuryExertionMultiplierPercent,
   type IndividualEnergyExertionModifierInput,
+  type IndividualEnergyExertionModifierStore,
 } from "./individualEnergyExertionModifier";
 import {
   clampPhysicalGait,
@@ -509,6 +516,8 @@ export function checkpointIndividualEnergyMovementObservation(
 interface InternalSpecialistPhysicalGaitAdapter {
   readonly activity: IndividualEnergyActivityStore;
   readonly capabilities: IndividualEnergyCapabilityStore;
+  readonly energy: IndividualEnergyStore;
+  readonly exertionModifiers: IndividualEnergyExertionModifierStore;
   readonly pendingSourceByEntity: Int8Array;
   readonly pendingRequestedGaitByEntity: Uint8Array;
   readonly pendingEffectiveGaitByEntity: Uint8Array;
@@ -523,10 +532,14 @@ const specialistAdapterInternals = new WeakMap<
 export function createIndividualSpecialistPhysicalGaitAdapter(
   activity: IndividualEnergyActivityStore,
   capabilities: IndividualEnergyCapabilityStore,
+  energy: IndividualEnergyStore,
+  exertionModifiers: IndividualEnergyExertionModifierStore,
 ): IndividualSpecialistPhysicalGaitAdapter {
   const internal: InternalSpecialistPhysicalGaitAdapter = {
     activity,
     capabilities,
+    energy,
+    exertionModifiers,
     pendingSourceByEntity: new Int8Array(activity.entityCount),
     pendingRequestedGaitByEntity: new Uint8Array(activity.entityCount),
     pendingEffectiveGaitByEntity: new Uint8Array(activity.entityCount),
@@ -548,11 +561,13 @@ export function createIndividualSpecialistPhysicalGaitAdapter(
       entityId: number,
       authority: IndividualSpecialistMovementAuthority,
       requestedGait: IndividualPhysicalGait,
+      requiredSprintTicks: number,
     ) => preflightSpecialistMovement(
       adapter,
       entityId,
       authority,
       requestedGait,
+      requiredSprintTicks,
     ),
     constrainPreflightedActiveDragHelperGait: (
       entityId: number,
@@ -585,6 +600,7 @@ export function createIndividualSpecialistPhysicalGaitAdapter(
         entityId,
         "respawnEgress",
         "walking",
+        0,
       ),
     completeRespawnEgressMovement: (
       entityId: number,
@@ -605,6 +621,7 @@ export function createIndividualSpecialistPhysicalGaitAdapter(
         entityId,
         "draggedPatient",
         "stationary",
+        0,
       ),
     completeDraggedPatientMovement: (
       entityId: number,
@@ -629,7 +646,9 @@ function acceptSpecialistCapabilityProjection(
 ): void {
   const internal = requireSpecialistAdapter(adapter);
   assertTick(tick);
-  if (internal.activity.entityCount !== internal.capabilities.entityCount) {
+  if (internal.activity.entityCount !== internal.capabilities.entityCount ||
+      internal.activity.entityCount !== internal.energy.entityCount ||
+      internal.activity.entityCount !== internal.exertionModifiers.entityCount) {
     throw new RangeError(
       "Specialist gait adapter dependencies must match entityCount.",
     );
@@ -666,6 +685,10 @@ function acceptSpecialistCapabilityProjection(
     );
   }
   assertIndividualEnergyCapabilityProjectionTick(internal.capabilities, tick);
+  assertIndividualEnergyExertionModifierProjectionTick(
+    internal.exertionModifiers,
+    tick,
+  );
   internal.acceptedProjectionTick = tick;
 }
 
@@ -674,7 +697,9 @@ function validateSpecialistAdapterCurrentTick(
 ): InternalSpecialistPhysicalGaitAdapter {
   const internal = requireSpecialistAdapter(adapter);
   if (adapter.entityCount !== internal.activity.entityCount ||
-      internal.activity.entityCount !== internal.capabilities.entityCount) {
+      internal.activity.entityCount !== internal.capabilities.entityCount ||
+      internal.activity.entityCount !== internal.energy.entityCount ||
+      internal.activity.entityCount !== internal.exertionModifiers.entityCount) {
     throw new RangeError(
       "Specialist gait adapter dependencies must match entityCount.",
     );
@@ -705,6 +730,10 @@ function validateSpecialistAdapterCurrentTick(
     internal.capabilities,
     internal.acceptedProjectionTick,
   );
+  assertIndividualEnergyExertionModifierProjectionTick(
+    internal.exertionModifiers,
+    internal.acceptedProjectionTick,
+  );
   return internal;
 }
 
@@ -713,10 +742,16 @@ function preflightSpecialistMovement(
   entityId: number,
   source: IndividualSpecialistMovementAuthority | "respawnEgress" | "draggedPatient",
   requestedGait: IndividualPhysicalGait,
+  requiredSprintTicks: number,
 ): IndividualPhysicalGait {
   const adapterInternal = validateSpecialistAdapterCurrentTick(adapter);
   const activity = requireStore(adapterInternal.activity);
   assertEntityId(entityId, activity.entityCount);
+  if (!Number.isSafeInteger(requiredSprintTicks) || requiredSprintTicks < 0) {
+    throw new RangeError(
+      "Specialist gait required sprint ticks must be a non-negative safe integer.",
+    );
+  }
   if (adapterInternal.pendingSourceByEntity[entityId] !== -1) {
     throw new Error(
       "Specialist gait movement already has an incomplete preflight.",
@@ -734,13 +769,53 @@ function preflightSpecialistMovement(
           adapterInternal.capabilities,
           entityId,
         );
-  const effectiveGait = clampPhysicalGait(requestedGait, maximumGait);
+  const voluntaryMaximumGait = requestedGait === "sprinting" &&
+      source !== "respawnEgress" && source !== "draggedPatient" &&
+      !canAffordSpecialistSprintToDestination(
+        adapterInternal,
+        entityId,
+        requiredSprintTicks,
+      )
+    ? clampPhysicalGait(maximumGait, "jogging")
+    : maximumGait;
+  const effectiveGait = clampPhysicalGait(requestedGait, voluntaryMaximumGait);
   adapterInternal.pendingSourceByEntity[entityId] = sourceIndex;
   adapterInternal.pendingRequestedGaitByEntity[entityId] =
     INTENSITIES.indexOf(requestedGait);
   adapterInternal.pendingEffectiveGaitByEntity[entityId] =
     INTENSITIES.indexOf(effectiveGait);
   return effectiveGait;
+}
+
+function canAffordSpecialistSprintToDestination(
+  internal: InternalSpecialistPhysicalGaitAdapter,
+  entityId: number,
+  requiredSprintTicks: number,
+): boolean {
+  if (getIndividualEnergyRatioFixedPoint(internal.energy, entityId) <
+      INDIVIDUAL_VOLUNTARY_SPRINT_RATIO_FIXED_POINT) return false;
+  const maximum = getIndividualMaximumEnergy(internal.energy, entityId);
+  const reserve = Math.ceil(
+    maximum * INDIVIDUAL_VOLUNTARY_RESERVE_RATIO_FIXED_POINT /
+      ENERGY_RATIO_FIXED_POINT_SCALE,
+  );
+  const available = Math.max(
+    0,
+    getIndividualCurrentEnergy(internal.energy, entityId) - reserve,
+  );
+  const sprintCost = calculateIndividualEnergyExertionAdjustedValue(
+    INDIVIDUAL_ENERGY_SPRINTING_COST_PER_TICK,
+    getIndividualBurdenExertionMultiplierPercent(
+      internal.exertionModifiers,
+      entityId,
+    ),
+    getIndividualInjuryExertionMultiplierPercent(
+      internal.exertionModifiers,
+      entityId,
+    ),
+    "specialist voluntary sprint budget",
+  );
+  return requiredSprintTicks <= Math.floor(available / sprintCost);
 }
 
 function completeSpecialistMovement(

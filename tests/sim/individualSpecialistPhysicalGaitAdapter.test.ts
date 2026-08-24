@@ -7,6 +7,7 @@ import {
   transitionIndividualDyingToTerminal,
 } from "../../src/sim/individualCasualtyLifecycle";
 import { createIndividualCasualtyProcedureProfileStore } from "../../src/sim/individualCasualtyProcedureProfile";
+import { createIndividualCombatProfileStore } from "../../src/sim/individualCombatProfile";
 import {
   beginIndividualEnergyActivityObservation,
   createIndividualEnergyActivityStore,
@@ -21,12 +22,19 @@ import {
   createIndividualEnergyCapabilityStore,
   projectIndividualEnergyCapabilitiesOneTick,
 } from "../../src/sim/individualEnergyCapability";
+import {
+  createIndividualEnergyExertionModifierStore,
+  projectIndividualEnergyExertionModifiersOneTick,
+} from "../../src/sim/individualEnergyExertionModifier";
+import { createIndividualGlobalHitStore } from "../../src/sim/individualGlobalHits";
 import type { WorldState } from "../../src/sim/types";
 
 describe("current-tick specialist physical-gait adapter", () => {
   it.each([
     [100, "sprinting"],
-    [50, "sprinting"],
+    [80, "sprinting"],
+    [79, "jogging"],
+    [50, "jogging"],
     [20, "jogging"],
     [5, "walking"],
   ] as const)(
@@ -37,24 +45,45 @@ describe("current-tick specialist physical-gait adapter", () => {
       projectIndividualEnergyCapabilitiesOneTick(
         harness.capability, harness.energy, harness.lifecycle, harness.presence, 7,
       );
+      projectIndividualEnergyExertionModifiersOneTick(
+        harness.modifiers, harness.combatProfiles, harness.hits, 7,
+      );
       harness.adapter.acceptCapabilityProjection(7);
       expect(harness.adapter.preflightActiveSpecialistMovement(
-        0, "medicalApproach", "sprinting",
+        0, "medicalApproach", "sprinting", 1,
       )).toBe(expectedEffectiveGait);
       harness.world.positionsX[0] = 3;
       harness.adapter.completeActiveSpecialistMovement(
-        0, "medicalApproach", "sprinting", "sprinting", true,
+        0,
+        "medicalApproach",
+        "sprinting",
+        expectedEffectiveGait,
+        true,
       );
       expect(getIndividualEnergyActivityInspection(harness.activity, 0))
         .toMatchObject({
           requestedPhysicalGait: "sprinting",
           effectivePhysicalGait: expectedEffectiveGait,
-          actualPhysicalGait: "sprinting",
+          actualPhysicalGait: expectedEffectiveGait,
           gaitReducedByCapability: expectedEffectiveGait !== "sprinting",
           gaitProducedDisplacement: true,
         });
     },
   );
+
+  it("requires a full-energy voluntary specialist sprint to fit its reserve budget", () => {
+    const harness = fixture(100);
+    beginIndividualEnergyActivityObservation(harness.activity, harness.world, 7);
+    projectIndividualEnergyCapabilitiesOneTick(
+      harness.capability, harness.energy, harness.lifecycle, harness.presence, 7,
+    );
+    projectModifiers(harness, 7);
+    harness.adapter.acceptCapabilityProjection(7);
+
+    expect(harness.adapter.preflightActiveSpecialistMovement(
+      0, "medicalApproach", "sprinting", 5,
+    )).toBe("jogging");
+  });
 
   it("retains requested/effective/actual evidence for a blocked attempt", () => {
     const harness = fixture(5);
@@ -62,9 +91,10 @@ describe("current-tick specialist physical-gait adapter", () => {
     projectIndividualEnergyCapabilitiesOneTick(
       harness.capability, harness.energy, harness.lifecycle, harness.presence, 7,
     );
+    projectModifiers(harness, 7);
     harness.adapter.acceptCapabilityProjection(7);
     expect(harness.adapter.preflightActiveSpecialistMovement(
-      0, "traumaWithdrawal", "jogging",
+      0, "traumaWithdrawal", "jogging", 0,
     )).toBe("walking");
     harness.adapter.completeActiveSpecialistMovement(
       0, "traumaWithdrawal", "jogging", "jogging", false,
@@ -85,9 +115,10 @@ describe("current-tick specialist physical-gait adapter", () => {
     projectIndividualEnergyCapabilitiesOneTick(
       harness.capability, harness.energy, harness.lifecycle, harness.presence, 7,
     );
+    projectModifiers(harness, 7);
     harness.adapter.acceptCapabilityProjection(7);
     expect(harness.adapter.preflightActiveSpecialistMovement(
-      0, "activeDragHelper", "sprinting",
+      0, "activeDragHelper", "sprinting", 1,
     )).toBe("sprinting");
     harness.adapter.constrainPreflightedActiveDragHelperGait(
       0, "sprinting", "walking",
@@ -114,9 +145,10 @@ describe("current-tick specialist physical-gait adapter", () => {
     projectIndividualEnergyCapabilitiesOneTick(
       harness.capability, harness.energy, harness.lifecycle, harness.presence, 7,
     );
+    projectModifiers(harness, 7);
     harness.adapter.acceptCapabilityProjection(7);
     expect(harness.adapter.preflightActiveSpecialistMovement(
-      0, "activeDragHelper", "sprinting",
+      0, "activeDragHelper", "sprinting", 1,
     )).toBe("walking");
     const before = getIndividualEnergyActivityInspection(harness.activity, 0);
 
@@ -140,10 +172,11 @@ describe("current-tick specialist physical-gait adapter", () => {
       projectIndividualEnergyCapabilitiesOneTick(
         harness.capability, harness.energy, harness.lifecycle, harness.presence, 7,
       );
+      projectModifiers(harness, 7);
       harness.adapter.acceptCapabilityProjection(7);
 
       expect(harness.adapter.preflightActiveSpecialistMovement(
-        0, "casualtyGathering", "sprinting",
+        0, "casualtyGathering", "sprinting", 1,
       )).toBe("stationary");
       harness.adapter.completeActiveSpecialistMovement(
         0, "casualtyGathering", "sprinting", "sprinting", false,
@@ -178,6 +211,7 @@ describe("current-tick specialist physical-gait adapter", () => {
         projectedTick,
       );
     }
+    projectModifiers(harness, acceptedTick);
     const before = getIndividualEnergyActivityInspection(harness.activity, 0);
     const worldBefore = Array.from(harness.world.positionsX);
 
@@ -199,7 +233,10 @@ describe("current-tick specialist physical-gait adapter", () => {
     );
     const activity = createIndividualEnergyActivityStore(2);
     const adapter = createIndividualSpecialistPhysicalGaitAdapter(
-      activity, capabilityHarness.capability,
+      activity,
+      capabilityHarness.capability,
+      capabilityHarness.energy,
+      capabilityHarness.modifiers,
     );
     beginIndividualEnergyActivityObservation(activity, worldFor(2), 7);
     const before = getIndividualEnergyActivityInspection(activity, 0);
@@ -215,9 +252,10 @@ describe("current-tick specialist physical-gait adapter", () => {
     projectIndividualEnergyCapabilitiesOneTick(
       harness.capability, harness.energy, harness.lifecycle, harness.presence, 7,
     );
+    projectModifiers(harness, 7);
     harness.adapter.acceptCapabilityProjection(7);
     harness.adapter.preflightActiveSpecialistMovement(
-      0, "traumaWithdrawal", "jogging",
+      0, "traumaWithdrawal", "jogging", 0,
     );
     harness.adapter.completeActiveSpecialistMovement(
       0, "traumaWithdrawal", "jogging", "jogging", true,
@@ -238,11 +276,12 @@ describe("current-tick specialist physical-gait adapter", () => {
     projectIndividualEnergyCapabilitiesOneTick(
       stale.capability, stale.energy, stale.lifecycle, stale.presence, 7,
     );
+    projectModifiers(stale, 7);
     stale.adapter.acceptCapabilityProjection(7);
     beginIndividualEnergyActivityObservation(stale.activity, stale.world, 8);
     const staleBefore = getIndividualEnergyActivityInspection(stale.activity, 0);
     expect(() => stale.adapter.preflightActiveSpecialistMovement(
-      0, "medicalApproach", "walking",
+      0, "medicalApproach", "walking", 0,
     )).toThrow(/accepted current activity tick/);
     expect(getIndividualEnergyActivityInspection(stale.activity, 0))
       .toEqual(staleBefore);
@@ -252,13 +291,14 @@ describe("current-tick specialist physical-gait adapter", () => {
     projectIndividualEnergyCapabilitiesOneTick(
       future.capability, future.energy, future.lifecycle, future.presence, 7,
     );
+    projectModifiers(future, 7);
     future.adapter.acceptCapabilityProjection(7);
     projectIndividualEnergyCapabilitiesOneTick(
       future.capability, future.energy, future.lifecycle, future.presence, 8,
     );
     const futureBefore = getIndividualEnergyActivityInspection(future.activity, 0);
     expect(() => future.adapter.preflightActiveSpecialistMovement(
-      0, "medicalApproach", "walking",
+      0, "medicalApproach", "walking", 0,
     )).toThrow(/match accepted tick 7/);
     expect(getIndividualEnergyActivityInspection(future.activity, 0))
       .toEqual(futureBefore);
@@ -270,6 +310,7 @@ describe("current-tick specialist physical-gait adapter", () => {
     projectIndividualEnergyCapabilitiesOneTick(
       harness.capability, harness.energy, harness.lifecycle, harness.presence, 7,
     );
+    projectModifiers(harness, 7);
     harness.adapter.acceptCapabilityProjection(7);
     const before = getIndividualEnergyActivityInspection(harness.activity, 0);
 
@@ -285,11 +326,12 @@ describe("current-tick specialist physical-gait adapter", () => {
     projectIndividualEnergyCapabilitiesOneTick(
       harness.capability, harness.energy, harness.lifecycle, harness.presence, 7,
     );
+    projectModifiers(harness, 7);
     harness.adapter.acceptCapabilityProjection(7);
     const before = getIndividualEnergyActivityInspection(harness.activity, 0);
 
     expect(() => harness.adapter.preflightActiveSpecialistMovement(
-      1, "medicalApproach", "walking",
+      1, "medicalApproach", "walking", 0,
     )).toThrow(/Invalid energy activity entity ID/);
     expect(getIndividualEnergyActivityInspection(harness.activity, 0)).toEqual(before);
   });
@@ -300,14 +342,15 @@ describe("current-tick specialist physical-gait adapter", () => {
     projectIndividualEnergyCapabilitiesOneTick(
       harness.capability, harness.energy, harness.lifecycle, harness.presence, 7,
     );
+    projectModifiers(harness, 7);
     harness.adapter.acceptCapabilityProjection(7);
     expect(harness.adapter.preflightActiveSpecialistMovement(
-      0, "medicalApproach", "jogging",
+      0, "medicalApproach", "jogging", 0,
     )).toBe("jogging");
     const before = getIndividualEnergyActivityInspection(harness.activity, 0);
 
     expect(() => harness.adapter.preflightActiveSpecialistMovement(
-      0, "traumaWithdrawal", "walking",
+      0, "traumaWithdrawal", "walking", 0,
     )).toThrow(/incomplete preflight/);
     expect(getIndividualEnergyActivityInspection(harness.activity, 0)).toEqual(before);
   });
@@ -318,11 +361,12 @@ describe("current-tick specialist physical-gait adapter", () => {
     projectIndividualEnergyCapabilitiesOneTick(
       harness.capability, harness.energy, harness.lifecycle, harness.presence, 7,
     );
+    projectModifiers(harness, 7);
     harness.adapter.acceptCapabilityProjection(7);
     const before = getIndividualEnergyActivityInspection(harness.activity, 0);
 
     expect(harness.adapter.preflightActiveSpecialistMovement(
-      0, "medicalApproach", "sprinting",
+      0, "medicalApproach", "sprinting", 1,
     )).toBe("jogging");
 
     expect(getIndividualEnergyActivityInspection(harness.activity, 0)).toEqual(before);
@@ -334,16 +378,17 @@ describe("current-tick specialist physical-gait adapter", () => {
     projectIndividualEnergyCapabilitiesOneTick(
       harness.capability, harness.energy, harness.lifecycle, harness.presence, 7,
     );
+    projectModifiers(harness, 7);
     harness.adapter.acceptCapabilityProjection(7);
 
     expect(harness.adapter.preflightActiveSpecialistMovement(
-      0, "medicalApproach", "jogging",
+      0, "medicalApproach", "jogging", 0,
     )).toBe("jogging");
     harness.adapter.completeActiveSpecialistMovement(
       0, "medicalApproach", "jogging", "jogging", true,
     );
     expect(harness.adapter.preflightActiveSpecialistMovement(
-      0, "casualtyGathering", "walking",
+      0, "casualtyGathering", "walking", 0,
     )).toBe("walking");
     harness.adapter.completeActiveSpecialistMovement(
       0, "casualtyGathering", "walking", "walking", true,
@@ -371,13 +416,47 @@ function fixture(startingEnergy: number) {
     1, energy, lifecycle, presence,
   );
   const activity = createIndividualEnergyActivityStore(1);
+  const combatProfiles = createIndividualCombatProfileStore({
+    entityCount: 1,
+    profiles: [{
+      entityId: 0,
+      primaryWeapon: "unarmed",
+      shieldCategory: "none",
+      shieldCarriedState: "none",
+      armourCategory: "none",
+      hasQualifyingHelmet: false,
+      qualifications: {
+        hasWeaponMaster: false,
+        hasShield: false,
+        hasMarksman: false,
+        hasThrown: false,
+        hasAmbidexterity: false,
+        enduranceLevels: 0,
+        fortitudeLevels: 0,
+        hasDreadnought: false,
+      },
+      magicalCapabilities: {
+        canUseRod: false,
+        canUseStaff: false,
+        canWearMageArmour: false,
+        canDeliverCombatMagic: false,
+      },
+    }],
+  });
+  const hits = createIndividualGlobalHitStore(combatProfiles, { entityCount: 1 });
+  const modifiers = createIndividualEnergyExertionModifierStore(1);
   return {
     energy,
     lifecycle,
     presence,
     capability,
     activity,
-    adapter: createIndividualSpecialistPhysicalGaitAdapter(activity, capability),
+    combatProfiles,
+    hits,
+    modifiers,
+    adapter: createIndividualSpecialistPhysicalGaitAdapter(
+      activity, capability, energy, modifiers,
+    ),
     world: worldFor(1),
   };
 }
@@ -398,6 +477,18 @@ function makeDying(harness: ReturnType<typeof fixture>): void {
     harness.world,
     [{ entityId: 0, attackerEntityId: 0, previousHits: 1 }],
     5,
+  );
+}
+
+function projectModifiers(
+  harness: ReturnType<typeof fixture>,
+  tick: number,
+): void {
+  projectIndividualEnergyExertionModifiersOneTick(
+    harness.modifiers,
+    harness.combatProfiles,
+    harness.hits,
+    tick,
   );
 }
 

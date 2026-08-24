@@ -901,6 +901,8 @@ function createCombatSandbox(
     createIndividualSpecialistPhysicalGaitAdapter(
       individualEnergyActivityStore,
       individualEnergyCapabilityStore,
+      individualEnergyStore,
+      individualEnergyExertionModifierStore,
     );
   const individualDefenceHandAvailabilitySource =
     createPrioritizedIndividualDefenceHandAvailabilitySource(
