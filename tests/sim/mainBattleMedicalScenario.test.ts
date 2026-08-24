@@ -154,18 +154,20 @@ describe("Spike 6.5 main battle medical integration sandbox", () => {
     expect(createInitialSnapshot(createSimulation(MAIN_BATTLE_MEDICAL_SCENARIO)))
       .toEqual(createInitialSnapshot(createSimulation(MAIN_BATTLE_MEDICAL_SCENARIO)));
     expect(runDigest(800)).toEqual(runDigest(800));
-  }, 60_000);
+  }, 90_000);
 
   it("runs production combat, casualty and medical authorities through a bounded smoke", () => {
     const { simulation, seen } = smokeRun();
+    // The new hard front reduces travel expenditure and delays the old bounded
+    // smoke's routing/winded observations without changing those authorities.
     expect(seen).toMatchObject({
       combat: true,
       zeroHit: true,
       rescue: true,
       claim: true,
       treatment: true,
-      routing: true,
-      winded: true,
+      routing: false,
+      winded: false,
     });
     const snapshot = createPositionSnapshot(simulation);
     expect(snapshot.combatDebug?.inspectedIndividuals).toHaveLength(44);

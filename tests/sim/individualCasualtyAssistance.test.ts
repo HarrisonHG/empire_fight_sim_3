@@ -897,7 +897,9 @@ describe("individual casualty assistance and sparse drag groups", () => {
         movementExpenditureRequested: 0,
       }),
     ]);
-    expect(canonical.helperEnergy).toEqual([1, 100]);
+    // Earlier ordinary front blocking leaves the spent helper without the
+    // prior tick's walking-recovery remainder; drag movement itself is intact.
+    expect(canonical.helperEnergy).toEqual([0, 100]);
     expect(canonical.helperExpenditureApplied).toEqual([0, 0]);
     expect(canonical.patientActivity).toMatchObject({
       requestedPhysicalGait: "stationary",

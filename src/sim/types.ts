@@ -85,6 +85,10 @@ import type {
   IndividualCollisionResolutionStore,
 } from "./individualCollisionResolution";
 import type {
+  IndividualActiveStandingCollisionResult,
+  IndividualActiveStandingCollisionWorkspace,
+} from "./individualActiveStandingCollision";
+import type {
   IndividualDeathCountStore,
   IndividualDeathCountPauseSource,
   IndividualDeathCountTerminalTransitionRecord,
@@ -620,6 +624,7 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly collisionRedirected?: boolean;
   readonly collisionLocalNeighbourCount?: number;
   readonly collisionLocalCandidateCount?: number;
+  readonly collisionPrincipalBlockerEntityId?: number;
   readonly deathCountDurationTicks?: number;
   readonly deathCountRemainingTicks?: number;
   readonly deathCountPaused?: boolean;
@@ -882,6 +887,13 @@ export interface InspectedCombatVisualEvent {
 
 /** Compact, render-safe inspection state for the production combat sandbox. */
 export interface LiveCombatDebugSnapshot {
+  readonly activeStandingCollisionMoverCount: number;
+  readonly activeStandingCollisionBlockedCount: number;
+  readonly activeStandingCollisionReducedCount: number;
+  readonly activeStandingCollisionPassCount: number;
+  readonly activeStandingCollisionLocalQueryCount: number;
+  readonly activeStandingCollisionLocalCandidateCount: number;
+  readonly activeStandingCollisionUnresolvedOverlapCount: number;
   readonly attackAttemptCount: number;
   readonly preventedAttackCount: number;
   readonly landedOutcomeCount: number;
@@ -971,6 +983,10 @@ export interface CombatSandboxSimulationState {
   readonly casualtyDragGroupStore: CasualtyDragGroupStore;
   readonly individualPhysicalOccupancyStore: IndividualPhysicalOccupancyStore;
   readonly individualCollisionResolutionStore: IndividualCollisionResolutionStore;
+  readonly individualActiveStandingCollisionWorkspace:
+    IndividualActiveStandingCollisionWorkspace;
+  readonly individualActiveStandingCollisionResult:
+    IndividualActiveStandingCollisionResult;
   readonly individualDragHandCommitmentStore: IndividualDragHandCommitmentStore;
   readonly individualDefenceHandAvailabilitySource: IndividualDefenceHandAvailabilitySource;
   readonly casualtyDragMovementBuffers: CasualtyDragMovementBuffers;

@@ -36,7 +36,7 @@ describe("main battle side summary", () => {
         currentHerbs: 12,
         reservedHerbs: 0,
         energyActive: 24,
-        energyAverageRatioFixedPoint: 9_989,
+        energyAverageRatioFixedPoint: 9_991,
         energyMinimumRatioFixedPoint: 9_983,
         energyFresh: 24,
         energyWorking: 0,
@@ -45,7 +45,7 @@ describe("main battle side summary", () => {
         energyResting: 0,
         units: [
           { unitId: 101, active: 12, averageRatioFixedPoint: 9_996 },
-          { unitId: 102, active: 12, averageRatioFixedPoint: 9_983 },
+          { unitId: 102, active: 12, averageRatioFixedPoint: 9_987 },
         ],
       },
       {

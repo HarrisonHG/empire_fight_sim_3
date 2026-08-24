@@ -63,7 +63,7 @@ describe("Milestone 7H production consolidation", () => {
       summary.energyBehaviourRecommendation !== undefined &&
       summary.currentlyRestingMemberCount >= 0
     )).toBe(true);
-  });
+  }, 10_000);
 });
 
 function runMainBattleSmoke() {

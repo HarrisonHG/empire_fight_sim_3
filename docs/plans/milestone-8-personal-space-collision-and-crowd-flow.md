@@ -1,8 +1,9 @@
 # Milestone 8: Personal Space, Collision, and Crowd Flow
 
-Status: Milestone 8A accepted as feasibility evidence. Milestone 8B is implemented
-and awaiting technical review. Production collision resolution remains disabled;
-Milestone 8C and later have not started.
+Status: Milestones 8A and 8B are accepted. Milestone 8C is implemented and
+awaiting technical review. Production collision resolution is active only for
+ordinary active-standing formation/member movement; Milestone 8D and later
+have not started.
 
 Milestone 7 is accepted. This milestone is inserted before command behaviour because the evolving main battle exposed a foundational physical omission: individual player-presence entities can currently occupy/pass through the same space too freely.
 
@@ -700,7 +701,7 @@ Production-design findings for 8B and later:
 
 ## 8B — Occupancy contract and collision authority boundary
 
-Status: implemented; awaiting technical review. Production collision is disabled.
+Status: accepted. Its contract is consumed by the active 8C slice below.
 
 Deliver:
 
@@ -795,6 +796,8 @@ entered production.
 
 ## 8C — Active standing collision and hostile fronts
 
+Status: implemented; awaiting technical review.
+
 Deliver:
 
 - ordinary formation/member movement consumes the collision resolver;
@@ -803,6 +806,95 @@ Deliver:
 - world bounds/gait/energy remain non-increasing;
 - final displacement remains energy authority;
 - existing engagement/reach rules consume final positions.
+
+### 8C implementation evidence
+
+Production now resolves the ordinary, non-routing formation/member step after
+formation has applied its existing intent, blocker/contact, world-bound, and
+Milestone 7 gait/energy ceilings, and before ordinary movement observation,
+specialist authorities, targeting, and combat. Only entities projected as
+`activeStanding` and still eligible for ordinary participation can have that
+step changed. Routing, casualty gathering/dragging, medical approach, trauma
+withdrawal, respawn egress, downed soft occupancy, assisted occupancy, and
+same-tick lifecycle/assistance transitions remain outside the active adapter.
+
+The production candidate uses one reusable 16-unit-cell spatial grid and typed
+entity-indexed scratch state. It compares bounded local relative movement
+segments for active-standing pairs. Simultaneously moving formation members
+are evaluated from their relative trajectories rather than treating either
+origin as a static obstacle, preserving coherent non-conflicting translation.
+When an ordinary mover conflicts with a non-moving active-standing presence,
+its already-permitted integer step is shortened toward zero. Moving/moving
+conflicts mark both participants symmetrically and shorten them together for at
+most eight passes. The remaining local conflict participants stop if that bound
+is reached. This is a local pair stop, not the spike's connected-component
+origin reset.
+
+No pass side, cardinal axis, faction-wide priority, or entity-ID movement
+preference exists. Grid results are canonical, but movement conflicts are
+marked and reduced simultaneously; entity ID is used only to avoid evaluating
+the same pair twice and as a final diagnostic blocker tie-break. 8C performs no
+lateral allied-flow, courtesy, overtaking, push-through, or routing policy.
+
+The 8B permitted/resolved arrays remain the authority boundary. Every resolved
+step is integer, in bounds, and no longer than its permitted squared-distance
+budget. The canonical world position is replaced before the existing ordinary
+energy checkpoint and before individual combat. Energy therefore classifies
+the resolved tick-start-to-final displacement, while target selection and
+engagement report distance from the same resolved positions. Non-8C movement
+authorities retain exact pass-through collision evidence.
+
+Bounded debug state exposes per-entity permitted/resolved deltas,
+blocked/reduced/redirected state, local neighbour/candidate counts, and the
+principal active-standing blocker. The compact combat snapshot also exposes
+mover, blocked, reduced, pass, query, candidate, and unresolved-overlap counts.
+No renderer or flavour visual was added.
+
+Headless coverage proves:
+
+- two opposing two-member groups stop at legal eight-unit standing separation;
+- the settled front remains position-stable for 100 ticks with no standing
+  overlap or lateral jitter;
+- distant ordinary production movement remains an exact pass-through;
+- resolution never exceeds the permitted squared-distance budget;
+- energy displacement equals the collision-resolved displacement;
+- combat target-distance inspection reads the final resolved positions;
+- replay is exact and reversing equivalent unit-definition input order does
+  not change the trace;
+- the solver retains zero unresolved new overlaps and at most eight passes.
+
+The retained production scenarios were rebaselined only where a new physical
+front changes movement-derived energy, combat cadence, or subsequent morale.
+Drag-group displacement and helper-order equivalence remain unchanged. Routing
+interaction is deliberately not collision-resolved in 8C and remains an 8D
+production boundary. Same-tick assistance/lifecycle occupancy refresh remains
+an explicit 8E/8F integration concern.
+
+Representative 40-tick opposing-front measurements on the implementation
+machine were:
+
+| entities | mean ms/tick | max ms/tick | max passes | max local candidates | workspace typed bytes |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 100 | 0.494 | 3.484 | 2 | 1,026 | 3,100 |
+| 500 | 1.149 | 3.519 | 2 | 5,226 | 15,500 |
+| 1,000 | 1.789 | 2.287 | 2 | 10,476 | 31,000 |
+| 2,000 | 3.767 | 6.051 | 2 | 20,976 | 62,000 |
+
+The workspace retains 31 typed bytes per entity in addition to the accepted
+8B occupancy/collision stores and the reusable spatial-grid buckets. These are
+structural local-front measurements, not a timing threshold or an 8D allied
+crowd-flow prediction.
+
+Verification passed with 1,200 tests across 83 files, 118 performance checks
+across 21 files, TypeScript typechecking, and the production build. The full
+dense production fixture remains a deliberately adverse measurement: its
+authored tick-start placements already contain standing overlap, so its
+reported minimum separation remains zero. The 8C authority prevents new or
+worsened overlap but cannot separate a stationary pre-existing overlap without
+granting movement that no movement authority permitted. Initial-placement and
+same-tick occupancy-transition repair therefore remain production integration
+requirements for the later occupancy/flow slices; legal hostile-front inputs
+finish and settle without standing overlap.
 
 ## 8D — Allied crowd flow, overtaking, push-through, and routing priority
 

@@ -17,17 +17,15 @@ const RED_UNIT_ID = 41;
 const RUN_TICKS = 1_200;
 
 describe("Milestone 4H-4 pursuit inspection scenarios", () => {
-  it("keeps the regular pursuit lifecycle deterministic, coherent, and intact", () => {
+  it("keeps the regular physical-front pursuit deterministic and coherent", () => {
     const first = runPursuitScenario(PURSUIT_REGULAR_SCENARIO);
     const second = runPursuitScenario(PURSUIT_REGULAR_SCENARIO);
 
     expect(first).toEqual(second);
-    expect(first.blueRouted).toBe(false);
-    expect(first.redAdvancedDuringBlueRouting).toBe(false);
-    expect(first.minimumAnchorSeparationWhileRouting).toBe(
-      Number.POSITIVE_INFINITY,
-    );
-    expect(first.recoveryStartedTick).toBeUndefined();
+    expect(first.blueRouted).toBe(true);
+    expect(first.redAdvancedDuringBlueRouting).toBe(true);
+    expect(first.minimumAnchorSeparationWhileRouting).toBe(682);
+    expect(first.recoveryStartedTick).toBe(429);
     expect(first.steadyTick).toBeUndefined();
     expect(first.resumedStoredOrderTick).toBeUndefined();
     expect(first.advancedBeforeSteady).toBe(true);
@@ -36,12 +34,12 @@ describe("Milestone 4H-4 pursuit inspection scenarios", () => {
     expect(first.entityCountAfter).toBe(20);
   });
 
-  it("lets the veteran shed routing pressure sooner and re-engage before regular", () => {
+  it("lets the veteran avoid the regular pursuer's collision-era route", () => {
     const veteran = runPursuitScenario(PURSUIT_VETERAN_SCENARIO);
     const regular = runPursuitScenario(PURSUIT_REGULAR_SCENARIO);
 
     expect(veteran.blueRouted).toBe(false);
-    expect(regular.blueRouted).toBe(false);
+    expect(regular.blueRouted).toBe(true);
     expect(veteran.steadyTick).toBeUndefined();
     expect(regular.steadyTick).toBeUndefined();
   });

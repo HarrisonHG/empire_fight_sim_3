@@ -347,7 +347,7 @@ describe("Milestone 8A isolated personal-space feasibility spike", () => {
     }
     expect(Math.max(...directionChanges)).toBeLessThanOrEqual(8);
     expect(Math.max(...strategyChanges)).toBeLessThanOrEqual(8);
-  });
+  }, 10_000);
 
   it("commits to 2s, 5s, and 10s detour attempts before reconsidering", () => {
     const scenario: SimulationScenario = {

@@ -225,7 +225,7 @@ describe("Milestone 8B production movement/collision authority boundary", () => 
     )).toThrow(/current-tick/i);
   });
 
-  it("keeps production collision disabled and preserves final displacement consumed by energy", () => {
+  it("keeps resolved production displacement as the evidence consumed by energy", () => {
     const simulation = createSimulation(MAIN_BATTLE_MEDICAL_SCENARIO);
     const combat = simulation.combatSandbox!;
     const startX = simulation.world.positionsX.slice();
@@ -233,7 +233,7 @@ describe("Milestone 8B production movement/collision authority boundary", () => 
     const permitted = combat.individualCollisionResolutionStore.permittedDeltas;
     const resolved = combat.individualCollisionResolutionStore.resolvedDeltas;
 
-    expect(PRODUCTION_COLLISION_RESOLUTION_ACTIVE).toBe(false);
+    expect(PRODUCTION_COLLISION_RESOLUTION_ACTIVE).toBe(true);
     expect(MILESTONE_8B_PRODUCTION_COLLISION_BOUNDARY).toEqual([
       "deriveOccupancyFromLifecyclePresenceAndAssistance",
       "existingAuthoritiesProduceEnergyLimitedBoundedMovement",
@@ -261,35 +261,40 @@ describe("Milestone 8B production movement/collision authority boundary", () => 
       const deltaX = simulation.world.positionsX[entityId]! - startX[entityId]!;
       const deltaY = simulation.world.positionsY[entityId]! - startY[entityId]!;
       expect(collision).toMatchObject({
-        permittedDeltaX: deltaX,
-        permittedDeltaY: deltaY,
         resolvedDeltaX: deltaX,
         resolvedDeltaY: deltaY,
-        blocked: false,
-        reduced: false,
         redirected: false,
-        localNeighbourCount: 0,
-        localCandidateCount: 0,
         observedTick: 0,
         finalizedTick: 0,
       });
+      expect(
+        collision.resolvedDeltaX ** 2 + collision.resolvedDeltaY ** 2,
+      ).toBeLessThanOrEqual(
+        collision.permittedDeltaX ** 2 + collision.permittedDeltaY ** 2,
+      );
       expect([energy.displacementX, energy.displacementY])
         .toEqual([deltaX, deltaY]);
     }
+    const firstCollision = getIndividualCollisionResolutionInspection(
+      combat.individualCollisionResolutionStore,
+      0,
+    );
     expect(combat.debugSnapshot.inspectedIndividuals[0]).toMatchObject({
       physicalOccupancyClass: "activeStanding",
       personalSpaceRadius: 4,
       physicalOccupancyAssistanceGroupId: -1,
-      collisionPermittedDeltaX: resolved[0],
-      collisionPermittedDeltaY: resolved[1],
+      collisionPermittedDeltaX: permitted[0],
+      collisionPermittedDeltaY: permitted[1],
       collisionResolvedDeltaX: resolved[0],
       collisionResolvedDeltaY: resolved[1],
-      collisionBlocked: false,
-      collisionReduced: false,
-      collisionRedirected: false,
-      collisionLocalNeighbourCount: 0,
-      collisionLocalCandidateCount: 0,
+      collisionBlocked: firstCollision.blocked,
+      collisionReduced: firstCollision.reduced,
+      collisionRedirected: firstCollision.redirected,
+      collisionLocalNeighbourCount: firstCollision.localNeighbourCount,
+      collisionLocalCandidateCount: firstCollision.localCandidateCount,
     });
+    expect(combat.debugSnapshot.activeStandingCollisionUnresolvedOverlapCount)
+      .toBe(0);
   });
 });
 

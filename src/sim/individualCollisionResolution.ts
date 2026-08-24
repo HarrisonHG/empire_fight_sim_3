@@ -4,8 +4,8 @@ import {
 } from "./individualPhysicalOccupancy";
 import type { WorldState } from "./types";
 
-/** 8B installs the boundary and evidence only; 8C owns first activation. */
-export const PRODUCTION_COLLISION_RESOLUTION_ACTIVE = false;
+/** 8C activates only ordinary active-standing formation resolution. */
+export const PRODUCTION_COLLISION_RESOLUTION_ACTIVE = true;
 
 export const INDIVIDUAL_COLLISION_RESOLUTION_FLAG = Object.freeze({
   blocked: 1 << 0,
@@ -189,6 +189,42 @@ export function finalizeDisabledIndividualCollisionResolutionTick(
     throw new Error("Collision finalisation requires one open current tick.");
   }
   for (let entityId = 0; entityId < internal.entityCount; entityId += 1) {
+    const deltaX = world.positionsX[entityId]! -
+      internal.tickStartXByEntity[entityId]!;
+    const deltaY = world.positionsY[entityId]! -
+      internal.tickStartYByEntity[entityId]!;
+    recordIndividualCollisionResolvedStep(
+      internal,
+      entityId,
+      deltaX,
+      deltaY,
+      deltaX,
+      deltaY,
+    );
+  }
+  internal.finalizedTick = tick;
+}
+
+/**
+ * Finalises active 8C evidence. Ordinary mover records were resolved beside
+ * formation; every authority outside 8C remains an exact pass-through record.
+ */
+export function finalizeIndividualCollisionResolutionTick(
+  store: IndividualCollisionResolutionStore,
+  world: WorldState,
+  tick: number,
+  ordinaryFormationMoverFlags: Uint8Array,
+): void {
+  const internal = asInternal(store);
+  validateEntityCounts(internal.entityCount, world);
+  if (ordinaryFormationMoverFlags.length !== internal.entityCount) {
+    throw new RangeError("Collision mover flags must match entityCount.");
+  }
+  if (internal.currentTick !== tick || internal.finalizedTick === tick) {
+    throw new Error("Collision finalisation requires one open current tick.");
+  }
+  for (let entityId = 0; entityId < internal.entityCount; entityId += 1) {
+    if (ordinaryFormationMoverFlags[entityId] !== 0) continue;
     const deltaX = world.positionsX[entityId]! -
       internal.tickStartXByEntity[entityId]!;
     const deltaY = world.positionsY[entityId]! -

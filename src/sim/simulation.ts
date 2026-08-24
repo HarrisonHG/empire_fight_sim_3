@@ -123,9 +123,13 @@ import {
 import {
   beginIndividualCollisionResolutionTick,
   createIndividualCollisionResolutionStore,
-  finalizeDisabledIndividualCollisionResolutionTick,
+  finalizeIndividualCollisionResolutionTick,
   getIndividualCollisionResolutionInspection,
 } from "./individualCollisionResolution";
+import {
+  createIndividualActiveStandingCollisionWorkspace,
+  resolveOrdinaryActiveStandingFormationMovementOneTick,
+} from "./individualActiveStandingCollision";
 import {
   advanceIndividualDeathCountsOneTick,
   createIndividualDeathCountStore,
@@ -357,6 +361,15 @@ export const MILESTONE_8B_PRODUCTION_COLLISION_BOUNDARY = Object.freeze([
   "collisionMayOnlyResolveAnAlreadyPermittedStep",
   "worldPositionsRemainTheSingleCommittedPositionAuthority",
   "finalActualDisplacementRemainsEnergyEvidence",
+] as const);
+
+export const MILESTONE_8C_PRODUCTION_COLLISION_ORDER = Object.freeze([
+  "ordinaryFormationProducesEnergyLimitedStep",
+  "ordinaryActiveStandingCollisionResolvesStep",
+  "ordinaryMovementObservationConsumesResolvedPosition",
+  "specialistMovementAuthoritiesRemainUnchanged",
+  "combatConsumesFinalResolvedPositions",
+  "energyClassifiesFinalActualDisplacement",
 ] as const);
 
 export type CombatSandboxTickStage =
@@ -928,6 +941,12 @@ function createCombatSandbox(
   );
   const individualCollisionResolutionStore =
     createIndividualCollisionResolutionStore(world.entityCount);
+  const individualActiveStandingCollisionWorkspace =
+    createIndividualActiveStandingCollisionWorkspace(
+      world.entityCount,
+      world.bounds,
+      world.ids,
+    );
   const individualDragHandCommitmentStore =
     createIndividualDragHandCommitmentStore(world.entityCount);
   const individualMedicalClaimStore =
@@ -1037,6 +1056,9 @@ function createCombatSandbox(
     casualtyDragGroupStore,
     individualPhysicalOccupancyStore,
     individualCollisionResolutionStore,
+    individualActiveStandingCollisionWorkspace,
+    individualActiveStandingCollisionResult:
+      individualActiveStandingCollisionWorkspace.result,
     individualDragHandCommitmentStore,
     individualDefenceHandAvailabilitySource,
     casualtyDragMovementBuffers,
@@ -2163,6 +2185,15 @@ export function advanceCombatSandboxOneTick(
       { tick, capabilities: combatSandbox.formationEnergyGaitCapabilities },
       { tick, rest: getUnitEnergyRestSource(combatSandbox.unitEnergyBehaviourStore) },
     );
+    resolveOrdinaryActiveStandingFormationMovementOneTick(
+      combatSandbox.individualActiveStandingCollisionWorkspace,
+      combatSandbox.individualCollisionResolutionStore,
+      combatSandbox.individualPhysicalOccupancyStore,
+      world,
+      combatSandbox.identityStore,
+      combatSandbox.individualOrdinaryParticipationSnapshot,
+      combatSandbox.moraleMovementStates,
+    );
     observeIndividualEnergyMovementAuthority(
       combatSandbox.individualEnergyActivityStore,
       world,
@@ -2743,10 +2774,11 @@ export function advanceCombatSandboxOneTick(
       },
     ),
   );
-  finalizeDisabledIndividualCollisionResolutionTick(
+  finalizeIndividualCollisionResolutionTick(
     combatSandbox.individualCollisionResolutionStore,
     world,
     tick,
+    combatSandbox.individualActiveStandingCollisionWorkspace.ordinaryMoverFlags,
   );
   classifyIndividualEnergyActivityOneTick(
     combatSandbox.individualEnergyActivityStore,
@@ -3072,6 +3104,13 @@ function syncMoraleMovementStatesForStores(
 
 function createEmptyCombatDebugSnapshot(): LiveCombatDebugSnapshot {
   return {
+    activeStandingCollisionMoverCount: 0,
+    activeStandingCollisionBlockedCount: 0,
+    activeStandingCollisionReducedCount: 0,
+    activeStandingCollisionPassCount: 0,
+    activeStandingCollisionLocalQueryCount: 0,
+    activeStandingCollisionLocalCandidateCount: 0,
+    activeStandingCollisionUnresolvedOverlapCount: 0,
     attackAttemptCount: 0,
     preventedAttackCount: 0,
     landedOutcomeCount: 0,
@@ -3225,6 +3264,20 @@ function createCombatDebugSnapshot(
   }
 
   return {
+    activeStandingCollisionMoverCount:
+      combatSandbox.individualActiveStandingCollisionResult.moverCount,
+    activeStandingCollisionBlockedCount:
+      combatSandbox.individualActiveStandingCollisionResult.blockedCount,
+    activeStandingCollisionReducedCount:
+      combatSandbox.individualActiveStandingCollisionResult.reducedCount,
+    activeStandingCollisionPassCount:
+      combatSandbox.individualActiveStandingCollisionResult.passCount,
+    activeStandingCollisionLocalQueryCount:
+      combatSandbox.individualActiveStandingCollisionResult.localQueryCount,
+    activeStandingCollisionLocalCandidateCount:
+      combatSandbox.individualActiveStandingCollisionResult.localCandidateCount,
+    activeStandingCollisionUnresolvedOverlapCount:
+      combatSandbox.individualActiveStandingCollisionResult.unresolvedOverlapCount,
     attackAttemptCount: combatSandbox.individualAttackAttemptCount,
     preventedAttackCount:
       combatSandbox.individualParryCount +
@@ -3472,6 +3525,9 @@ function collectInspectedIndividualSnapshots(
       collisionRedirected: collisionResolution.redirected,
       collisionLocalNeighbourCount: collisionResolution.localNeighbourCount,
       collisionLocalCandidateCount: collisionResolution.localCandidateCount,
+      collisionPrincipalBlockerEntityId:
+        combatSandbox.individualActiveStandingCollisionWorkspace
+          .principalBlockerEntityIds[entityId]!,
       deathCountDurationTicks: deathCount.durationTicks,
       deathCountRemainingTicks: deathCount.remainingTicks,
       deathCountPaused: deathCount.paused,
@@ -4376,6 +4432,13 @@ function createLegacyCombatFoundationDebugSnapshot(
   }
 
   return {
+    activeStandingCollisionMoverCount: 0,
+    activeStandingCollisionBlockedCount: 0,
+    activeStandingCollisionReducedCount: 0,
+    activeStandingCollisionPassCount: 0,
+    activeStandingCollisionLocalQueryCount: 0,
+    activeStandingCollisionLocalCandidateCount: 0,
+    activeStandingCollisionUnresolvedOverlapCount: 0,
     attackAttemptCount: legacySandbox.opportunityCount,
     preventedAttackCount: 0,
     landedOutcomeCount: legacySandbox.strikeCount,
