@@ -188,6 +188,143 @@ describe("Milestone 8D production allied crowd flow", () => {
     );
   });
 
+  it("clears an ordinary courtesy wait immediately when the yielder routes", () => {
+    const fixture = createFixture([
+      { unitId: 10, factionId: 1, x: 42, y: 50, headingX: 1, headingY: 0 },
+      { unitId: 20, factionId: 1, x: 50, y: 42, headingX: 0, headingY: 1 },
+    ]);
+
+    runTick(fixture, 0, [[2, 0], [0, 2]]);
+    expect(getIndividualCollisionResolutionInspection(fixture.collision, 1)
+      .localDecisionCode).toBe(2);
+
+    fixture.morale.set(20, "routing");
+    const result = runTick(fixture, 1, [[2, 0], [0, 2]]);
+    const router = getIndividualCollisionResolutionInspection(
+      fixture.collision, 1,
+    );
+    const ally = getIndividualCollisionResolutionInspection(
+      fixture.collision, 0,
+    );
+
+    expect(result.routerPriorityCount).toBe(1);
+    expect(router.localDecisionCode).toBe(0);
+    expect(router.resolvedDeltaY).toBe(2);
+    expect(ally.localDecisionCode).toBe(1);
+    expect(ally.localDecisionPartnerEntityId).toBe(1);
+    expectNoOverlap(fixture.world);
+  });
+
+  it("clears a normal yielding detour when its entity begins routing", () => {
+    const fixture = createFixture([
+      { unitId: 10, factionId: 1, x: 30, y: 50, headingX: 1, headingY: 0,
+        cohesion: 200 },
+      { unitId: 20, factionId: 1, x: 41, y: 50, headingX: -1, headingY: 0,
+        cohesion: 900 },
+    ]);
+
+    runTick(fixture, 0, [[2, 0], [-2, 0]]);
+    expect(getIndividualCollisionResolutionInspection(fixture.collision, 0)
+      .localDecisionCode).toBe(1);
+
+    setPosition(fixture.world, 0, 30, 50);
+    setPosition(fixture.world, 1, 40, 50);
+    fixture.morale.set(10, "routing");
+    const result = runTick(fixture, 1, [[2, 0], [-2, 0]]);
+    const router = getIndividualCollisionResolutionInspection(
+      fixture.collision, 0,
+    );
+    const ally = getIndividualCollisionResolutionInspection(
+      fixture.collision, 1,
+    );
+
+    expect(result.routerPriorityCount).toBe(1);
+    expect(router.localDecisionCode).toBe(0);
+    expect(router.resolvedDeltaX).toBe(2);
+    expect(ally.localDecisionCode).toBe(1);
+    expect(ally.localDecisionPartnerEntityId).toBe(0);
+    expectNoOverlap(fixture.world);
+  });
+
+  it("clears lower-priority yielding when its entity acquires pushThrough", () => {
+    const fixture = createFixture([
+      { unitId: 10, factionId: 1, x: 30, y: 50, headingX: 1, headingY: 0,
+        cohesion: 200 },
+      { unitId: 20, factionId: 1, x: 41, y: 50, headingX: -1, headingY: 0,
+        cohesion: 900 },
+    ]);
+
+    runTick(fixture, 0, [[2, 0], [-2, 0]]);
+    expect(getIndividualCollisionResolutionInspection(fixture.collision, 0)
+      .localDecisionCode).toBe(1);
+
+    setPosition(fixture.world, 0, 30, 50);
+    setPosition(fixture.world, 1, 40, 50);
+    setUnitMovementStyleForTest(fixture, 0, "pushThrough");
+    const result = runTick(fixture, 1, [[2, 0], [-2, 0]]);
+    const pusher = getIndividualCollisionResolutionInspection(
+      fixture.collision, 0,
+    );
+    const ally = getIndividualCollisionResolutionInspection(
+      fixture.collision, 1,
+    );
+
+    expect(result.pushThroughYieldCount).toBe(1);
+    expect(pusher.localDecisionCode).toBe(0);
+    expect(pusher.resolvedDeltaX).toBe(2);
+    expect(ally.localDecisionCode).toBe(1);
+    expect(ally.localDecisionPartnerEntityId).toBe(0);
+    expectNoOverlap(fixture.world);
+  });
+
+  it("uses ordinary negotiation for equal routing or pushThrough peers", () => {
+    const routing = createFixture([
+      { unitId: 10, factionId: 1, x: 30, y: 50, headingX: 1, headingY: 0,
+        routing: true },
+      { unitId: 20, factionId: 1, x: 40, y: 50, headingX: -1, headingY: 0,
+        routing: true },
+    ]);
+    const routingResult = runTick(routing, 0, [[2, 0], [-1, 0]]);
+    expect(routingResult.routerPriorityCount).toBe(0);
+    expect(routingResult.detourCount).toBe(1);
+    expectNoOverlap(routing.world);
+
+    const pushing = createFixture([
+      { unitId: 10, factionId: 1, x: 30, y: 50, headingX: 1, headingY: 0 },
+      { unitId: 20, factionId: 1, x: 40, y: 50, headingX: -1, headingY: 0 },
+    ]);
+    setUnitMovementStyleForTest(pushing, 0, "pushThrough");
+    setUnitMovementStyleForTest(pushing, 1, "pushThrough");
+    const pushingResult = runTick(pushing, 0, [[2, 0], [-1, 0]]);
+    expect(pushingResult.pushThroughYieldCount).toBe(0);
+    expect(pushingResult.detourCount).toBe(1);
+    expectNoOverlap(pushing.world);
+  });
+
+  it("keeps routing priority above pushThrough", () => {
+    const fixture = createFixture([
+      { unitId: 10, factionId: 1, x: 30, y: 50, headingX: 1, headingY: 0,
+        routing: true },
+      { unitId: 20, factionId: 1, x: 40, y: 50, headingX: -1, headingY: 0 },
+    ]);
+    setUnitMovementStyleForTest(fixture, 1, "pushThrough");
+
+    const result = runTick(fixture, 0, [[2, 0], [-1, 0]]);
+    const router = getIndividualCollisionResolutionInspection(
+      fixture.collision, 0,
+    );
+    const pusher = getIndividualCollisionResolutionInspection(
+      fixture.collision, 1,
+    );
+
+    expect(result.routerPriorityCount).toBe(1);
+    expect(result.pushThroughYieldCount).toBe(0);
+    expect(router.resolvedDeltaX).toBe(2);
+    expect(pusher.localDecisionCode).toBe(1);
+    expect(pusher.localDecisionPartnerEntityId).toBe(0);
+    expectNoOverlap(fixture.world);
+  });
+
   it("replays crossing flow identically under reversed unit-definition order", () => {
     const run = (reverse: boolean) => {
       const fixture = createFixture([
@@ -394,6 +531,17 @@ function derivePushThroughStyle(
     fixture.morale,
   );
   expect(getUnitMovementStyle(fixture.formation, 10)).toBe("pushThrough");
+}
+
+function setUnitMovementStyleForTest(
+  fixture: ReturnType<typeof createFixture>,
+  unitIndex: number,
+  style: "pushThrough",
+): void {
+  const state = fixture.formation as unknown as {
+    readonly unitMovementStyle: string[];
+  };
+  state.unitMovementStyle[unitIndex] = style;
 }
 
 function runTick(

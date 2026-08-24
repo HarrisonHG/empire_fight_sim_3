@@ -214,7 +214,12 @@ function refreshDecisions(
     if (code === INDIVIDUAL_COLLISION_LOCAL_DECISION.none) continue;
     const partner = collision.localDecisionPartnerByEntity[entityId]!;
     if (!validPartner(workspace, identity, entityId, partner) ||
-        desireChanged(collision, entityId)) {
+        desireChanged(collision, entityId) ||
+        rememberedYieldConflictsWithCurrentAuthority(
+          workspace,
+          entityId,
+          partner,
+        )) {
       clearDecision(collision, entityId, false);
       continue;
     }
@@ -269,6 +274,25 @@ function refreshDecisions(
       collision.courtesyAttemptedPartnerByEntity[entityId] = -1;
     }
   }
+}
+
+/**
+ * Persistence cannot let a prior voluntary yield outrank current forced or
+ * explicit movement authority. Equal-priority peers retain ordinary memory.
+ */
+function rememberedYieldConflictsWithCurrentAuthority(
+  workspace: IndividualActiveStandingCollisionWorkspace,
+  entityId: number,
+  partner: number,
+): boolean {
+  const entityRoutes = workspace.routingFlags[entityId] !== 0;
+  const partnerRoutes = workspace.routingFlags[partner] !== 0;
+  if (entityRoutes) return !partnerRoutes;
+  if (partnerRoutes) return false;
+
+  const entityPushes = workspace.pushThroughFlags[entityId] !== 0;
+  const partnerPushes = workspace.pushThroughFlags[partner] !== 0;
+  return entityPushes && !partnerPushes;
 }
 
 function canBegin(

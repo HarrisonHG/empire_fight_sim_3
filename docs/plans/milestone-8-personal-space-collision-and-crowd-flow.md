@@ -970,6 +970,18 @@ without hostile phasing, 1,000-tick bounded direction changes/no overlap,
 replay and reversed unit-definition equivalence, stuck-evidence integration,
 and final collision displacement remaining the energy measurement.
 
+The 8D authority-transition correction validates each remembered yielding
+decision against current pair authority before applying it. A newly routing
+entity immediately discards courtesy/detour/overtake memory that would yield to
+a non-router; a newly `pushThrough` entity does the same only against an
+ordinary non-routing, non-push-through ally. The cleared pair is eligible for
+renegotiation in the same tick. Routing remains above push-through, while two
+routers or two push-through peers retain ordinary bounded negotiation. Other
+formation-style changes do not globally clear persistent crowd memory.
+Transition regressions cover courtesy-to-routing, detour-to-routing,
+ordinary-yield-to-push-through, routing versus push-through, both-routing, and
+both-push-through cases with legal non-overlapping results.
+
 Representative 40-tick open-space allied-overtaking measurements were:
 
 | entities | mean ms/tick | max ms/tick | max passes | max local candidates |
@@ -987,11 +999,11 @@ material integration concern because the pair-local prediction/clearance work
 adds cost while its authored overlapping placements cannot be repaired without
 new movement authority; later production soak and initial-placement work must
 continue to track that case. In the final full-suite run its two exact
-production samples measured 305.820 and 285.919 mean ms/tick (393.784 and
-329.398 maximum), so this adverse case has a material performance cost even
+production samples measured 281.853 and 286.556 mean ms/tick (376.958 and
+333.360 maximum), so this adverse case has a material performance cost even
 though bounded legal-front and allied-flow cases remain structurally local.
 
-Verification passed with 1,210 headless tests across 84 files, 122 performance
+Verification passed with 1,215 headless tests across 84 files, 122 performance
 checks across 21 files, TypeScript typechecking, and the production build.
 
 No connected-component fallback, reduced allied physical radius, production
