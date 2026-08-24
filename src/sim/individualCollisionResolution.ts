@@ -4,7 +4,7 @@ import {
 } from "./individualPhysicalOccupancy";
 import type { WorldState } from "./types";
 
-/** 8C activates only ordinary active-standing formation resolution. */
+/** 8D extends active-standing resolution with bounded allied crowd policy. */
 export const PRODUCTION_COLLISION_RESOLUTION_ACTIVE = true;
 
 export const INDIVIDUAL_COLLISION_RESOLUTION_FLAG = Object.freeze({
@@ -48,6 +48,13 @@ export interface IndividualCollisionResolutionStore {
   readonly localDecisionPartnerByEntity: Int32Array;
   readonly localDecisionSideByEntity: Int8Array;
   readonly localDecisionTicksRemaining: Uint16Array;
+  readonly localDecisionPhaseByEntity: Uint8Array;
+  readonly localDecisionStartXByEntity: Int32Array;
+  readonly localDecisionStartYByEntity: Int32Array;
+  readonly localDecisionDesireXByEntity: Int8Array;
+  readonly localDecisionDesireYByEntity: Int8Array;
+  readonly courtesyAttemptedPartnerByEntity: Int32Array;
+  readonly overtakeClearanceByEntity: Uint8Array;
 }
 
 interface InternalIndividualCollisionResolutionStore
@@ -73,6 +80,8 @@ export interface IndividualCollisionResolutionInspection {
   readonly localDecisionPartnerEntityId: number;
   readonly localDecisionSide: number;
   readonly localDecisionTicksRemaining: number;
+  readonly localDecisionPhase: number;
+  readonly overtakeClearance: number;
   readonly observedTick: number;
   readonly finalizedTick: number;
 }
@@ -97,6 +106,13 @@ export function createIndividualCollisionResolutionStore(
     localDecisionPartnerByEntity,
     localDecisionSideByEntity: new Int8Array(entityCount),
     localDecisionTicksRemaining: new Uint16Array(entityCount),
+    localDecisionPhaseByEntity: new Uint8Array(entityCount),
+    localDecisionStartXByEntity: new Int32Array(entityCount),
+    localDecisionStartYByEntity: new Int32Array(entityCount),
+    localDecisionDesireXByEntity: new Int8Array(entityCount),
+    localDecisionDesireYByEntity: new Int8Array(entityCount),
+    courtesyAttemptedPartnerByEntity: filledInt32(entityCount, -1),
+    overtakeClearanceByEntity: new Uint8Array(entityCount),
     currentTick: -1,
     finalizedTick: -1,
   } as InternalIndividualCollisionResolutionStore;
@@ -206,7 +222,7 @@ export function finalizeDisabledIndividualCollisionResolutionTick(
 }
 
 /**
- * Finalises active 8C evidence. Ordinary mover records were resolved beside
+ * Finalises active 8C/8D evidence. Formation mover records were resolved beside
  * formation; every authority outside 8C remains an exact pass-through record.
  */
 export function finalizeIndividualCollisionResolutionTick(
@@ -301,9 +317,17 @@ export function getIndividualCollisionResolutionInspection(
     localDecisionSide: internal.localDecisionSideByEntity[entityId]!,
     localDecisionTicksRemaining:
       internal.localDecisionTicksRemaining[entityId]!,
+    localDecisionPhase: internal.localDecisionPhaseByEntity[entityId]!,
+    overtakeClearance: internal.overtakeClearanceByEntity[entityId]!,
     observedTick: internal.currentTick,
     finalizedTick: internal.finalizedTick,
   };
+}
+
+function filledInt32(length: number, value: number): Int32Array {
+  const result = new Int32Array(length);
+  result.fill(value);
+  return result;
 }
 
 function deriveResolutionFlags(

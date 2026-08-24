@@ -1,9 +1,9 @@
 # Milestone 8: Personal Space, Collision, and Crowd Flow
 
-Status: Milestones 8A and 8B are accepted. Milestone 8C is implemented and
-awaiting technical review. Production collision resolution is active only for
-ordinary active-standing formation/member movement; Milestone 8D and later
-have not started.
+Status: Milestones 8A through 8C are accepted. Milestone 8D is implemented and
+awaiting technical review. Production collision resolution now includes
+ordinary and routing active-standing movement plus pair-local allied crowd
+flow; Milestone 8E and later have not started.
 
 Milestone 7 is accepted. This milestone is inserted before command behaviour because the evolving main battle exposed a foundational physical omission: individual player-presence entities can currently occupy/pass through the same space too freely.
 
@@ -796,7 +796,7 @@ entered production.
 
 ## 8C — Active standing collision and hostile fronts
 
-Status: implemented; awaiting technical review.
+Status: accepted.
 
 Deliver:
 
@@ -898,6 +898,8 @@ finish and settle without standing overlap.
 
 ## 8D — Allied crowd flow, overtaking, push-through, and routing priority
 
+Status: implemented; awaiting technical review.
+
 Deliver:
 
 - allied yielding/sidestepping/queueing;
@@ -907,6 +909,94 @@ Deliver:
 - physical `pushThrough` semantics without phasing;
 - routing priority/congestion;
 - stuck integration.
+
+### 8D implementation evidence
+
+Production allied flow is a pair-local policy stage immediately before the
+accepted 8C hard resolver. It consumes each entity's already-permitted integer
+step and the existing formation movement style/cohesion state. It can stop,
+shorten, or rotate that step within its original distance budget, but cannot
+change gait, destination, target, lifecycle, or world bounds. The hard resolver
+remains the final physical authority and the resulting world displacement is
+still the evidence consumed by Milestone 7 energy.
+
+Only active-standing ordinary formation members and active-standing routers
+participate. Negotiation is inter-unit: existing same-unit slot correction,
+member ordering, and formation overtaking remain owned by formation behaviour.
+Downed/soft occupancy, assisted groups, casualty/drag movement, medical and
+trauma specialists, and respawn egress remain deliberately outside this slice.
+
+The bounded local policy provides:
+
+- pair-specific courtesy waits when tick-start positions, radii, and requested
+  movement predict that one ally can clear within 20 ticks; the explicit
+  recipient cannot reciprocate or begin a courtesy chain during that episode;
+- faster-rear/slower-leader recognition, with the leader's step preserved and
+  a committed follower bypass only where local clearance exceeds the combined
+  radii plus the small occupancy margin;
+- persistent 40/100/200-tick detour phases anchored to the original desire
+  direction, with progress-based completion and reset on blocker clearance or
+  material desire change rather than per-tick side selection;
+- lateral spill for existing loose/skirmish/blob styles, while formed and
+  cohesive movement prefers waiting/forward preservation;
+- physical `pushThrough` as a stronger local request for an ally to yield,
+  without reduced radii or phasing; and
+- pair-local router priority against ordinary allies, while hostile bodies and
+  world bounds remain hard blockers and routing energy semantics remain forced.
+
+Passing/detour sides are selected from geometry and bounded local clearance.
+Stable entity ID is used only after exact geometric equality. There is no
+cardinal-axis preference, connected-component fallback, global right-of-way,
+pathfinding, target change, or duplicate discipline state. When collision
+removes useful goal progress, the adapter reports that evidence to the existing
+formation-owned stuck counters; formation behaviour alone retains authority to
+choose its existing recovery response.
+
+Persistent state uses typed entity-indexed arrays for decision kind, partner,
+side, start tick/position, original desire, phase, and overtake clearance. The
+collision store now retains 54 typed bytes per entity and occupancy remains
+seven. The per-tick 8C/8D workspace uses 38 typed bytes per entity, for 99 typed
+bytes per entity across the three stores (198,000 bytes at 2,000 entities), in
+addition to reused grid buckets and bounded scratch arrays. The compact debug
+snapshot exposes global courtesy/overtake/detour/router/push-through counts and
+the inspected entity's current decision, partner, side, phase, age, and
+clearance evidence.
+
+Focused headless coverage proves allied crossing courtesy without reciprocal
+deadlock, rotational equivalence, open-space overtaking without slowing or
+displacing the leader, committed pass side and desire-line reacquisition,
+loose-versus-formed lateral freedom, physical push-through, router priority
+without hostile phasing, 1,000-tick bounded direction changes/no overlap,
+replay and reversed unit-definition equivalence, stuck-evidence integration,
+and final collision displacement remaining the energy measurement.
+
+Representative 40-tick open-space allied-overtaking measurements were:
+
+| entities | mean ms/tick | max ms/tick | max passes | max local candidates |
+| ---: | ---: | ---: | ---: | ---: |
+| 100 | 0.580 | 1.293 | 2 | 1,908 |
+| 500 | 1.859 | 3.966 | 2 | 10,058 |
+| 1,000 | 3.677 | 6.534 | 2 | 20,245 |
+| 2,000 | 7.391 | 10.775 | 2 | 40,617 |
+
+The same run's legal hostile-front case remained bounded at two passes and
+20,976 candidates for 2,000 entities (8.491 mean, 12.562 maximum ms/tick).
+These are structural measurements on the implementation machine, not product
+timing thresholds. The deliberately impossible dense integrated fixture is a
+material integration concern because the pair-local prediction/clearance work
+adds cost while its authored overlapping placements cannot be repaired without
+new movement authority; later production soak and initial-placement work must
+continue to track that case. In the final full-suite run its two exact
+production samples measured 305.820 and 285.919 mean ms/tick (393.784 and
+329.398 maximum), so this adverse case has a material performance cost even
+though bounded legal-front and allied-flow cases remain structurally local.
+
+Verification passed with 1,210 headless tests across 84 files, 122 performance
+checks across 21 files, TypeScript typechecking, and the production build.
+
+No connected-component fallback, reduced allied physical radius, production
+specialist collision, downed crossing, assistance transition repair, or 8E+
+behaviour was added.
 
 ## 8E — Downed soft occupancy and casualty-group integration
 

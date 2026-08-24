@@ -625,6 +625,12 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly collisionLocalNeighbourCount?: number;
   readonly collisionLocalCandidateCount?: number;
   readonly collisionPrincipalBlockerEntityId?: number;
+  readonly collisionLocalDecisionCode?: number;
+  readonly collisionLocalDecisionPartnerEntityId?: number;
+  readonly collisionLocalDecisionSide?: number;
+  readonly collisionLocalDecisionTicksRemaining?: number;
+  readonly collisionLocalDecisionPhase?: number;
+  readonly collisionOvertakeClearance?: number;
   readonly deathCountDurationTicks?: number;
   readonly deathCountRemainingTicks?: number;
   readonly deathCountPaused?: boolean;
@@ -894,6 +900,11 @@ export interface LiveCombatDebugSnapshot {
   readonly activeStandingCollisionLocalQueryCount: number;
   readonly activeStandingCollisionLocalCandidateCount: number;
   readonly activeStandingCollisionUnresolvedOverlapCount: number;
+  readonly activeStandingCollisionCourtesyYieldCount: number;
+  readonly activeStandingCollisionOvertakeCount: number;
+  readonly activeStandingCollisionDetourCount: number;
+  readonly activeStandingCollisionRouterPriorityCount: number;
+  readonly activeStandingCollisionPushThroughYieldCount: number;
   readonly attackAttemptCount: number;
   readonly preventedAttackCount: number;
   readonly landedOutcomeCount: number;

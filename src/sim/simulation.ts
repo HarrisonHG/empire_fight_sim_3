@@ -372,6 +372,15 @@ export const MILESTONE_8C_PRODUCTION_COLLISION_ORDER = Object.freeze([
   "energyClassifiesFinalActualDisplacement",
 ] as const);
 
+export const MILESTONE_8D_PRODUCTION_CROWD_ORDER = Object.freeze([
+  "formationAndRoutingProduceEnergyLimitedDesire",
+  "pairLocalCrowdPolicyChoosesBoundedAlternative",
+  "activeStandingCollisionEnforcesPhysicalLegality",
+  "ordinaryMovementObservationConsumesResolvedPosition",
+  "specialistMovementAuthoritiesRemainUnchanged",
+  "combatAndEnergyConsumeFinalResolvedPosition",
+] as const);
+
 export type CombatSandboxTickStage =
   | "formation"
   | "preMovementRecoveryThreat"
@@ -2193,6 +2202,7 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.identityStore,
       combatSandbox.individualOrdinaryParticipationSnapshot,
       combatSandbox.moraleMovementStates,
+      combatSandbox.formationStore,
     );
     observeIndividualEnergyMovementAuthority(
       combatSandbox.individualEnergyActivityStore,
@@ -3111,6 +3121,11 @@ function createEmptyCombatDebugSnapshot(): LiveCombatDebugSnapshot {
     activeStandingCollisionLocalQueryCount: 0,
     activeStandingCollisionLocalCandidateCount: 0,
     activeStandingCollisionUnresolvedOverlapCount: 0,
+    activeStandingCollisionCourtesyYieldCount: 0,
+    activeStandingCollisionOvertakeCount: 0,
+    activeStandingCollisionDetourCount: 0,
+    activeStandingCollisionRouterPriorityCount: 0,
+    activeStandingCollisionPushThroughYieldCount: 0,
     attackAttemptCount: 0,
     preventedAttackCount: 0,
     landedOutcomeCount: 0,
@@ -3278,6 +3293,16 @@ function createCombatDebugSnapshot(
       combatSandbox.individualActiveStandingCollisionResult.localCandidateCount,
     activeStandingCollisionUnresolvedOverlapCount:
       combatSandbox.individualActiveStandingCollisionResult.unresolvedOverlapCount,
+    activeStandingCollisionCourtesyYieldCount:
+      combatSandbox.individualActiveStandingCollisionResult.courtesyYieldCount,
+    activeStandingCollisionOvertakeCount:
+      combatSandbox.individualActiveStandingCollisionResult.overtakeCount,
+    activeStandingCollisionDetourCount:
+      combatSandbox.individualActiveStandingCollisionResult.detourCount,
+    activeStandingCollisionRouterPriorityCount:
+      combatSandbox.individualActiveStandingCollisionResult.routerPriorityCount,
+    activeStandingCollisionPushThroughYieldCount:
+      combatSandbox.individualActiveStandingCollisionResult.pushThroughYieldCount,
     attackAttemptCount: combatSandbox.individualAttackAttemptCount,
     preventedAttackCount:
       combatSandbox.individualParryCount +
@@ -3528,6 +3553,14 @@ function collectInspectedIndividualSnapshots(
       collisionPrincipalBlockerEntityId:
         combatSandbox.individualActiveStandingCollisionWorkspace
           .principalBlockerEntityIds[entityId]!,
+      collisionLocalDecisionCode: collisionResolution.localDecisionCode,
+      collisionLocalDecisionPartnerEntityId:
+        collisionResolution.localDecisionPartnerEntityId,
+      collisionLocalDecisionSide: collisionResolution.localDecisionSide,
+      collisionLocalDecisionTicksRemaining:
+        collisionResolution.localDecisionTicksRemaining,
+      collisionLocalDecisionPhase: collisionResolution.localDecisionPhase,
+      collisionOvertakeClearance: collisionResolution.overtakeClearance,
       deathCountDurationTicks: deathCount.durationTicks,
       deathCountRemainingTicks: deathCount.remainingTicks,
       deathCountPaused: deathCount.paused,
@@ -4439,6 +4472,11 @@ function createLegacyCombatFoundationDebugSnapshot(
     activeStandingCollisionLocalQueryCount: 0,
     activeStandingCollisionLocalCandidateCount: 0,
     activeStandingCollisionUnresolvedOverlapCount: 0,
+    activeStandingCollisionCourtesyYieldCount: 0,
+    activeStandingCollisionOvertakeCount: 0,
+    activeStandingCollisionDetourCount: 0,
+    activeStandingCollisionRouterPriorityCount: 0,
+    activeStandingCollisionPushThroughYieldCount: 0,
     attackAttemptCount: legacySandbox.opportunityCount,
     preventedAttackCount: 0,
     landedOutcomeCount: legacySandbox.strikeCount,

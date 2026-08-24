@@ -14,12 +14,22 @@ import {
 } from "./individualOrdinaryParticipation";
 import type { UnitMoraleMovementStateSource } from "./moraleMovement";
 import {
+  observeIndividualCollisionProgress,
+  type FormationBehaviourStore,
+} from "./formationBehaviour";
+import {
+  hasLooseCrowdLateralFreedom,
+  prepareAlliedCrowdFlow,
+  selectAlliedPhysicalYielder,
+} from "./individualAlliedCrowdFlow";
+import {
   buildSpatialGrid,
   createSpatialGrid,
   queryNearbyEntitiesInto,
   type SpatialGrid,
 } from "./spatialGrid";
 import {
+  getFactionIdForUnit,
   getUnitIdForEntity,
   type UnitIdentityStore,
 } from "./unitIdentity";
@@ -36,12 +46,17 @@ export interface IndividualActiveStandingCollisionWorkspace {
   readonly ordinaryMoverFlags: Uint8Array;
   readonly activeStandingFlags: Uint8Array;
   readonly conflictFlags: Uint8Array;
+  readonly routingFlags: Uint8Array;
+  readonly pushThroughFlags: Uint8Array;
+  readonly looseLateralFreedomFlags: Uint8Array;
+  readonly courtesyRecipientByEntity: Int32Array;
   readonly queryPositionsX: Int32Array;
   readonly queryPositionsY: Int32Array;
   readonly principalBlockerEntityIds: Int32Array;
   readonly principalBlockerDistanceSquared: Float64Array;
   readonly grid: SpatialGrid;
   readonly scratchNearbyEntityIds: number[];
+  readonly scratchClearanceEntityIds: number[];
   readonly queryWorld: WorldState;
   readonly includeActiveStanding: (entityId: number) => boolean;
   readonly result: IndividualActiveStandingCollisionResult;
@@ -49,6 +64,11 @@ export interface IndividualActiveStandingCollisionWorkspace {
   localQueryCount: number;
   localCandidateCount: number;
   unresolvedOverlapCount: number;
+  courtesyYieldCount: number;
+  overtakeCount: number;
+  detourCount: number;
+  routerPriorityCount: number;
+  pushThroughYieldCount: number;
 }
 
 export interface IndividualActiveStandingCollisionResult {
@@ -61,6 +81,11 @@ export interface IndividualActiveStandingCollisionResult {
   readonly localQueryCount: number;
   readonly localCandidateCount: number;
   readonly unresolvedOverlapCount: number;
+  readonly courtesyYieldCount: number;
+  readonly overtakeCount: number;
+  readonly detourCount: number;
+  readonly routerPriorityCount: number;
+  readonly pushThroughYieldCount: number;
 }
 
 export function createIndividualActiveStandingCollisionWorkspace(
@@ -95,6 +120,10 @@ export function createIndividualActiveStandingCollisionWorkspace(
     ordinaryMoverFlags: new Uint8Array(entityCount),
     activeStandingFlags,
     conflictFlags: new Uint8Array(entityCount),
+    routingFlags: new Uint8Array(entityCount),
+    pushThroughFlags: new Uint8Array(entityCount),
+    looseLateralFreedomFlags: new Uint8Array(entityCount),
+    courtesyRecipientByEntity: filledInt32(entityCount, -1),
     queryPositionsX,
     queryPositionsY,
     principalBlockerEntityIds,
@@ -105,6 +134,7 @@ export function createIndividualActiveStandingCollisionWorkspace(
       capacity: entityCount,
     }),
     scratchNearbyEntityIds: [],
+    scratchClearanceEntityIds: [],
     queryWorld,
     includeActiveStanding: (entityId) =>
       activeStandingFlags[entityId] !== 0,
@@ -118,17 +148,27 @@ export function createIndividualActiveStandingCollisionWorkspace(
       localQueryCount: 0,
       localCandidateCount: 0,
       unresolvedOverlapCount: 0,
+      courtesyYieldCount: 0,
+      overtakeCount: 0,
+      detourCount: 0,
+      routerPriorityCount: 0,
+      pushThroughYieldCount: 0,
     },
     passCount: 0,
     localQueryCount: 0,
     localCandidateCount: 0,
     unresolvedOverlapCount: 0,
+    courtesyYieldCount: 0,
+    overtakeCount: 0,
+    detourCount: 0,
+    routerPriorityCount: 0,
+    pushThroughYieldCount: 0,
   };
   return workspace;
 }
 
 /**
- * Resolves only ordinary, non-routing active-standing formation movement.
+ * Resolves ordinary and routing active-standing formation movement.
  * Formation has already selected, bounded, and energy-limited every step.
  */
 export function resolveOrdinaryActiveStandingFormationMovementOneTick(
@@ -139,9 +179,10 @@ export function resolveOrdinaryActiveStandingFormationMovementOneTick(
   identity: UnitIdentityStore,
   ordinaryParticipation: IndividualOrdinaryParticipationSnapshot,
   moraleMovementStates: UnitMoraleMovementStateSource,
+  formation?: FormationBehaviourStore,
 ): IndividualActiveStandingCollisionResult {
   validateInputs(workspace, collision, occupancy, world, identity,
-    ordinaryParticipation);
+    ordinaryParticipation, formation);
   resetWorkspace(workspace);
 
   let moverCount = 0;
@@ -151,11 +192,16 @@ export function resolveOrdinaryActiveStandingFormationMovementOneTick(
     const activeStanding = occupancy.occupancyClassCodes[entityId] ===
       INDIVIDUAL_PHYSICAL_OCCUPANCY_CLASS.activeStanding;
     workspace.activeStandingFlags[entityId] = activeStanding ? 1 : 0;
+    const unitId = getUnitIdForEntity(identity, entityId);
+    const routing = moraleMovementStates.get(unitId) === "routing";
     const ordinaryMover = activeStanding &&
-      isIndividualOrdinaryParticipationEligible(ordinaryParticipation, entityId) &&
-      moraleMovementStates.get(getUnitIdForEntity(identity, entityId)) !==
-        "routing";
+      isIndividualOrdinaryParticipationEligible(ordinaryParticipation, entityId);
     workspace.ordinaryMoverFlags[entityId] = ordinaryMover ? 1 : 0;
+    workspace.routingFlags[entityId] = routing ? 1 : 0;
+    workspace.pushThroughFlags[entityId] = formation !== undefined &&
+      hasLooseCrowdLateralFreedom(formation, unitId, "pushThrough") ? 1 : 0;
+    workspace.looseLateralFreedomFlags[entityId] = formation !== undefined &&
+      hasLooseCrowdLateralFreedom(formation, unitId, "loose") ? 1 : 0;
     const currentX = world.positionsX[entityId]!;
     const currentY = world.positionsY[entityId]!;
     workspace.queryPositionsX[entityId] = ordinaryMover
@@ -192,11 +238,22 @@ export function resolveOrdinaryActiveStandingFormationMovementOneTick(
     workspace.queryWorld,
     workspace.includeActiveStanding,
   );
+  if (formation !== undefined) {
+    prepareAlliedCrowdFlow(
+      workspace,
+      collision,
+      occupancy,
+      identity,
+      formation,
+      pairQueryRadius,
+    );
+  }
   constrainAgainstTickStartOccupancy(workspace, collision, occupancy);
   relaxMovingPairs(
     workspace,
     collision,
     occupancy,
+    identity,
     pairQueryRadius,
   );
 
@@ -219,6 +276,16 @@ export function resolveOrdinaryActiveStandingFormationMovementOneTick(
       resolvedDeltaX,
       resolvedDeltaY,
     );
+    if (formation !== undefined) {
+      observeIndividualCollisionProgress(
+        formation,
+        entityId,
+        permittedDeltaX,
+        permittedDeltaY,
+        resolvedDeltaX,
+        resolvedDeltaY,
+      );
+    }
     world.positionsX[entityId] =
       collision.tickStartXByEntity[entityId]! + resolvedDeltaX;
     world.positionsY[entityId] =
@@ -246,6 +313,11 @@ export function resolveOrdinaryActiveStandingFormationMovementOneTick(
   result.localQueryCount = workspace.localQueryCount;
   result.localCandidateCount = workspace.localCandidateCount;
   result.unresolvedOverlapCount = workspace.unresolvedOverlapCount;
+  result.courtesyYieldCount = workspace.courtesyYieldCount;
+  result.overtakeCount = workspace.overtakeCount;
+  result.detourCount = workspace.detourCount;
+  result.routerPriorityCount = workspace.routerPriorityCount;
+  result.pushThroughYieldCount = workspace.pushThroughYieldCount;
   return result;
 }
 
@@ -259,6 +331,11 @@ interface MutableCollisionResult {
   localQueryCount: number;
   localCandidateCount: number;
   unresolvedOverlapCount: number;
+  courtesyYieldCount: number;
+  overtakeCount: number;
+  detourCount: number;
+  routerPriorityCount: number;
+  pushThroughYieldCount: number;
 }
 
 function constrainAgainstTickStartOccupancy(
@@ -327,6 +404,7 @@ function relaxMovingPairs(
   workspace: IndividualActiveStandingCollisionWorkspace,
   collision: IndividualCollisionResolutionStore,
   occupancy: IndividualPhysicalOccupancyStore,
+  identity: UnitIdentityStore,
   queryRadius: number,
 ): void {
   for (let pass = 0; pass < ACTIVE_STANDING_COLLISION_MAX_PASSES; pass += 1) {
@@ -363,7 +441,13 @@ function relaxMovingPairs(
             occupancy.effectiveRadii[otherId]!,
         )) continue;
         conflictCount += 1;
-        markPairForSymmetricReduction(workspace, collision, entityId, otherId);
+        markPairForReduction(
+          workspace,
+          collision,
+          identity,
+          entityId,
+          otherId,
+        );
       }
     }
     if (conflictCount === 0) {
@@ -386,10 +470,15 @@ function relaxMovingPairs(
   }
 
   workspace.conflictFlags.fill(0);
+  workspace.routingFlags.fill(0);
+  workspace.pushThroughFlags.fill(0);
+  workspace.looseLateralFreedomFlags.fill(0);
+  workspace.courtesyRecipientByEntity.fill(-1);
   const unresolved = findMovingPairConflicts(
     workspace,
     collision,
     occupancy,
+    identity,
     queryRadius,
   );
   if (unresolved > 0) {
@@ -406,6 +495,7 @@ function relaxMovingPairs(
     workspace,
     collision,
     occupancy,
+    identity,
     queryRadius,
   );
 }
@@ -414,6 +504,7 @@ function findMovingPairConflicts(
   workspace: IndividualActiveStandingCollisionWorkspace,
   collision: IndividualCollisionResolutionStore,
   occupancy: IndividualPhysicalOccupancyStore,
+  identity: UnitIdentityStore,
   queryRadius: number,
 ): number {
   let conflictCount = 0;
@@ -447,15 +538,22 @@ function findMovingPairConflicts(
           occupancy.effectiveRadii[otherId]!,
       )) continue;
       conflictCount += 1;
-      markPairForSymmetricReduction(workspace, collision, entityId, otherId);
+      markPairForReduction(
+        workspace,
+        collision,
+        identity,
+        entityId,
+        otherId,
+      );
     }
   }
   return conflictCount;
 }
 
-function markPairForSymmetricReduction(
+function markPairForReduction(
   workspace: IndividualActiveStandingCollisionWorkspace,
   collision: IndividualCollisionResolutionStore,
+  identity: UnitIdentityStore,
   leftId: number,
   rightId: number,
 ): void {
@@ -465,8 +563,29 @@ function markPairForSymmetricReduction(
     collision.resolvedDeltas[leftOffset + 1] !== 0;
   const rightMoves = collision.resolvedDeltas[rightOffset] !== 0 ||
     collision.resolvedDeltas[rightOffset + 1] !== 0;
-  if (leftMoves) workspace.conflictFlags[leftId] = 1;
-  if (rightMoves) workspace.conflictFlags[rightId] = 1;
+  const allied = getFactionIdForUnit(
+    identity,
+    getUnitIdForEntity(identity, leftId),
+  ) === getFactionIdForUnit(
+    identity,
+    getUnitIdForEntity(identity, rightId),
+  );
+  const alliedYielder = allied
+    ? selectAlliedPhysicalYielder(workspace, collision, leftId, rightId)
+    : -1;
+  if (alliedYielder >= 0) {
+    if (alliedYielder === leftId && leftMoves) {
+      workspace.conflictFlags[leftId] = 1;
+    } else if (alliedYielder === rightId && rightMoves) {
+      workspace.conflictFlags[rightId] = 1;
+    } else {
+      if (leftMoves) workspace.conflictFlags[leftId] = 1;
+      if (rightMoves) workspace.conflictFlags[rightId] = 1;
+    }
+  } else {
+    if (leftMoves) workspace.conflictFlags[leftId] = 1;
+    if (rightMoves) workspace.conflictFlags[rightId] = 1;
+  }
   rememberBlocker(workspace, collision, leftId, rightId,
     collision.resolvedDeltas[leftOffset]!,
     collision.resolvedDeltas[leftOffset + 1]!);
@@ -587,6 +706,11 @@ function resetWorkspace(
   workspace.localQueryCount = 0;
   workspace.localCandidateCount = 0;
   workspace.unresolvedOverlapCount = 0;
+  workspace.courtesyYieldCount = 0;
+  workspace.overtakeCount = 0;
+  workspace.detourCount = 0;
+  workspace.routerPriorityCount = 0;
+  workspace.pushThroughYieldCount = 0;
 }
 
 function validateInputs(
@@ -596,19 +720,27 @@ function validateInputs(
   world: WorldState,
   identity: UnitIdentityStore,
   ordinary: IndividualOrdinaryParticipationSnapshot,
+  formation: FormationBehaviourStore | undefined,
 ): void {
   const entityCount = workspace.entityCount;
   if (collision.entityCount !== entityCount ||
       occupancy.entityCount !== entityCount ||
       world.entityCount !== entityCount ||
       identity.entityCount !== entityCount ||
-      ordinary.entityCount !== entityCount) {
+      ordinary.entityCount !== entityCount ||
+      (formation !== undefined && formation.entityCount !== entityCount)) {
     throw new RangeError("Active-standing collision inputs must share entityCount.");
   }
   if (world.bounds.width !== workspace.bounds.width ||
       world.bounds.height !== workspace.bounds.height) {
     throw new RangeError("Active-standing collision bounds must remain stable.");
   }
+}
+
+function filledInt32(length: number, value: number): Int32Array {
+  const result = new Int32Array(length);
+  result.fill(value);
+  return result;
 }
 
 function absolute(value: number): number {

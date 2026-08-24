@@ -963,6 +963,38 @@ export function getIndividualStuckTicks(
   return internal.stuckTicks[entityId]!;
 }
 
+/**
+ * Feeds final collision progress into the existing formation-owned stuck
+ * counters. Collision remains unable to select a recovery mode or destination.
+ */
+export function observeIndividualCollisionProgress(
+  store: FormationBehaviourStore,
+  entityId: number,
+  permittedDeltaX: number,
+  permittedDeltaY: number,
+  resolvedDeltaX: number,
+  resolvedDeltaY: number,
+): void {
+  const internal = asInternal(store);
+  assertEntityIdInRange(entityId, internal.entityCount);
+  const requested = permittedDeltaX !== 0 || permittedDeltaY !== 0;
+  if (!requested) return;
+  const goalProgress = permittedDeltaX * resolvedDeltaX +
+    permittedDeltaY * resolvedDeltaY;
+  if (goalProgress > 0) {
+    internal.stuckTicks[entityId] = 0;
+    internal.isStuck[entityId] = 0;
+    return;
+  }
+  internal.stuckTicks[entityId] = Math.min(
+    MAX_INTEGER_STATE_VALUE,
+    internal.stuckTicks[entityId]! + 1,
+  );
+  if (internal.stuckTicks[entityId]! >= STUCK_TICK_THRESHOLD) {
+    internal.isStuck[entityId] = 1;
+  }
+}
+
 export function computeSlotWorldPosition(
   store: FormationBehaviourStore,
   unitId: UnitId,

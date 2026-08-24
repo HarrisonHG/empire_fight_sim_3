@@ -24,7 +24,10 @@ import { getUnitIds, getUnitMembers } from "../../src/sim/unitIdentity";
 
 const WARM_UP_TICKS = 20;
 const MEASURED_TICKS = 100;
-const TWO_THOUSAND_ENTITY_TIMEOUT_MS = 120_000;
+// The deliberately impossible overlapping 2,000-body fixture now exercises
+// active routing collision and allied crowd policy as well as the full combat
+// pipeline. Keep the assertion structural and allow slower shared runners.
+const TWO_THOUSAND_ENTITY_TIMEOUT_MS = 180_000;
 
 type AuthorityGeometry =
   | "representativeSeparatedBattle"

@@ -44,7 +44,14 @@ describe("Milestone 8B occupancy and disabled collision-boundary performance", (
         collision.localDecisionCodes.byteLength +
         collision.localDecisionPartnerByEntity.byteLength +
         collision.localDecisionSideByEntity.byteLength +
-        collision.localDecisionTicksRemaining.byteLength;
+        collision.localDecisionTicksRemaining.byteLength +
+        collision.localDecisionPhaseByEntity.byteLength +
+        collision.localDecisionStartXByEntity.byteLength +
+        collision.localDecisionStartYByEntity.byteLength +
+        collision.localDecisionDesireXByEntity.byteLength +
+        collision.localDecisionDesireYByEntity.byteLength +
+        collision.courtesyAttemptedPartnerByEntity.byteLength +
+        collision.overtakeClearanceByEntity.byteLength;
 
       for (let tick = 0; tick < MEASURED_TICKS; tick += 1) {
         const started = performance.now();
@@ -70,7 +77,7 @@ describe("Milestone 8B occupancy and disabled collision-boundary performance", (
       }
 
       expect(occupancyBytes).toBe(entityCount * 7);
-      expect(collisionBytes).toBe(entityCount * 38);
+      expect(collisionBytes).toBe(entityCount * 54);
       expect(occupancy.occupancyClassCodes).toBeInstanceOf(Uint8Array);
       expect(collision.resolvedDeltas).toBeInstanceOf(Int32Array);
       writeReport({

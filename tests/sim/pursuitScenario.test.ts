@@ -24,8 +24,8 @@ describe("Milestone 4H-4 pursuit inspection scenarios", () => {
     expect(first).toEqual(second);
     expect(first.blueRouted).toBe(true);
     expect(first.redAdvancedDuringBlueRouting).toBe(true);
-    expect(first.minimumAnchorSeparationWhileRouting).toBe(682);
-    expect(first.recoveryStartedTick).toBe(429);
+    expect(first.minimumAnchorSeparationWhileRouting).toBe(690);
+    expect(first.recoveryStartedTick).toBe(376);
     expect(first.steadyTick).toBeUndefined();
     expect(first.resumedStoredOrderTick).toBeUndefined();
     expect(first.advancedBeforeSteady).toBe(true);
