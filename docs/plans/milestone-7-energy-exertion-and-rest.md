@@ -1,9 +1,16 @@
 # Milestone 7: Energy, Exertion, and Rest
 
-Status: 7A through 7J and human-tuning corrections 7K-1 through 7K-4 are
-implemented. Milestone 7 remains awaiting human visual acceptance.
+Status: accepted / implemented. 7A through 7J plus human-tuning corrections
+7K-1 through 7K-4 are accepted following human visual inspection on 2026-08-24.
+The final tuning authority is `docs/plans/milestone-7-human-tuning-corrections.md`.
 
 Implementation begins after Milestone 6 is accepted and the post-Milestone-6 main-battle medical integration spike is retained as the evolving `/` scenario.
+
+Acceptance/rebase note:
+
+- Milestone 7 is closed.
+- The human-tuning addendum supersedes conflicting initial tuning values in this file.
+- Future milestone numbers mentioned below were written before the 2026-08-24 roadmap rebase; use `docs/plans/empire-sim-milestone-roadmap.md` for current future numbering.
 
 ## Product goal
 
@@ -2226,7 +2233,7 @@ Human questions:
 
 ## 7J — Main battle integration and milestone acceptance
 
-Status: implemented.
+Status: accepted / implemented.
 
 Update the evolving `/` main battle sandbox to:
 
@@ -2328,6 +2335,8 @@ Throughout Milestone 7:
 ---
 
 # Definition of done
+
+Milestone 7 human acceptance was recorded on 2026-08-24 after the 7K tuning pass.
 
 Milestone 7 is complete when:
 

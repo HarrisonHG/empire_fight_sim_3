@@ -1,7 +1,7 @@
 # Milestone 7 Human-Tuning Corrections
 
-Status: 7K-1 through 7K-4 are implemented; Milestone 7 remains awaiting human
-visual acceptance.
+Status: accepted / implemented. 7K-1 through 7K-4 are accepted following
+human visual inspection on 2026-08-24.
 
 This addendum supersedes conflicting Milestone 7 tuning text in
 `docs/plans/milestone-7-energy-exertion-and-rest.md` until these corrections
@@ -163,7 +163,7 @@ or pressure impulses.
 
 ## 7K-3 — Retained visual correction and acceptance
 
-Status: implemented; awaiting human visual acceptance.
+Status: accepted / implemented.
 
 Update `/test?scenario=energy-exertion` before revisiting `/`.
 
@@ -186,13 +186,12 @@ Required chamber corrections:
 Update fixture capacities/start values for the new doubled-energy scale while
 preserving intended starting percentages.
 
-Milestone 7 remains awaiting human acceptance after these corrections.
-Do not tune the main-battle presentation further until the retained targeted
-suite has been re-inspected.
+Human visual inspection subsequently accepted the retained targeted suite on
+2026-08-24. Milestone 7 is complete.
 
 ## 7K-4 — Human-feedback correction
 
-Status: implemented; awaiting human visual acceptance.
+Status: accepted / implemented.
 
 - Dying/downed people recover at their own full trusted safe-rest recovery
   rate. Nearby hostile presence does not downgrade that recovery.
@@ -213,4 +212,20 @@ Status: implemented; awaiting human visual acceptance.
   and contrasts a distant high-energy jog with a stable close sprint burst
   followed by sustained jog/walk activity.
 
-Milestone 7 remains awaiting human visual acceptance. Do not tune `/` yet.
+Human visual inspection accepted the revised Chamber 6 and Chamber 9 behaviour
+on 2026-08-24. Milestone 7 is complete.
+
+
+## Final human acceptance
+
+Milestone 7 was accepted on 2026-08-24 after retained visual inspection.
+
+Final human observations accepted:
+
+- Chamber 6 energy/casualty behaviour was credible, including full recovery while downed and zero extra drag surcharge.
+- Chamber 9 no longer exhibited sprint/jog threshold chatter after sprint hysteresis.
+- Distant high-energy ordinary movement remained jog/walk; sprinting remained tied to urgent, affordable intent.
+- The awkward case of a slightly faster person remaining frustratingly difficult to catch was judged realistically human rather than a defect.
+- The centre gait/activity pip remains valuable visual diagnostic evidence and should be preserved by Milestone 9.
+
+This addendum is the final tuning authority for Milestone 7 where it conflicts with the original milestone plan.
