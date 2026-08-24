@@ -552,7 +552,10 @@ export class PixiEntityRenderer {
       debug.radii.length !== entityOrder.length ||
       debug.intendedDeltas.length !== entityOrder.length * 2 ||
       debug.resolvedDeltas.length !== entityOrder.length * 2 ||
-      debug.resolutionFlags.length !== entityOrder.length
+      debug.resolutionFlags.length !== entityOrder.length ||
+      debug.detourPhaseCodes.length !== entityOrder.length ||
+      debug.detourSideByEntity.length !== entityOrder.length ||
+      debug.detourTicksRemaining.length !== entityOrder.length
     ) throw new Error("Personal-space debug snapshot has invalid array lengths.");
 
     const activeEntityIds = new Set<number>();
@@ -999,8 +1002,10 @@ function drawPersonalSpaceGlyph(
     : spec.downedSoftCrossing || spec.reduced
       ? PERSONAL_SPACE_VISUAL_COLOR.reduced
       : spec.redirected || spec.yieldingEgressYield
-        ? PERSONAL_SPACE_VISUAL_COLOR.redirected
-        : undefined;
+      ? PERSONAL_SPACE_VISUAL_COLOR.redirected
+        : spec.detourActive
+          ? PERSONAL_SPACE_VISUAL_COLOR.detour
+          : undefined;
   if (stateColor !== undefined) {
     graphics.circle(0, 0, 1.25).fill({ color: stateColor, alpha: 0.95 });
   }

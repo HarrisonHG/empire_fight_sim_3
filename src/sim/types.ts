@@ -422,6 +422,14 @@ export const PERSONAL_SPACE_RESOLUTION_FLAG = Object.freeze({
   redirected: 1 << 2,
   downedSoftCrossing: 1 << 3,
   yieldingEgressYield: 1 << 4,
+  detourActive: 1 << 5,
+} as const);
+
+export const PERSONAL_SPACE_DETOUR_PHASE = Object.freeze({
+  none: 0,
+  initialSide: 1,
+  oppositeSide: 2,
+  widerAlternative: 3,
 } as const);
 
 export interface PersonalSpaceSpikeDebugSnapshot {
@@ -439,6 +447,7 @@ export interface PersonalSpaceSpikeDebugSnapshot {
   readonly redirectedCount: number;
   readonly downedSoftCrossingCount: number;
   readonly yieldingEgressYieldCount: number;
+  readonly detourStrategyChangeCount: number;
   readonly occupancyClassCodes: Uint8Array;
   readonly radii: Uint8Array;
   readonly intendedDeltas: Int32Array;
@@ -446,6 +455,9 @@ export interface PersonalSpaceSpikeDebugSnapshot {
   readonly localNeighbourCounts: Uint16Array;
   readonly principalRelationshipCodes: Uint8Array;
   readonly resolutionFlags: Uint8Array;
+  readonly detourPhaseCodes: Uint8Array;
+  readonly detourSideByEntity: Int8Array;
+  readonly detourTicksRemaining: Uint16Array;
 }
 
 export interface FormationDebugUnitSnapshot {

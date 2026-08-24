@@ -17,6 +17,9 @@ export interface PersonalSpaceVisualGlyphSpec {
   readonly redirected: boolean;
   readonly downedSoftCrossing: boolean;
   readonly yieldingEgressYield: boolean;
+  readonly detourActive: boolean;
+  readonly detourPhase: number;
+  readonly detourTicksRemaining: number;
 }
 
 export const PERSONAL_SPACE_VISUAL_COLOR = Object.freeze({
@@ -29,6 +32,7 @@ export const PERSONAL_SPACE_VISUAL_COLOR = Object.freeze({
   blocked: 0xef_44_44,
   reduced: 0xf5_b9_42,
   redirected: 0xc0_84_fc,
+  detour: 0x60_a5_fa,
 } as const);
 
 export function createPersonalSpaceVisualGlyphSpec(
@@ -61,6 +65,10 @@ export function createPersonalSpaceVisualGlyphSpec(
       (flags & PERSONAL_SPACE_RESOLUTION_FLAG.downedSoftCrossing) !== 0,
     yieldingEgressYield:
       (flags & PERSONAL_SPACE_RESOLUTION_FLAG.yieldingEgressYield) !== 0,
+    detourActive:
+      (flags & PERSONAL_SPACE_RESOLUTION_FLAG.detourActive) !== 0,
+    detourPhase: debug.detourPhaseCodes[entityId]!,
+    detourTicksRemaining: debug.detourTicksRemaining[entityId]!,
   };
 }
 

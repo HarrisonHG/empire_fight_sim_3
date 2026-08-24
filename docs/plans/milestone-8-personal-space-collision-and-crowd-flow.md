@@ -1,6 +1,6 @@
 # Milestone 8: Personal Space, Collision, and Crowd Flow
 
-Status: Milestone 8A implemented; awaiting retained-route human inspection.
+Status: Milestone 8A corrected after initial human inspection; awaiting retained-route reinspection.
 Milestone 8B and production integration have not started.
 
 Milestone 7 is accepted. This milestone is inserted before command behaviour because the evolving main battle exposed a foundational physical omission: individual player-presence entities can currently occupy/pass through the same space too freely.
@@ -511,7 +511,7 @@ Do not reorder combat/casualty semantics casually. Any orchestration refactor mu
 
 ## 8A — Collision/spacing feasibility spike
 
-Status: implemented; awaiting human visual inspection.
+Status: corrected after initial human inspection; awaiting human visual reinspection.
 
 Purpose:
 
@@ -592,24 +592,33 @@ Spike acceptance is based on headless evidence plus human visual inspection of t
 The retained spike uses one deliberately narrow candidate algorithm:
 
 ```text
-integer requested step
-→ bounded discrete forward/lateral/reduced/stationary candidates
+integer desire-anchored requested step
+→ bounded discrete forward/lateral/reduced/wait/backtrack candidates
 → existing spatial-grid local queries
 → canonical entity-ID relaxation for at most eight passes
-→ conservative origin fallback only if a standing overlap remains
+→ local connected-component origin fallback only if a standing overlap remains
 ```
 
-Equal-priority standing bodies both yield from an overlapping proposal. A
-higher-priority proposal is retained while the lower-priority mover selects its
-next candidate. The spike gives assisted movement higher local priority than
-ordinary standing movement and gives `yieldingEgress` the lowest moving
-priority. Hostile contact searches only reduced-forward/stationary fallbacks so
-opposing fronts cannot turn collision into automatic flanking. Allied traffic
-may use a stable entity-ID-derived pass side. Standing movers try lateral
-options before a reduced-forward candidate may overlap only `downedSoft`.
+The correction retains each mover's spawn-anchored desire line and ranks normal
+progress or line reacquisition ahead of local detours. Per-entity typed state
+commits to an initial side for 40 ticks, the opposite tactic for 100 ticks after
+no meaningful goal progress, and a wider wait/backtrack alternative for 200
+ticks. Eight sustained normal-progress ticks clear the episode; a materially
+changed desire resets its origin and state. A tactic never exposes its opposite
+side within the same phase.
+
+Same-direction allied resolution gives the forward leader right-of-way from
+start-of-tick ordering, so only the rear follower yields. Perpendicular allied
+ties use a deterministic desire-axis ordering in this spike. Assisted movement
+still outranks ordinary standing movement and `yieldingEgress` remains lowest.
+Hostile contact searches only reduced-forward/stationary fallbacks. Downed soft
+occupancy retains early avoidance and permits reduced careful crossing after a
+bounded unsuccessful detour. The final safety fallback expands through only
+the locally connected hard-standing component before restoring its tick-start
+positions; unrelated chambers are not reset.
 
 The implementation stores all proposal, candidate, diagnostic, and replay state
-in fixed-size typed arrays. Candidate output is monotonic through a fixed seven
+in fixed-size typed arrays. Candidate output is monotonic through a fixed ten
 slot entity budget. The spatial grid and caller-owned query output are reused;
 there is no entity-against-all-entities production path or per-candidate result
 object. The spike remains an exclusive sandbox authority and is not reachable
@@ -618,10 +627,15 @@ from the production `/` scenario.
 Headless evidence covers:
 
 - hostile fronts settling without late position vibration;
-- allied crossing with redirection and continued progress;
-- stable one-sided overtaking without alternating pass-side chatter;
+- a southbound allied stream retaining southward progress, bounded lateral
+  displacement, and desire-line reacquisition while crossing east/west traffic;
+- a faster rear ally yielding/detouring without slowing or displacing its
+  slower leader;
 - both avoidance and reduced crossing of downed soft occupancy;
-- living traffic retaining progress while respawn egress yields;
+- respawn egress using bounded sidestep/retreat rather than following a living
+  stream sideways, then resuming progress toward respawn;
+- exact 40/100/200-tick tactic commitments and bounded dense-front
+  direction/strategy changes;
 - deterministic replay and reversed-input-order equivalence;
 - world bounds, bounded passes, blocked termination, and zero final standing
   overlap;
@@ -633,14 +647,16 @@ machine (40 measured ticks after 5 warm-up ticks; structural assertions only):
 
 | entities | mean ms/tick | p95 ms/tick | max ms/tick | max passes | max local candidates | unresolved overlaps | fallback resets |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 100 | 0.642 | 1.017 | 2.689 | 2 | 2,356 | 0 | 0 |
-| 500 | 2.128 | 2.755 | 3.521 | 2 | 12,572 | 0 | 0 |
-| 1,000 | 4.360 | 5.091 | 6.204 | 2 | 25,421 | 0 | 0 |
-| 2,000 | 8.491 | 8.822 | 9.176 | 2 | 51,132 | 0 | 0 |
+| 100 | 0.565 | 1.001 | 1.949 | 2 | 1,943 | 0 | 0 |
+| 500 | 1.781 | 2.196 | 2.967 | 2 | 10,657 | 0 | 0 |
+| 1,000 | 8.105 | 9.029 | 10.543 | 3 | 53,971 | 0 | 2,322 |
+| 2,000 | 16.142 | 16.936 | 17.184 | 3 | 108,930 | 0 | 4,412 |
 
 These values are not production-collision acceptance thresholds. The retained
-121-entity mixed chamber used at most five passes across 120 ticks, with no
-unresolved standing overlap or fallback reset.
+121-entity mixed chamber retains zero unresolved standing overlap across the
+360-tick inspection interval. The deliberately extreme 1,000/2,000 compact
+front fixtures activate the connected-component safety fallback; this visible
+cost and conservative stall are spike findings, not accepted production policy.
 
 Production-design findings for 8B and later:
 
@@ -651,13 +667,14 @@ Production-design findings for 8B and later:
   adoption if full-pipeline profiling shows grid rebuild cost matters;
 - the existing grid's canonical local-result sort is deterministic but remains
   visible work in dense crowds;
-- the conservative origin fallback guarantees bounded termination and was
-  never used by representative fixtures, but it intentionally over-stalls an
-  impossible unresolved pile and should not silently become production crowd
-  policy;
-- stable entity-ID pass-side preference prevents chatter, though production
-  flow may need a small bounded retained side decision if formation evidence
-  shows persistent ID-shaped bias;
+- the connected-component origin fallback guarantees bounded termination but
+  is expensive and deliberately over-stalls extreme compact fronts; production
+  must not adopt it without replacement or explicit acceptance;
+- retained detour phases prevent tick chatter, though deterministic axis and
+  entity-ID tie-breaks may produce visible directional bias;
+- 8D must add formation/cohesion-dependent lateral freedom: loose groups may
+  spill around a front, while formed or disciplined groups should resist
+  lateral peel-off. That behavior is intentionally absent from 8A;
 - soft crossing deliberately permits overlap only with `downedSoft`; 8B must
   derive occupancy from lifecycle/presence rather than trust spike content;
 - yielding egress behaved correctly in the isolated priority case, but 8F must

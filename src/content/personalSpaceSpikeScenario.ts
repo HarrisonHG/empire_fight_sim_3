@@ -4,7 +4,7 @@ import type {
 } from "../sim/types";
 
 export const PERSONAL_SPACE_SPIKE_SCENARIO_ID = "personal-space-spike";
-export const PERSONAL_SPACE_SPIKE_RECOMMENDED_END_TICK = 120;
+export const PERSONAL_SPACE_SPIKE_RECOMMENDED_END_TICK = 360;
 
 export interface PersonalSpaceSpikeChamber {
   readonly id: number;
@@ -49,7 +49,7 @@ for (let row = 0; row < 3; row += 1) {
   }
 }
 
-// 2. Perpendicular allied files must open local gaps instead of phasing.
+// 2. A southbound allied file crosses eastbound traffic without being advected.
 for (let row = 0; row < 2; row += 1) {
   for (let rank = 0; rank < 4; rank += 1) {
     add(2, 824 + rank * 8, 112 + row * 8, 1, 0, "activeStanding", 1);
@@ -57,7 +57,7 @@ for (let row = 0; row < 2; row += 1) {
   }
 }
 
-// 3. A two-unit step catches a one-unit step and retains a stable pass side.
+// 3. A two-unit follower yields locally to a one-unit leader without pushing.
 add(3, 310, 360, 1, 0, "activeStanding", 1);
 add(3, 286, 360, 2, 0, "activeStanding", 1);
 
@@ -105,17 +105,18 @@ export const PERSONAL_SPACE_SPIKE_CHAMBERS: readonly PersonalSpaceSpikeChamber[]
 
 export const PERSONAL_SPACE_SPIKE_EXPECTED_OBSERVATIONS = Object.freeze([
   "1 · opposing compact files stop at standing-radius contact without interpenetration, explosive separation, or front vibration.",
-  "2 · allied perpendicular streams use stable entity-tied sidesteps, reduced steps, and queues; final standing positions remain distinct.",
-  "3 · the faster follower takes one stable pass side or queues awkwardly; it does not teleport or alternate sides each tick.",
+  "2 · the southbound allied file may sidestep east/west, but remains desire-anchored, resumes southward progress, and reacquires its original line.",
+  "3 · the faster rear mover yields, slows, or detours while the slower leader keeps its own forward motion; contact never becomes pushing.",
   "4 · movers try bounded lateral avoidance before a reduced forward step may cross the soft downed footprint.",
-  "5 · the respawn-egress presence waits or sidesteps around living traffic; the living line retains priority and nobody literally overlaps.",
-  "6 · the dense opposing crowd remains locally queried, bounded to eight passes, and settles into a stable person-space front.",
+  "5 · the respawn-egress presence commits to bounded detours, then waits or changes tactic instead of following the living stream sideways forever.",
+  "6 · the dense opposing crowd remains locally queried and bounded; persistent tactics eliminate per-tick back-corner left/right jitter.",
 ]);
 
 export const PERSONAL_SPACE_SPIKE_LEGEND_LINES = Object.freeze([
   "Thin circle: personal-space footprint · amber circle: downed soft occupancy · cyan circle: yielding respawn egress.",
   "Amber vector: intended local step · green vector: collision-resolved step.",
   "Red centre mark: blocked · violet centre mark: redirected · amber centre mark: reduced soft-body crossing.",
+  "Blue centre mark: a persistent 2s/5s/10s local-detour tactic is active; movement remains anchored to the original desire line.",
   "This is the isolated Milestone 8A solver only. Production battle movement remains collision-free until later Milestone 8 slices.",
 ]);
 

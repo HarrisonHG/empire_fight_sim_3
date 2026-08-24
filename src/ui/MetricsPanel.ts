@@ -99,6 +99,7 @@ export class MetricsPanel {
           `${personalSpaceDebug.downedSoftCrossingCount} soft crossings · ` +
           `${personalSpaceDebug.yieldingEgressYieldCount} egress yields`;
         this.combatEventLogValue.textContent =
+          `${personalSpaceDebug.detourStrategyChangeCount} detour changes · ` +
           `${personalSpaceDebug.fallbackResetCount} conservative fallback resets`;
         return;
       }

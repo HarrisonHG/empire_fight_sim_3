@@ -14,6 +14,7 @@ import {
   createSimulation,
 } from "../../src/sim/simulation";
 import {
+  PERSONAL_SPACE_DETOUR_PHASE,
   PERSONAL_SPACE_OCCUPANCY_CLASS_CODE,
   PERSONAL_SPACE_RESOLUTION_FLAG,
   type PersonalSpaceSpikeDebugSnapshot,
@@ -53,6 +54,9 @@ describe("Milestone 8A isolated personal-space feasibility spike", () => {
     });
     expect(initial.personalSpaceDebug?.intendedDeltas).toBeInstanceOf(Int32Array);
     expect(initial.personalSpaceDebug?.resolutionFlags).toBeInstanceOf(Uint8Array);
+    expect(initial.personalSpaceDebug?.detourPhaseCodes).toBeInstanceOf(Uint8Array);
+    expect(initial.personalSpaceDebug?.detourSideByEntity).toBeInstanceOf(Int8Array);
+    expect(initial.personalSpaceDebug?.detourTicksRemaining).toBeInstanceOf(Uint16Array);
     const intendedDeltas = initial.personalSpaceDebug?.intendedDeltas;
     const resolutionFlags = initial.personalSpaceDebug?.resolutionFlags;
 
@@ -80,27 +84,73 @@ describe("Milestone 8A isolated personal-space feasibility spike", () => {
     );
   });
 
-  it("allows allied crossing and a stable one-sided overtake without phasing", () => {
+  it("keeps a southbound allied crossing stream anchored to its own desire", () => {
     const simulation = createSimulation(PERSONAL_SPACE_SPIKE_SCENARIO);
-    const initialCrossing = chamberPositions(simulation, 2);
-    const fasterEntityId = PERSONAL_SPACE_SPIKE_CHAMBERS[2]!.entityIds[1]!;
-    const observedPassDirections = new Set<number>();
+    const southboundIds = PERSONAL_SPACE_SPIKE_CHAMBERS[1]!.entityIds.filter(
+      (entityId) =>
+        PERSONAL_SPACE_SPIKE_SCENARIO.personalSpaceSpike!.entities[entityId]!
+          .requestedDeltaY > 0,
+    );
+    const startX = southboundIds.map((id) => simulation.world.positionsX[id]!);
+    const startY = southboundIds.map((id) => simulation.world.positionsY[id]!);
+    let midpointY: number[] = [];
+    let maximumLateralDisplacement = 0;
     let redirectedTicks = 0;
-    for (let tick = 0; tick < 120; tick += 1) {
+    for (let tick = 0; tick < 200; tick += 1) {
       advanceSimulationOneTick(simulation);
       const debug = requiredDebug(simulation);
       expect(debug.unresolvedStandingOverlapCount).toBe(0);
       redirectedTicks += debug.redirectedCount;
-      const resolvedY = debug.resolvedDeltas[fasterEntityId * 2 + 1]!;
-      if (resolvedY !== 0) observedPassDirections.add(Math.sign(resolvedY));
+      for (let index = 0; index < southboundIds.length; index += 1) {
+        const entityId = southboundIds[index]!;
+        maximumLateralDisplacement = Math.max(
+          maximumLateralDisplacement,
+          Math.abs(simulation.world.positionsX[entityId]! - startX[index]!),
+        );
+      }
+      if (tick === 99) {
+        midpointY = southboundIds.map((id) => simulation.world.positionsY[id]!);
+      }
     }
-    const finalCrossing = chamberPositions(simulation, 2);
-    expect(finalCrossing.x).not.toEqual(initialCrossing.x);
-    expect(finalCrossing.y).not.toEqual(initialCrossing.y);
     expect(redirectedTicks).toBeGreaterThan(0);
-    expect([...observedPassDirections]).toEqual([-1]);
-    expect(simulation.world.positionsX[fasterEntityId]).toBeGreaterThan(
-      simulation.world.positionsX[fasterEntityId - 1]!,
+    expect(maximumLateralDisplacement).toBeLessThanOrEqual(12);
+    for (let index = 0; index < southboundIds.length; index += 1) {
+      const entityId = southboundIds[index]!;
+      expect(simulation.world.positionsY[entityId]! - startY[index]!)
+        .toBeGreaterThan(40);
+      expect(simulation.world.positionsY[entityId]! - midpointY[index]!)
+        .toBeGreaterThan(10);
+      expect(simulation.world.positionsY[entityId]! - startY[index]!)
+        .toBeGreaterThan(
+          Math.abs(simulation.world.positionsX[entityId]! - startX[index]!) * 4,
+        );
+      expect(Math.abs(simulation.world.positionsX[entityId]! - startX[index]!))
+        .toBeLessThanOrEqual(1);
+    }
+    assertNoIllegalStandingOverlap(simulation);
+  });
+
+  it("makes a same-direction faster follower yield without pushing its leader", () => {
+    const simulation = createSimulation(PERSONAL_SPACE_SPIKE_SCENARIO);
+    const [leaderId, followerId] = PERSONAL_SPACE_SPIKE_CHAMBERS[2]!.entityIds;
+    const leaderStartX = simulation.world.positionsX[leaderId!]!;
+    const followerStartX = simulation.world.positionsX[followerId!]!;
+    let followerYieldTicks = 0;
+    let leaderNonForwardTicks = 0;
+    for (let tick = 0; tick < 120; tick += 1) {
+      advanceSimulationOneTick(simulation);
+      const debug = requiredDebug(simulation);
+      if (debug.resolvedDeltas[followerId! * 2] !== 2) followerYieldTicks += 1;
+      if (
+        debug.resolvedDeltas[leaderId! * 2] !== 1 ||
+        debug.resolvedDeltas[leaderId! * 2 + 1] !== 0
+      ) leaderNonForwardTicks += 1;
+    }
+    expect(leaderNonForwardTicks).toBe(0);
+    expect(simulation.world.positionsX[leaderId!]).toBe(leaderStartX + 120);
+    expect(followerYieldTicks).toBeGreaterThan(0);
+    expect(simulation.world.positionsX[followerId!]).toBeGreaterThan(
+      followerStartX + 120,
     );
     assertNoIllegalStandingOverlap(simulation);
   });
@@ -127,7 +177,7 @@ describe("Milestone 8A isolated personal-space feasibility spike", () => {
     }
   });
 
-  it("makes respawn egress yield while living traffic keeps full progress", () => {
+  it("makes respawn egress stop following living traffic and resume its desire", () => {
     const simulation = createSimulation(PERSONAL_SPACE_SPIKE_SCENARIO);
     const ids = PERSONAL_SPACE_SPIKE_CHAMBERS[4]!.entityIds;
     const livingIds = ids.slice(0, 6);
@@ -135,20 +185,114 @@ describe("Milestone 8A isolated personal-space feasibility spike", () => {
     const livingStartY = livingIds.map((id) => simulation.world.positionsY[id]!);
     const egressStartX = simulation.world.positionsX[egressId]!;
     let egressYieldTicks = 0;
+    let egressWaitTicks = 0;
+    let egressReverseTicks = 0;
+    let maximumSidewaysDisplacement = 0;
+    let detourChanges = 0;
     advanceWithObservation(simulation, 120, (debug) => {
       if (
         (debug.resolutionFlags[egressId]! &
           PERSONAL_SPACE_RESOLUTION_FLAG.yieldingEgressYield) !== 0
       ) egressYieldTicks += 1;
+      if (
+        debug.resolvedDeltas[egressId * 2] === 0 &&
+        debug.resolvedDeltas[egressId * 2 + 1] === 0
+      ) egressWaitTicks += 1;
+      if (debug.resolvedDeltas[egressId * 2]! < 0) egressReverseTicks += 1;
+      maximumSidewaysDisplacement = Math.max(
+        maximumSidewaysDisplacement,
+        Math.abs(simulation.world.positionsY[egressId]! - 584),
+      );
+      detourChanges += debug.detourStrategyChangeCount;
     });
     for (let index = 0; index < livingIds.length; index += 1) {
       expect(simulation.world.positionsY[livingIds[index]!])
         .toBe(livingStartY[index]! + 120);
     }
     expect(egressYieldTicks).toBeGreaterThan(0);
+    expect(egressWaitTicks + egressReverseTicks).toBeGreaterThan(0);
+    expect(maximumSidewaysDisplacement).toBeLessThanOrEqual(12);
+    expect(detourChanges).toBeGreaterThan(0);
     expect(simulation.world.positionsX[egressId]! - egressStartX)
-      .toBeLessThan(120);
+      .toBeGreaterThan(40);
     assertNoIllegalStandingOverlap(simulation);
+  });
+
+  it("bounds dense-front detour and lateral direction changes", () => {
+    const simulation = createSimulation(PERSONAL_SPACE_SPIKE_SCENARIO);
+    const ids = PERSONAL_SPACE_SPIKE_CHAMBERS[5]!.entityIds;
+    const previousLateralDirection = new Int8Array(simulation.world.entityCount);
+    const previousPhase = new Uint8Array(simulation.world.entityCount);
+    const previousSide = new Int8Array(simulation.world.entityCount);
+    const directionChanges = new Uint16Array(simulation.world.entityCount);
+    const strategyChanges = new Uint16Array(simulation.world.entityCount);
+    for (let tick = 0; tick < 360; tick += 1) {
+      advanceSimulationOneTick(simulation);
+      const debug = requiredDebug(simulation);
+      for (const entityId of ids) {
+        const direction = Math.sign(debug.resolvedDeltas[entityId * 2 + 1]!);
+        if (
+          direction !== 0 && previousLateralDirection[entityId] !== 0 &&
+          direction !== previousLateralDirection[entityId]
+        ) directionChanges[entityId] = directionChanges[entityId]! + 1;
+        if (direction !== 0) previousLateralDirection[entityId] = direction;
+        const phase = debug.detourPhaseCodes[entityId]!;
+        const side = debug.detourSideByEntity[entityId]!;
+        if (phase !== previousPhase[entityId] || side !== previousSide[entityId]) {
+          strategyChanges[entityId] = strategyChanges[entityId]! + 1;
+          previousPhase[entityId] = phase;
+          previousSide[entityId] = side;
+        }
+      }
+      expect(debug.unresolvedStandingOverlapCount).toBe(0);
+    }
+    expect(Math.max(...directionChanges)).toBeLessThanOrEqual(8);
+    expect(Math.max(...strategyChanges)).toBeLessThanOrEqual(12);
+  });
+
+  it("commits to 2s, 5s, and 10s detour attempts before reconsidering", () => {
+    const scenario: SimulationScenario = {
+      seed: 80,
+      entityCount: 5,
+      bounds: { width: 80, height: 80 },
+      minSpeedUnitsPerTick: 1,
+      maxSpeedUnitsPerTick: 1,
+      personalSpaceSpike: {
+        kind: "personalSpaceSpike",
+        standingRadius: 4,
+        downedSoftRadius: 5,
+        maximumResolutionPasses: 8,
+        entities: [
+          { entityId: 0, x: 32, y: 32, requestedDeltaX: 2, requestedDeltaY: 0, occupancyClass: "activeStanding", teamId: 1 },
+          { entityId: 1, x: 40, y: 32, requestedDeltaX: 0, requestedDeltaY: 0, occupancyClass: "activeStanding", teamId: 1 },
+          { entityId: 2, x: 32, y: 24, requestedDeltaX: 0, requestedDeltaY: 0, occupancyClass: "activeStanding", teamId: 1 },
+          { entityId: 3, x: 32, y: 40, requestedDeltaX: 0, requestedDeltaY: 0, occupancyClass: "activeStanding", teamId: 1 },
+          { entityId: 4, x: 24, y: 32, requestedDeltaX: 0, requestedDeltaY: 0, occupancyClass: "activeStanding", teamId: 1 },
+        ],
+      },
+    };
+    const simulation = createSimulation(scenario);
+    const transitions: Array<{ tick: number; phase: number; side: number }> = [];
+    let previousPhase = -1;
+    for (let tick = 1; tick <= 342; tick += 1) {
+      advanceSimulationOneTick(simulation);
+      const debug = requiredDebug(simulation);
+      const phase = debug.detourPhaseCodes[0]!;
+      if (phase !== previousPhase) {
+        transitions.push({ tick, phase, side: debug.detourSideByEntity[0]! });
+        previousPhase = phase;
+      }
+      expect(debug.unresolvedStandingOverlapCount).toBe(0);
+    }
+    expect(transitions).toEqual([
+      { tick: 1, phase: PERSONAL_SPACE_DETOUR_PHASE.initialSide, side: 1 },
+      { tick: 41, phase: PERSONAL_SPACE_DETOUR_PHASE.oppositeSide, side: -1 },
+      { tick: 141, phase: PERSONAL_SPACE_DETOUR_PHASE.widerAlternative, side: -1 },
+      { tick: 341, phase: PERSONAL_SPACE_DETOUR_PHASE.none, side: 0 },
+      { tick: 342, phase: PERSONAL_SPACE_DETOUR_PHASE.initialSide, side: 1 },
+    ]);
+    expect(Array.from(simulation.world.positionsX)).toEqual([32, 40, 32, 32, 24]);
+    expect(Array.from(simulation.world.positionsY)).toEqual([32, 32, 24, 40, 32]);
   });
 
   it("is replay-stable, input-order independent, bounded, and locally queried", () => {
@@ -170,7 +314,9 @@ describe("Milestone 8A isolated personal-space feasibility spike", () => {
       PERSONAL_SPACE_SPIKE_SCENARIO.entityCount ** 2,
     );
     expect(baseline.maximumUnresolvedOverlapCount).toBe(0);
-    expect(baseline.fallbackResetCount).toBe(0);
+    expect(baseline.fallbackResetCount).toBeLessThan(
+      PERSONAL_SPACE_SPIKE_SCENARIO.entityCount * 8,
+    );
   });
 
   it("clips requested movement at world bounds without granting distance", () => {
@@ -289,6 +435,9 @@ function runDigest(scenario: SimulationScenario, ticks: number) {
     positionsY: Array.from(simulation.world.positionsY),
     resolvedDeltas: Array.from(debug.resolvedDeltas),
     resolutionFlags: Array.from(debug.resolutionFlags),
+    detourPhases: Array.from(debug.detourPhaseCodes),
+    detourSides: Array.from(debug.detourSideByEntity),
+    detourTicksRemaining: Array.from(debug.detourTicksRemaining),
     principalRelationships: Array.from(debug.principalRelationshipCodes),
     maximumPassCount,
     maximumLocalCandidateCount,
