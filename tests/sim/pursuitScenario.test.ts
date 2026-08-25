@@ -24,25 +24,27 @@ describe("Milestone 4H-4 pursuit inspection scenarios", () => {
     expect(first).toEqual(second);
     expect(first.blueRouted).toBe(true);
     expect(first.redAdvancedDuringBlueRouting).toBe(true);
-    expect(first.minimumAnchorSeparationWhileRouting).toBe(690);
-    expect(first.recoveryStartedTick).toBe(376);
-    expect(first.steadyTick).toBeUndefined();
-    expect(first.resumedStoredOrderTick).toBeUndefined();
-    expect(first.advancedBeforeSteady).toBe(true);
+    // 8E coherent rescue occupancy keeps the routed front physically local
+    // and changes the recovery cadence without changing replay stability.
+    expect(first.minimumAnchorSeparationWhileRouting).toBe(16);
+    expect(first.recoveryStartedTick).toBe(247);
+    expect(first.steadyTick).toBe(426);
+    expect(first.resumedStoredOrderTick).toBe(427);
+    expect(first.advancedBeforeSteady).toBe(false);
     expect(first.memberCountBefore).toBe(20);
     expect(first.memberCountAfter).toBe(20);
     expect(first.entityCountAfter).toBe(20);
-  });
+  }, 10_000);
 
-  it("lets the veteran avoid the regular pursuer's collision-era route", () => {
+  it("retains deterministic experience-sensitive recovery after rescue collision", () => {
     const veteran = runPursuitScenario(PURSUIT_VETERAN_SCENARIO);
     const regular = runPursuitScenario(PURSUIT_REGULAR_SCENARIO);
 
-    expect(veteran.blueRouted).toBe(false);
+    expect(veteran.blueRouted).toBe(true);
     expect(regular.blueRouted).toBe(true);
-    expect(veteran.steadyTick).toBeUndefined();
-    expect(regular.steadyTick).toBeUndefined();
-  });
+    expect(veteran.steadyTick).toBe(655);
+    expect(regular.steadyTick).toBe(426);
+  }, 10_000);
 });
 
 function runPursuitScenario(

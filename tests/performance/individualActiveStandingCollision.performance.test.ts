@@ -11,9 +11,12 @@ import {
   createIndividualCollisionResolutionStore,
 } from "../../src/sim/individualCollisionResolution";
 import {
+  applyIndividualZeroHitLifecycleTransitions,
   createIndividualCasualtyLifecycleStore,
   createIndividualPlayerPresenceStore,
 } from "../../src/sim/individualCasualtyLifecycle";
+import { createIndividualCasualtyProcedureProfileStore } from "../../src/sim/individualCasualtyProcedureProfile";
+import type { CasualtyDragGroupRecord } from "../../src/sim/individualCasualtyAssistance";
 import {
   createIndividualPhysicalOccupancyStore,
   projectIndividualPhysicalOccupancyOneTick,
@@ -81,6 +84,12 @@ describe("Milestone 8C active-standing collision performance", () => {
       const workspaceTypedBytes =
         fixture.workspace.ordinaryMoverFlags.byteLength +
         fixture.workspace.activeStandingFlags.byteLength +
+        fixture.workspace.collisionOccupancyFlags.byteLength +
+        fixture.workspace.downedSoftFlags.byteLength +
+        fixture.workspace.assistedMovingFlags.byteLength +
+        fixture.workspace.downedSoftAvoidanceFlags.byteLength +
+        fixture.workspace.downedSoftCrossingFlags.byteLength +
+        fixture.workspace.assistedGroupYieldFlags.byteLength +
         fixture.workspace.conflictFlags.byteLength +
         fixture.workspace.routingFlags.byteLength +
         fixture.workspace.pushThroughFlags.byteLength +
@@ -92,7 +101,7 @@ describe("Milestone 8C active-standing collision performance", () => {
         fixture.workspace.principalBlockerDistanceSquared.byteLength +
         fixture.workspace.queryWorld.velocitiesX.byteLength +
         fixture.workspace.queryWorld.velocitiesY.byteLength;
-      expect(workspaceTypedBytes).toBe(entityCount * 38);
+      expect(workspaceTypedBytes).toBe(entityCount * 44);
       expect(maximumPassCount).toBeLessThanOrEqual(8);
       writeReport({
         entityCount,
@@ -160,6 +169,201 @@ describe("Milestone 8C active-standing collision performance", () => {
         maximumPasses,
         maximumCandidates,
         timingPolicy: "Structural only; paired open-space allied overtaking with reused state.",
+      });
+    },
+  );
+
+  it.each([100, 500, 1_000, 2_000])(
+    "retains bounded downed-soft avoidance work for %i entities",
+    (entityCount) => {
+      const fixture = createFrontFixture(entityCount);
+      const half = entityCount / 2;
+      const procedures = createIndividualCasualtyProcedureProfileStore({
+        entityCount,
+        profiles: Array.from({ length: entityCount }, (_, entityId) => ({
+          entityId,
+          procedureKind: "citizen" as const,
+          deathCountPolicy: { kind: "normalFortitude" as const },
+        })),
+      });
+      applyIndividualZeroHitLifecycleTransitions(
+        fixture.lifecycle,
+        fixture.presence,
+        procedures,
+        fixture.world,
+        Array.from({ length: half }, (_, index) => ({
+          entityId: half + index,
+          attackerEntityId: index,
+          previousHits: 1,
+        })),
+        0,
+      );
+      const samples = new Float64Array(MEASURED_TICKS);
+      let maximumCandidates = 0;
+      let totalSoftResolutions = 0;
+      for (let tickIndex = 0; tickIndex < MEASURED_TICKS; tickIndex += 1) {
+        for (let lane = 0; lane < half; lane += 1) {
+          fixture.world.positionsX[lane] = 40;
+          fixture.world.positionsY[lane] = 16 + lane * 10;
+          fixture.world.positionsX[half + lane] = 50;
+          fixture.world.positionsY[half + lane] = 16 + lane * 10;
+        }
+        const tick = tickIndex + 1;
+        projectIndividualPhysicalOccupancyOneTick(
+          fixture.occupancy,
+          fixture.lifecycle,
+          fixture.presence,
+          [],
+          tick,
+        );
+        beginIndividualCollisionResolutionTick(
+          fixture.collision,
+          fixture.occupancy,
+          fixture.world,
+          tick,
+        );
+        for (let entityId = 0; entityId < half; entityId += 1) {
+          fixture.world.positionsX[entityId] =
+            fixture.world.positionsX[entityId]! + 2;
+        }
+        const started = performance.now();
+        const result = resolveOrdinaryActiveStandingFormationMovementOneTick(
+          fixture.workspace,
+          fixture.collision,
+          fixture.occupancy,
+          fixture.world,
+          fixture.identity,
+          fixture.ordinary,
+          fixture.morale,
+          fixture.formation,
+        );
+        samples[tickIndex] = performance.now() - started;
+        maximumCandidates = Math.max(maximumCandidates, result.localCandidateCount);
+        totalSoftResolutions += result.downedSoftAvoidanceCount +
+          result.downedSoftCrossingCount;
+        expect(result.localCandidateCount).toBeLessThan(entityCount * 64);
+        expect(result.unresolvedOverlapCount).toBe(0);
+      }
+      expect(totalSoftResolutions).toBeGreaterThan(0);
+      writeReport({
+        slice: "8E-downed-soft-avoidance",
+        entityCount,
+        measuredTicks: MEASURED_TICKS,
+        meanMillisecondsPerTick:
+          samples.reduce((sum, value) => sum + value, 0) / MEASURED_TICKS,
+        maximumMillisecondsPerTick: Math.max(...samples),
+        maximumCandidates,
+        totalSoftResolutions,
+        timingPolicy:
+          "Structural only; one active mover per lane approaching reusable downed-soft occupancy.",
+      });
+    },
+  );
+
+  it.each([100, 500, 1_000, 2_000])(
+    "retains bounded assisted-group yielding work for %i entities",
+    (entityCount) => {
+      const fixture = createAlliedFlowFixture(entityCount);
+      const groupCount = Math.floor(entityCount / 3);
+      const procedures = createIndividualCasualtyProcedureProfileStore({
+        entityCount,
+        profiles: Array.from({ length: entityCount }, (_, entityId) => ({
+          entityId,
+          procedureKind: "citizen" as const,
+          deathCountPolicy: { kind: "normalFortitude" as const },
+        })),
+      });
+      applyIndividualZeroHitLifecycleTransitions(
+        fixture.lifecycle,
+        fixture.presence,
+        procedures,
+        fixture.world,
+        Array.from({ length: groupCount }, (_, index) => ({
+          entityId: groupCount + index,
+          attackerEntityId: index,
+          previousHits: 1,
+        })),
+        0,
+      );
+      const groups: readonly CasualtyDragGroupRecord[] = Array.from(
+        { length: groupCount },
+        (_, index) => ({
+          groupId: index,
+          patientEntityId: groupCount + index,
+          patientKind: "dying" as const,
+          helperKind: "physick" as const,
+          helperEntityIds: [groupCount * 2 + index],
+          destinationX: 200,
+          destinationY: 16 + index * 10,
+          createdTick: 0,
+          phase: "dragging" as const,
+          phaseEnteredTick: 0,
+        }),
+      );
+      const samples = new Float64Array(MEASURED_TICKS);
+      let maximumCandidates = 0;
+      let totalAssistedYields = 0;
+      for (let tickIndex = 0; tickIndex < MEASURED_TICKS; tickIndex += 1) {
+        for (let entityId = 0; entityId < entityCount; entityId += 1) {
+          fixture.world.positionsX[entityId] = 400;
+          fixture.world.positionsY[entityId] =
+            16 + (entityId % groupCount) * 10;
+        }
+        for (let lane = 0; lane < groupCount; lane += 1) {
+          fixture.world.positionsX[lane] = 40;
+          fixture.world.positionsY[lane] = 16 + lane * 10;
+          fixture.world.positionsX[groupCount + lane] = 49;
+          fixture.world.positionsY[groupCount + lane] = 16 + lane * 10;
+          fixture.world.positionsX[groupCount * 2 + lane] = 53;
+          fixture.world.positionsY[groupCount * 2 + lane] = 16 + lane * 10;
+        }
+        const tick = tickIndex + 1;
+        projectIndividualPhysicalOccupancyOneTick(
+          fixture.occupancy,
+          fixture.lifecycle,
+          fixture.presence,
+          groups,
+          tick,
+        );
+        beginIndividualCollisionResolutionTick(
+          fixture.collision,
+          fixture.occupancy,
+          fixture.world,
+          tick,
+        );
+        for (let entityId = 0; entityId < groupCount; entityId += 1) {
+          fixture.world.positionsX[entityId] =
+            fixture.world.positionsX[entityId]! + 2;
+        }
+        const started = performance.now();
+        const result = resolveOrdinaryActiveStandingFormationMovementOneTick(
+          fixture.workspace,
+          fixture.collision,
+          fixture.occupancy,
+          fixture.world,
+          fixture.identity,
+          fixture.ordinary,
+          fixture.morale,
+          fixture.formation,
+        );
+        samples[tickIndex] = performance.now() - started;
+        maximumCandidates = Math.max(maximumCandidates, result.localCandidateCount);
+        totalAssistedYields += result.assistedGroupYieldCount;
+        expect(result.localCandidateCount).toBeLessThan(entityCount * 64);
+        expect(result.unresolvedOverlapCount).toBe(0);
+      }
+      expect(totalAssistedYields).toBeGreaterThan(0);
+      writeReport({
+        slice: "8E-assisted-group-yielding",
+        entityCount,
+        measuredTicks: MEASURED_TICKS,
+        meanMillisecondsPerTick:
+          samples.reduce((sum, value) => sum + value, 0) / MEASURED_TICKS,
+        maximumMillisecondsPerTick: Math.max(...samples),
+        maximumCandidates,
+        totalAssistedYields,
+        timingPolicy:
+          "Structural only; one ordinary ally per lane approaches a projected patient/helper rescue group.",
       });
     },
   );
@@ -300,7 +504,7 @@ function createWorld(
 
 function writeReport(report: object): void {
   process.stdout.write(
-    `\nMilestone 8C active-standing collision performance report\n${
+    `\nMilestone 8 production collision performance report\n${
       JSON.stringify(report, null, 2)
     }\n`,
   );

@@ -162,6 +162,21 @@ export interface CasualtyDragReachedSafetyRecord { readonly groupId: number; rea
 export interface CasualtyDragMovementBuffers { readonly cancellationRecords: CasualtyDragCancellationRecord[]; readonly draggingStartedRecords: CasualtyDraggingStartedRecord[]; readonly reachedSafetyRecords: CasualtyDragReachedSafetyRecord[]; }
 export interface CasualtyDragMovementResult { readonly cancellationRecords: readonly CasualtyDragCancellationRecord[]; readonly draggingStartedRecords: readonly CasualtyDraggingStartedRecord[]; readonly reachedSafetyRecords: readonly CasualtyDragReachedSafetyRecord[]; readonly gatheringGroupCount: number; readonly draggingGroupCount: number; readonly reachedSafetyGroupCount: number; readonly movedParticipantCount: number; }
 
+/** Narrow physical adapter; casualty assistance still owns group policy/state. */
+export interface CasualtyDragCollisionResolver {
+  readonly resolvedDeltaX: number;
+  readonly resolvedDeltaY: number;
+  /** Physical contact with an allied body occupying the selected safe point. */
+  readonly destinationContactSatisfied: boolean;
+  prepareForMovement(tick: number): void;
+  assistanceStateChanged(tick: number): void;
+  resolveDraggingGroupStep(
+    group: CasualtyDragGroupRecord,
+    permittedDeltaX: number,
+    permittedDeltaY: number,
+  ): void;
+}
+
 export interface CasualtyAssistanceDecisionOptions {
   /** Reserved integration hook until IndividualTreatmentActionStore exists. */
   readonly isTreating?: (entityId: number) => boolean;
@@ -685,12 +700,14 @@ export function advanceCasualtyDragGroupsBeforeCombat(
   buffers: CasualtyDragMovementBuffers,
   presenceStore: IndividualPlayerPresenceStore,
   gaitAdapter?: IndividualSpecialistPhysicalGaitAdapter,
+  collisionResolver?: CasualtyDragCollisionResolver,
 ): CasualtyDragMovementResult {
   validateEntityCounts(world.entityCount, identityStore, formationStore, lifecycleStore,
     traumaStore, assistanceStore, groupStore, handStore);
   validateEntityCounts(world.entityCount, presenceStore);
   assertNonNegativeSafeInteger(tick, "tick");
   gaitAdapter?.validateCurrentTick();
+  collisionResolver?.prepareForMovement(tick);
   buffers.cancellationRecords.length = 0;
   buffers.draggingStartedRecords.length = 0;
   buffers.reachedSafetyRecords.length = 0;
@@ -707,6 +724,7 @@ export function advanceCasualtyDragGroupsBeforeCombat(
     const invalidReason = validateGroup(group, identityStore, lifecycleStore, presenceStore, traumaStore, moraleStates);
     if (invalidReason !== undefined) {
       cancelGroup(group, invalidReason, tick, assistance, hands, groups, index, buffers.cancellationRecords);
+      collisionResolver?.assistanceStateChanged(tick);
       continue;
     }
     if (group.phase === "reachedSafety" || group.createdTick === tick) { index += 1; continue; }
@@ -770,6 +788,7 @@ export function advanceCasualtyDragGroupsBeforeCombat(
         group.phase = "dragging";
         group.phaseEnteredTick = tick;
         setGroupHandCommitment(group, hands);
+        collisionResolver?.assistanceStateChanged(tick);
         buffers.draggingStartedRecords.push({
           groupId: group.groupId,
           patientEntityId: group.patientEntityId,
@@ -786,6 +805,7 @@ export function advanceCasualtyDragGroupsBeforeCombat(
       const patientId = group.patientEntityId;
       if (world.positionsX[patientId] === destinationX && world.positionsY[patientId] === destinationY) {
         reachSafety(group, tick, assistance, buffers.reachedSafetyRecords);
+        collisionResolver?.assistanceStateChanged(tick);
         index += 1;
         continue;
       }
@@ -836,18 +856,41 @@ export function advanceCasualtyDragGroupsBeforeCombat(
       const finalMaximumStep = groupCoordinateCeiling === null
         ? maxStep
         : Math.min(maxStep, groupCoordinateCeiling);
-      const delta = sharedDragDelta(
+      const permittedDelta = sharedDragDelta(
         world,
         group,
         destinationX,
         destinationY,
         finalMaximumStep,
       );
-      const groupMoved = delta.x !== 0 || delta.y !== 0;
-      if (delta.x !== 0 || delta.y !== 0) {
-        const participants = [patientId, ...group.helperEntityIds];
-        for (const entityId of participants) {
-          if (applyIndividualExternalSharedMovementDelta(world, formationStore, entityId, delta.x, delta.y, "dragCasualty")) movedParticipantCount += 1;
+      collisionResolver?.resolveDraggingGroupStep(
+        group,
+        permittedDelta.x,
+        permittedDelta.y,
+      );
+      const deltaX = collisionResolver?.resolvedDeltaX ?? permittedDelta.x;
+      const deltaY = collisionResolver?.resolvedDeltaY ?? permittedDelta.y;
+      const groupMoved = deltaX !== 0 || deltaY !== 0;
+      if (groupMoved) {
+        if (applyIndividualExternalSharedMovementDelta(
+          world,
+          formationStore,
+          patientId,
+          deltaX,
+          deltaY,
+          "dragCasualty",
+        )) movedParticipantCount += 1;
+        for (let helperIndex = 0;
+          helperIndex < group.helperEntityIds.length;
+          helperIndex += 1) {
+          if (applyIndividualExternalSharedMovementDelta(
+            world,
+            formationStore,
+            group.helperEntityIds[helperIndex]!,
+            deltaX,
+            deltaY,
+            "dragCasualty",
+          )) movedParticipantCount += 1;
         }
       }
       for (let helperIndex = 0;
@@ -862,8 +905,11 @@ export function advanceCasualtyDragGroupsBeforeCombat(
         );
       }
       gaitAdapter?.completeDraggedPatientMovement(patientId, groupMoved);
-      if (world.positionsX[patientId] === destinationX && world.positionsY[patientId] === destinationY) {
+      if ((world.positionsX[patientId] === destinationX &&
+          world.positionsY[patientId] === destinationY) ||
+          collisionResolver?.destinationContactSatisfied === true) {
         reachSafety(group, tick, assistance, buffers.reachedSafetyRecords);
+        collisionResolver?.assistanceStateChanged(tick);
       }
     }
     index += 1;
@@ -992,14 +1038,20 @@ function sharedDragDelta(world: WorldState, group: InternalCasualtyDragGroupReco
   let x = distance <= maxStep ? dx : Math.trunc(dx / distance * maxStep);
   let y = distance <= maxStep ? dy : Math.trunc(dy / distance * maxStep);
   if (x === 0 && y === 0 && distance > 0) Math.abs(dx) >= Math.abs(dy) ? x = Math.sign(dx) : y = Math.sign(dy);
-  const participantIds = [group.patientEntityId, ...group.helperEntityIds];
-  for (const entityId of participantIds) {
+  boundForParticipant(group.patientEntityId);
+  for (let helperIndex = 0;
+    helperIndex < group.helperEntityIds.length;
+    helperIndex += 1) {
+    boundForParticipant(group.helperEntityIds[helperIndex]!);
+  }
+  return { x, y };
+
+  function boundForParticipant(entityId: number): void {
     x = Math.max(x, -world.positionsX[entityId]!);
     x = Math.min(x, world.bounds.width - 1 - world.positionsX[entityId]!);
     y = Math.max(y, -world.positionsY[entityId]!);
     y = Math.min(y, world.bounds.height - 1 - world.positionsY[entityId]!);
   }
-  return { x, y };
 }
 
 function setGroupHandCommitment(group: InternalCasualtyDragGroupRecord, hands: InternalIndividualDragHandCommitmentStore): void {

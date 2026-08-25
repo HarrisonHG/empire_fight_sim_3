@@ -117,13 +117,15 @@ describe("combined Milestone 4 visual regression scenario", () => {
     expect(regularMoreDegraded).toBe(true);
     expect(regularPursuitRouted).toBe(false);
     expect(veteranPursuitRouted).toBe(false);
-    expect(recruitRouteTick).toBe(453);
+    // 8E soft-body and coherent-rescue occupancy changes the first route
+    // timing while retaining the scenario's comparative morale outcome.
+    expect(recruitRouteTick).toBe(137);
     expect(regularRouteTick).toBeUndefined();
     expect(veteranRouteTick).toBeUndefined();
     expect(regularReturnTick).toBeUndefined();
     expect(veteranReturnTick).toBeUndefined();
     expect(veteranReengaged).toBe(false);
-    expect(regularFinal.state).toBe("wavering");
+    expect(regularFinal.state).toBe("strained");
     expect(veteranFinal.state).toBe("steady");
   }, 10_000);
 });

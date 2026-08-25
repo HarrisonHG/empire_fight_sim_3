@@ -11,10 +11,24 @@ import {
   getIndividualCollisionResolutionInspection,
 } from "../../src/sim/individualCollisionResolution";
 import {
+  applyIndividualZeroHitLifecycleTransitions,
   createIndividualCasualtyLifecycleStore,
   createIndividualPlayerPresenceStore,
+  getIndividualCharacterLifecycleState,
+  getIndividualPlayerPresenceState,
 } from "../../src/sim/individualCasualtyLifecycle";
+import { createIndividualCasualtyProcedureProfileStore } from "../../src/sim/individualCasualtyProcedureProfile";
+import type { CasualtyDragGroupRecord } from "../../src/sim/individualCasualtyAssistance";
 import { getIndividualEnergyActivityInspection } from "../../src/sim/individualEnergyActivity";
+import {
+  createIndividualEnergyStore,
+  createTrustedIndividualEnergyProfileStore,
+  getIndividualEnergyInspection,
+} from "../../src/sim/individualEnergy";
+import {
+  createIndividualDeathCountStore,
+  getIndividualDeathCountInspection,
+} from "../../src/sim/individualDeathCount";
 import {
   createIndividualPhysicalOccupancyStore,
   projectIndividualPhysicalOccupancyOneTick,
@@ -217,6 +231,160 @@ describe("Milestone 8C ordinary active-standing production collision", () => {
       expect(energy.displacementX).toBe(actualDeltaX);
     }
   });
+
+  it("prefers a bounded local avoidance step around a sparse downed casualty", () => {
+    const fixture = createResolverFixture(2, false);
+    setPosition(fixture.world, 0, 20, 20);
+    setPosition(fixture.world, 1, 30, 20);
+    downEntities(fixture, [1]);
+    const casualtyBefore = [
+      fixture.world.positionsX[1],
+      fixture.world.positionsY[1],
+    ];
+    openTick(fixture, 1);
+    requestDelta(fixture.world, 0, 2, 0);
+
+    const result = resolveFixture(fixture);
+    const evidence = getIndividualCollisionResolutionInspection(
+      fixture.collision,
+      0,
+    );
+
+    expect(result).toMatchObject({
+      downedSoftAvoidanceCount: 1,
+      downedSoftCrossingCount: 0,
+    });
+    expect(evidence).toMatchObject({
+      downedSoftAvoidance: true,
+      downedSoftCrossing: false,
+      principalOccupancyRelationshipCode: 2,
+    });
+    expect(fixture.world.positionsX[0]).toBeGreaterThan(20);
+    expect(fixture.world.positionsY[0]).not.toBe(20);
+    expect([
+      fixture.world.positionsX[1],
+      fixture.world.positionsY[1],
+    ]).toEqual(casualtyBefore);
+  });
+
+  it("uses reduced soft crossing when a bounded body cluster boxes every avoidance", () => {
+    const fixture = createResolverFixture(4, false);
+    setPosition(fixture.world, 0, 20, 20);
+    setPosition(fixture.world, 1, 30, 20);
+    setPosition(fixture.world, 2, 28, 21);
+    setPosition(fixture.world, 3, 28, 19);
+    downEntities(fixture, [1, 2, 3]);
+    const casualtyState = [1, 2, 3].map((entityId) => [
+      fixture.world.positionsX[entityId],
+      fixture.world.positionsY[entityId],
+    ]);
+    const casualtyAuthorityState = [1, 2, 3].map((entityId) => ({
+      lifecycle: getIndividualCharacterLifecycleState(
+        fixture.lifecycle,
+        entityId,
+      ),
+      presence: getIndividualPlayerPresenceState(fixture.presence, entityId),
+      energy: getIndividualEnergyInspection(
+        fixture.energyProfiles,
+        fixture.energy,
+        entityId,
+      ),
+      deathCount: getIndividualDeathCountInspection(
+        fixture.deathCounts,
+        entityId,
+      ),
+    }));
+    openTick(fixture, 1);
+    requestDelta(fixture.world, 0, 2, 0);
+
+    const result = resolveFixture(fixture);
+    const evidence = getIndividualCollisionResolutionInspection(
+      fixture.collision,
+      0,
+    );
+
+    expect(result.downedSoftCrossingCount).toBe(1);
+    expect(evidence).toMatchObject({
+      permittedDeltaX: 2,
+      resolvedDeltaX: 1,
+      resolvedDeltaY: 0,
+      reduced: true,
+      downedSoftCrossing: true,
+    });
+    expect([1, 2, 3].map((entityId) => [
+      fixture.world.positionsX[entityId],
+      fixture.world.positionsY[entityId],
+    ])).toEqual(casualtyState);
+    expect([1, 2, 3].map((entityId) => ({
+      lifecycle: getIndividualCharacterLifecycleState(
+        fixture.lifecycle,
+        entityId,
+      ),
+      presence: getIndividualPlayerPresenceState(fixture.presence, entityId),
+      energy: getIndividualEnergyInspection(
+        fixture.energyProfiles,
+        fixture.energy,
+        entityId,
+      ),
+      deathCount: getIndividualDeathCountInspection(
+        fixture.deathCounts,
+        entityId,
+      ),
+    }))).toEqual(casualtyAuthorityState);
+  });
+
+  it("makes an ordinary ally yield physically to an assisted rescue group", () => {
+    const fixture = createResolverFixture(6, false);
+    setPosition(fixture.world, 0, 20, 20);
+    setPosition(fixture.world, 1, 29, 20);
+    setPosition(fixture.world, 2, 33, 20);
+    setPosition(fixture.world, 3, 100, 80);
+    setPosition(fixture.world, 4, 110, 80);
+    setPosition(fixture.world, 5, 100, 100);
+    downEntities(fixture, [1]);
+    const groups: readonly CasualtyDragGroupRecord[] = [{
+      groupId: 9,
+      patientEntityId: 1,
+      patientKind: "dying",
+      helperKind: "physick",
+      helperEntityIds: [2],
+      destinationX: 80,
+      destinationY: 20,
+      createdTick: 0,
+      phase: "dragging",
+      phaseEnteredTick: 0,
+    }];
+    projectIndividualPhysicalOccupancyOneTick(
+      fixture.occupancy,
+      fixture.lifecycle,
+      fixture.presence,
+      groups,
+      1,
+    );
+    beginIndividualCollisionResolutionTick(
+      fixture.collision,
+      fixture.occupancy,
+      fixture.world,
+      1,
+    );
+    requestDelta(fixture.world, 0, 2, 0);
+
+    const result = resolveFixture(fixture);
+    const evidence = getIndividualCollisionResolutionInspection(
+      fixture.collision,
+      0,
+    );
+
+    expect(result.assistedGroupYieldCount).toBe(1);
+    expect(evidence).toMatchObject({
+      assistedGroupYield: true,
+      principalOccupancyRelationshipCode: 3,
+    });
+    expect(evidence.resolvedDeltaX ** 2 + evidence.resolvedDeltaY ** 2)
+      .toBeLessThanOrEqual(4);
+    expect([fixture.world.positionsX[1], fixture.world.positionsX[2]])
+      .toEqual([29, 33]);
+  });
 });
 
 function createResolverFixture(entityCount: number, reverseUnits: boolean) {
@@ -252,6 +420,14 @@ function createResolverFixture(entityCount: number, reverseUnits: boolean) {
     world.ids,
   );
   const ordinary = createIndividualOrdinaryParticipationSnapshot(entityCount);
+  const energyProfiles = createTrustedIndividualEnergyProfileStore({
+    entityCount,
+    profiles: Array.from({ length: entityCount }, (_, entityId) => ({
+      entityId,
+    })),
+  });
+  const energy = createIndividualEnergyStore(energyProfiles);
+  const deathCounts = createIndividualDeathCountStore(entityCount);
   const morale = new Map([[10, "steady"], [20, "steady"]] as const);
   return {
     world,
@@ -263,6 +439,9 @@ function createResolverFixture(entityCount: number, reverseUnits: boolean) {
     workspace,
     ordinary,
     morale,
+    energyProfiles,
+    energy,
+    deathCounts,
   };
 }
 
@@ -408,4 +587,30 @@ function createWorld(
     velocitiesX: new Int32Array(entityCount),
     velocitiesY: new Int32Array(entityCount),
   };
+}
+
+function downEntities(
+  fixture: ReturnType<typeof createResolverFixture>,
+  entityIds: readonly number[],
+): void {
+  const procedures = createIndividualCasualtyProcedureProfileStore({
+    entityCount: fixture.world.entityCount,
+    profiles: Array.from({ length: fixture.world.entityCount }, (_, entityId) => ({
+      entityId,
+      procedureKind: "citizen" as const,
+      deathCountPolicy: { kind: "normalFortitude" as const },
+    })),
+  });
+  applyIndividualZeroHitLifecycleTransitions(
+    fixture.lifecycle,
+    fixture.presence,
+    procedures,
+    fixture.world,
+    entityIds.map((entityId) => ({
+      entityId,
+      attackerEntityId: 0,
+      previousHits: 1,
+    })),
+    1,
+  );
 }

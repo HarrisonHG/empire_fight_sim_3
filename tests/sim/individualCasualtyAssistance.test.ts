@@ -19,6 +19,7 @@ import {
 import {
   applyIndividualZeroHitLifecycleTransitions,
   classifyIndividualTerminalPlayerPresences,
+  getIndividualCharacterLifecycleState,
   getIndividualPlayerPresenceState,
   transitionIndividualDyingToTerminal,
   transitionIndividualDyingToActive,
@@ -41,11 +42,17 @@ import {
   calculateTraumaticWoundOpportunityRoll,
   resolveIndividualTraumaticWoundOpportunities,
 } from "../../src/sim/individualTraumaticWound";
-import { advanceSimulationOneTick, createSimulation } from "../../src/sim/simulation";
+import {
+  MILESTONE_8E_PRODUCTION_CASUALTY_COLLISION_ORDER,
+  advanceSimulationOneTick,
+  createSimulation,
+} from "../../src/sim/simulation";
 import {
   beginIndividualEnergyActivityObservation,
   getIndividualEnergyActivityInspection,
 } from "../../src/sim/individualEnergyActivity";
+import { getIndividualCollisionResolutionInspection } from "../../src/sim/individualCollisionResolution";
+import { getIndividualPhysicalOccupancyInspection } from "../../src/sim/individualPhysicalOccupancy";
 import { projectIndividualEnergyCapabilitiesOneTick } from "../../src/sim/individualEnergyCapability";
 import { spendIndividualEnergy } from "../../src/sim/individualEnergy";
 import { getIndividualMovementMode } from "../../src/sim/formationBehaviour";
@@ -786,6 +793,254 @@ describe("individual casualty assistance and sparse drag groups", () => {
       movementExpenditureRequested: 0,
       expenditureApplied: 0,
     });
+    expect(getIndividualCollisionResolutionInspection(
+      combat.individualCollisionResolutionStore,
+      1,
+    )).toMatchObject({
+      permittedDeltaX: helperDelta,
+      resolvedDeltaX: helperDelta,
+    });
+    expect(getIndividualCollisionResolutionInspection(
+      combat.individualCollisionResolutionStore,
+      0,
+    )).toMatchObject({
+      permittedDeltaX: patientDelta,
+      resolvedDeltaX: patientDelta,
+    });
+    expect(combat.individualCasualtyGroupCollisionResult).toMatchObject({
+      requestedGroupCount: 1,
+      movedGroupCount: 1,
+      blockedGroupCount: 0,
+    });
+  });
+
+  it("refreshes newly formed dragging occupancy in the transition tick", () => {
+    const simulation = createSimulation(scenario([
+      unit(1, 1, 100),
+      { ...unit(2, 1, 104), medicalProfile: physick() },
+      unit(3, 2, 230),
+    ], [0, 1]));
+    const combat = requireCombat(simulation);
+    down(simulation, 0, 0);
+
+    advanceSimulationOneTick(simulation);
+    expect(getActiveCasualtyDragGroups(
+      combat.casualtyDragGroupStore,
+    )[0]!.phase).toBe("gathering");
+    advanceSimulationOneTick(simulation);
+
+    expect(getActiveCasualtyDragGroups(
+      combat.casualtyDragGroupStore,
+    )[0]!.phase).toBe("dragging");
+    expect([0, 1].map((entityId) =>
+      getIndividualPhysicalOccupancyInspection(
+        combat.individualPhysicalOccupancyStore,
+        entityId,
+      ).occupancyClass,
+    )).toEqual(["assistedMoving", "assistedMoving"]);
+    expect(combat.individualCasualtyGroupCollisionResult).toMatchObject({
+      requestedGroupCount: 0,
+      sameTickOccupancyRefreshCount: 1,
+    });
+    expect(MILESTONE_8E_PRODUCTION_CASUALTY_COLLISION_ORDER).toEqual([
+      "tickStartOccupancyProjectsDownedAndExistingAssistedGroups",
+      "ordinaryMovementPrefersAvoidanceThenAllowsReducedSoftCrossing",
+      "casualtyAuthorityRefreshesOnlyChangedSameTickOccupancy",
+      "casualtyAuthorityProducesOneEnergyLimitedSharedGroupStep",
+      "casualtyGroupCollisionPreservesOrBoundsThatSharedStep",
+      "patientAndHelpersCommitOneCoherentResolvedDisplacement",
+      "energyConsumesFinalActualDisplacement",
+    ]);
+    expect(
+      combat.individualCasualtyGroupCollisionResolver.includedOccupancyFlags
+        .byteLength +
+      combat.individualCasualtyGroupCollisionResolver.queryPositionsX.byteLength +
+      combat.individualCasualtyGroupCollisionResolver.queryPositionsY.byteLength,
+    ).toBe(simulation.world.entityCount * 9);
+  });
+
+  it("keeps a rescue group coherent and prevents forward phasing through hostile bodies", () => {
+    const simulation = createSimulation(scenario([
+      unit(1, 1, 100),
+      {
+        ...unit(2, 1, 104),
+        memberMaxStep: 2,
+        medicalProfile: physick(),
+      },
+      multiUnit(3, 2, 220, 2),
+    ], [0, 1, 2, 3]));
+    const combat = requireCombat(simulation);
+    down(simulation, 0, 0);
+    advanceSimulationOneTick(simulation);
+    advanceSimulationOneTick(simulation);
+    const group = getActiveCasualtyDragGroups(
+      combat.casualtyDragGroupStore,
+    )[0]! as ReturnType<typeof getActiveCasualtyDragGroups>[number] & {
+      destinationX: number;
+      destinationY: number;
+    };
+    simulation.world.positionsX[0] = 100;
+    simulation.world.positionsY[0] = 0;
+    simulation.world.positionsX[1] = 104;
+    simulation.world.positionsY[1] = 0;
+    simulation.world.positionsX[2] = 92;
+    simulation.world.positionsY[2] = 0;
+    simulation.world.positionsX[3] = 100;
+    simulation.world.positionsY[3] = 8;
+    group.destinationX = 20;
+    group.destinationY = 0;
+    const before = [
+      simulation.world.positionsX[0],
+      simulation.world.positionsY[0],
+      simulation.world.positionsX[1],
+      simulation.world.positionsY[1],
+    ];
+
+    advanceSimulationOneTick(simulation);
+
+    const after = [
+      simulation.world.positionsX[0],
+      simulation.world.positionsY[0],
+      simulation.world.positionsX[1],
+      simulation.world.positionsY[1],
+    ];
+    expect(after[0]).toBe(before[0]);
+    expect(after[2]).toBe(before[2]);
+    expect(after[1]! - before[1]!).toBe(after[3]! - before[3]!);
+    expect(combat.individualCasualtyGroupCollisionResult).toMatchObject({
+      requestedGroupCount: 1,
+      movedGroupCount: 1,
+      blockedGroupCount: 0,
+      redirectedGroupCount: 1,
+      hostileBlockerCount: 1,
+    });
+    expect([0, 1].map((entityId) =>
+      getIndividualCollisionResolutionInspection(
+        combat.individualCollisionResolutionStore,
+        entityId,
+      ).redirected,
+    )).toEqual([true, true]);
+    expect(getIndividualEnergyActivityInspection(
+      combat.individualEnergyActivityStore,
+      0,
+    )).toMatchObject({
+      externallyMoved: true,
+      movementExpenditureRequested: 0,
+    });
+    expect(getIndividualEnergyActivityInspection(
+      combat.individualEnergyActivityStore,
+      1,
+    )).toMatchObject({ movementExpenditureRequested: 0 });
+  });
+
+  it("carefully crosses a boxed soft casualty without mutating that casualty", () => {
+    const simulation = createSimulation(scenario([
+      {
+        ...multiUnit(1, 1, 100, 3),
+        memberMaxStep: 2,
+        medicalProfile: physick(),
+      },
+      unit(2, 2, 230),
+    ], [0, 1, 2]));
+    const combat = requireCombat(simulation);
+    simulation.world.positionsX[0] = 100;
+    simulation.world.positionsX[1] = 104;
+    simulation.world.positionsX[2] = 92;
+    down(simulation, 0, 0);
+    down(simulation, 2, 0);
+    advanceSimulationOneTick(simulation);
+    advanceSimulationOneTick(simulation);
+    const group = getActiveCasualtyDragGroups(
+      combat.casualtyDragGroupStore,
+    )[0]! as ReturnType<typeof getActiveCasualtyDragGroups>[number] & {
+      destinationX: number;
+      destinationY: number;
+    };
+    expect(group.patientEntityId).toBe(0);
+    group.destinationX = 20;
+    group.destinationY = simulation.world.positionsY[0]!;
+    const untouchedPosition = [
+      simulation.world.positionsX[2],
+      simulation.world.positionsY[2],
+    ];
+    const untouchedActivity = getIndividualEnergyActivityInspection(
+      combat.individualEnergyActivityStore,
+      2,
+    );
+    const beforePatientX = simulation.world.positionsX[0]!;
+
+    advanceSimulationOneTick(simulation);
+
+    expect(simulation.world.positionsX[0]).toBe(beforePatientX - 1);
+    expect([
+      simulation.world.positionsX[2],
+      simulation.world.positionsY[2],
+    ]).toEqual(untouchedPosition);
+    expect(getIndividualCharacterLifecycleState(
+      combat.individualCasualtyLifecycleStore,
+      2,
+    )).toBe("dying");
+    expect(combat.individualCasualtyGroupCollisionResult).toMatchObject({
+      requestedGroupCount: 1,
+      movedGroupCount: 1,
+      downedSoftCrossingCount: 1,
+    });
+    expect([0, 1].map((entityId) =>
+      getIndividualCollisionResolutionInspection(
+        combat.individualCollisionResolutionStore,
+        entityId,
+      ).downedSoftCrossing,
+    )).toEqual([true, true]);
+    expect(getIndividualEnergyActivityInspection(
+      combat.individualEnergyActivityStore,
+      2,
+    )).toMatchObject({
+      physicalGaitSource: untouchedActivity.physicalGaitSource,
+      movementExpenditureRequested: 0,
+      expenditureApplied: 0,
+    });
+  });
+
+  it("completes an occupied safe point at legal allied contact without overlap", () => {
+    const simulation = createSimulation(scenario([
+      unit(1, 1, 100),
+      {
+        ...unit(2, 1, 104),
+        memberMaxStep: 2,
+        medicalProfile: physick(),
+      },
+      unit(3, 1, 92),
+      unit(4, 2, 230),
+    ], [0, 1, 2]));
+    const combat = requireCombat(simulation);
+    down(simulation, 0, 0);
+    advanceSimulationOneTick(simulation);
+    advanceSimulationOneTick(simulation);
+    const group = getActiveCasualtyDragGroups(
+      combat.casualtyDragGroupStore,
+    )[0]! as ReturnType<typeof getActiveCasualtyDragGroups>[number] & {
+      destinationX: number;
+      destinationY: number;
+    };
+    simulation.world.positionsX[0] = 100;
+    simulation.world.positionsX[1] = 104;
+    simulation.world.positionsX[2] = 92;
+    group.destinationX = 92;
+    group.destinationY = simulation.world.positionsY[0]!;
+    const before = Array.from(simulation.world.positionsX.slice(0, 3));
+
+    advanceSimulationOneTick(simulation);
+
+    expect(Array.from(simulation.world.positionsX.slice(0, 3))).toEqual(before);
+    expect(group.phase).toBe("reachedSafety");
+    expect(combat.individualCasualtyGroupCollisionResult).toMatchObject({
+      requestedGroupCount: 1,
+      destinationContactCount: 1,
+      blockedGroupCount: 0,
+    });
+    expect(Math.abs(
+      simulation.world.positionsX[0]! - simulation.world.positionsX[2]!,
+    )).toBe(8);
   });
 
   it("uses the slowest helper capability for the coherent two-fighter drag group regardless of helper order", () => {

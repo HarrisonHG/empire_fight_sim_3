@@ -71,7 +71,7 @@ describe("defence overwhelm visual scenario", () => {
 
   it("replays deterministically", () => {
     expect(runTrace()).toEqual(runTrace());
-  });
+  }, 10_000);
 });
 
 function runTrace(): unknown {

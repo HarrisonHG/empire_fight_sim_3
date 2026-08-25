@@ -40,6 +40,7 @@ describe("Milestone 8B occupancy and disabled collision-boundary performance", (
         collision.localNeighbourCounts.byteLength +
         collision.localCandidateCounts.byteLength +
         collision.resolutionFlags.byteLength +
+        collision.recordedStepFlags.byteLength +
         collision.principalOccupancyRelationshipCodes.byteLength +
         collision.localDecisionCodes.byteLength +
         collision.localDecisionPartnerByEntity.byteLength +
@@ -77,7 +78,7 @@ describe("Milestone 8B occupancy and disabled collision-boundary performance", (
       }
 
       expect(occupancyBytes).toBe(entityCount * 7);
-      expect(collisionBytes).toBe(entityCount * 54);
+      expect(collisionBytes).toBe(entityCount * 55);
       expect(occupancy.occupancyClassCodes).toBeInstanceOf(Uint8Array);
       expect(collision.resolvedDeltas).toBeInstanceOf(Int32Array);
       writeReport({

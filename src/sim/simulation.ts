@@ -131,6 +131,9 @@ import {
   resolveOrdinaryActiveStandingFormationMovementOneTick,
 } from "./individualActiveStandingCollision";
 import {
+  createIndividualCasualtyGroupCollisionResolver,
+} from "./individualCasualtyGroupCollision";
+import {
   advanceIndividualDeathCountsOneTick,
   createIndividualDeathCountStore,
   getIndividualCasualtyHistoryInspection,
@@ -379,6 +382,16 @@ export const MILESTONE_8D_PRODUCTION_CROWD_ORDER = Object.freeze([
   "ordinaryMovementObservationConsumesResolvedPosition",
   "specialistMovementAuthoritiesRemainUnchanged",
   "combatAndEnergyConsumeFinalResolvedPosition",
+] as const);
+
+export const MILESTONE_8E_PRODUCTION_CASUALTY_COLLISION_ORDER = Object.freeze([
+  "tickStartOccupancyProjectsDownedAndExistingAssistedGroups",
+  "ordinaryMovementPrefersAvoidanceThenAllowsReducedSoftCrossing",
+  "casualtyAuthorityRefreshesOnlyChangedSameTickOccupancy",
+  "casualtyAuthorityProducesOneEnergyLimitedSharedGroupStep",
+  "casualtyGroupCollisionPreservesOrBoundsThatSharedStep",
+  "patientAndHelpersCommitOneCoherentResolvedDisplacement",
+  "energyConsumesFinalActualDisplacement",
 ] as const);
 
 export type CombatSandboxTickStage =
@@ -956,6 +969,16 @@ function createCombatSandbox(
       world.bounds,
       world.ids,
     );
+  const individualCasualtyGroupCollisionResolver =
+    createIndividualCasualtyGroupCollisionResolver(
+      world,
+      identityStore,
+      individualPhysicalOccupancyStore,
+      individualCollisionResolutionStore,
+      individualCasualtyLifecycleStore,
+      individualPlayerPresenceStore,
+      casualtyDragGroupStore,
+    );
   const individualDragHandCommitmentStore =
     createIndividualDragHandCommitmentStore(world.entityCount);
   const individualMedicalClaimStore =
@@ -1068,6 +1091,9 @@ function createCombatSandbox(
     individualActiveStandingCollisionWorkspace,
     individualActiveStandingCollisionResult:
       individualActiveStandingCollisionWorkspace.result,
+    individualCasualtyGroupCollisionResolver,
+    individualCasualtyGroupCollisionResult:
+      individualCasualtyGroupCollisionResolver.result,
     individualDragHandCommitmentStore,
     individualDefenceHandAvailabilitySource,
     casualtyDragMovementBuffers,
@@ -2239,6 +2265,7 @@ export function advanceCombatSandboxOneTick(
         combatSandbox.casualtyDragMovementBuffers,
         combatSandbox.individualPlayerPresenceStore,
         combatSandbox.specialistPhysicalGaitAdapter,
+        combatSandbox.individualCasualtyGroupCollisionResolver,
       ),
     );
     checkpointIndividualEnergyMovementObservation(
@@ -3126,6 +3153,17 @@ function createEmptyCombatDebugSnapshot(): LiveCombatDebugSnapshot {
     activeStandingCollisionDetourCount: 0,
     activeStandingCollisionRouterPriorityCount: 0,
     activeStandingCollisionPushThroughYieldCount: 0,
+    collisionDownedSoftAvoidanceCount: 0,
+    collisionDownedSoftCrossingCount: 0,
+    collisionAssistedGroupYieldCount: 0,
+    casualtyGroupCollisionRequestedCount: 0,
+    casualtyGroupCollisionMovedCount: 0,
+    casualtyGroupCollisionBlockedCount: 0,
+    casualtyGroupCollisionRedirectedCount: 0,
+    casualtyGroupCollisionLocalQueryCount: 0,
+    casualtyGroupCollisionLocalCandidateCount: 0,
+    casualtyGroupCollisionSameTickOccupancyRefreshCount: 0,
+    casualtyGroupCollisionDestinationContactCount: 0,
     attackAttemptCount: 0,
     preventedAttackCount: 0,
     landedOutcomeCount: 0,
@@ -3303,6 +3341,33 @@ function createCombatDebugSnapshot(
       combatSandbox.individualActiveStandingCollisionResult.routerPriorityCount,
     activeStandingCollisionPushThroughYieldCount:
       combatSandbox.individualActiveStandingCollisionResult.pushThroughYieldCount,
+    collisionDownedSoftAvoidanceCount:
+      combatSandbox.individualActiveStandingCollisionResult
+        .downedSoftAvoidanceCount,
+    collisionDownedSoftCrossingCount:
+      combatSandbox.individualActiveStandingCollisionResult
+        .downedSoftCrossingCount,
+    collisionAssistedGroupYieldCount:
+      combatSandbox.individualActiveStandingCollisionResult
+        .assistedGroupYieldCount,
+    casualtyGroupCollisionRequestedCount:
+      combatSandbox.individualCasualtyGroupCollisionResult.requestedGroupCount,
+    casualtyGroupCollisionMovedCount:
+      combatSandbox.individualCasualtyGroupCollisionResult.movedGroupCount,
+    casualtyGroupCollisionBlockedCount:
+      combatSandbox.individualCasualtyGroupCollisionResult.blockedGroupCount,
+    casualtyGroupCollisionRedirectedCount:
+      combatSandbox.individualCasualtyGroupCollisionResult.redirectedGroupCount,
+    casualtyGroupCollisionLocalQueryCount:
+      combatSandbox.individualCasualtyGroupCollisionResult.localQueryCount,
+    casualtyGroupCollisionLocalCandidateCount:
+      combatSandbox.individualCasualtyGroupCollisionResult.localCandidateCount,
+    casualtyGroupCollisionSameTickOccupancyRefreshCount:
+      combatSandbox.individualCasualtyGroupCollisionResult
+        .sameTickOccupancyRefreshCount,
+    casualtyGroupCollisionDestinationContactCount:
+      combatSandbox.individualCasualtyGroupCollisionResult
+        .destinationContactCount,
     attackAttemptCount: combatSandbox.individualAttackAttemptCount,
     preventedAttackCount:
       combatSandbox.individualParryCount +
@@ -3548,8 +3613,14 @@ function collectInspectedIndividualSnapshots(
       collisionBlocked: collisionResolution.blocked,
       collisionReduced: collisionResolution.reduced,
       collisionRedirected: collisionResolution.redirected,
+      collisionDownedSoftAvoidance:
+        collisionResolution.downedSoftAvoidance,
+      collisionDownedSoftCrossing: collisionResolution.downedSoftCrossing,
+      collisionAssistedGroupYield: collisionResolution.assistedGroupYield,
       collisionLocalNeighbourCount: collisionResolution.localNeighbourCount,
       collisionLocalCandidateCount: collisionResolution.localCandidateCount,
+      collisionPrincipalOccupancyRelationshipCode:
+        collisionResolution.principalOccupancyRelationshipCode,
       collisionPrincipalBlockerEntityId:
         combatSandbox.individualActiveStandingCollisionWorkspace
           .principalBlockerEntityIds[entityId]!,
@@ -4477,6 +4548,17 @@ function createLegacyCombatFoundationDebugSnapshot(
     activeStandingCollisionDetourCount: 0,
     activeStandingCollisionRouterPriorityCount: 0,
     activeStandingCollisionPushThroughYieldCount: 0,
+    collisionDownedSoftAvoidanceCount: 0,
+    collisionDownedSoftCrossingCount: 0,
+    collisionAssistedGroupYieldCount: 0,
+    casualtyGroupCollisionRequestedCount: 0,
+    casualtyGroupCollisionMovedCount: 0,
+    casualtyGroupCollisionBlockedCount: 0,
+    casualtyGroupCollisionRedirectedCount: 0,
+    casualtyGroupCollisionLocalQueryCount: 0,
+    casualtyGroupCollisionLocalCandidateCount: 0,
+    casualtyGroupCollisionSameTickOccupancyRefreshCount: 0,
+    casualtyGroupCollisionDestinationContactCount: 0,
     attackAttemptCount: legacySandbox.opportunityCount,
     preventedAttackCount: 0,
     landedOutcomeCount: legacySandbox.strikeCount,

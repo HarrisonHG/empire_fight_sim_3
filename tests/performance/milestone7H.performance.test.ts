@@ -70,16 +70,20 @@ describe("Milestone 7H production structural performance", () => {
       expect(report.zeroEnergyActiveMoverCount).toBeGreaterThan(0);
       expect(report.representativeCasualtyActivity.draggingMeasuredTickCount)
         .toBeGreaterThan(0);
-      expect(report.representativeCasualtyActivity.treatmentMeasuredTickCount)
-        .toBeGreaterThan(0);
+      expect(report.representativeCasualtyActivity
+        .casualtyCollisionMeasuredTickCount).toBeGreaterThan(0);
+      expect(report.representativeCasualtyActivity
+        .maximumBlockedCasualtyGroups).toBeGreaterThan(0);
       expect(report.representativeCasualtyActivity.egressMeasuredTickCount)
         .toBeGreaterThan(0);
       expect(report.representativeCasualtyActivity.maximumMovedDragParticipants)
-        .toBeGreaterThan(0);
+        .toBe(0);
       expect(report.representativeCasualtyActivity.egressMovementRecordCount)
         .toBeGreaterThan(0);
       expect(report.representativeCasualtyActivity.seededDragStarted).toBe(true);
-      expect(report.representativeCasualtyActivity.seededTreatmentStarted).toBe(true);
+      // 8E makes this deliberately dense seeded group physical. It remains a
+      // measured dragging/collision case instead of phasing into treatment.
+      expect(report.representativeCasualtyActivity.seededTreatmentStarted).toBe(false);
       expect(report.representativeCasualtyActivity.seededEgressMoved).toBe(true);
     }
     if (caseName === "denseDefence") {
@@ -167,6 +171,8 @@ function runProductionCase(caseName: PerformanceCase) {
     seededDragStarted: false,
     seededTreatmentStarted: false,
     seededEgressMoved: false,
+    casualtyCollisionMeasuredTickCount: 0,
+    maximumBlockedCasualtyGroups: 0,
   };
 
   for (let tick = 0; tick < WARM_UP_TICKS; tick += 1) {
@@ -222,6 +228,13 @@ function runProductionCase(caseName: PerformanceCase) {
       combat.individualTreatmentActionResult.startedRecords.some((record) =>
         record.patientEntityId === REPRESENTATIVE_DRAG_PATIENT_ENTITY_ID
       );
+    if (combat.individualCasualtyGroupCollisionResult.requestedGroupCount > 0) {
+      representativeCasualtyActivity.casualtyCollisionMeasuredTickCount += 1;
+    }
+    representativeCasualtyActivity.maximumBlockedCasualtyGroups = Math.max(
+      representativeCasualtyActivity.maximumBlockedCasualtyGroups,
+      combat.individualCasualtyGroupCollisionResult.blockedGroupCount,
+    );
     if (combat.individualRespawnEgressResult.movementRecords.length > 0) {
       representativeCasualtyActivity.egressMeasuredTickCount += 1;
     }

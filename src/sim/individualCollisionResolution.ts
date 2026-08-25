@@ -4,7 +4,7 @@ import {
 } from "./individualPhysicalOccupancy";
 import type { WorldState } from "./types";
 
-/** 8D extends active-standing resolution with bounded allied crowd policy. */
+/** 8E extends production resolution to soft casualties and rescue groups. */
 export const PRODUCTION_COLLISION_RESOLUTION_ACTIVE = true;
 
 export const INDIVIDUAL_COLLISION_RESOLUTION_FLAG = Object.freeze({
@@ -13,6 +13,8 @@ export const INDIVIDUAL_COLLISION_RESOLUTION_FLAG = Object.freeze({
   redirected: 1 << 2,
   downedSoftCrossing: 1 << 3,
   yieldingEgressYield: 1 << 4,
+  downedSoftAvoidance: 1 << 5,
+  assistedGroupYield: 1 << 6,
 } as const);
 
 export const INDIVIDUAL_COLLISION_RELATIONSHIP = Object.freeze({
@@ -43,6 +45,8 @@ export interface IndividualCollisionResolutionStore {
   readonly localNeighbourCounts: Uint16Array;
   readonly localCandidateCounts: Uint16Array;
   readonly resolutionFlags: Uint8Array;
+  /** Prevents finalisation from replacing evidence already owned by collision. */
+  readonly recordedStepFlags: Uint8Array;
   readonly principalOccupancyRelationshipCodes: Uint8Array;
   readonly localDecisionCodes: Uint8Array;
   readonly localDecisionPartnerByEntity: Int32Array;
@@ -72,6 +76,8 @@ export interface IndividualCollisionResolutionInspection {
   readonly reduced: boolean;
   readonly redirected: boolean;
   readonly downedSoftCrossing: boolean;
+  readonly downedSoftAvoidance: boolean;
+  readonly assistedGroupYield: boolean;
   readonly yieldingEgressYield: boolean;
   readonly localNeighbourCount: number;
   readonly localCandidateCount: number;
@@ -101,6 +107,7 @@ export function createIndividualCollisionResolutionStore(
     localNeighbourCounts: new Uint16Array(entityCount),
     localCandidateCounts: new Uint16Array(entityCount),
     resolutionFlags: new Uint8Array(entityCount),
+    recordedStepFlags: new Uint8Array(entityCount),
     principalOccupancyRelationshipCodes: new Uint8Array(entityCount),
     localDecisionCodes: new Uint8Array(entityCount),
     localDecisionPartnerByEntity,
@@ -143,6 +150,7 @@ export function beginIndividualCollisionResolutionTick(
   internal.localNeighbourCounts.fill(0);
   internal.localCandidateCounts.fill(0);
   internal.resolutionFlags.fill(0);
+  internal.recordedStepFlags.fill(0);
   internal.principalOccupancyRelationshipCodes.fill(0);
   internal.currentTick = tick;
   internal.finalizedTick = -1;
@@ -188,6 +196,7 @@ export function recordIndividualCollisionResolvedStep(
     resolvedDeltaX,
     resolvedDeltaY,
   );
+  internal.recordedStepFlags[entityId] = 1;
 }
 
 /**
@@ -222,8 +231,8 @@ export function finalizeDisabledIndividualCollisionResolutionTick(
 }
 
 /**
- * Finalises active 8C/8D evidence. Formation mover records were resolved beside
- * formation; every authority outside 8C remains an exact pass-through record.
+ * Finalises active production evidence. Any authority already resolved beside
+ * its movement keeps that record; all other movement remains exact pass-through.
  */
 export function finalizeIndividualCollisionResolutionTick(
   store: IndividualCollisionResolutionStore,
@@ -240,7 +249,8 @@ export function finalizeIndividualCollisionResolutionTick(
     throw new Error("Collision finalisation requires one open current tick.");
   }
   for (let entityId = 0; entityId < internal.entityCount; entityId += 1) {
-    if (ordinaryFormationMoverFlags[entityId] !== 0) continue;
+    if (ordinaryFormationMoverFlags[entityId] !== 0 ||
+        internal.recordedStepFlags[entityId] !== 0) continue;
     const deltaX = world.positionsX[entityId]! -
       internal.tickStartXByEntity[entityId]!;
     const deltaY = world.positionsY[entityId]! -
@@ -305,6 +315,10 @@ export function getIndividualCollisionResolutionInspection(
     redirected: (flags & INDIVIDUAL_COLLISION_RESOLUTION_FLAG.redirected) !== 0,
     downedSoftCrossing:
       (flags & INDIVIDUAL_COLLISION_RESOLUTION_FLAG.downedSoftCrossing) !== 0,
+    downedSoftAvoidance:
+      (flags & INDIVIDUAL_COLLISION_RESOLUTION_FLAG.downedSoftAvoidance) !== 0,
+    assistedGroupYield:
+      (flags & INDIVIDUAL_COLLISION_RESOLUTION_FLAG.assistedGroupYield) !== 0,
     yieldingEgressYield:
       (flags & INDIVIDUAL_COLLISION_RESOLUTION_FLAG.yieldingEgressYield) !== 0,
     localNeighbourCount: internal.localNeighbourCounts[entityId]!,

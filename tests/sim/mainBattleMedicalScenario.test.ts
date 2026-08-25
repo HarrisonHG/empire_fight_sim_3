@@ -158,8 +158,8 @@ describe("Spike 6.5 main battle medical integration sandbox", () => {
 
   it("runs production combat, casualty and medical authorities through a bounded smoke", () => {
     const { simulation, seen } = smokeRun();
-    // 8D routing priority makes the existing route observable again without
-    // changing casualty, claim, treatment, or energy authorities.
+    // 8E rescue-group congestion remains bounded but makes final-displacement
+    // energy evidence reach the existing winded threshold in this smoke.
     expect(seen).toMatchObject({
       combat: true,
       zeroHit: true,
@@ -167,7 +167,7 @@ describe("Spike 6.5 main battle medical integration sandbox", () => {
       claim: true,
       treatment: true,
       routing: true,
-      winded: false,
+      winded: true,
     });
     const snapshot = createPositionSnapshot(simulation);
     expect(snapshot.combatDebug?.inspectedIndividuals).toHaveLength(44);

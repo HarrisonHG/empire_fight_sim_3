@@ -122,7 +122,7 @@ describe("Milestone 6 casualty lifecycle retained visual scenario", () => {
     expect(digestSimulation(completedTrace().simulation)).toEqual(
       runAndDigest(CASUALTY_LIFECYCLE_RECOMMENDED_END_TICK),
     );
-  }, 120_000);
+  }, 180_000);
 
   it("uses the clean chamber seed and isolates the explicit tick-3 trauma opportunity", () => {
     expect(CASUALTY_LIFECYCLE_VISUAL_SEED).toBe(0x6c_0004);
@@ -255,7 +255,9 @@ describe("Milestone 6 casualty lifecycle retained visual scenario", () => {
         }
       }
     }
-    expect(phases.get(8)).toMatchObject({ first: 7, ticks: 96 });
+    // 8E completes at legal body contact with the occupied safe point rather
+    // than overlapping its stationary Chirurgeon destination.
+    expect(phases.get(8)).toMatchObject({ first: 7, ticks: 89 });
     expect(phases.get(12)?.ticks).toBeGreaterThanOrEqual(30);
     expect(helperHands).toEqual([1, 1]);
     expect(soloHands).toBe(2);

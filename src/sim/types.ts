@@ -89,6 +89,10 @@ import type {
   IndividualActiveStandingCollisionWorkspace,
 } from "./individualActiveStandingCollision";
 import type {
+  IndividualCasualtyGroupCollisionResolver,
+  IndividualCasualtyGroupCollisionResult,
+} from "./individualCasualtyGroupCollision";
+import type {
   IndividualDeathCountStore,
   IndividualDeathCountPauseSource,
   IndividualDeathCountTerminalTransitionRecord,
@@ -622,8 +626,12 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly collisionBlocked?: boolean;
   readonly collisionReduced?: boolean;
   readonly collisionRedirected?: boolean;
+  readonly collisionDownedSoftAvoidance?: boolean;
+  readonly collisionDownedSoftCrossing?: boolean;
+  readonly collisionAssistedGroupYield?: boolean;
   readonly collisionLocalNeighbourCount?: number;
   readonly collisionLocalCandidateCount?: number;
+  readonly collisionPrincipalOccupancyRelationshipCode?: number;
   readonly collisionPrincipalBlockerEntityId?: number;
   readonly collisionLocalDecisionCode?: number;
   readonly collisionLocalDecisionPartnerEntityId?: number;
@@ -905,6 +913,17 @@ export interface LiveCombatDebugSnapshot {
   readonly activeStandingCollisionDetourCount: number;
   readonly activeStandingCollisionRouterPriorityCount: number;
   readonly activeStandingCollisionPushThroughYieldCount: number;
+  readonly collisionDownedSoftAvoidanceCount: number;
+  readonly collisionDownedSoftCrossingCount: number;
+  readonly collisionAssistedGroupYieldCount: number;
+  readonly casualtyGroupCollisionRequestedCount: number;
+  readonly casualtyGroupCollisionMovedCount: number;
+  readonly casualtyGroupCollisionBlockedCount: number;
+  readonly casualtyGroupCollisionRedirectedCount: number;
+  readonly casualtyGroupCollisionLocalQueryCount: number;
+  readonly casualtyGroupCollisionLocalCandidateCount: number;
+  readonly casualtyGroupCollisionSameTickOccupancyRefreshCount: number;
+  readonly casualtyGroupCollisionDestinationContactCount: number;
   readonly attackAttemptCount: number;
   readonly preventedAttackCount: number;
   readonly landedOutcomeCount: number;
@@ -998,6 +1017,10 @@ export interface CombatSandboxSimulationState {
     IndividualActiveStandingCollisionWorkspace;
   readonly individualActiveStandingCollisionResult:
     IndividualActiveStandingCollisionResult;
+  readonly individualCasualtyGroupCollisionResolver:
+    IndividualCasualtyGroupCollisionResolver;
+  readonly individualCasualtyGroupCollisionResult:
+    IndividualCasualtyGroupCollisionResult;
   readonly individualDragHandCommitmentStore: IndividualDragHandCommitmentStore;
   readonly individualDefenceHandAvailabilitySource: IndividualDefenceHandAvailabilitySource;
   readonly casualtyDragMovementBuffers: CasualtyDragMovementBuffers;

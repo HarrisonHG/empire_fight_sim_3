@@ -1,9 +1,10 @@
 # Milestone 8: Personal Space, Collision, and Crowd Flow
 
-Status: Milestones 8A through 8C are accepted. Milestone 8D is implemented and
+Status: Milestones 8A through 8D are accepted. Milestone 8E is implemented and
 awaiting technical review. Production collision resolution now includes
-ordinary and routing active-standing movement plus pair-local allied crowd
-flow; Milestone 8E and later have not started.
+ordinary and routing active-standing movement, pair-local allied crowd flow,
+downed soft occupancy, and coherent casualty-group movement. Milestone 8F and
+later have not started.
 
 Milestone 7 is accepted. This milestone is inserted before command behaviour because the evolving main battle exposed a foundational physical omission: individual player-presence entities can currently occupy/pass through the same space too freely.
 
@@ -898,7 +899,7 @@ finish and settle without standing overlap.
 
 ## 8D — Allied crowd flow, overtaking, push-through, and routing priority
 
-Status: implemented; awaiting technical review.
+Status: accepted.
 
 Deliver:
 
@@ -1012,6 +1013,8 @@ behaviour was added.
 
 ## 8E — Downed soft occupancy and casualty-group integration
 
+Status: implemented; awaiting technical review.
+
 Deliver:
 
 - downed/terminal stationary soft footprints;
@@ -1020,6 +1023,106 @@ Deliver:
 - drag-group coherent collision;
 - ordinary allies yield appropriately to active rescue groups;
 - treatment/range/lifecycle ownership unchanged.
+
+### 8E implementation evidence
+
+The accepted occupancy projection is now consumed by ordinary production
+movement for all three in-scope battlefield classes. Active-standing entities
+remain the only ordinary movers. `downedSoft` and `assistedMoving` entities are
+included in the same bounded local spatial grid as stationary occupancy;
+yielding egress remains excluded until 8F.
+
+For a requested ordinary step that intersects `downedSoft`, the resolver first
+tests a fixed bounded set of integer forward/lateral alternatives within the
+already-permitted squared-distance budget. An avoidance candidate must make
+positive progress along the existing permitted desire, preventing a repeated
+zero-progress sidestep from turning a casualty into a practical wall. If no
+useful local alternative is legal, the mover takes the smallest non-zero
+forward integer step through soft occupancy. Hard active/assisted occupancy and
+world bounds remain legal constraints during that crossing. Collision changes
+only the mover's step; casualty position, lifecycle, hits, death count, target,
+treatment, and energy are not inputs or outputs.
+
+An existing dragging group is projected as `assistedMoving` for its patient and
+all required helpers. Ordinary allies constrain their step against that group
+and expose explicit assisted-yield evidence. Group membership, destination,
+phase, hand commitment, gait, and drag cadence remain wholly owned by the
+accepted casualty-assistance authority. That authority now asks a narrow
+collision adapter to resolve its one shared energy-limited delta. The adapter
+tests the union of patient/helper footprints with bounded local queries,
+ignores participants in the same group, treats hostile active standing and
+other assisted groups as hard occupancy, and applies downed avoidance/careful
+crossing semantics. One identical resolved delta is then committed to every
+participant, so collision cannot separate helpers from the patient or grant a
+longer step. Externally moved patients remain energetically free, helpers pay
+only for final actual displacement, and the drag surcharge remains zero.
+When the unchanged safe-point destination is occupied by a stationary allied
+body, exact overlap is no longer possible: legal patient contact with that body
+completes the existing destination episode. Hostiles and other assisted groups
+cannot satisfy this contact boundary. This preserves destination selection and
+treatment range while preventing an occupied treatment point from becoming a
+permanent drag deadlock.
+
+The same-tick orchestration boundary is event-driven rather than global. The
+tick-start projection is reused while casualty authority is unchanged. A
+gathering-to-dragging transition, cancellation, or reached-safety transition
+reprojects occupancy immediately inside the casualty movement stage before a
+later group can resolve movement. It refreshes class flags without rebuilding
+the spatial grid because those transitions do not move the changed entity at
+that boundary. Groups newly created after combat do not move until a later
+tick and are covered by the next tick-start projection. Final debug projection
+still reflects all later lifecycle/assistance changes.
+
+Reusable state adds one byte of recorded-step ownership to collision evidence,
+six bytes per entity to the ordinary collision workspace, and nine bytes per
+entity for the casualty-group inclusion/position snapshot. Across occupancy,
+collision evidence, ordinary workspace, and casualty-group workspace this is
+115 typed bytes per entity (230,000 bytes at 2,000 entities), excluding the two
+reused spatial-grid bucket sets and existing sparse assistance records. No
+per-candidate participant or candidate arrays are allocated in the drag hot
+loop.
+
+Bounded debug evidence exposes soft avoidance/crossing and assisted-yield flags
+per inspected entity; global snapshots expose ordinary soft/assisted counts and
+casualty-group requested, moved, blocked, redirected, local-query/candidate,
+same-tick occupancy-refresh, and occupied-destination contact counts.
+
+Focused headless coverage proves sparse soft avoidance, reduced crossing from
+a boxed soft cluster, no collision mutation of casualty position/lifecycle/
+death-count/energy state, same-tick assisted projection, ordinary allied yield,
+coherent patient/helper translation, hostile non-phasing, rescue-group soft
+crossing, occupied allied safe-point contact without overlap, final helper/
+patient movement and energy evidence, deterministic replay, and helper-input-
+order equivalence. Retained production fixtures were rebaselined only where new
+casualty/rescue occupancy changes later congestion, movement-derived combat, or
+morale timing.
+
+Representative 40-tick structural measurements were:
+
+| case | entities | mean ms/tick | max ms/tick | max local candidates |
+| --- | ---: | ---: | ---: | ---: |
+| downed-soft approach | 100 | 0.280 | 0.699 | 453 |
+| downed-soft approach | 500 | 0.791 | 1.135 | 2,303 |
+| downed-soft approach | 1,000 | 1.580 | 2.150 | 4,616 |
+| downed-soft approach | 2,000 | 3.052 | 3.563 | 9,240 |
+| assisted-group yielding | 100 | 0.237 | 0.678 | 364 |
+| assisted-group yielding | 500 | 0.783 | 1.255 | 1,879 |
+| assisted-group yielding | 1,000 | 1.510 | 1.953 | 3,780 |
+| assisted-group yielding | 2,000 | 2.977 | 3.362 | 7,566 |
+
+These are local structural cases with reset legal lanes and reused storage, not
+product timing thresholds. The deliberately dense production fixture remains
+the principal integration concern: multiple simultaneous rescue groups add
+bounded union-footprint queries to an already adverse authored crowd whose
+initial overlaps cannot be repaired without new movement authority. 8G soak
+and initial-placement work must continue to measure it.
+
+No medical/trauma approach collision, egress collision, lifecycle selection,
+target selection, global right-of-way, pathfinding, connected-component
+fallback, or 8F behaviour was added.
+
+Verification passed with 1,222 headless tests across 84 files, 130 performance
+checks across 21 files, TypeScript typechecking, and the production build.
 
 ## 8F — Yielding player-presence egress
 

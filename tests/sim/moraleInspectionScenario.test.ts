@@ -51,18 +51,18 @@ describe("Milestone 4 morale inspection scenario", () => {
     expect(first.veteranRouted).toBe(false);
     expect(first.regularSeverelyDegraded).toBe(true);
     expect(first.regularOutperformedVeteran).toBe(true);
-    // 8D restores physical routing priority: the recruit route disrupts the
-    // nearby reserve, then reaches the existing bounded recovery authority.
-    expect(first.recruitRouted).toBe(true);
-    expect(first.reservePassThroughContagion).toBe(true);
-    expect(first.reserveDisrupted).toBe(true);
+    // 8E rescue occupancy changes the late casualty-front congestion: the
+    // recruit remains shaken, so no router reaches or disrupts the reserve.
+    expect(first.recruitRouted).toBe(false);
+    expect(first.reservePassThroughContagion).toBe(false);
+    expect(first.reserveDisrupted).toBe(false);
     expect(first.reserveRouted).toBe(false);
-    expect(first.recruitRecovered).toBe(true);
-    expect(first.recruitCompletedRecovery).toBe(true);
-    expect(first.recruitRecoveryTicks).toBe(240);
-    expect(first.recoveringAnchorHeld).toBe(true);
-    expect(first.recoveringMovementSuspended).toBe(true);
-    expect(first.recoveringMembersReformed).toBe(true);
+    expect(first.recruitRecovered).toBe(false);
+    expect(first.recruitCompletedRecovery).toBe(false);
+    expect(first.recruitRecoveryTicks).toBe(0);
+    expect(first.recoveringAnchorHeld).toBe(false);
+    expect(first.recoveringMovementSuspended).toBe(false);
+    expect(first.recoveringMembersReformed).toBe(false);
     expect(first.finalEntityCount).toBe(70);
     expect(first.finalMemberCount).toBe(70);
   }, 10_000);
