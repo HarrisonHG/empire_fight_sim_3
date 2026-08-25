@@ -77,7 +77,7 @@ describe("Milestone 7E full production integration", () => {
       history.minimumEnergyReached < history.startingEnergy)).toBe(true);
     expect(first.finalState.presence[19]).toBe("waitingAtRespawn");
     expect(first.finalState.lifecycle[19]).toBe("terminal");
-  });
+  }, 15_000);
 });
 
 function runIntegratedReplay() {

@@ -1,10 +1,10 @@
 # Milestone 8: Personal Space, Collision, and Crowd Flow
 
-Status: Milestones 8A through 8D are accepted. Milestone 8E is implemented and
+Status: Milestones 8A through 8E are accepted. Milestone 8F is implemented and
 awaiting technical review. Production collision resolution now includes
 ordinary and routing active-standing movement, pair-local allied crowd flow,
-downed soft occupancy, and coherent casualty-group movement. Milestone 8F and
-later have not started.
+downed soft occupancy, coherent casualty-group movement, and yielding barbarian
+respawn egress. Milestone 8G has not started.
 
 Milestone 7 is accepted. This milestone is inserted before command behaviour because the evolving main battle exposed a foundational physical omission: individual player-presence entities can currently occupy/pass through the same space too freely.
 
@@ -1013,7 +1013,7 @@ behaviour was added.
 
 ## 8E — Downed soft occupancy and casualty-group integration
 
-Status: implemented; awaiting technical review.
+Status: accepted.
 
 Deliver:
 
@@ -1126,6 +1126,8 @@ checks across 21 files, TypeScript typechecking, and the production build.
 
 ## 8F — Yielding player-presence egress
 
+Status: implemented; awaiting technical review.
+
 Deliver:
 
 - terminal barbarian `respawnEgress` becomes physical `yieldingEgress`;
@@ -1135,6 +1137,94 @@ Deliver:
 - egress-to-egress flow;
 - `waitingAtRespawn` and removed presences have no battlefield occupancy;
 - no combat/morale/objective reactivation.
+
+### 8F implementation evidence
+
+The existing respawn-presence authority still owns terminal classification,
+the configured respawn destination, exact arrival, waiting transition, and
+active-set compaction. Its existing walking/energy adapter first produces the
+already-permitted integer step. A narrow egress collision adapter runs only
+after ordinary living movement, active rescue movement, and the deliberately
+unintegrated specialist approaches. It may preserve that step, choose a local
+integer alternative inside the same squared-distance budget, wait, or take a
+bounded lateral/backward step. It cannot alter destination, gait, lifecycle,
+combat, morale, formation, targeting, objective, or assistance authority.
+
+Living `activeStanding` and `assistedMoving` positions are final before the
+egress stage and are never changed by it; faction is not consulted. A yielding
+egress presence queries those final positions and yields locally. Two egress
+presences negotiate at equal priority. Geometry selects the committed side;
+stable entity identity is used only for an exact collinear tie and gives both
+opposing movers complementary physical sides rather than permanent priority.
+There is no global right-of-way, connected-component fallback, pathfinding, or
+strategic destination replacement.
+
+Persistent entity-indexed state retains the blocker, destination, detour side,
+phase, ticks remaining, phase-start destination distance, and normal-progress
+streak. The initial side is committed for 40 ticks. Insufficient destination
+progress advances to the opposite side for 100 ticks, then a 200-tick wider
+alternative beginning with a bounded wait and permitting lateral/backward
+clearance. A clear direct step immediately reacquires the original destination
+line; eight useful normal ticks retire the stale episode. Material destination
+change also resets the episode. The policy therefore cannot choose a new side
+per tick or follow a same-speed living stream sideways forever.
+
+`downedSoft` is preferentially avoided through the same bounded candidates.
+Only when every hard-legal local alternative fails may the egress presence take
+the existing one-unit careful soft crossing. The casualty remains stationary
+and no casualty, hit, lifecycle, treatment, death-count, or energy state is
+written by collision.
+
+The same-tick presence boundary is entity-targeted. A barbarian classified into
+`respawnEgress` after tick-start projection is refreshed to `yieldingEgress`
+before the egress pass, even though classification-tick movement remains
+delayed by the accepted lifecycle rule. Exact arrival refreshes that entity to
+`nonBattlefield` immediately when presence becomes `waitingAtRespawn`. Neither
+transition rebuilds unrelated occupancy. When no egress presence is active the
+adapter skips its spatial-grid build entirely.
+
+Final collision-resolved movement is recorded in the shared collision evidence
+before position commit. Milestone 7 therefore charges only actual walking
+displacement; collision waiting is stationary/free and no redirected or
+backtracking result can exceed the permitted gait-distance budget.
+
+Focused headless coverage proves living crossing movement remains unchanged
+while egress yields without final overlap, rescue-group priority, stable
+40/100/200-tick escalation and desire reacquisition, soft avoidance and careful
+crossing without casualty mutation, equal-priority egress peer clearance,
+same-tick entry/waiting occupancy, final collision/energy evidence, exact
+replay, and retained reversed scenario-input equivalence. The old dense
+representative energy fixture now correctly records a physically boxed egress
+wait instead of phase-through; the dedicated legal-lane fixture retains actual
+egress movement evidence.
+
+The egress workspace retains 26 typed bytes per entity, adding 52,000 bytes at
+2,000 entities, plus one reused local spatial grid and bounded query output.
+Across the accepted occupancy, shared collision evidence, ordinary movement,
+casualty-group, and egress stores, retained typed storage is 141 bytes per
+entity (282,000 bytes at 2,000 entities), excluding reused grid buckets and
+existing sparse assistance/presence records.
+
+Representative 40-tick legal-lane measurements were:
+
+| entities | mean ms/tick | max ms/tick | max local queries | max local candidates |
+| ---: | ---: | ---: | ---: | ---: |
+| 100 | 0.295 | 1.677 | 50 | 492 |
+| 500 | 0.435 | 1.269 | 250 | 2,492 |
+| 1,000 | 0.548 | 1.078 | 500 | 4,996 |
+| 2,000 | 1.078 | 1.701 | 1,000 | 9,996 |
+
+These are structural local measurements on the implementation machine, not
+product timing thresholds. The deliberately dense integrated production case
+remains the accepted 8G soak/initial-placement concern; 8F adds no egress-grid
+cost on ticks with no active egress.
+
+No medical-claim/trauma specialist collision, citizen Gate egress, respawn
+batching/re-entry, 8G consolidation/visual acceptance, or Milestone 9 work was
+added.
+
+Verification passed with 1,231 headless tests across 85 files, 134 performance
+checks across 22 files, TypeScript typechecking, and the production build.
 
 ## 8G — Production consolidation, soak, performance, retained visual acceptance
 

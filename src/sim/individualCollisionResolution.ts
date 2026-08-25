@@ -4,7 +4,7 @@ import {
 } from "./individualPhysicalOccupancy";
 import type { WorldState } from "./types";
 
-/** 8E extends production resolution to soft casualties and rescue groups. */
+/** 8F extends production resolution through yielding respawn egress. */
 export const PRODUCTION_COLLISION_RESOLUTION_ACTIVE = true;
 
 export const INDIVIDUAL_COLLISION_RESOLUTION_FLAG = Object.freeze({

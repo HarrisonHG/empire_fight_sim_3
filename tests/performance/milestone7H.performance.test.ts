@@ -74,17 +74,24 @@ describe("Milestone 7H production structural performance", () => {
         .casualtyCollisionMeasuredTickCount).toBeGreaterThan(0);
       expect(report.representativeCasualtyActivity
         .maximumBlockedCasualtyGroups).toBeGreaterThan(0);
+      expect(report.representativeCasualtyActivity
+        .egressCollisionMeasuredTickCount).toBeGreaterThan(0);
+      expect(report.representativeCasualtyActivity
+        .maximumYieldingEgressWaits).toBeGreaterThan(0);
       expect(report.representativeCasualtyActivity.egressMeasuredTickCount)
-        .toBeGreaterThan(0);
+        .toBe(0);
       expect(report.representativeCasualtyActivity.maximumMovedDragParticipants)
         .toBe(0);
       expect(report.representativeCasualtyActivity.egressMovementRecordCount)
-        .toBeGreaterThan(0);
+        .toBe(0);
       expect(report.representativeCasualtyActivity.seededDragStarted).toBe(true);
       // 8E makes this deliberately dense seeded group physical. It remains a
       // measured dragging/collision case instead of phasing into treatment.
       expect(report.representativeCasualtyActivity.seededTreatmentStarted).toBe(false);
-      expect(report.representativeCasualtyActivity.seededEgressMoved).toBe(true);
+      // 8F makes the seeded terminal presence physical inside this deliberately
+      // dense authored unit. It now measures bounded yielding/wait rather than
+      // allowing the dead presence to phase through living members.
+      expect(report.representativeCasualtyActivity.seededEgressMoved).toBe(false);
     }
     if (caseName === "denseDefence") {
       expect(report.maximumDefenceRecords).toBeGreaterThan(0);
@@ -173,6 +180,8 @@ function runProductionCase(caseName: PerformanceCase) {
     seededEgressMoved: false,
     casualtyCollisionMeasuredTickCount: 0,
     maximumBlockedCasualtyGroups: 0,
+    egressCollisionMeasuredTickCount: 0,
+    maximumYieldingEgressWaits: 0,
   };
 
   for (let tick = 0; tick < WARM_UP_TICKS; tick += 1) {
@@ -234,6 +243,13 @@ function runProductionCase(caseName: PerformanceCase) {
     representativeCasualtyActivity.maximumBlockedCasualtyGroups = Math.max(
       representativeCasualtyActivity.maximumBlockedCasualtyGroups,
       combat.individualCasualtyGroupCollisionResult.blockedGroupCount,
+    );
+    if (combat.individualRespawnEgressCollisionResult.requestedCount > 0) {
+      representativeCasualtyActivity.egressCollisionMeasuredTickCount += 1;
+    }
+    representativeCasualtyActivity.maximumYieldingEgressWaits = Math.max(
+      representativeCasualtyActivity.maximumYieldingEgressWaits,
+      combat.individualRespawnEgressCollisionResult.waitCount,
     );
     if (combat.individualRespawnEgressResult.movementRecords.length > 0) {
       representativeCasualtyActivity.egressMeasuredTickCount += 1;

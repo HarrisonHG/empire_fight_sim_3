@@ -129,36 +129,34 @@ export function projectIndividualPhysicalOccupancyOneTick(
   }
 
   for (let entityId = 0; entityId < internal.entityCount; entityId += 1) {
-    const lifecycleState = getIndividualCharacterLifecycleState(
-      lifecycle,
-      entityId,
-    );
-    const presenceState = getIndividualPlayerPresenceState(presence, entityId);
-    if (
-      presenceState === "waitingAtRespawn" ||
-      presenceState === "removedFromBattlefield"
-    ) {
-      setOccupancy(internal, entityId, "nonBattlefield");
-    } else if (presenceState === "respawnEgress") {
-      setOccupancy(internal, entityId, "yieldingEgress");
-    } else if (internal.assistanceGroupIds[entityId]! >= 0) {
-      setOccupancy(internal, entityId, "assistedMoving");
-    } else if (
-      lifecycleState === "active" &&
-      presenceState === "activePresence"
-    ) {
-      setOccupancy(internal, entityId, "activeStanding");
-    } else if (
-      presenceState === "downedPresence" ||
-      presenceState === "terminalAwaitingComfort" ||
-      presenceState === "terminalComforted"
-    ) {
-      setOccupancy(internal, entityId, "downedSoft");
-    } else {
-      setOccupancy(internal, entityId, "nonBattlefield");
-    }
+    projectEntityOccupancy(internal, lifecycle, presence, entityId);
   }
   internal.projectionTick = tick;
+}
+
+/**
+ * Refreshes one lifecycle/presence-derived occupancy entry after a same-tick
+ * authority transition. Assistance membership is intentionally read from the
+ * already-current projection; callers changing assistance use its own narrow
+ * projection boundary.
+ */
+export function refreshIndividualPhysicalOccupancyForPresenceTransition(
+  store: IndividualPhysicalOccupancyStore,
+  lifecycle: IndividualCasualtyLifecycleStore,
+  presence: IndividualPlayerPresenceStore,
+  entityId: number,
+  tick: number,
+): void {
+  const internal = asInternal(store);
+  validateEntityCounts(internal.entityCount, lifecycle, presence);
+  assertEntityId(entityId, internal.entityCount);
+  assertNonNegativeSafeInteger(tick, "occupancy refresh tick");
+  if (internal.projectionTick !== tick) {
+    throw new Error(
+      "Targeted occupancy refresh requires the current tick projection.",
+    );
+  }
+  projectEntityOccupancy(internal, lifecycle, presence, entityId);
 }
 
 export function getIndividualPhysicalOccupancyProjectionTick(
@@ -239,6 +237,7 @@ function setOccupancy(
         INDIVIDUAL_PHYSICAL_OCCUPANCY_FLAG.participatesInCollision |
         INDIVIDUAL_PHYSICAL_OCCUPANCY_FLAG.hardStanding |
         INDIVIDUAL_PHYSICAL_OCCUPANCY_FLAG.stronglyYielding;
+      store.assistanceGroupIds[entityId] = -1;
       break;
     case "nonBattlefield":
       store.occupancyClassCodes[entityId] =
@@ -247,6 +246,38 @@ function setOccupancy(
       store.occupancyFlags[entityId] = 0;
       store.assistanceGroupIds[entityId] = -1;
       break;
+  }
+}
+
+function projectEntityOccupancy(
+  store: InternalIndividualPhysicalOccupancyStore,
+  lifecycle: IndividualCasualtyLifecycleStore,
+  presence: IndividualPlayerPresenceStore,
+  entityId: number,
+): void {
+  const presenceState = getIndividualPlayerPresenceState(presence, entityId);
+  if (
+    presenceState === "waitingAtRespawn" ||
+    presenceState === "removedFromBattlefield"
+  ) {
+    setOccupancy(store, entityId, "nonBattlefield");
+  } else if (presenceState === "respawnEgress") {
+    setOccupancy(store, entityId, "yieldingEgress");
+  } else if (store.assistanceGroupIds[entityId]! >= 0) {
+    setOccupancy(store, entityId, "assistedMoving");
+  } else if (
+    getIndividualCharacterLifecycleState(lifecycle, entityId) === "active" &&
+    presenceState === "activePresence"
+  ) {
+    setOccupancy(store, entityId, "activeStanding");
+  } else if (
+    presenceState === "downedPresence" ||
+    presenceState === "terminalAwaitingComfort" ||
+    presenceState === "terminalComforted"
+  ) {
+    setOccupancy(store, entityId, "downedSoft");
+  } else {
+    setOccupancy(store, entityId, "nonBattlefield");
   }
 }
 

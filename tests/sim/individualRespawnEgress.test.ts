@@ -19,6 +19,8 @@ import { getIndividualEnergyCapabilityInspection } from "../../src/sim/individua
 import { getIndividualEnergyActivityInspection } from "../../src/sim/individualEnergyActivity";
 import { getIndividualCurrentEnergy } from "../../src/sim/individualEnergy";
 import { isIndividualCombatTargetEligible } from "../../src/sim/individualCombatEligibility";
+import { getIndividualCollisionResolutionInspection } from "../../src/sim/individualCollisionResolution";
+import { getIndividualPhysicalOccupancyInspection } from "../../src/sim/individualPhysicalOccupancy";
 import { submitIndividualExecutionIntent } from "../../src/sim/individualExecutionAction";
 import { hasIndividualMedicalPatientClaim } from "../../src/sim/individualMedicalClaims";
 import { advanceSimulationOneTick, createSimulation } from "../../src/sim/simulation";
@@ -216,6 +218,15 @@ describe("Milestone 6H-2B respawn egress", () => {
     advanceSimulationOneTick(simulation);
 
     expect(simulation.world.positionsX[0]).toBe(19);
+    expect(getIndividualCollisionResolutionInspection(
+      combat.individualCollisionResolutionStore,
+      0,
+    )).toMatchObject({
+      permittedDeltaX: -1,
+      permittedDeltaY: 0,
+      resolvedDeltaX: -1,
+      resolvedDeltaY: 0,
+    });
     expect(combat.individualRespawnEgressResult.movementRecords).toHaveLength(1);
     expect(combat.individualRespawnEgressResult.arrivalRecords).toHaveLength(1);
     expect(getIndividualPlayerPresenceState(
@@ -321,6 +332,16 @@ describe("Milestone 6H-2B respawn egress", () => {
     expect(getIndividualPlayerPresenceState(
       combat.individualPlayerPresenceStore, 0,
     )).toBe("waitingAtRespawn");
+    expect(getIndividualPhysicalOccupancyInspection(
+      combat.individualPhysicalOccupancyStore,
+      0,
+    )).toMatchObject({
+      occupancyClass: "nonBattlefield",
+      participatesInCollision: false,
+      effectiveRadius: 0,
+    });
+    expect(combat.individualRespawnEgressCollisionResult
+      .sameTickOccupancyRefreshCount).toBe(1);
     expect(getIndividualEnergyActivityInspection(
       combat.individualEnergyActivityStore, 0,
     )).toMatchObject({
@@ -450,6 +471,94 @@ describe("Milestone 6H-2B respawn egress", () => {
     };
     expect(run(true)).toEqual(run(false));
   });
+
+  it("refreshes a newly terminal barbarian to yielding occupancy before egress movement", () => {
+    const base = scenario(20, { x: 0, y: 60 }, [0]);
+    const simulation = createSimulation({
+      ...base,
+      combatSandbox: {
+        ...base.combatSandbox!,
+        units: base.combatSandbox!.units.map((configuredUnit, index) =>
+          index === 0 ? {
+            ...configuredUnit,
+            casualtyProcedure: {
+              ...configuredUnit.casualtyProcedure,
+              deathCountPolicy: { kind: "fixedTicks" as const, durationTicks: 1 },
+            },
+          } : configuredUnit),
+      },
+    });
+    const combat = requireCombat(simulation);
+    zeroHit(simulation, 0, 0);
+
+    advanceSimulationOneTick(simulation);
+    advanceSimulationOneTick(simulation);
+
+    expect(getIndividualPlayerPresenceState(
+      combat.individualPlayerPresenceStore,
+      0,
+    )).toBe("respawnEgress");
+    expect(getIndividualPhysicalOccupancyInspection(
+      combat.individualPhysicalOccupancyStore,
+      0,
+    )).toMatchObject({
+      occupancyClass: "yieldingEgress",
+      stronglyYielding: true,
+    });
+    expect(combat.individualRespawnEgressCollisionResult
+      .sameTickOccupancyRefreshCount).toBe(1);
+    expect(combat.individualRespawnEgressResult.movementRecords).toEqual([]);
+  });
+
+  it("lets crossing living movement finish unchanged while egress yields physically", () => {
+    const simulation = createSimulation(crossingTrafficScenario());
+    const combat = requireCombat(simulation);
+    terminalize(simulation, 0, 0);
+    advanceSimulationOneTick(simulation);
+    const livingBefore = [
+      simulation.world.positionsX[1]!,
+      simulation.world.positionsY[1]!,
+    ];
+
+    advanceSimulationOneTick(simulation);
+
+    const livingCollision = getIndividualCollisionResolutionInspection(
+      combat.individualCollisionResolutionStore,
+      1,
+    );
+    const egressCollision = getIndividualCollisionResolutionInspection(
+      combat.individualCollisionResolutionStore,
+      0,
+    );
+    expect([
+      livingCollision.permittedDeltaX,
+      livingCollision.permittedDeltaY,
+    ]).not.toEqual([0, 0]);
+    expect([
+      simulation.world.positionsX[1]! - livingBefore[0]!,
+      simulation.world.positionsY[1]! - livingBefore[1]!,
+    ]).toEqual([
+      livingCollision.permittedDeltaX,
+      livingCollision.permittedDeltaY,
+    ]);
+    expect([
+      livingCollision.resolvedDeltaX,
+      livingCollision.resolvedDeltaY,
+    ]).toEqual([
+      livingCollision.permittedDeltaX,
+      livingCollision.permittedDeltaY,
+    ]);
+    expect(egressCollision.yieldingEgressYield).toBe(true);
+    const deltaX = simulation.world.positionsX[0]! -
+      simulation.world.positionsX[1]!;
+    const deltaY = simulation.world.positionsY[0]! -
+      simulation.world.positionsY[1]!;
+    expect(deltaX * deltaX + deltaY * deltaY).toBeGreaterThanOrEqual(64);
+    expect(getIndividualCharacterLifecycleState(
+      combat.individualCasualtyLifecycleStore,
+      0,
+    )).toBe("terminal");
+  });
 });
 
 function scenario(
@@ -495,6 +604,29 @@ function multipleEgressScenario(): SimulationScenario {
         unit(1, 1, 1, "barbarian", { x: 0, y: 60 }),
         unit(2, 1, 5, "barbarian", { x: 0, y: 60 }),
         unit(3, 2, 260, "citizen"),
+      ],
+    },
+  };
+}
+
+function crossingTrafficScenario(): SimulationScenario {
+  const base = scenario(40, { x: 100, y: 60 }, [0, 1], 100);
+  return {
+    ...base,
+    combatSandbox: {
+      ...base.combatSandbox!,
+      units: [
+        unit(1, 1, 40, "barbarian", { x: 100, y: 60 }),
+        {
+          ...unit(2, 2, 47, "citizen"),
+          deploymentZone: { minX: 47, maxX: 47, minY: 55, maxY: 55 },
+          anchorX: 47,
+          anchorY: 55,
+          headingX: 0,
+          headingY: 1,
+          unitSpeed: 1,
+          order: "advance",
+        },
       ],
     },
   };
@@ -571,6 +703,33 @@ function terminalize(simulation: SimulationState, entityId: number, tick: number
     combat.individualCasualtyProcedureProfileStore,
     [terminalTransition],
     combat.individualTerminalPresenceTransitions,
+  );
+}
+
+function zeroHit(simulation: SimulationState, entityId: number, tick: number): void {
+  const combat = requireCombat(simulation);
+  const currentHits = getIndividualCurrentGlobalHits(
+    combat.individualGlobalHitStore,
+    entityId,
+  );
+  const result = applyIndividualLandedHits(
+    combat.individualGlobalHitStore,
+    Array.from({ length: currentHits }, () => landedRecord(1, entityId)),
+  );
+  const transitions = applyIndividualZeroHitLifecycleTransitions(
+    combat.individualCasualtyLifecycleStore,
+    combat.individualPlayerPresenceStore,
+    combat.individualCasualtyProcedureProfileStore,
+    simulation.world,
+    result.zeroHitEvents,
+    tick,
+  );
+  initializeIndividualDeathCountsFromZeroHitTransitions(
+    combat.individualDeathCountStore,
+    combat.individualCasualtyLifecycleStore,
+    combat.individualCasualtyProcedureProfileStore,
+    combat.individualProfileStore,
+    transitions.transitions,
   );
 }
 

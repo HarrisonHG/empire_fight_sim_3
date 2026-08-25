@@ -52,6 +52,21 @@ export interface IndividualRespawnEgressResult {
   readonly missingDestinationCount: number;
 }
 
+/** Collision remains subordinate to the existing egress destination/step. */
+export interface IndividualRespawnEgressCollisionResolver {
+  readonly resolvedDeltaX: number;
+  readonly resolvedDeltaY: number;
+  prepareForMovement(tick: number, activeEntityIds: readonly number[]): void;
+  resolveEgressStep(
+    entityId: number,
+    destinationX: number,
+    destinationY: number,
+    permittedDeltaX: number,
+    permittedDeltaY: number,
+  ): void;
+  presenceStateChanged(entityId: number, tick: number): void;
+}
+
 export function createIndividualRespawnEgressBuffers(): IndividualRespawnEgressBuffers {
   return { movementRecords: [], arrivalRecords: [] };
 }
@@ -63,6 +78,7 @@ export function advanceIndividualRespawnEgressOneTick(
   tick: number,
   buffers: IndividualRespawnEgressBuffers,
   gaitAdapter?: IndividualSpecialistPhysicalGaitAdapter,
+  collisionResolver?: IndividualRespawnEgressCollisionResolver,
 ): IndividualRespawnEgressResult {
   if (world.entityCount !== lifecycle.entityCount || world.entityCount !== presence.entityCount) {
     throw new RangeError("Respawn egress dependencies must match entity count.");
@@ -76,6 +92,7 @@ export function advanceIndividualRespawnEgressOneTick(
   let missingDestinationCount = 0;
   const activeEntityIds = getActiveIndividualRespawnEgressEntityIds(presence);
   const activeCountAtStart = activeEntityIds.length;
+  collisionResolver?.prepareForMovement(tick, activeEntityIds);
   for (let index = 0; index < activeCountAtStart; index += 1) {
     const entityId = activeEntityIds[index]!;
     if (getIndividualPlayerPresenceState(presence, entityId) !== "respawnEgress") {
@@ -101,6 +118,7 @@ export function advanceIndividualRespawnEgressOneTick(
     const distanceSquared = deltaX * deltaX + deltaY * deltaY;
     if (distanceSquared <= INDIVIDUAL_RESPAWN_EGRESS_ARRIVAL_TOLERANCE ** 2) {
       arrive(lifecycle, presence, entityId, tick, fromX, fromY, buffers);
+      collisionResolver?.presenceStateChanged(entityId, tick);
       gaitAdapter?.completeRespawnEgressMovement(
         entityId,
         effectiveGait,
@@ -120,24 +138,45 @@ export function advanceIndividualRespawnEgressOneTick(
       if (Math.abs(deltaX) >= Math.abs(deltaY)) moveX = Math.sign(deltaX);
       else moveY = Math.sign(deltaY);
     }
+    collisionResolver?.resolveEgressStep(
+      entityId,
+      destinationX,
+      destinationY,
+      moveX,
+      moveY,
+    );
+    if (collisionResolver !== undefined) {
+      moveX = collisionResolver.resolvedDeltaX;
+      moveY = collisionResolver.resolvedDeltaY;
+    }
     const toX = fromX + moveX;
     const toY = fromY + moveY;
     world.positionsX[entityId] = toX;
     world.positionsY[entityId] = toY;
-    recordIndividualRespawnEgressMovement(presence, entityId);
+    const producedDisplacement = moveX !== 0 || moveY !== 0;
+    if (producedDisplacement) {
+      recordIndividualRespawnEgressMovement(presence, entityId);
+    }
     const remainingX = destinationX - toX;
     const remainingY = destinationY - toY;
     const remainingDistanceSquared = remainingX * remainingX + remainingY * remainingY;
-    buffers.movementRecords.push({
-      entityId, tick, fromX, fromY, toX, toY,
-      destinationX,
-      destinationY,
-      remainingDistanceSquared,
-    });
+    if (producedDisplacement) {
+      buffers.movementRecords.push({
+        entityId, tick, fromX, fromY, toX, toY,
+        destinationX,
+        destinationY,
+        remainingDistanceSquared,
+      });
+    }
     if (remainingDistanceSquared <= INDIVIDUAL_RESPAWN_EGRESS_ARRIVAL_TOLERANCE ** 2) {
       arrive(lifecycle, presence, entityId, tick, toX, toY, buffers);
+      collisionResolver?.presenceStateChanged(entityId, tick);
     }
-    gaitAdapter?.completeRespawnEgressMovement(entityId, effectiveGait, true);
+    gaitAdapter?.completeRespawnEgressMovement(
+      entityId,
+      effectiveGait,
+      producedDisplacement,
+    );
   }
   compactCompletedIndividualRespawnEgressEntities(presence);
   return {

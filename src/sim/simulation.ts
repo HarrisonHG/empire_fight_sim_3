@@ -72,6 +72,9 @@ import {
   createIndividualRespawnEgressBuffers,
 } from "./individualRespawnEgress";
 import {
+  createIndividualRespawnEgressCollisionStore,
+} from "./individualRespawnEgressCollision";
+import {
   collectIndividualCasualtyUnitSummaries,
   createIndividualCasualtyHistoryStore,
   createIndividualCasualtyUnitSummaryStore,
@@ -392,6 +395,15 @@ export const MILESTONE_8E_PRODUCTION_CASUALTY_COLLISION_ORDER = Object.freeze([
   "casualtyGroupCollisionPreservesOrBoundsThatSharedStep",
   "patientAndHelpersCommitOneCoherentResolvedDisplacement",
   "energyConsumesFinalActualDisplacement",
+] as const);
+
+export const MILESTONE_8F_PRODUCTION_EGRESS_COLLISION_ORDER = Object.freeze([
+  "livingAndAssistedAuthoritiesCommitFinalMovementFirst",
+  "newRespawnEgressPresenceReceivesTargetedYieldingOccupancy",
+  "egressAuthorityProducesExistingDestinationLimitedWalkStep",
+  "egressCollisionYieldsWithPersistentBoundedLocalAlternatives",
+  "waitingArrivalReceivesTargetedNonBattlefieldOccupancy",
+  "energyConsumesFinalActualEgressDisplacement",
 ] as const);
 
 export type CombatSandboxTickStage =
@@ -979,6 +991,14 @@ function createCombatSandbox(
       individualPlayerPresenceStore,
       casualtyDragGroupStore,
     );
+  const individualRespawnEgressCollisionStore =
+    createIndividualRespawnEgressCollisionStore(
+      world,
+      individualPhysicalOccupancyStore,
+      individualCollisionResolutionStore,
+      individualCasualtyLifecycleStore,
+      individualPlayerPresenceStore,
+    );
   const individualDragHandCommitmentStore =
     createIndividualDragHandCommitmentStore(world.entityCount);
   const individualMedicalClaimStore =
@@ -1094,6 +1114,9 @@ function createCombatSandbox(
     individualCasualtyGroupCollisionResolver,
     individualCasualtyGroupCollisionResult:
       individualCasualtyGroupCollisionResolver.result,
+    individualRespawnEgressCollisionStore,
+    individualRespawnEgressCollisionResult:
+      individualRespawnEgressCollisionStore.result,
     individualDragHandCommitmentStore,
     individualDefenceHandAvailabilitySource,
     casualtyDragMovementBuffers,
@@ -2681,6 +2704,7 @@ export function advanceCombatSandboxOneTick(
         tick,
         combatSandbox.individualRespawnEgressBuffers,
         combatSandbox.specialistPhysicalGaitAdapter,
+        combatSandbox.individualRespawnEgressCollisionStore,
       ),
     );
     checkpointIndividualEnergyMovementObservation(
@@ -3164,6 +3188,19 @@ function createEmptyCombatDebugSnapshot(): LiveCombatDebugSnapshot {
     casualtyGroupCollisionLocalCandidateCount: 0,
     casualtyGroupCollisionSameTickOccupancyRefreshCount: 0,
     casualtyGroupCollisionDestinationContactCount: 0,
+    egressCollisionRequestedCount: 0,
+    egressCollisionMovedCount: 0,
+    egressCollisionYieldedCount: 0,
+    egressCollisionWaitCount: 0,
+    egressCollisionSidestepCount: 0,
+    egressCollisionBacktrackCount: 0,
+    egressCollisionDownedSoftAvoidanceCount: 0,
+    egressCollisionDownedSoftCrossingCount: 0,
+    egressCollisionPairNegotiationCount: 0,
+    egressCollisionStrategyChangeCount: 0,
+    egressCollisionLocalQueryCount: 0,
+    egressCollisionLocalCandidateCount: 0,
+    egressCollisionSameTickOccupancyRefreshCount: 0,
     attackAttemptCount: 0,
     preventedAttackCount: 0,
     landedOutcomeCount: 0,
@@ -3368,6 +3405,36 @@ function createCombatDebugSnapshot(
     casualtyGroupCollisionDestinationContactCount:
       combatSandbox.individualCasualtyGroupCollisionResult
         .destinationContactCount,
+    egressCollisionRequestedCount:
+      combatSandbox.individualRespawnEgressCollisionResult.requestedCount,
+    egressCollisionMovedCount:
+      combatSandbox.individualRespawnEgressCollisionResult.movedCount,
+    egressCollisionYieldedCount:
+      combatSandbox.individualRespawnEgressCollisionResult.yieldedCount,
+    egressCollisionWaitCount:
+      combatSandbox.individualRespawnEgressCollisionResult.waitCount,
+    egressCollisionSidestepCount:
+      combatSandbox.individualRespawnEgressCollisionResult.sidestepCount,
+    egressCollisionBacktrackCount:
+      combatSandbox.individualRespawnEgressCollisionResult.backtrackCount,
+    egressCollisionDownedSoftAvoidanceCount:
+      combatSandbox.individualRespawnEgressCollisionResult
+        .downedSoftAvoidanceCount,
+    egressCollisionDownedSoftCrossingCount:
+      combatSandbox.individualRespawnEgressCollisionResult
+        .downedSoftCrossingCount,
+    egressCollisionPairNegotiationCount:
+      combatSandbox.individualRespawnEgressCollisionResult
+        .egressPairNegotiationCount,
+    egressCollisionStrategyChangeCount:
+      combatSandbox.individualRespawnEgressCollisionResult.strategyChangeCount,
+    egressCollisionLocalQueryCount:
+      combatSandbox.individualRespawnEgressCollisionResult.localQueryCount,
+    egressCollisionLocalCandidateCount:
+      combatSandbox.individualRespawnEgressCollisionResult.localCandidateCount,
+    egressCollisionSameTickOccupancyRefreshCount:
+      combatSandbox.individualRespawnEgressCollisionResult
+        .sameTickOccupancyRefreshCount,
     attackAttemptCount: combatSandbox.individualAttackAttemptCount,
     preventedAttackCount:
       combatSandbox.individualParryCount +
@@ -3617,6 +3684,8 @@ function collectInspectedIndividualSnapshots(
         collisionResolution.downedSoftAvoidance,
       collisionDownedSoftCrossing: collisionResolution.downedSoftCrossing,
       collisionAssistedGroupYield: collisionResolution.assistedGroupYield,
+      collisionYieldingEgressYield:
+        collisionResolution.yieldingEgressYield,
       collisionLocalNeighbourCount: collisionResolution.localNeighbourCount,
       collisionLocalCandidateCount: collisionResolution.localCandidateCount,
       collisionPrincipalOccupancyRelationshipCode:
@@ -3632,6 +3701,18 @@ function collectInspectedIndividualSnapshots(
         collisionResolution.localDecisionTicksRemaining,
       collisionLocalDecisionPhase: collisionResolution.localDecisionPhase,
       collisionOvertakeClearance: collisionResolution.overtakeClearance,
+      egressCollisionPrincipalBlockerEntityId:
+        combatSandbox.individualRespawnEgressCollisionStore
+          .principalBlockerByEntity[entityId]!,
+      egressDetourPhase:
+        combatSandbox.individualRespawnEgressCollisionStore
+          .detourPhaseByEntity[entityId]!,
+      egressDetourSide:
+        combatSandbox.individualRespawnEgressCollisionStore
+          .detourSideByEntity[entityId]!,
+      egressDetourTicksRemaining:
+        combatSandbox.individualRespawnEgressCollisionStore
+          .detourTicksRemainingByEntity[entityId]!,
       deathCountDurationTicks: deathCount.durationTicks,
       deathCountRemainingTicks: deathCount.remainingTicks,
       deathCountPaused: deathCount.paused,
@@ -4559,6 +4640,19 @@ function createLegacyCombatFoundationDebugSnapshot(
     casualtyGroupCollisionLocalCandidateCount: 0,
     casualtyGroupCollisionSameTickOccupancyRefreshCount: 0,
     casualtyGroupCollisionDestinationContactCount: 0,
+    egressCollisionRequestedCount: 0,
+    egressCollisionMovedCount: 0,
+    egressCollisionYieldedCount: 0,
+    egressCollisionWaitCount: 0,
+    egressCollisionSidestepCount: 0,
+    egressCollisionBacktrackCount: 0,
+    egressCollisionDownedSoftAvoidanceCount: 0,
+    egressCollisionDownedSoftCrossingCount: 0,
+    egressCollisionPairNegotiationCount: 0,
+    egressCollisionStrategyChangeCount: 0,
+    egressCollisionLocalQueryCount: 0,
+    egressCollisionLocalCandidateCount: 0,
+    egressCollisionSameTickOccupancyRefreshCount: 0,
     attackAttemptCount: legacySandbox.opportunityCount,
     preventedAttackCount: 0,
     landedOutcomeCount: legacySandbox.strikeCount,

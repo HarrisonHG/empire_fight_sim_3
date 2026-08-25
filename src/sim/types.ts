@@ -93,6 +93,10 @@ import type {
   IndividualCasualtyGroupCollisionResult,
 } from "./individualCasualtyGroupCollision";
 import type {
+  IndividualRespawnEgressCollisionResult,
+  IndividualRespawnEgressCollisionStore,
+} from "./individualRespawnEgressCollision";
+import type {
   IndividualDeathCountStore,
   IndividualDeathCountPauseSource,
   IndividualDeathCountTerminalTransitionRecord,
@@ -629,6 +633,7 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly collisionDownedSoftAvoidance?: boolean;
   readonly collisionDownedSoftCrossing?: boolean;
   readonly collisionAssistedGroupYield?: boolean;
+  readonly collisionYieldingEgressYield?: boolean;
   readonly collisionLocalNeighbourCount?: number;
   readonly collisionLocalCandidateCount?: number;
   readonly collisionPrincipalOccupancyRelationshipCode?: number;
@@ -639,6 +644,10 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly collisionLocalDecisionTicksRemaining?: number;
   readonly collisionLocalDecisionPhase?: number;
   readonly collisionOvertakeClearance?: number;
+  readonly egressCollisionPrincipalBlockerEntityId?: number;
+  readonly egressDetourPhase?: number;
+  readonly egressDetourSide?: number;
+  readonly egressDetourTicksRemaining?: number;
   readonly deathCountDurationTicks?: number;
   readonly deathCountRemainingTicks?: number;
   readonly deathCountPaused?: boolean;
@@ -924,6 +933,19 @@ export interface LiveCombatDebugSnapshot {
   readonly casualtyGroupCollisionLocalCandidateCount: number;
   readonly casualtyGroupCollisionSameTickOccupancyRefreshCount: number;
   readonly casualtyGroupCollisionDestinationContactCount: number;
+  readonly egressCollisionRequestedCount: number;
+  readonly egressCollisionMovedCount: number;
+  readonly egressCollisionYieldedCount: number;
+  readonly egressCollisionWaitCount: number;
+  readonly egressCollisionSidestepCount: number;
+  readonly egressCollisionBacktrackCount: number;
+  readonly egressCollisionDownedSoftAvoidanceCount: number;
+  readonly egressCollisionDownedSoftCrossingCount: number;
+  readonly egressCollisionPairNegotiationCount: number;
+  readonly egressCollisionStrategyChangeCount: number;
+  readonly egressCollisionLocalQueryCount: number;
+  readonly egressCollisionLocalCandidateCount: number;
+  readonly egressCollisionSameTickOccupancyRefreshCount: number;
   readonly attackAttemptCount: number;
   readonly preventedAttackCount: number;
   readonly landedOutcomeCount: number;
@@ -1021,6 +1043,10 @@ export interface CombatSandboxSimulationState {
     IndividualCasualtyGroupCollisionResolver;
   readonly individualCasualtyGroupCollisionResult:
     IndividualCasualtyGroupCollisionResult;
+  readonly individualRespawnEgressCollisionStore:
+    IndividualRespawnEgressCollisionStore;
+  readonly individualRespawnEgressCollisionResult:
+    IndividualRespawnEgressCollisionResult;
   readonly individualDragHandCommitmentStore: IndividualDragHandCommitmentStore;
   readonly individualDefenceHandAvailabilitySource: IndividualDefenceHandAvailabilitySource;
   readonly casualtyDragMovementBuffers: CasualtyDragMovementBuffers;
