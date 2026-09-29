@@ -6,132 +6,184 @@ The simulation must be testable without rendering.
 
 Most logic bugs should be reproducible in headless tests.
 
-If a bug only appears visually, create a small deterministic scenario that reproduces it.
+If a bug only appears visually, create the smallest deterministic scenario that
+reproduces it.
 
-## Required Test Types
+Verification cadence is defined by:
+
+```text
+docs/codex/work-slicing.md
+```
+
+---
+
+## Test layers
+
+### Focused slice tests
+
+Every feature/correction slice gets the smallest deterministic tests that prove
+its own contract.
+
+Examples:
+
+- one authority adapter;
+- one collision relationship;
+- one lifecycle transition;
+- one renderer grammar;
+- one bug regression.
+
+Focused tests are the default during implementation.
+
+### System integration tests
+
+Full-suite and broad retained-scenario testing occurs at explicit lettered
+system integration gates in the milestone plan.
+
+The purpose is to prove accepted slices coexist.
+
+Do not require every tiny feature slice to rerun the entire repository.
+
+### Performance / soak tests
+
+Performance and long-soak validation occur at explicit performance gates unless
+a slice changes a hot path and needs a narrow structural measurement.
+
+---
+
+## Required test qualities
 
 Use Vitest.
 
-Required test categories:
+Simulation tests should cover as applicable:
 
-- determinism
-- fixed tick behaviour
-- seeded RNG
-- entity/component storage
-- movement
-- spatial grid
-- worker protocol
-- snapshot generation
-- performance scenarios
-- regression tests
-
-## Determinism Tests
-
-The most important test is deterministic replay.
-
-Given the same:
-
-- seed
-- scenario
-- command sequence
-- tick count
-
-The final simulation summary must be identical.
-
-Use a stable serialisable or byte-comparable summary for determinism tests.
-
-Do not compare renderer state.
-
-## Regression Tests
+- determinism;
+- fixed tick behaviour;
+- entity/component storage;
+- movement;
+- spatial locality;
+- authority transitions;
+- replay;
+- regression cases.
 
 Every bug fix must include a regression test.
 
-If a bug cannot be tested yet, first build the smallest harness needed to test it.
+If a bug cannot be tested, build the smallest harness needed first.
 
-Do not fix simulation bugs only by visually testing in the browser.
+Do not fix simulation bugs only through browser observation.
 
-## Performance Tests
+---
 
-Create automated performance scenarios.
+## Determinism
 
-They do not need to be perfect benchmarks, but they must catch obvious disasters.
+Given the same:
 
-Minimum useful scenarios:
+```text
+seed
+scenario
+command sequence
+tick count
+```
 
-- 100 moving entities
-- 500 moving entities
-- 1000 moving entities
-- 2000 simplified moving entities
+the final simulation summary must be identical.
 
-Each should record:
+Use stable serialisable/byte-comparable simulation summaries.
 
-- average tick time
-- p95 tick time
-- maximum tick time
-- entity count
-- tick count
-- seed
+Do not compare renderer state to prove simulation determinism.
 
-Performance thresholds should be structural in CI and stricter on an agreed local/reference machine.
+---
 
-Automated tests should avoid tight timing assertions that make hardware speed a source of flaky failures.
+## Performance scenarios
 
-## Worker Tests
+Maintain automated 100/500/1000/2000 structural scenarios where useful.
 
-Worker protocol should be tested separately from PixiJS rendering.
+Record:
 
-Test that commands sent to the worker produce expected snapshots, metrics, state messages, and errors.
+```text
+average tick time
+p95 tick time
+maximum tick time
+entity count
+tick count
+seed
+relevant candidate/query/pass counts
+```
 
-Do not require the renderer to test simulation correctness.
+Do not add flaky hardware-specific CI thresholds casually.
 
-## Browser Checks
+---
 
-For browser-visible changes, run the app and check:
+## Worker tests
 
-- no console errors
-- expected controls are visible
-- expected visual state changes occur
-- buttons enable and disable correctly
-- no obvious frame drops
-- no runaway UI behaviour
-- no obvious memory or DOM growth
+Worker protocol remains separately testable from Pixi rendering.
 
-Browser checks are useful, but they do not replace headless tests.
+Commands should produce expected snapshots, metrics, state messages, and errors.
 
-## Test Commands
+---
 
-Expected project commands:
+## Browser checks
 
-- npm test
-- npm run typecheck
-- npm run build
-- npm run perf
+For browser-visible integration/acceptance stages check:
 
-Use npm run dev for manual browser verification.
+- no console errors;
+- expected controls;
+- expected visual state;
+- no obvious runaway UI/memory behaviour;
+- no obvious frame collapse.
 
-## Done Criteria
+Browser checks supplement headless tests.
 
-A simulation feature is not done unless:
+---
 
-- it has headless tests
-- it is deterministic
-- it can be replayed
-- it does not require PixiJS to validate
-- it does not break performance scenarios
+## Command cadence
 
-A UI or renderer feature is not done unless:
+### Feature/correction slice
 
-- typecheck passes
-- tests pass
-- build passes
-- the browser has been checked manually when behaviour is visible
+Normally:
 
-## Review Principle
+```text
+focused Vitest files
+npm run typecheck   # when production TS changed
+git diff --check
+```
 
-Visual confirmation is evidence.
+Build only when the slice changes bundling/startup/worker/render/UI boundaries
+or explicitly requires it.
 
-Automated tests are evidence.
+### System integration gate
 
-Performance metrics are evidence.
+Normally:
 
-A confident Codex summary is not evidence unless backed by checks.
+```text
+npm run typecheck
+npm test
+npm run build
+git diff --check
+```
+
+### Performance/soak gate
+
+Normally:
+
+```text
+npm run perf
+milestone-specific representative measurements
+required deterministic soak
+```
+
+If production code changes while fixing performance, rerun affected focused
+tests and then repeat the latest system gate before acceptance.
+
+---
+
+## Done criteria
+
+A **feature slice** is done when its own deterministic contract and focused
+regressions pass.
+
+A **system integration gate** is done when the integrated milestone state passes
+the required broad regression/build checks.
+
+A **milestone** is not accepted until all required system, performance/soak,
+and human-visual gates in its plan are satisfied.
+
+A confident Codex summary is not evidence.

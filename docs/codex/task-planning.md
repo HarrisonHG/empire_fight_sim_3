@@ -2,141 +2,125 @@
 
 ## Purpose
 
-Use this document when asking Codex to plan a complex task before implementing it.
+Use this document to plan architecture changes, new simulation systems,
+performance work, pathfinding, combat, AI behaviour, and large refactors.
 
-A plan is required for:
+Also read:
 
-```txt
-architecture changes
-new simulation systems
-worker protocol changes
-performance work
-pathfinding
-combat
-AI behaviour
-large refactors
+```text
+docs/codex/work-slicing.md
 ```
 
-A plan is not required for:
+That document owns implementation-slice size and verification-gate policy.
 
-```txt
-tiny typo fixes
-renaming a local variable
-updating a comment
-small isolated test changes
-```
+---
 
-## Plan Location
+## Plan location
 
-Plans should be written to:
+Active plans:
 
-```txt
+```text
 docs/plans/
 ```
 
-Completed plans should be moved to:
+Read-on-demand implementation evidence:
 
-```txt
+```text
+docs/progress/
+```
+
+Completed milestone plans/history:
+
+```text
 docs/completed-plans/
 ```
 
-Use descriptive filenames:
+Use descriptive filenames.
 
-```txt
-docs/plans/milestone-4-morale-pressure-and-routing.md
-docs/plans/001-spatial-grid.md
-docs/plans/002-basic-combat.md
-```
+---
 
-## Plan Format
+## Active plan format
 
-Each plan should contain:
+Each active plan should contain:
 
-```txt
+```text
 Goal
 Non-goals
-Files likely to change
-Architecture impact
-Implementation steps
-Tests to add
-Performance checks
-Risks
+Authority boundaries / invariants
+Dependencies
+Implementation slices
+System integration gate(s)
+Performance/soak gate when relevant
+Human visual acceptance gate when relevant
+Focused tests per slice
 Done criteria
 ```
 
-## Planning Rules for Codex
+Do not use the active plan as an execution diary.
+
+Large implementation reports, old performance tables, and accepted historical
+evidence belong in `docs/progress/` while the milestone is active.
+
+---
+
+## Planning rules for Codex
 
 When asked to create a plan:
 
-```txt
+```text
 do not modify production code
 inspect existing files first
-reference relevant docs/codex files
+reference only directly relevant docs/codex files
 produce a concrete ordered checklist
+split implementation into narrow slices
+insert explicit system integration gates where cross-system behaviour matters
+insert a separate performance/soak gate for expensive integrated systems
 flag ambiguity rather than guessing silently
 keep the plan scoped to one milestone
 ```
 
 When asked to implement a plan:
 
-```txt
-follow the plan step by step
-update the plan as steps complete
-run tests/checks
-summarise what changed
-summarise what remains
+```text
+implement only the named slice
+do not implement later slices opportunistically
+run only the slice checks specified by docs/codex/work-slicing.md and the plan
+update active-plan status concisely
+leave broader reconciliation to the named integration gate
+summarise what changed and what remains
 ```
 
-## Implementation Prompt Economy
+---
 
-When a reviewed plan already exists, the plan is the source of truth. An implementation prompt should normally contain only:
+## Implementation prompt economy
 
-```txt
+When a reviewed plan exists, the plan is the source of truth.
+
+An implementation prompt should normally contain only:
+
+```text
 plan path and exact slice
-clarifications or corrections not already in the plan
+clarifications/corrections not already in the plan
 explicit scope boundary
-required checks
-requested completion report
+checks required for that slice
+requested completion report/archive
 ```
 
-Do not paste the plan back into the prompt. Duplicating types, invariants, test matrices and boundaries wastes context and creates a second specification that can drift.
+Do not paste the plan back into the prompt.
 
-Detailed prompts remain appropriate for unplanned spikes, narrow correction slices, or work where the prompt itself is the accepted specification.
+Do not instruct Codex to read every historical plan "for context".
 
-## Initial Project Plan
+Accepted previous milestones are contracts, not mandatory startup reading.
+Search/read them only when the current slice needs a specific inherited rule.
+
+---
+
+## Initial project plan
 
 The project's first plan is archived at:
 
-```txt
+```text
 docs/completed-plans/000-foundation.md
 ```
 
-It covered only:
-
-```txt
-Vite + TypeScript setup
-PixiJS renderer
-Web Worker simulation loop
-fixed simulation ticks
-seeded RNG
-1000 moving entities
-pause/resume
-step one tick
-basic metrics
-headless tests
-performance scenario
-```
-
-It did not include:
-
-```txt
-combat
-pathfinding
-morale
-factions
-inventory
-abilities
-procedural generation
-save/load
-complex UI
-```
+It covered only the initial Vite/TypeScript/Pixi/worker/fixed-tick foundation.

@@ -29,94 +29,123 @@ When instructions overlap, follow this priority:
 
 Design doctrine explains intent and boundaries. It is not permission to implement every described feature.
 
-If scope is ambiguous, stop and ask rather than broadening the implementation.
+If scope is ambiguous, do not broaden the implementation. For a small Codex slice, prefer the narrow interpretation recorded by the active plan. Ask only when the missing decision prevents safe progress.
 
-If a referenced file in the plans folder is missing, check the completed-plans folder.
+If a referenced file in `docs/plans/` is missing, check `docs/completed-plans/`.
 
-If a referenced file is missing, first determine whether it is required for the requested task.
+If a referenced file is missing:
 
-* If required, report the missing file and stop before making changes.
-* If not required, report it as a documentation issue and continue using the task prompt, active plan, and current repository state.
+* if required for the current slice, report the missing file and stop before making changes;
+* if not required, report it as a documentation issue and continue using the task prompt, active plan, and current repository state.
 
 ## Current Project Phase
 
-Milestone 6, including its retained visual suite and post-milestone integration
-spike, is accepted and archived in `docs/completed-plans/`.
+Milestone 7 is accepted.
 
-The project is implementing Milestone 7: energy, exertion, and rest. Follow the
-accepted numbered slices in
-`docs/plans/milestone-7-energy-exertion-and-rest.md` without implementing later
-slices early.
+Milestone 8 — personal space, collision, and crowd flow — is in progress.
 
-## Required Reading
+Accepted slices:
 
-Before making code changes, read:
+```txt
+8A through 8F
+```
 
-* `docs/codex/architecture.md`
-* `docs/codex/testing.md`
-* `docs/codex/performance.md`
+Milestone 8G is partially implemented and has been re-sliced. Follow:
 
-Before reviewing changes, read:
+```txt
+docs/plans/milestone-8-personal-space-collision-and-crowd-flow.md
+```
 
-* `docs/codex/review.md`
+The remaining cadence is:
 
-Before starting a large feature, refactor, architecture change, or new simulation system, read:
+```txt
+8G-1  simulation contract stabilization
+8G-2  initial placement legality
+8G-3  debug evidence / retained route
+8H    system integration gate
+8I    performance + deterministic soak gate
+8J    human visual acceptance
+```
 
-* `docs/codex/task-planning.md`
+Do not implement later slices early.
 
-For complex work, create or update a plan in:
+## Required Reading and Context Budget
 
-* `docs/plans/`
+Before any code change, read:
 
-Do not implement complex features until the relevant plan exists and has been accepted.
+```txt
+docs/codex/work-slicing.md
+the exact active milestone plan and exact slice being implemented
+```
 
-## Design Doctrine Reading
+Do not recursively read the whole `docs/` tree.
 
-Before implementing any simulation behaviour, read:
+Do not read `docs/progress/`, `docs/completed-plans/`, or old milestone plans by default.
 
-* `docs/design/simulation-purpose.md`
-* `docs/design/anti-goals.md`
-* `docs/design/perception-and-knowledge.md`
+Accepted previous milestones are contracts, not mandatory startup reading. Use targeted search/grep/read only when the current slice needs a specific inherited rule.
 
-Before implementing unit movement, formation behaviour, collision, spacing, or stuck handling, read:
+Read additional doctrine only when relevant to the named slice:
 
-* `docs/design/unit-movement.md`
-* `docs/design/combat-behaviour.md`
-* `docs/design/morale-pressure-and-cohesion.md`
-* `docs/completed-plans/milestone-2-unit-movement-and-behaviour.md`
-* `docs/design/behaviour-priorities-and-battlefield-feel.md`
+```txt
+docs/codex/architecture.md     architecture or layer-boundary changes
+docs/codex/testing.md          system/integration test work
+docs/codex/performance.md      performance/soak work or hot-path investigation
+docs/codex/review.md           formal review/self-review work
+docs/codex/task-planning.md    new milestone/system planning or major refactor
+```
 
-Before implementing combat exchanges, pressure, defence, parrying, attack timing, or role behaviour, read:
+For design doctrine, read only the specific design file(s) named by the active plan/slice or needed to resolve a concrete inherited invariant.
 
-* `docs/design/combat-behaviour.md`
-* `docs/design/combat-tempo-and-defence.md`
-* `docs/design/roles-and-loadouts.md`
-* `docs/design/morale-pressure-and-cohesion.md`
-* `docs/design/behaviour-priorities-and-battlefield-feel.md`
+Do not preload broad design context merely because the changed code happens to be simulation code.
 
-Before implementing captains, unit orders, command behaviour, or battlefield decision-making, read:
+## Reference Map for Design Doctrine
 
-* `docs/design/captains-and-orders.md`
-* `docs/design/perception-and-knowledge.md`
-* `docs/design/objectives-and-victory.md`
-* `docs/design/morale-pressure-and-cohesion.md`
-* `docs/design/behaviour-priorities-and-battlefield-feel.md`
+Use this only when the current slice actually needs the topic.
 
-Before implementing objectives, victory conditions, scenario data, or configurable content, read:
+Movement / formation / collision / stuck handling:
 
-* `docs/design/objectives-and-victory.md`
-* `docs/design/scenario-and-content-schema.md`
-* `docs/design/behaviour-priorities-and-battlefield-feel.md`
+```txt
+docs/design/unit-movement.md
+docs/design/combat-behaviour.md
+docs/design/morale-pressure-and-cohesion.md
+docs/design/behaviour-priorities-and-battlefield-feel.md
+```
 
-Before implementing replay, debug tooling, event logs, metrics, or after-action reports, read:
+Combat / defence / attack timing / role behaviour:
 
-* `docs/design/debug-replay-and-after-action.md`
-* `docs/codex/testing.md`
-* `docs/codex/performance.md`
+```txt
+docs/design/combat-behaviour.md
+docs/design/combat-tempo-and-defence.md
+docs/design/roles-and-loadouts.md
+docs/design/morale-pressure-and-cohesion.md
+docs/design/behaviour-priorities-and-battlefield-feel.md
+```
 
-Before implementing simulation behaviour, troop archetypes, morale, combat, objectives, after-action reporting, or role logic, read:
+Captains / orders / battlefield decision-making:
 
-* `docs/design/behaviour-priorities-and-battlefield-feel.md`
+```txt
+docs/design/captains-and-orders.md
+docs/design/perception-and-knowledge.md
+docs/design/objectives-and-victory.md
+docs/design/morale-pressure-and-cohesion.md
+docs/design/behaviour-priorities-and-battlefield-feel.md
+```
+
+Objectives / victory / configurable content:
+
+```txt
+docs/design/objectives-and-victory.md
+docs/design/scenario-and-content-schema.md
+docs/design/behaviour-priorities-and-battlefield-feel.md
+```
+
+Replay / debug / event logs / after-action:
+
+```txt
+docs/design/debug-replay-and-after-action.md
+```
+
+Do not read all files in a category unless the slice genuinely spans all of them.
 
 ## Architecture Rules
 
@@ -217,14 +246,18 @@ Every simulation rule must have headless tests.
 
 Every bug fix must include a regression test.
 
-A feature is not complete unless:
+A narrow feature slice is complete when:
 
-* it is deterministic
-* it has tests
-* it works headlessly
-* it does not put simulation logic in rendering, UI, worker scheduling, or content files
-* it passes relevant performance scenarios
-* it can be inspected through debug or event output where appropriate
+* its named contract is deterministic;
+* its focused tests pass;
+* it works headlessly where applicable;
+* it respects architecture boundaries;
+* it passes any focused performance check explicitly required by the slice;
+* relevant debug/event evidence exists where the slice requires it.
+
+A milestone is not complete merely because its feature slices pass locally.
+
+Full cross-system, performance/soak, and human acceptance evidence belongs to the explicit gates defined by the active plan and `docs/codex/work-slicing.md`.
 
 Visual confirmation is useful evidence. It is not a replacement for automated tests.
 
@@ -242,7 +275,9 @@ Before implementing, state which layer is being changed:
 
 Prefer small, reviewable changes.
 
-Do not rewrite multiple architectural layers in one step unless the accepted plan explicitly requires it.
+Implement only the exact named slice.
+
+Do not rewrite multiple architectural layers in one step unless the active slice explicitly requires it.
 
 Do not add new production dependencies without explaining why they are necessary and receiving permission.
 
@@ -250,60 +285,116 @@ Do not add visual polish before debug and performance tooling exists.
 
 Do not introduce complex tactical AI, global battlefield awareness, runner communication, individual A* pathing around allies, detailed combat modelling, magic, or content-heavy Empire-specific rules unless the active milestone explicitly calls for them.
 
+Do not opportunistically repair unrelated broad regressions during a feature slice. Record them for the named integration gate unless they prove the slice contract itself is wrong.
+
+Do not silently rebaseline unrelated tests.
+
+Do not append long implementation diaries, full test logs, or historical evidence to active plans. Put detailed history in `docs/progress/` when it is worth retaining.
+
 ## Scope Control
 
 When implementing a plan:
 
-* follow the accepted plan step by step
-* update the plan as steps complete if requested
-* do not expand scope silently
-* report any deviations
-* report any remaining risks or incomplete work
+* follow the exact slice;
+* update active-plan status concisely if requested;
+* do not implement later slices early;
+* do not expand scope silently;
+* report deviations;
+* report remaining risks or integration work.
 
-When a design file describes future behaviour, implement only the part required by the current task or active milestone.
+When a design file describes future behaviour, implement only the part required by the current task or slice.
 
-## Required Checks
+If a small slice intentionally leaves broader reconciliation to a named system gate, that is not incomplete work as long as the active plan explicitly records the gate and the slice has not knowingly corrupted unrelated production behaviour.
 
-For normal code changes, run:
+## Verification Cadence
+
+`docs/codex/work-slicing.md` owns the detailed verification cadence.
+
+### Feature or correction slice
+
+Normally run only:
+
+```txt
+focused tests named by the slice
+npm run typecheck     # when production TypeScript changed
+git diff --check
+```
+
+Run one focused structural/performance case only when the slice changes a hot path and the active plan requests it.
+
+Run `npm run build` only when the slice changes bundling/startup/worker/render/UI boundaries or explicitly requests it.
+
+Do **not** run full `npm test` or `npm run perf` after every small slice.
+
+### System integration gate
+
+Normally run:
 
 ```txt
 npm run typecheck
 npm test
 npm run build
+git diff --check
 ```
 
-When performance-sensitive code changes, also run:
+No new feature work belongs in the integration gate.
+
+### Performance / soak gate
+
+Normally run:
 
 ```txt
 npm run perf
+milestone-specific representative measurements
+required deterministic soak/replay
 ```
 
-For browser-visible changes, also run the app manually with:
+Do not raise timeout limits merely to pass.
 
-```txt
-npm run dev
-```
+If optimisation changes production behaviour or authority code, rerun focused affected regressions and then repeat the latest required system integration gate.
 
-Check the browser for:
+### Human visual acceptance gate
 
-* console errors
-* visible control behaviour
-* obvious frame drops
-* runaway UI updates
-* broken rendering
+Run the browser-visible retained/main scenarios named by the plan.
+
+If visual inspection finds a defect, open a narrow correction slice with a regression rather than modifying the milestone ad hoc inside the acceptance gate.
+
+## Test and Log Economy
+
+Successful commands should report concise status/counts.
+
+Do not paste hundreds of passing test names or full successful logs into the Codex conversation.
+
+On failure, include only the relevant failing tests and concise diagnostics.
+
+Normal feature/correction completion reports should be short — roughly 350 words or less unless unusual evidence is required.
 
 ## Final Report Requirements
 
-When reporting completion, include:
+When reporting a narrow slice, include:
 
-* files changed
-* layer or layers changed
-* tests/checks run
-* whether performance was affected
-* any scope deviations
-* remaining risks or follow-up work
-* A zip of recently changed files in the root directory, created by running scrips/zip-working-changes.ps1
+* slice implemented;
+* files/layers changed;
+* focused tests/checks run;
+* performance impact if relevant;
+* scope deviations;
+* remaining concern / next named gate;
+* changed-file archive path/hash when requested.
 
-Do not claim success unless the stated checks have passed.
+Do not claim broader milestone health from focused tests.
 
-If checks were not run, say so clearly.
+For an integration/performance gate, include the broader evidence required by that gate.
+
+Create the recently changed-file archive using:
+
+```txt
+scripts/zip-working-changes.ps1
+```
+
+when PowerShell and the script are available.
+
+If PowerShell is unavailable, create an equivalent archive containing the intended changed files with an available ZIP tool and run an integrity check. Report that substitution explicitly.
+
+Do not claim success unless the checks required for the current slice/gate have passed.
+
+If required checks were not run, say so clearly.

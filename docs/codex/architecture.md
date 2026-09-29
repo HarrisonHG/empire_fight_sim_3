@@ -166,3 +166,16 @@ basic performance test
 No combat. No factions. No clever AI. No pathfinding yet.
 
 First prove that the skeleton is fast, deterministic, and inspectable.
+
+
+## Implementation cadence
+
+Architecture rules apply to every slice, but verification cadence is defined by:
+
+```text
+docs/codex/work-slicing.md
+```
+
+Small feature slices prove their own contract with focused checks.
+Cross-system safety is proven at explicit system integration gates rather than
+by rerunning the entire repository after every tiny change.

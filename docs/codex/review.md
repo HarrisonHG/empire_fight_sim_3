@@ -2,217 +2,167 @@
 
 ## Purpose
 
-Use this checklist before accepting Codex changes.
+Reviews guard against complexity, bugs, scope creep, and performance collapse.
 
-The previous project failed through complexity, bugs, and slow frame rate. Reviews must guard against those failure modes.
+Codex self-review is required for every slice. Human review remains required at
+the milestone's acceptance gates.
 
-Codex must review its own changes before reporting completion. Human review still remains required for milestone acceptance.
+Also read:
 
-## Required Self-Review Before Completion
-
-Before reporting completion, Codex must review its own changes against the requested scope.
-
-Check:
-
-```txt
-Did I modify only the allowed files?
-Did I avoid all explicitly forbidden files?
-Did I add any out-of-scope features?
-Did I preserve the sim / worker / render / UI / content boundaries?
-Did I introduce forbidden APIs or imports?
-Did I update or add tests where required?
-Did all requested commands pass?
-Did I leave any ambiguity, risk, or partial implementation unreported?
+```text
+docs/codex/work-slicing.md
 ```
 
-If Codex finds any discrepancy, it must fix it before reporting completion.
+---
 
-The final report must include a `Self-review` section containing:
+## Slice self-review
 
-```txt
+Before reporting completion, Codex checks:
+
+```text
+Did I modify only the named slice?
+Did I avoid explicitly forbidden files/features?
+Did I preserve sim/worker/render/UI/content boundaries?
+Did I introduce forbidden APIs/imports?
+Did I add the focused regressions required by this slice?
+Did I run exactly the checks requested for this slice?
+Did I accidentally fix/defer a wider integration problem without reporting it?
+```
+
+Completion report:
+
+```text
 scope compliance
-files changed
+files/layers changed
 forbidden API/import check
-tests/checks run
-deviations from the requested scope
-remaining concerns
+focused checks run
+deviations
+remaining concern / next gate
 ```
 
-Do not claim completion unless the implementation exactly matches the accepted step scope.
+Do not claim broader milestone health from focused slice tests.
 
-If something is ambiguous, stop and ask rather than broadening the implementation.
+---
 
-## Architecture Review
+## Architecture review
+
+Reject:
+
+- simulation importing Pixi/DOM/UI;
+- renderer mutating sim;
+- worker timing entering rules;
+- hidden duplicate authority;
+- a narrow adapter becoming strategic AI.
+
+System ordering must remain explicit.
+
+---
+
+## Determinism review
 
 Check:
 
-```txt
-simulation code remains in src/sim
-rendering code remains in src/render
-worker boundary remains in src/worker
-UI code remains in src/ui
-content/config remains in src/content
-simulation does not import PixiJS
-simulation does not import DOM/browser APIs
-renderer does not mutate simulation state directly
-worker timing does not enter simulation rules
-```
-
-Reject changes that mix simulation rules into rendering, UI, worker scheduling, or content files.
-
-## Determinism Review
-
-Check:
-
-```txt
+```text
 no Math.random() in src/sim
-no Date.now() in simulation rules
-no performance.now() in simulation rules
-no timers in simulation rules
-no frame delta time used for simulation outcomes
-same seed replay remains stable
-system order remains explicit
+no Date.now()/performance.now()/timers in rules
+no frame-delta outcomes
+stable order where order affects results
+same inputs replay identically
 ```
 
-Simulation outcomes must depend only on seed, starting scenario, command sequence, and tick count.
+---
 
-## Performance Review
+## Performance review
 
-Check for:
+When a hot path changed, look for:
 
-```txt
-nested all-entity comparisons
-pathfinding every entity every tick
-sprite destruction/recreation every frame
-large worker messages
-temporary object/array creation in hot loops
-debug overlays always-on with no disable option
-metrics affecting simulation behaviour
+- all-pairs scans;
+- pathfinding each entity/tick;
+- temporary allocation;
+- query explosion;
+- sprite churn;
+- large worker messages.
+
+Feature slices need focused evidence only.
+Full performance acceptance belongs to the milestone performance gate.
+
+---
+
+## Testing review by stage
+
+### Feature/correction slice
+
+Require:
+
+- new/changed rule has focused tests;
+- defect has a regression;
+- requested typecheck/diff checks pass.
+
+Do not reject a valid small slice merely because it did not run the entire suite
+when the plan explicitly reserves that for a system gate.
+
+### System integration gate
+
+Require:
+
+```text
+typecheck
+full suite
+build
+named retained/replay scenarios
+git diff --check
 ```
 
-If performance-sensitive code changed, require measurement.
+No new feature work.
 
-Do not optimise by guessing. First identify the bottleneck as one of:
+### Performance/soak gate
 
-```txt
-simulation CPU
-rendering CPU
-GPU/render load
-worker message size
-garbage collection
-pathfinding
-spatial query explosion
-sprite count
-debug overlay cost
-metric/UI overhead
-```
+Require the plan's representative measurements/soak.
+Do not accept timeout inflation as optimisation.
 
-## Testing Review
+### Human visual gate
 
-Check:
+Inspect browser-visible behaviour after automated gates are stable.
 
-```txt
-new simulation rules have tests
-bug fixes have regression tests
-determinism tests still pass
-worker lifecycle tests still pass
-performance scenarios still run when relevant
-typecheck passes
-build passes
-```
+---
 
-Do not accept visual-only validation for simulation rules.
-
-A visual browser check is useful, but it does not replace headless tests.
-
-## Scope Review
+## Scope review
 
 Prefer small changes.
 
-Be suspicious of changes that touch many layers at once:
+Crossing many layers is allowed only when the named slice is specifically a
+presentation/integration slice.
 
-```txt
-sim + worker + render + UI + content
-```
+If a feature slice exposes an unrelated regression:
 
-That may be valid, but Codex must explain why.
+- do not casually rebaseline it;
+- report it;
+- leave it for the named system integration gate unless it disproves the
+  current slice contract.
 
-Reject out-of-scope feature creep, especially:
+---
 
-```txt
-combat
-factions
-morale
-pathfinding
-abilities
-inventory
-save/load
-procedural generation
-collision
-advanced UI
-debug overlays
-camera controls
-art pipeline work
-```
+## Archive/repository-state review
 
-Unless the current accepted step explicitly allows one of those things, it should not appear.
+Use the smallest archive that makes review trustworthy.
 
-## Dependency Review
+- narrow slice: changed files/hunks are enough when surrounding contracts are known;
+- integration gate: full current repository/archive may be required;
+- compare archive hashes before rereviewing identical submissions;
+- distinguish old uncommitted WIP from the slice under review.
 
-Codex must justify new production dependencies.
+Do not infer repository truth from Codex prose alone.
 
-Reject dependencies that are added merely for convenience when a small local implementation would be clearer.
+---
 
-No new production dependency should be added without explicit permission.
+## Context economy review
 
-## Archive and Repository-State Review
+Be suspicious when Codex:
 
-Use the smallest archive that still makes the requested review trustworthy.
+- recursively reads the docs tree;
+- rereads completed milestones without a named reason;
+- pastes huge logs;
+- appends full execution reports into the active plan;
+- runs full test/perf/build cycles for a tiny correction.
 
-- A changed-file archive is sufficient for a narrow isolated correction when all surrounding authorities are already known.
-- Use a full current-repository archive for milestone integration acceptance, production-order review, or any change that crosses several existing systems.
-- When a submission appears identical to the previous one, compare archive hashes before spending time re-reviewing it.
-- An archive may contain uncommitted files from an earlier slice. Identify which files are actually new rather than assuming every included file belongs to the latest request.
-- Do not infer current repository state from a Codex summary alone; inspect the supplied files.
-
-## Manual Review Ritual
-
-After each Codex implementation step, run:
-
-```txt
-npm run typecheck
-npm test
-npm run build
-```
-
-When the performance harness exists, also run:
-
-```txt
-npm run perf
-```
-
-For browser-visible steps, also run:
-
-```txt
-npm run dev
-```
-
-Then manually check the browser console for errors and inspect the visible behaviour.
-
-## Acceptable Foundation Milestone
-
-The foundation milestone is boring by design:
-
-```txt
-1000 moving dots
-worker simulation
-Pixi rendering
-pause/resume
-step tick
-seeded replay
-basic metrics
-headless tests
-performance report
-```
-
-Do not accept combat, morale, factions, pathfinding, or complex AI before this foundation works.
+These are process regressions as well as token regressions.

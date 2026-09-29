@@ -2,187 +2,146 @@
 
 ## Goal
 
-The simulation must support large numbers of entities without collapsing into low frame rate or untestable behaviour.
+Support large entity counts without hiding bad algorithms behind longer
+timeouts or premature optimisation.
 
-Performance must be measured, not guessed.
+Verification cadence is defined by:
 
-## Main Principle
+```text
+docs/codex/work-slicing.md
+```
+
+---
+
+## Principle
 
 Rendering and simulation are separate bottlenecks.
 
-When performance is bad, identify the cause before changing code.
+When performance is bad, classify the bottleneck before changing code:
 
-Classify the bottleneck as one of:
+```text
+simulation CPU
+rendering CPU
+GPU/render load
+worker message size
+garbage collection
+pathfinding
+spatial query explosion
+sprite count
+debug overlay cost
+metric/UI overhead
+```
 
-- simulation CPU
-- rendering CPU
-- GPU/render load
-- worker message size
-- garbage collection
-- pathfinding
-- spatial query explosion
-- sprite count
-- debug overlay cost
-- metric/UI overhead
+---
 
-## Entity Count Targets
+## Entity targets
 
-Performance scenarios should exist for:
+Maintain useful structural scenarios around:
 
-- 100 entities
-- 500 entities
-- 1000 entities
-- 2000 entities
+```text
+100
+500
+1000
+2000
+```
 
-The first serious foundation gate is:
+Use representative legal battlefield placement for acceptance measurements.
 
-- 1000 moving entities with smooth rendering and stable simulation tick time
+Keep deliberately impossible/adverse fixtures separate and label them clearly.
 
-Do not add complex behaviour until the current performance gate is stable.
+---
 
-## Prohibited Performance Patterns
+## Feature-slice performance
 
-Do not use all-entity-against-all-entity checks in normal simulation logic.
+Do not run the entire performance suite after every small feature slice.
 
-Avoid this in normal hot-path simulation code:
+If a slice changes a hot path, run only the relevant structural measurement and
+record enough evidence to catch a local complexity disaster.
 
-- for each entity, check every other entity
+Examples:
 
-That creates O(n²) behaviour and will kill the project.
+- local candidate/query count;
+- bounded solver passes;
+- allocation/storage delta;
+- one representative entity-count sample.
 
-Use a spatial grid for local queries.
+The full performance suite belongs to the explicit performance/soak gate.
 
-## Spatial Grid
+---
 
-Use a uniform spatial grid before considering more complex structures.
+## Prohibited patterns
 
-The spatial grid should eventually support:
+Do not use all-entity-against-all-entity normal simulation logic.
 
-- insert or update entity position
-- query nearby entities
-- query nearby enemies
-- query nearby allies
-- query entities in radius
+Avoid hot-loop:
 
-Use the spatial grid for:
+- map/filter/reduce chains;
+- temporary arrays/objects per entity/tick;
+- JSON clone tricks;
+- sprite destroy/recreate loops;
+- per-tick global sorting when bounded local ordering suffices.
 
-- perception
-- melee range
-- collision or spacing
-- morale aura
-- area effects
-- threat checks
-- healing range
+Prefer spatial grids, reused arrays, typed storage, pools where justified, and
+stable persistent render objects.
 
-## Allocation Rules
+---
 
-Avoid avoidable allocations in hot loops.
+## Spatial grid
 
-Avoid in hot paths:
+Use the uniform spatial grid for local:
 
-- map/filter/reduce chains
-- creating temporary arrays every tick
-- creating temporary objects per entity per tick
-- JSON stringify/parse for cloning
-- destroying and recreating sprites
+- perception;
+- melee range;
+- collision/spacing;
+- morale aura;
+- area effects;
+- threat;
+- healing.
 
-Prefer:
+Do not add a second global neighbour mechanism casually.
 
-- simple loops
-- reused arrays
-- object pools where justified
-- stable sprite maps
-- typed arrays where measurement supports them
+---
 
-## Rendering Rules
+## Performance/soak gate
 
-Rendering must not recreate the world every frame.
+The milestone plan should define one explicit performance stage after system
+integration is stable.
 
-Required:
+That gate should report:
 
-- sprites are keyed by EntityId
-- sprites are reused
-- position updates should update existing objects
-- debug overlays can be disabled
+```text
+representative legal case
+relevant stage timings
+query/candidate/pass counts
+retained storage
+allocation/GC evidence where relevant
+long deterministic soak when required
+adverse fixture separately
+```
 
-The renderer should be able to show:
+Do not raise timeout limits simply to pass the gate.
 
-- FPS
-- number of sprites
-- number of visible entities
-- simulation tick time
-- worker message size when available
-- debug overlay cost if available
+Optimise only measured bottlenecks.
 
-## Worker Message Rules
+If an optimisation changes production code, rerun focused regressions and the
+latest system integration gate before milestone acceptance.
 
-Do not casually send huge world objects from the worker to the main thread.
+---
 
-Snapshots should be compact.
+## Pre-existing failures
 
-A render snapshot should initially contain only what rendering needs:
+A claimed pre-existing failure may be excluded only when reproduced on unchanged
+HEAD with comparable structural evidence.
 
-- tick
-- entity id when required
-- x
-- y
-- orientation if needed
-- visual type if needed
-- flags needed for rendering
-- metrics
+Baseline reproduction proves non-regression; it does not erase the concern.
 
-Do not expose internal simulation component stores directly to the renderer.
+---
 
-## Pathfinding Rules
+## Debug warning
 
-Do not run pathfinding for every entity every tick.
+Debug tooling can destroy performance.
 
-Pathfinding must be budgeted.
+Every expensive debug overlay must be disableable.
 
-Acceptable approaches include:
-
-- request queue
-- path cache
-- repath cooldown
-- local steering without full pathfinding
-- staggered path updates across ticks
-
-Pathfinding should be added only after the spatial grid foundation is stable.
-
-## Pre-Existing Failure Verification
-
-A claimed pre-existing performance failure may be excluded from the current slice only when it is reproduced on unchanged `HEAD`. Prefer recording the exact same structural values, not merely the same test name.
-
-The implementation must still report the failure clearly. A baseline reproduction proves non-regression; it does not silently make the underlying concern disappear.
-
-## Performance Done Criteria
-
-A feature affecting simulation or rendering is not done unless:
-
-- the relevant performance scenario still passes
-- tick time has been measured
-- render FPS has been checked where browser-visible
-- there is no obvious memory growth over a sustained run
-- worker message sizes remain reasonable
-
-## Debug Warning
-
-Debug tools can themselves destroy performance.
-
-Every debug overlay must be possible to disable.
-
-Performance measurements should be taken with debug overlays both enabled and disabled when relevant.
-
-## Foundation Baseline
-
-Foundation 000 established a baseline with:
-
-- 1000 moving entities
-- deterministic typed-array movement
-- worker-owned simulation
-- PixiJS rendering
-- pause/resume/step controls
-- metrics display
-- headless performance test
-
-Future milestones should compare against this baseline and explain performance regressions.
+Measure with debug disabled for production acceptance and enabled where the
+milestone specifically needs debug-cost evidence.

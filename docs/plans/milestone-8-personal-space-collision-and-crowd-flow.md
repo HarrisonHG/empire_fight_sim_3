@@ -1,724 +1,104 @@
 # Milestone 8: Personal Space, Collision, and Crowd Flow
 
-Status: Milestones 8A through 8E are accepted. Milestone 8F is implemented and
-awaiting technical review. Production collision resolution now includes
-ordinary and routing active-standing movement, pair-local allied crowd flow,
-downed soft occupancy, coherent casualty-group movement, and yielding barbarian
-respawn egress. Milestone 8G has not started.
+Status: in progress.
 
-Milestone 7 is accepted. This milestone is inserted before command behaviour because the evolving main battle exposed a foundational physical omission: individual player-presence entities can currently occupy/pass through the same space too freely.
+Accepted slices:
 
-Milestone 2 already owns unit movement intent, formation behaviour, blocker arbitration, overtaking style, and stuck handling. Milestone 6 deliberately excluded downed/terminal characters from ordinary blockers and deferred detailed body collision so casualties could not become permanent walls.
+```text
+8A  collision/spacing feasibility spike
+8B  occupancy contract and collision authority boundary
+8C  active-standing collision and hostile fronts
+8D  allied crowd flow, overtaking, push-through, routing priority
+8E  downed-soft occupancy and casualty-group integration
+8F  yielding player-presence egress
+```
 
-Milestone 8 adds the missing physical occupied-space layer without replacing either authority.
+8G is partially implemented in the current working tree and has been re-sliced
+to reduce Codex context/test cost.
 
----
+Detailed historical implementation evidence is in:
 
-# Product goal
+```text
+docs/progress/milestone-8-implementation-history.md
+```
 
-Make simulated people behave like people who have bodies.
+Normal Codex runs must **not** read that history unless a current slice
+explicitly requires a previous implementation detail.
 
-After Milestone 8:
-
-- active standing players cannot casually finish a tick in illegal body overlap;
-- hostile lines form a physical contact front instead of interpenetrating;
-- allies yield, sidestep, squeeze, merge, overtake, and queue according to existing movement/behaviour priorities;
-- disciplined formations preserve spacing more strongly than loose blobs;
-- `pushThrough` means forcing passage through allied occupied space with yielding/compression/disruption, not literal phasing;
-- routing produces believable congestion and priority rather than ghost movement;
-- downed casualties remain physically present but do not create impassable corpse walls;
-- people preferentially go around a casualty and may carefully step through/over the soft casualty footprint when local space leaves no practical alternative;
-- drag groups remain coherent physical groups;
-- terminal barbarians walking toward respawn still exist physically but yield almost completely to living battlefield participants;
-- repeated inability to progress feeds existing stuck behaviour rather than teleport correction;
-- collision remains deterministic, bounded, inspectable, and viable for representative 2,000-entity battles.
-
-The intended battlefield story is:
-
-> There is already a bloke standing there.
-
-Everything downstream should now have to deal with that fact.
+Read `docs/codex/work-slicing.md` before implementing any remaining slice.
 
 ---
 
-# LARP-specific physical model
+# Goal
 
-This is not rigid-body physics.
+Make physical player presence matter without turning the simulation into
+rigid-body physics.
 
-Empire players generally cooperate to avoid unsafe body contact. They slow, turn shoulders, sidestep, let people through, bunch up, wait, and squeeze into imperfect gaps. The simulation needs the battlefield consequences of occupied space, not kilograms, momentum, ragdolls, tackles, or continuous-body dynamics.
+Milestone 8 is complete when:
 
-Use coarse personal-space geometry and deterministic local flow.
+- standing players have meaningful personal space;
+- hostile fronts do not interpenetrate;
+- allies yield/flow/overtake without phasing or pathological chatter;
+- routing and push-through have physical crowd consequences;
+- downed people are physically present but do not form corpse walls;
+- rescue groups remain coherent;
+- dead barbarians leaving for respawn physically exist but yield to the living;
+- all production movement authorities consume the same physical-space contract;
+- representative legal 2,000-entity performance is viable;
+- deterministic long soak passes;
+- retained personal-space route and `/` pass human inspection.
 
-Do not simulate:
+---
 
-- body mass;
-- momentum conservation;
+# Non-goals
+
+Do not add:
+
+- rigid-body mass/momentum;
 - collision damage;
-- knockdowns from ordinary contact;
-- grappling;
-- tackles;
-- shield barges;
-- exact shoulders/limbs;
-- exact prone-body polygons;
-- physical stumbling animation;
-- continuous floating-point rigid-body solving.
+- grappling/tackles;
+- exact prone polygons;
+- terrain collision/pathfinding;
+- captain/banner mechanics;
+- Milestone 9 flavour sprites;
+- global right-of-way;
+- connected-component runtime fallback;
+- cardinal-axis movement priority.
 
 ---
 
-# Existing authority boundaries
+# Core authority boundaries
 
-## Movement intent remains where it is
+## Movement
 
-Existing systems continue to own why and where an entity wants to move:
+Existing authorities choose target/destination and permitted movement.
 
-- formation movement;
-- give-ground/routing;
-- casualty gathering;
-- drag-group movement;
-- medical approach;
-- traumatic-wound withdrawal;
-- respawn egress;
-- scenario-forced/external movement.
-
-Milestone 8 may reduce, redirect locally, or prevent the final physical step to preserve occupied space.
-
-It must not:
-
-- invent a new strategic destination;
-- select a new enemy/patient/Physick;
-- replace unit orders;
-- replace routing;
-- replace rescue/medical policy;
-- add terrain pathfinding;
-- create global battlefield knowledge.
-
-## Energy remains downstream of actual movement
-
-Milestone 7 charges/rewards authoritative actual movement.
-
-Collision/spacing must not double-charge energy.
-
-The desired relationship is:
+Collision may only:
 
 ```text
-movement authority chooses/request step
-→ energy/gait limits the step as already established
-→ personal-space/collision resolves the physically legal local step
-→ final actual displacement is recorded once
-→ energy activity classifies/charges that final result
+preserve
+shorten
+locally redirect
+wait/stop
+boundedly backtrack where the accepted local policy allows
 ```
 
-If production ordering requires a narrow refactor to make this boundary explicit, preserve all accepted pre-collision outcomes when no occupancy conflict exists.
+Collision may never:
 
-Collision may only reduce or locally redirect an already-permitted displacement. It must not increase gait, distance budget, sprint budget, or world-bound allowance.
+- grant a longer/faster step;
+- select a new strategic destination;
+- select a new target;
+- change lifecycle/combat/morale;
+- create global pathfinding.
 
-## Combat reach remains separate
+Final actual collision-resolved displacement is the single movement evidence
+used by Milestone 7 energy.
 
-Personal-space radius is not weapon reach.
+Combat consumes final collision-resolved positions.
 
-A fighter may threaten or attack across weapon-reach distance while bodies remain separated.
+## Occupancy classes
 
-Hostile physical contact should therefore emerge from:
-
-```text
-weapon/contact preference
-+ movement intent
-+ personal-space boundary
-```
-
-Do not silently redefine the existing weapon-reach tables.
-
-## Lifecycle/presence remains authoritative
-
-Character lifecycle and player presence decide whether somebody is alive, active, downed, egressing, waiting, or removed.
-
-Milestone 8 consumes that state only to derive physical occupancy class and yielding priority.
-
-Physical occupancy must never revive, reactivate, retarget, heal, route, or otherwise change lifecycle.
-
----
-
-# Occupancy classes
-
-Use one narrow derived physical-occupancy vocabulary. Exact type names may change during 8A/8B, but the semantics must remain explicit.
-
-Suggested first model:
-
-```ts
-type PhysicalOccupancyClass =
-  | "activeStanding"
-  | "downedSoft"
-  | "assistedMoving"
-  | "yieldingEgress"
-  | "nonBattlefield";
-```
-
-## activeStanding
-
-Examples:
-
-- ordinary active fighters;
-- Physicks moving under their own power;
-- trauma-withdrawing active citizens;
-- routers;
-- other active battlefield participants.
-
-Properties:
-
-- normal standing personal-space footprint;
-- no casual overlap with other standing players;
-- participates in allied/hostile yielding policy;
-- movement priority depends on existing movement authority/state, not a new hidden combat stat.
-
-## downedSoft
-
-Examples:
-
-- dying/downed player presence;
-- terminal non-egressing presence where the physical player is still on the field and lying/stationary.
-
-Properties:
-
-- physically present and locally queryable;
-- immobile unless an existing assistance authority moves them;
-- ordinary movers should avoid the footprint where practical;
-- not a hard permanent blocker;
-- if no reasonable bounded local detour exists, living movers may carefully cross/step through the soft footprint at reduced progress rather than deadlock;
-- hostile/allied combat eligibility remains unchanged: this class is physical only.
-
-The first implementation may use coarse circular soft occupancy even though real prone bodies are elongated. Detailed corpse geometry remains unnecessary unless later visual/terrain evidence proves it materially changes outcomes.
-
-## assistedMoving
-
-Examples:
-
-- dragged patient plus required helper group.
-
-Properties:
-
-- the existing drag/assistance authority remains owner of group membership and destination;
-- the group must remain coherent;
-- collision resolution must not separate helpers from patient;
-- ordinary allies may yield to an urgent coherent casualty group where practical;
-- hostiles remain real physical blockers;
-- no new rescue selection or movement-speed rule is created here.
-
-## yieldingEgress
-
-Initial primary example:
-
-- terminal barbarian in `respawnEgress`.
-
-LARP ruling:
-
-The player physically exists and must get off the field, but is trying to be as practically invisible to the live battle as possible.
-
-Properties:
-
-- still occupies physical space;
-- cannot literally overlap another person;
-- always yields to living moving battlefield participants;
-- must not force a living fighter to make a meaningful tactical detour when it can instead wait, sidestep, or route around them;
-- should choose locally unobtrusive progress toward its existing respawn destination;
-- may flow/yield around other egressing dead players;
-- should avoid downed bodies because those bodies cannot yield;
-- remains non-combat, non-morale, non-formation, non-objective, and non-targetable exactly as before.
-
-Future citizen terminal egress may reuse this physical class when the scenario milestone implements Sentinel Gate withdrawal/egress.
-
-## nonBattlefield
-
-Examples:
-
-- `waitingAtRespawn`;
-- `removedFromBattlefield`;
-- any presence explicitly outside the battlefield physical space.
-
-Properties:
-
-- no battlefield occupancy;
-- no collision participation.
-
----
-
-# Personal-space geometry
-
-Use coarse person-scale footprints.
-
-For 8A, use one configurable standing radius and one configurable soft/downed radius rather than equipment-specific body sizes.
-
-The current debug body glyph uses a radius of roughly four world/display units; that is a useful calibration starting point for the spike, not an accepted physical constant.
-
-Requirements:
-
-- deterministic integer/fixed-point calculations;
-- squared-distance comparisons where practical;
-- no floating-point accumulation drift;
-- no per-tick trigonometric object creation;
-- world bounds remain authoritative;
-- zero-length/equal-position ties resolve deterministically by stable entity identity;
-- scenario input ordering must not change the result.
-
-Later content may introduce a small number of broad footprint categories only if evidence justifies it. Do not model armour thickness, body weight, shield width, or individual shoulder measurements now.
-
----
-
-# Local collision and flow principles
-
-## Spatial locality
-
-Use the existing spatial grid/query infrastructure or a narrow compatible local occupancy index.
-
-Forbidden:
-
-```text
-for each entity:
-  scan every other entity
-```
-
-Candidate neighbours must be bounded by local cells/radius.
-
-No dense entity-pair collision matrix.
-
-## Deterministic resolution
-
-The spike may compare more than one bounded technique, but any accepted solver must have:
-
-- stable pair/candidate ordering;
-- bounded passes/iterations;
-- deterministic tie-breaks;
-- integer/fixed-point position output;
-- no dependence on input-array ordering;
-- no random jitter;
-- no wall time.
-
-A sequential canonical resolver, bounded relaxation, or discrete local steering scheme are all acceptable candidates if they satisfy the battlefield tests. Do not prematurely build a generic physics engine.
-
-## Resolution is non-increasing
-
-For each mover:
-
-```text
-requested movement budget
-→ collision-resolved movement
-```
-
-Collision may:
-
-- preserve it;
-- shorten it;
-- redirect some of it locally;
-- stop it.
-
-Collision may not:
-
-- grant extra step length;
-- upgrade gait;
-- teleport across an occupied band;
-- move through world bounds;
-- invent strategic pathfinding.
-
-## Avoid visual chatter
-
-Local yielding must use deterministic preference/state where needed so two neighbours do not alternate left/right every tick.
-
-A small bounded “preferred pass side” or recent local-yield decision may be retained if the spike shows it is necessary.
-
-Do not add long unbounded path memory.
-
----
-
-# Relationship and movement priority
-
-Personal space is mutual, but yielding is not always symmetric.
-
-The detailed numeric priority policy belongs to the spike, but the behavioural ordering must support these cases.
-
-## Hostile active versus hostile active
-
-- neither side may phase through;
-- ordinary opposing lines should settle into a physical front;
-- contact should not explode the line apart;
-- fighters may slide laterally or compress locally where existing movement allows;
-- no ordinary body collision itself deals pressure, hits, knockdown, or morale effects.
-
-## Allied ordinary flow
-
-Allies cooperate.
-
-They may:
-
-- yield;
-- sidestep;
-- queue;
-- squeeze within an accepted allied minimum spacing;
-- pass through a locally opened gap;
-- merge into a blob;
-- overtake according to existing confidence/rank/behaviour rules.
-
-They may not simply share the same final occupied space.
-
-## Formation discipline
-
-Existing formation/behaviour state may influence acceptable spacing/flow:
-
-- formed/heavy disciplined units resist unnecessary compression and preserve slots;
-- moving ordinary Empire formations may become imperfect/blobby under pressure;
-- loose/skirmish behaviour tolerates more local irregularity;
-- this is a spacing preference, not a new discipline stat.
-
-Do not duplicate the behaviour-profile authority.
-
-## `pushThrough`
-
-Existing `pushThrough` behaviour should stop meaning literal phase-through once production collision is active.
-
-Instead it may:
-
-- ask lower-priority allied bodies to yield more strongly;
-- accept tighter temporary allied spacing;
-- disrupt slot/cohesion state through existing accepted interfaces where appropriate;
-- make progress through a friendly crowd if physical gaps can be created.
-
-It must not permit hostile phasing or teleportation.
-
-## Routing
-
-Routing is urgent forced movement.
-
-Routers should receive high local movement priority against ordinary allied traffic and may disrupt allied spacing as others get out of the way.
-
-Routing does not gain immunity to hostile bodies, world bounds, or physical occupancy.
-
-## Casualty groups
-
-A coherent casualty group represents people saying, in effect, “make a hole.”
-
-Ordinary allies should generally yield where practical, but the assistance system retains ownership and no magical right-of-way through hostiles is created.
-
-## Yielding egress
-
-`yieldingEgress` is the lowest active movement priority against living movers.
-
-A dead barbarian leaving for respawn waits for the battle, not the other way around.
-
----
-
-# Downed-body crossing
-
-Downed people must matter without becoming walls.
-
-Preferred sequence for an ordinary living mover encountering `downedSoft`:
-
-```text
-1. preserve intended progress if no overlap;
-2. take a small bounded lateral/local avoidance option if practical;
-3. if locally boxed and forward progress is still important, carefully cross the soft footprint at reduced progress;
-4. otherwise wait/stall and let existing stuck handling see the failure.
-```
-
-Crossing a downed footprint:
-
-- is not damage;
-- is not an attack;
-- does not move the casualty;
-- does not alter their death count/treatment/energy;
-- should be visually/diagnostically distinguishable from ordinary unobstructed movement if retained in production.
-
-The exact reduced-progress amount is tuning work after the spike. Do not create a full stepping animation or prone-body physics system.
-
----
-
-# Interaction with existing stuck handling
-
-Collision creates legitimate blocked movement.
-
-Use existing stuck/recovery behaviour where possible rather than adding a competing collision-stuck state machine.
-
-Expose enough collision evidence for the existing behaviour layer to distinguish:
-
-```text
-wanted to move
-→ gait allowed movement
-→ world/authority allowed movement
-→ personal space reduced/stopped movement
-```
-
-Repeated blocked movement may therefore lead to existing recovery/detour behaviour.
-
-Do not teleport an entity back to its slot merely because collision prevented progress.
-
----
-
-# State ownership
-
-Suggested narrow stores/read models:
-
-## IndividualPhysicalOccupancyStore
-
-Derived current-tick/read-mostly state:
-
-- occupancy class;
-- effective radius/category;
-- yielding priority/category;
-- participates in collision;
-- stable occupancy/presence evidence.
-
-It does not own lifecycle, combat eligibility, assistance, player presence, energy, or movement intent.
-
-## IndividualCollisionResolutionStore
-
-Reusable entity-indexed current-tick evidence:
-
-- intended/pre-collision position or delta;
-- final collision-resolved position/delta;
-- neighbour/candidate count;
-- blocked/reduced/redirected flags;
-- principal occupancy relationship encountered;
-- local yield/pass side if stateful hysteresis is required;
-- downed-soft crossing flag;
-- yielding-egress wait/yield flag;
-- bounded counters/history.
-
-It must not become a second world-position authority.
-
-The authoritative world position remains the existing world position storage after the canonical movement/collision boundary.
-
----
-
-# Production ordering target
-
-8A is isolated and must not force this exact integration prematurely.
-
-The production target after a successful spike is approximately:
-
-```text
-1. project lifecycle/presence/energy capability
-2. existing unit/specialist movement authorities determine requested movement
-3. existing gait/bounds policy limits requested movement
-4. personal-space/collision resolves final physically legal local displacement
-5. record final actual movement evidence
-6. combat targeting/action/defence consumes final positions
-7. casualty/treatment/lifecycle procedures
-8. energy expenditure/recovery consumes final actual movement
-9. morale/pressure/unit summaries/history/debug
-```
-
-Where several specialist movement authorities already move at different points in the tick, the accepted implementation may require a common candidate-movement boundary or several calls into one shared collision resolver.
-
-Do not reorder combat/casualty semantics casually. Any orchestration refactor must prove unchanged outcomes in non-collision scenarios.
-
----
-
-# Implementation slices
-
-## 8A — Collision/spacing feasibility spike
-
-Status: accepted feasibility evidence. The spike is not production architecture.
-
-Purpose:
-
-Select and validate a deterministic local personal-space approach before production integration.
-
-This is a spike, not the final API.
-
-Deliver:
-
-- isolated headless collision/spacing experiment using existing world scale and local spatial indexing;
-- one or at most two bounded candidate algorithms if comparison is genuinely useful;
-- deterministic integer/fixed-point output;
-- stable canonical tie-breaking;
-- local neighbour counts and collision-resolution diagnostics;
-- retained debug-only route:
-
-```text
-/test?scenario=personal-space-spike
-```
-
-Start paused at tick 0.
-
-Required chambers/cases:
-
-1. **Hostile head-on fronts**
-   - two compact groups approach;
-   - no interpenetration;
-   - front settles without explosive separation or vibration.
-
-2. **Allied crossing streams**
-   - two allied groups cross/merge;
-   - local yielding/sidestepping occurs;
-   - no phase-through and no permanent gridlock.
-
-3. **Catch-up / overtaking**
-   - one mover is only slightly faster than another;
-   - result may be awkward because that is authentically awkward;
-   - no flicker/teleport/alternating pass-side pathology.
-
-4. **Downed-body flow**
-   - several standing movers encounter sparse downed bodies;
-   - they preferentially avoid;
-   - they can still make bounded careful progress if a soft body would otherwise create a permanent wall.
-
-5. **Yielding barbarian egress**
-   - a terminal respawn-egress barbarian crosses living traffic;
-   - the egressing entity waits/sidesteps/yields;
-   - living tactical movement is not meaningfully displaced by the dead player;
-   - no literal overlap.
-
-6. **Representative dense crowd**
-   - enough entities to expose solver stability and local-query behaviour.
-
-Tests:
-
-- deterministic replay;
-- input-order independence;
-- no illegal standing overlap at stable resolution points;
-- bounded iteration/pass count;
-- world bounds;
-- no all-entity scan;
-- no hot-loop inspection-object creation;
-- blocked cases terminate rather than spin;
-- 100/500/1,000/2,000 structural/performance samples;
-- report stage mean/max/p95 without weakening existing thresholds.
-
-Boundary:
-
-Do not integrate collision into the production `/` battle yet.
-Do not alter existing formation/combat/casualty/energy outcomes outside the spike.
-Do not implement 8B.
-Do not implement flavour art.
-
-Spike acceptance is based on headless evidence plus human visual inspection of the retained route.
-
-### 8A implementation evidence
-
-The retained spike uses one deliberately narrow candidate algorithm:
-
-```text
-integer desire-anchored requested step
-→ bounded discrete forward/lateral/reduced/wait/backtrack candidates
-→ existing spatial-grid local queries
-→ canonical entity-ID relaxation for at most eight passes
-→ local connected-component origin fallback only if a standing overlap remains
-```
-
-The correction retains each mover's spawn-anchored desire line and ranks normal
-progress or line reacquisition ahead of local detours. Per-entity typed state
-commits to an initial side for 40 ticks, the opposite tactic for 100 ticks after
-no meaningful goal progress, and a wider wait/backtrack alternative for 200
-ticks. Eight sustained normal-progress ticks clear the episode; a materially
-changed desire resets its origin and state. A tactic never exposes its opposite
-side within the same phase.
-
-Same-direction allied resolution gives the forward leader right-of-way from
-start-of-tick ordering, so only the rear follower yields. In open space a
-faster follower commits to one passing side, clears the leader by the combined
-radii plus a one-unit margin, remains laterally clear until safely ahead, and
-then reacquires its original desire line without displacing the leader.
-
-Perpendicular allied conflicts first use a bounded 20-tick pair-local
-prediction. When one mover can wait while the other naturally clears, exactly
-one enters explicit courtesy-yield state; the recipient cannot reciprocate or
-form a courtesy chain. Yield selection compares predicted clearance and lost
-goal progress before using entity ID as the exact final tie-break. There is no
-cardinal-axis right-of-way. An expired or failed courtesy attempt is not reset
-against the same conflict and falls through to the persistent detour policy.
-
-Assisted movement still outranks ordinary standing movement and
-`yieldingEgress` remains lowest. Hostile contact searches only
-reduced-forward/stationary fallbacks. Downed soft occupancy retains early
-avoidance and permits reduced careful crossing after a bounded unsuccessful
-detour. The final safety fallback expands through only the locally connected
-hard-standing component before restoring its tick-start positions; unrelated
-chambers are not reset.
-
-The implementation stores all proposal, candidate, diagnostic, and replay state
-in fixed-size typed arrays. Candidate output is monotonic through a fixed twelve
-slot entity budget. The spatial grid and caller-owned query output are reused;
-there is no entity-against-all-entities production path or per-candidate result
-object. The spike remains an exclusive sandbox authority and is not reachable
-from the production `/` scenario.
-
-Headless evidence covers:
-
-- hostile fronts settling without late position vibration;
-- a southbound allied stream retaining southward progress, bounded lateral
-  displacement, and desire-line reacquisition while crossing east/west traffic;
-- a bounded non-reciprocal courtesy wait plus exact 90-degree rotational
-  equivalence for an otherwise identical allied crossing conflict;
-- a faster rear ally using a committed radius-aware open-space bypass, then
-  reacquiring its desire line without slowing or displacing its slower leader;
-- both avoidance and reduced crossing of downed soft occupancy;
-- respawn egress using bounded sidestep/retreat rather than following a living
-  stream sideways, then resuming progress toward respawn;
-- exact 40/100/200-tick tactic commitments and bounded dense-front
-  direction/strategy changes across 1,000 ticks;
-- deterministic replay and reversed-input-order equivalence;
-- world bounds, bounded passes, blocked termination, and zero final standing
-  overlap;
-- retained debug snapshot arrays, footprint/vector/state rendering grammar,
-  and the paused `/test?scenario=personal-space-spike` route.
-
-Representative isolated dense-front measurements on the implementation
-machine (40 measured ticks after 5 warm-up ticks; structural assertions only):
-
-| entities | mean ms/tick | p95 ms/tick | max ms/tick | max passes | max local candidates | unresolved overlaps | fallback resets |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 100 | 0.666 | 1.294 | 2.249 | 2 | 2,370 | 0 | 0 |
-| 500 | 2.048 | 2.268 | 2.337 | 2 | 11,596 | 0 | 0 |
-| 1,000 | 8.269 | 8.985 | 11.331 | 3 | 55,358 | 0 | 2,322 |
-| 2,000 | 16.712 | 17.703 | 18.089 | 3 | 110,445 | 0 | 4,412 |
-
-These values are not production-collision acceptance thresholds. The retained
-121-entity mixed chamber retains zero unresolved standing overlap across the
-1,000-tick stability interval. The deliberately extreme 1,000/2,000 compact
-front fixtures activate the connected-component safety fallback; this visible
-cost and conservative stall are spike findings, not accepted production policy.
-
-Production-design findings for 8B and later:
-
-- the four-unit standing and five-unit soft radii are successful spike
-  calibration values, not yet accepted production constants;
-- rebuilding the existing grid once per relaxation pass is simple and stable,
-  but a mutable/local reservation index should be compared before production
-  adoption if full-pipeline profiling shows grid rebuild cost matters;
-- the existing grid's canonical local-result sort is deterministic but remains
-  visible work in dense crowds;
-- the connected-component origin fallback guarantees bounded termination but
-  is expensive and deliberately over-stalls extreme compact fronts; production
-  must not adopt it without replacement or explicit acceptance;
-- retained detour phases prevent timer-expiry re-entry chatter. Courtesy and
-  bypass choices are geometry/progress based, with entity ID reserved for exact
-  ties; production integration should still inspect emergent local bias at
-  larger battle scales;
-- 8D must add formation/cohesion-dependent lateral freedom: loose groups may
-  spill around a front, while formed or disciplined groups should resist
-  lateral peel-off. That behavior is intentionally absent from 8A;
-- soft crossing deliberately permits overlap only with `downedSoft`; 8B must
-  derive occupancy from lifecycle/presence rather than trust spike content;
-- yielding egress behaved correctly in the isolated priority case, but 8F must
-  prove the same property around production movement authorities and immobile
-  casualties.
-
-## 8B — Occupancy contract and collision authority boundary
-
-Status: accepted. Its contract is consumed by the active 8C slice below.
-
-Deliver:
-
-- final occupancy class vocabulary;
-- derived occupancy projection from lifecycle/player presence/assistance;
-- accepted personal-space geometry constants;
-- allocation-free collision adapter/store contract;
-- production orchestration boundary prepared;
-- bounded debug inspection;
-- no broad behaviour retuning.
-
-Prefer to establish the contract before changing every movement authority.
-
-### 8B implementation evidence
-
-The production-facing occupancy vocabulary is finalised as:
+Accepted derived physical classes:
 
 ```text
 activeStanding
@@ -728,629 +108,454 @@ yieldingEgress
 nonBattlefield
 ```
 
-`IndividualPhysicalOccupancyStore` is an entity-indexed derived projection. It
-reads only the accepted lifecycle, player-presence, and sparse active drag-group
-authorities. Active characters with active presence become `activeStanding`;
-downed, terminal-awaiting-comfort, and terminal-comforted presences become
-`downedSoft`; the patient and required helpers of a currently dragging group
-become `assistedMoving`; `respawnEgress` becomes `yieldingEgress`; and
-`waitingAtRespawn`/`removedFromBattlefield` become `nonBattlefield`. Gathering
-helpers remain active standing and a not-yet-moving patient remains downed soft.
-The projection owns none of those source states.
+Lifecycle/player-presence/assistance remain their source authorities.
 
-Accepted production geometry is integer circular occupancy with radius four for
-active standing, assisted moving, and yielding egress, radius five for downed
-soft occupancy, and radius zero for non-battlefield presence. The geometry is
-explicit immutable configuration rather than equipment/body-weight inference.
-Typed flags separately expose hard standing, soft downed, assisted-group, and
-strongly-yielding semantics.
+## Downed soft occupancy
 
-`IndividualCollisionResolutionStore` provides reusable typed current-tick
-evidence for permitted and resolved deltas, local neighbour/candidate counts,
-relationship, blocked/reduced/redirected flags, and bounded local
-detour/courtesy/overtake decision memory. Its movement adapter validates that a
-resolved integer step cannot exceed the squared-distance budget of the already
-permitted step and can apply only from the mover's current in-bounds position.
-There are no target, destination, gait-selection, lifecycle, strategic query,
-or pathfinding inputs.
+Prefer local avoidance.
 
-Production orchestration now projects occupancy beside the existing tick-start
-movement authorities and opens the collision evidence boundary. During 8B the
-adapter is explicitly disabled and records exact pass-through evidence only:
+If useful bounded avoidance cannot provide progress, permit reduced careful
+crossing rather than creating a permanent body wall.
 
-```text
-existing movement authorities mutate the canonical world position
-→ permitted delta == collision-resolved delta == final actual delta
-→ existing energy classification consumes that same final displacement
-```
+Crossing never moves or mutates the casualty.
 
-No production position, gait, combat, casualty, assistance, presence, energy,
-target, destination, or event outcome is changed. Bounded inspected-individual
-debug state exposes occupancy class/radius and permitted/resolved evidence, but
-no renderer or UI behavior is added.
+## Rescue groups
 
-Headless evidence covers all five derived occupancy classes, dragging-only
-assisted-group projection, hard/soft/yielding flags, geometry validation, typed
-array identity reuse, backwards/stale projection rejection, non-increasing
-preserve/shorten/redirect/stop outcomes, current-position/world-bound commit
-validation, disabled production resolution, and exact equality between final
-collision evidence and the displacement consumed by energy. Existing casualty,
-specialist movement, combat, replay, and production integration suites remain
-the unchanged-behaviour evidence.
+Patient/helpers share one collision-resolved displacement.
 
-The retained typed storage is 45 bytes per entity: seven bytes for occupancy
-projection and 38 bytes for collision evidence/local state, or 90,000 bytes at
-2,000 entities. Isolated 40-tick structural measurements on the implementation
-machine were:
+Group membership and destination remain casualty-assistance authority.
 
-| entities | mean ms/tick | max ms/tick | storage bytes |
-| ---: | ---: | ---: | ---: |
-| 100 | 0.053 | 0.367 | 4,500 |
-| 500 | 0.085 | 0.183 | 22,500 |
-| 1,000 | 0.035 | 0.139 | 45,000 |
-| 2,000 | 0.051 | 0.103 | 90,000 |
+Living rescue movement has high allied right-of-way but no hostile phasing.
 
-These timings cover projection plus disabled pass-through evidence only. They
-are not 8C solver predictions. No spatial query, collision pass, connected-
-component fallback, cardinal-axis preference, or entity-ID passing policy has
-entered production.
+## Yielding egress
 
-## 8C — Active standing collision and hostile fronts
+`respawnEgress` is physically present but lowest-priority battlefield traffic.
 
-Status: accepted.
-
-Deliver:
-
-- ordinary formation/member movement consumes the collision resolver;
-- active standing people cannot finish in illegal standing overlap;
-- hostile lines form stable fronts;
-- world bounds/gait/energy remain non-increasing;
-- final displacement remains energy authority;
-- existing engagement/reach rules consume final positions.
-
-### 8C implementation evidence
-
-Production now resolves the ordinary, non-routing formation/member step after
-formation has applied its existing intent, blocker/contact, world-bound, and
-Milestone 7 gait/energy ceilings, and before ordinary movement observation,
-specialist authorities, targeting, and combat. Only entities projected as
-`activeStanding` and still eligible for ordinary participation can have that
-step changed. Routing, casualty gathering/dragging, medical approach, trauma
-withdrawal, respawn egress, downed soft occupancy, assisted occupancy, and
-same-tick lifecycle/assistance transitions remain outside the active adapter.
-
-The production candidate uses one reusable 16-unit-cell spatial grid and typed
-entity-indexed scratch state. It compares bounded local relative movement
-segments for active-standing pairs. Simultaneously moving formation members
-are evaluated from their relative trajectories rather than treating either
-origin as a static obstacle, preserving coherent non-conflicting translation.
-When an ordinary mover conflicts with a non-moving active-standing presence,
-its already-permitted integer step is shortened toward zero. Moving/moving
-conflicts mark both participants symmetrically and shorten them together for at
-most eight passes. The remaining local conflict participants stop if that bound
-is reached. This is a local pair stop, not the spike's connected-component
-origin reset.
-
-No pass side, cardinal axis, faction-wide priority, or entity-ID movement
-preference exists. Grid results are canonical, but movement conflicts are
-marked and reduced simultaneously; entity ID is used only to avoid evaluating
-the same pair twice and as a final diagnostic blocker tie-break. 8C performs no
-lateral allied-flow, courtesy, overtaking, push-through, or routing policy.
-
-The 8B permitted/resolved arrays remain the authority boundary. Every resolved
-step is integer, in bounds, and no longer than its permitted squared-distance
-budget. The canonical world position is replaced before the existing ordinary
-energy checkpoint and before individual combat. Energy therefore classifies
-the resolved tick-start-to-final displacement, while target selection and
-engagement report distance from the same resolved positions. Non-8C movement
-authorities retain exact pass-through collision evidence.
-
-Bounded debug state exposes per-entity permitted/resolved deltas,
-blocked/reduced/redirected state, local neighbour/candidate counts, and the
-principal active-standing blocker. The compact combat snapshot also exposes
-mover, blocked, reduced, pass, query, candidate, and unresolved-overlap counts.
-No renderer or flavour visual was added.
-
-Headless coverage proves:
-
-- two opposing two-member groups stop at legal eight-unit standing separation;
-- the settled front remains position-stable for 100 ticks with no standing
-  overlap or lateral jitter;
-- distant ordinary production movement remains an exact pass-through;
-- resolution never exceeds the permitted squared-distance budget;
-- energy displacement equals the collision-resolved displacement;
-- combat target-distance inspection reads the final resolved positions;
-- replay is exact and reversing equivalent unit-definition input order does
-  not change the trace;
-- the solver retains zero unresolved new overlaps and at most eight passes.
-
-The retained production scenarios were rebaselined only where a new physical
-front changes movement-derived energy, combat cadence, or subsequent morale.
-Drag-group displacement and helper-order equivalence remain unchanged. Routing
-interaction is deliberately not collision-resolved in 8C and remains an 8D
-production boundary. Same-tick assistance/lifecycle occupancy refresh remains
-an explicit 8E/8F integration concern.
-
-Representative 40-tick opposing-front measurements on the implementation
-machine were:
-
-| entities | mean ms/tick | max ms/tick | max passes | max local candidates | workspace typed bytes |
-| ---: | ---: | ---: | ---: | ---: | ---: |
-| 100 | 0.494 | 3.484 | 2 | 1,026 | 3,100 |
-| 500 | 1.149 | 3.519 | 2 | 5,226 | 15,500 |
-| 1,000 | 1.789 | 2.287 | 2 | 10,476 | 31,000 |
-| 2,000 | 3.767 | 6.051 | 2 | 20,976 | 62,000 |
-
-The workspace retains 31 typed bytes per entity in addition to the accepted
-8B occupancy/collision stores and the reusable spatial-grid buckets. These are
-structural local-front measurements, not a timing threshold or an 8D allied
-crowd-flow prediction.
-
-Verification passed with 1,200 tests across 83 files, 118 performance checks
-across 21 files, TypeScript typechecking, and the production build. The full
-dense production fixture remains a deliberately adverse measurement: its
-authored tick-start placements already contain standing overlap, so its
-reported minimum separation remains zero. The 8C authority prevents new or
-worsened overlap but cannot separate a stationary pre-existing overlap without
-granting movement that no movement authority permitted. Initial-placement and
-same-tick occupancy-transition repair therefore remain production integration
-requirements for the later occupancy/flow slices; legal hostile-front inputs
-finish and settle without standing overlap.
-
-## 8D — Allied crowd flow, overtaking, push-through, and routing priority
-
-Status: accepted.
-
-Deliver:
-
-- allied yielding/sidestepping/queueing;
-- deterministic pass-side stability if required;
-- formation-style spacing preference;
-- existing overtaking/profile influence;
-- physical `pushThrough` semantics without phasing;
-- routing priority/congestion;
-- stuck integration.
-
-### 8D implementation evidence
-
-Production allied flow is a pair-local policy stage immediately before the
-accepted 8C hard resolver. It consumes each entity's already-permitted integer
-step and the existing formation movement style/cohesion state. It can stop,
-shorten, or rotate that step within its original distance budget, but cannot
-change gait, destination, target, lifecycle, or world bounds. The hard resolver
-remains the final physical authority and the resulting world displacement is
-still the evidence consumed by Milestone 7 energy.
-
-Only active-standing ordinary formation members and active-standing routers
-participate. Negotiation is inter-unit: existing same-unit slot correction,
-member ordering, and formation overtaking remain owned by formation behaviour.
-Downed/soft occupancy, assisted groups, casualty/drag movement, medical and
-trauma specialists, and respawn egress remain deliberately outside this slice.
-
-The bounded local policy provides:
-
-- pair-specific courtesy waits when tick-start positions, radii, and requested
-  movement predict that one ally can clear within 20 ticks; the explicit
-  recipient cannot reciprocate or begin a courtesy chain during that episode;
-- faster-rear/slower-leader recognition, with the leader's step preserved and
-  a committed follower bypass only where local clearance exceeds the combined
-  radii plus the small occupancy margin;
-- persistent 40/100/200-tick detour phases anchored to the original desire
-  direction, with progress-based completion and reset on blocker clearance or
-  material desire change rather than per-tick side selection;
-- lateral spill for existing loose/skirmish/blob styles, while formed and
-  cohesive movement prefers waiting/forward preservation;
-- physical `pushThrough` as a stronger local request for an ally to yield,
-  without reduced radii or phasing; and
-- pair-local router priority against ordinary allies, while hostile bodies and
-  world bounds remain hard blockers and routing energy semantics remain forced.
-
-Passing/detour sides are selected from geometry and bounded local clearance.
-Stable entity ID is used only after exact geometric equality. There is no
-cardinal-axis preference, connected-component fallback, global right-of-way,
-pathfinding, target change, or duplicate discipline state. When collision
-removes useful goal progress, the adapter reports that evidence to the existing
-formation-owned stuck counters; formation behaviour alone retains authority to
-choose its existing recovery response.
-
-Persistent state uses typed entity-indexed arrays for decision kind, partner,
-side, start tick/position, original desire, phase, and overtake clearance. The
-collision store now retains 54 typed bytes per entity and occupancy remains
-seven. The per-tick 8C/8D workspace uses 38 typed bytes per entity, for 99 typed
-bytes per entity across the three stores (198,000 bytes at 2,000 entities), in
-addition to reused grid buckets and bounded scratch arrays. The compact debug
-snapshot exposes global courtesy/overtake/detour/router/push-through counts and
-the inspected entity's current decision, partner, side, phase, age, and
-clearance evidence.
-
-Focused headless coverage proves allied crossing courtesy without reciprocal
-deadlock, rotational equivalence, open-space overtaking without slowing or
-displacing the leader, committed pass side and desire-line reacquisition,
-loose-versus-formed lateral freedom, physical push-through, router priority
-without hostile phasing, 1,000-tick bounded direction changes/no overlap,
-replay and reversed unit-definition equivalence, stuck-evidence integration,
-and final collision displacement remaining the energy measurement.
-
-The 8D authority-transition correction validates each remembered yielding
-decision against current pair authority before applying it. A newly routing
-entity immediately discards courtesy/detour/overtake memory that would yield to
-a non-router; a newly `pushThrough` entity does the same only against an
-ordinary non-routing, non-push-through ally. The cleared pair is eligible for
-renegotiation in the same tick. Routing remains above push-through, while two
-routers or two push-through peers retain ordinary bounded negotiation. Other
-formation-style changes do not globally clear persistent crowd memory.
-Transition regressions cover courtesy-to-routing, detour-to-routing,
-ordinary-yield-to-push-through, routing versus push-through, both-routing, and
-both-push-through cases with legal non-overlapping results.
-
-Representative 40-tick open-space allied-overtaking measurements were:
-
-| entities | mean ms/tick | max ms/tick | max passes | max local candidates |
-| ---: | ---: | ---: | ---: | ---: |
-| 100 | 0.580 | 1.293 | 2 | 1,908 |
-| 500 | 1.859 | 3.966 | 2 | 10,058 |
-| 1,000 | 3.677 | 6.534 | 2 | 20,245 |
-| 2,000 | 7.391 | 10.775 | 2 | 40,617 |
-
-The same run's legal hostile-front case remained bounded at two passes and
-20,976 candidates for 2,000 entities (8.491 mean, 12.562 maximum ms/tick).
-These are structural measurements on the implementation machine, not product
-timing thresholds. The deliberately impossible dense integrated fixture is a
-material integration concern because the pair-local prediction/clearance work
-adds cost while its authored overlapping placements cannot be repaired without
-new movement authority; later production soak and initial-placement work must
-continue to track that case. In the final full-suite run its two exact
-production samples measured 281.853 and 286.556 mean ms/tick (376.958 and
-333.360 maximum), so this adverse case has a material performance cost even
-though bounded legal-front and allied-flow cases remain structurally local.
-
-Verification passed with 1,215 headless tests across 84 files, 122 performance
-checks across 21 files, TypeScript typechecking, and the production build.
-
-No connected-component fallback, reduced allied physical radius, production
-specialist collision, downed crossing, assistance transition repair, or 8E+
-behaviour was added.
-
-## 8E — Downed soft occupancy and casualty-group integration
-
-Status: accepted.
-
-Deliver:
-
-- downed/terminal stationary soft footprints;
-- bounded avoidance and careful-crossing fallback;
-- no corpse-wall deadlock;
-- drag-group coherent collision;
-- ordinary allies yield appropriately to active rescue groups;
-- treatment/range/lifecycle ownership unchanged.
-
-### 8E implementation evidence
-
-The accepted occupancy projection is now consumed by ordinary production
-movement for all three in-scope battlefield classes. Active-standing entities
-remain the only ordinary movers. `downedSoft` and `assistedMoving` entities are
-included in the same bounded local spatial grid as stationary occupancy;
-yielding egress remains excluded until 8F.
-
-For a requested ordinary step that intersects `downedSoft`, the resolver first
-tests a fixed bounded set of integer forward/lateral alternatives within the
-already-permitted squared-distance budget. An avoidance candidate must make
-positive progress along the existing permitted desire, preventing a repeated
-zero-progress sidestep from turning a casualty into a practical wall. If no
-useful local alternative is legal, the mover takes the smallest non-zero
-forward integer step through soft occupancy. Hard active/assisted occupancy and
-world bounds remain legal constraints during that crossing. Collision changes
-only the mover's step; casualty position, lifecycle, hits, death count, target,
-treatment, and energy are not inputs or outputs.
-
-An existing dragging group is projected as `assistedMoving` for its patient and
-all required helpers. Ordinary allies constrain their step against that group
-and expose explicit assisted-yield evidence. Group membership, destination,
-phase, hand commitment, gait, and drag cadence remain wholly owned by the
-accepted casualty-assistance authority. That authority now asks a narrow
-collision adapter to resolve its one shared energy-limited delta. The adapter
-tests the union of patient/helper footprints with bounded local queries,
-ignores participants in the same group, treats hostile active standing and
-other assisted groups as hard occupancy, and applies downed avoidance/careful
-crossing semantics. One identical resolved delta is then committed to every
-participant, so collision cannot separate helpers from the patient or grant a
-longer step. Externally moved patients remain energetically free, helpers pay
-only for final actual displacement, and the drag surcharge remains zero.
-When the unchanged safe-point destination is occupied by a stationary allied
-body, exact overlap is no longer possible: legal patient contact with that body
-completes the existing destination episode. Hostiles and other assisted groups
-cannot satisfy this contact boundary. This preserves destination selection and
-treatment range while preventing an occupied treatment point from becoming a
-permanent drag deadlock.
-
-The same-tick orchestration boundary is event-driven rather than global. The
-tick-start projection is reused while casualty authority is unchanged. A
-gathering-to-dragging transition, cancellation, or reached-safety transition
-reprojects occupancy immediately inside the casualty movement stage before a
-later group can resolve movement. It refreshes class flags without rebuilding
-the spatial grid because those transitions do not move the changed entity at
-that boundary. Groups newly created after combat do not move until a later
-tick and are covered by the next tick-start projection. Final debug projection
-still reflects all later lifecycle/assistance changes.
-
-Reusable state adds one byte of recorded-step ownership to collision evidence,
-six bytes per entity to the ordinary collision workspace, and nine bytes per
-entity for the casualty-group inclusion/position snapshot. Across occupancy,
-collision evidence, ordinary workspace, and casualty-group workspace this is
-115 typed bytes per entity (230,000 bytes at 2,000 entities), excluding the two
-reused spatial-grid bucket sets and existing sparse assistance records. No
-per-candidate participant or candidate arrays are allocated in the drag hot
-loop.
-
-Bounded debug evidence exposes soft avoidance/crossing and assisted-yield flags
-per inspected entity; global snapshots expose ordinary soft/assisted counts and
-casualty-group requested, moved, blocked, redirected, local-query/candidate,
-same-tick occupancy-refresh, and occupied-destination contact counts.
-
-Focused headless coverage proves sparse soft avoidance, reduced crossing from
-a boxed soft cluster, no collision mutation of casualty position/lifecycle/
-death-count/energy state, same-tick assisted projection, ordinary allied yield,
-coherent patient/helper translation, hostile non-phasing, rescue-group soft
-crossing, occupied allied safe-point contact without overlap, final helper/
-patient movement and energy evidence, deterministic replay, and helper-input-
-order equivalence. Retained production fixtures were rebaselined only where new
-casualty/rescue occupancy changes later congestion, movement-derived combat, or
-morale timing.
-
-Representative 40-tick structural measurements were:
-
-| case | entities | mean ms/tick | max ms/tick | max local candidates |
-| --- | ---: | ---: | ---: | ---: |
-| downed-soft approach | 100 | 0.280 | 0.699 | 453 |
-| downed-soft approach | 500 | 0.791 | 1.135 | 2,303 |
-| downed-soft approach | 1,000 | 1.580 | 2.150 | 4,616 |
-| downed-soft approach | 2,000 | 3.052 | 3.563 | 9,240 |
-| assisted-group yielding | 100 | 0.237 | 0.678 | 364 |
-| assisted-group yielding | 500 | 0.783 | 1.255 | 1,879 |
-| assisted-group yielding | 1,000 | 1.510 | 1.953 | 3,780 |
-| assisted-group yielding | 2,000 | 2.977 | 3.362 | 7,566 |
-
-These are local structural cases with reset legal lanes and reused storage, not
-product timing thresholds. The deliberately dense production fixture remains
-the principal integration concern: multiple simultaneous rescue groups add
-bounded union-footprint queries to an already adverse authored crowd whose
-initial overlaps cannot be repaired without new movement authority. 8G soak
-and initial-placement work must continue to measure it.
-
-No medical/trauma approach collision, egress collision, lifecycle selection,
-target selection, global right-of-way, pathfinding, connected-component
-fallback, or 8F behaviour was added.
-
-Verification passed with 1,222 headless tests across 84 files, 130 performance
-checks across 21 files, TypeScript typechecking, and the production build.
-
-## 8F — Yielding player-presence egress
-
-Status: implemented; awaiting technical review.
-
-Deliver:
-
-- terminal barbarian `respawnEgress` becomes physical `yieldingEgress`;
-- always yields to living moving players;
-- local wait/sidestep/route-around behaviour;
-- egressers avoid immobile downed people;
-- egress-to-egress flow;
-- `waitingAtRespawn` and removed presences have no battlefield occupancy;
-- no combat/morale/objective reactivation.
-
-### 8F implementation evidence
-
-The existing respawn-presence authority still owns terminal classification,
-the configured respawn destination, exact arrival, waiting transition, and
-active-set compaction. Its existing walking/energy adapter first produces the
-already-permitted integer step. A narrow egress collision adapter runs only
-after ordinary living movement, active rescue movement, and the deliberately
-unintegrated specialist approaches. It may preserve that step, choose a local
-integer alternative inside the same squared-distance budget, wait, or take a
-bounded lateral/backward step. It cannot alter destination, gait, lifecycle,
-combat, morale, formation, targeting, objective, or assistance authority.
-
-Living `activeStanding` and `assistedMoving` positions are final before the
-egress stage and are never changed by it; faction is not consulted. A yielding
-egress presence queries those final positions and yields locally. Two egress
-presences negotiate at equal priority. Geometry selects the committed side;
-stable entity identity is used only for an exact collinear tie and gives both
-opposing movers complementary physical sides rather than permanent priority.
-There is no global right-of-way, connected-component fallback, pathfinding, or
-strategic destination replacement.
-
-Persistent entity-indexed state retains the blocker, destination, detour side,
-phase, ticks remaining, phase-start destination distance, and normal-progress
-streak. The initial side is committed for 40 ticks. Insufficient destination
-progress advances to the opposite side for 100 ticks, then a 200-tick wider
-alternative beginning with a bounded wait and permitting lateral/backward
-clearance. A clear direct step immediately reacquires the original destination
-line; eight useful normal ticks retire the stale episode. Material destination
-change also resets the episode. The policy therefore cannot choose a new side
-per tick or follow a same-speed living stream sideways forever.
-
-`downedSoft` is preferentially avoided through the same bounded candidates.
-Only when every hard-legal local alternative fails may the egress presence take
-the existing one-unit careful soft crossing. The casualty remains stationary
-and no casualty, hit, lifecycle, treatment, death-count, or energy state is
-written by collision.
-
-The same-tick presence boundary is entity-targeted. A barbarian classified into
-`respawnEgress` after tick-start projection is refreshed to `yieldingEgress`
-before the egress pass, even though classification-tick movement remains
-delayed by the accepted lifecycle rule. Exact arrival refreshes that entity to
-`nonBattlefield` immediately when presence becomes `waitingAtRespawn`. Neither
-transition rebuilds unrelated occupancy. When no egress presence is active the
-adapter skips its spatial-grid build entirely.
-
-Final collision-resolved movement is recorded in the shared collision evidence
-before position commit. Milestone 7 therefore charges only actual walking
-displacement; collision waiting is stationary/free and no redirected or
-backtracking result can exceed the permitted gait-distance budget.
-
-Focused headless coverage proves living crossing movement remains unchanged
-while egress yields without final overlap, rescue-group priority, stable
-40/100/200-tick escalation and desire reacquisition, soft avoidance and careful
-crossing without casualty mutation, equal-priority egress peer clearance,
-same-tick entry/waiting occupancy, final collision/energy evidence, exact
-replay, and retained reversed scenario-input equivalence. The old dense
-representative energy fixture now correctly records a physically boxed egress
-wait instead of phase-through; the dedicated legal-lane fixture retains actual
-egress movement evidence.
-
-The egress workspace retains 26 typed bytes per entity, adding 52,000 bytes at
-2,000 entities, plus one reused local spatial grid and bounded query output.
-Across the accepted occupancy, shared collision evidence, ordinary movement,
-casualty-group, and egress stores, retained typed storage is 141 bytes per
-entity (282,000 bytes at 2,000 entities), excluding reused grid buckets and
-existing sparse assistance/presence records.
-
-Representative 40-tick legal-lane measurements were:
-
-| entities | mean ms/tick | max ms/tick | max local queries | max local candidates |
-| ---: | ---: | ---: | ---: | ---: |
-| 100 | 0.295 | 1.677 | 50 | 492 |
-| 500 | 0.435 | 1.269 | 250 | 2,492 |
-| 1,000 | 0.548 | 1.078 | 500 | 4,996 |
-| 2,000 | 1.078 | 1.701 | 1,000 | 9,996 |
-
-These are structural local measurements on the implementation machine, not
-product timing thresholds. The deliberately dense integrated production case
-remains the accepted 8G soak/initial-placement concern; 8F adds no egress-grid
-cost on ticks with no active egress.
-
-No medical-claim/trauma specialist collision, citizen Gate egress, respawn
-batching/re-entry, 8G consolidation/visual acceptance, or Milestone 9 work was
-added.
-
-Verification passed with 1,231 headless tests across 85 files, 134 performance
-checks across 22 files, TypeScript typechecking, and the production build.
-
-## 8G — Production consolidation, soak, performance, retained visual acceptance
-
-Deliver:
-
-- all movement authorities use one accepted collision/occupancy contract;
-- one-hour deterministic soak;
-- representative 2,000-entity battle performance;
-- collision-stage timing diagnostics;
-- no dense pair matrix or per-entity hot allocation;
-- retained `/test?scenario=personal-space` or promoted spike route;
-- collision debug overlay for footprints, blocked/yielding state, and resolved deltas;
-- main `/` battle integration;
-- human inspection.
-
-Milestone 8 is accepted only after the main battle visibly stops behaving like a collection of ghosts.
+It yields to living/assisted traffic, retains its configured respawn
+destination, uses persistent bounded detours/wait/backtrack, and becomes
+non-battlefield immediately on `waitingAtRespawn`.
 
 ---
 
-# Retained visual grammar for Milestone 8
+# Local right-of-way architecture
 
-Milestone 9 will add the flavour renderer. Milestone 8 therefore uses and extends the current debug renderer only.
+Milestone 8 now formalises a role-agnostic **derived local movement
+right-of-way**.
 
-Expose hideable debug evidence for:
+It means only:
 
-- personal-space radius/footprint;
+> if one allied physical participant must yield locally, which one should?
+
+It does not grant speed, distance, overlap, pushing, targeting, or global
+priority.
+
+Accepted/current semantic ordering is approximately:
+
+```text
+forced routing/panic
+active rescue/assisted movement
+pushThrough
+urgent medical response
+ordinary allied movement
+yielding egress
+```
+
+Exact equal-priority interactions use ordinary bounded local negotiation.
+
+Hostiles do not socially yield because of this class.
+
+The contract must remain extensible so later milestones can project role/status
+without changing collision mechanics, for example:
+
+```text
+captain          high allied social/tactical right-of-way
+banner bearer    below captain, above ordinary personnel
+active Physick   above ordinary warriors while responding urgently
+ordinary warrior
+yielding dead player
+```
+
+Do **not** implement captain/banner roles in Milestone 8.
+
+---
+
+# Accepted local crowd behaviour
+
+Carry forward:
+
+- desire-line anchoring;
+- pair-specific non-reciprocal courtesy waiting up to ~20 ticks when another
+  ally is predicted to clear shortly;
+- same-direction slower leader retains movement;
+- faster follower yields/overtakes where combined-radius clearance exists;
+- committed passing side;
+- persistent bounded detours rather than per-tick side switching;
+- approximate 40/100/200-tick escalation for initial/alternate/wider
+  wait-backtrack attempts where applicable;
+- loose formations may spill laterally;
+- formed/cohesive formations resist unnecessary peel-off;
+- routing overrides stale voluntary yielding memory;
+- pushThrough overrides stale ordinary yielding below routing;
+- stable IDs break only exact geometric ties.
+
+---
+
+# Current 8G working-tree checkpoint
+
+The current working tree contains partial 8G implementation on top of accepted
+8F.
+
+Already present according to the progress checkpoint:
+
+- generic typed right-of-way projection;
+- specialist collision adapter;
+- medical approach, trauma withdrawal, and casualty-helper gathering connected
+  to collision-resolved displacement;
+- setup hard-overlap validation/legal-placement support;
+- main/retained scenarios opting into legal placement;
+- debug snapshot/right-of-way evidence;
+- UI inspection text;
+- retained `/test?scenario=personal-space`;
+- personal-space debug display on `/`;
+- initial focused right-of-way and legal-placement tests;
+- typecheck and diff-check passing.
+
+Not yet acceptance-ready:
+
+- right-of-way/crowd-flow reconciliation;
+- full specialist focused regression set;
+- debug/browser inspection;
+- broad integration stabilization;
+- one-hour soak;
+- representative performance report;
+- full suite/build/perf;
+- human visual acceptance.
+
+Do not throw away the partial working tree merely to make the new slice
+boundaries neat.
+
+---
+
+# Remaining implementation stages
+
+## 8G-1 — Simulation contract stabilization
+
+Status: next.
+
+Purpose:
+
+Stabilize the simulation-side 8G work already present. Do not add renderer/UI
+work and do not run broad system suites.
+
+Scope:
+
+- generic right-of-way projection;
+- reconcile accepted routing/pushThrough/rescue/egress priorities;
+- urgent medical response above ordinary allied warriors but below stronger
+  forced/urgent authorities;
+- specialist collision for:
+  - medical approach;
+  - trauma withdrawal/seeking;
+  - casualty-helper gathering where still pre-group;
+- final actual displacement remains energy evidence;
+- hostile bodies remain hard regardless of social right-of-way;
+- no role names inside collision;
+- no captain/banner implementation.
+
+Focused regressions:
+
+- generic right-of-way comparison;
+- ordinary warrior yields to urgent medical response;
+- routing outranks medical;
+- rescue/pushThrough ordering remains accepted;
+- hostile hardness;
+- right-of-way never increases movement budget;
+- specialist movement uses resolved displacement;
+- same-tick relevant occupancy transition where this adapter consumes it.
+
+Checks for this slice only:
+
+```text
+focused right-of-way/specialist tests
+npm run typecheck
+git diff --check
+```
+
+If the specialist hot path materially changes, run one focused structural
+performance case only.
+
+Do not run full `npm test`, `npm run perf`, or broad retained scenarios.
+
+## 8G-2 — Initial placement legality
+
+Purpose:
+
+Stabilize setup-time hard-overlap validation and deterministic legal-placement
+support already present.
+
+Requirements:
+
+- retained/main production scenarios start with zero illegal hard-standing
+  overlap;
+- setup/legal placement is deterministic;
+- runtime collision does not manufacture depenetration movement;
+- deliberately illegal dense fixture remains explicitly adverse/diagnostic;
+- no change to strategic spawn/deployment meaning beyond the minimum legal
+  local placement adjustment;
+- no feature work in runtime crowd behaviour.
+
+Focused tests:
+
+- legal-placement determinism;
+- zero hard-standing overlap for registered production/retained routes;
+- illegal fixture reports evidence instead of silently repairing at runtime;
+- scenario/unit definition reorder expectations where applicable.
+
+Checks:
+
+```text
+focused initial-placement/content tests
+npm run typecheck
+git diff --check
+```
+
+Build only if content/startup wiring requires it.
+
+## 8G-3 — Debug evidence and retained route
+
+Purpose:
+
+Stabilize the already-wired debug snapshot/render/UI surface.
+
+Requirements:
+
+Expose hideable evidence for:
+
+- footprint/radius;
 - occupancy class;
-- intended/pre-collision delta;
-- collision-resolved delta;
-- blocked/reduced/redirected state;
-- principal yielding relationship;
+- permitted versus resolved movement;
+- blocked/reduced/redirected;
+- principal blocker/relationship;
+- courtesy/detour/overtake;
 - downed-soft crossing;
-- yielding-egress state;
-- local collision neighbour count where useful.
+- assisted-group interaction;
+- yielding egress;
+- derived right-of-way.
 
-Do not turn every entity into a wall of text. Prefer circles/arcs/arrows and inspected-entity detail.
+Retain centre gait/activity pip.
 
-Preserve the centre gait/activity pip.
+Retain:
+
+```text
+/test?scenario=personal-space
+```
+
+and main `/` debug availability.
+
+No Milestone 9 flavour art.
+
+Focused checks:
+
+```text
+focused snapshot/render/UI tests
+npm run typecheck
+npm run build
+git diff --check
+browser/HTTP smoke if available
+```
+
+Do not run full headless or full performance suite.
+
+---
+
+## 8H — System integration gate
+
+Status: pending after 8G-1 through 8G-3.
+
+**No new features.**
+
+Purpose:
+
+Prove 8A–8G coexist across the production simulation.
+
+Required:
+
+```text
+npm run typecheck
+full npm test
+npm run build
+git diff --check
+```
+
+Also stabilize named broad regressions/retained behaviour involving:
+
+- physical occupancy;
+- main battle summary/timeline;
+- pursuit;
+- Milestone 4 retained morale/routing behaviour;
+- casualty/treatment;
+- respawn egress;
+- energy movement evidence;
+- deterministic replay and reversed-order expectations.
+
+Guardrails:
+
+- understand a failing expectation before changing it;
+- do not rebaseline unrelated tests merely because collision changed;
+- do not add new Milestone 8 behaviour;
+- do not raise timeouts to hide integration cost;
+- if a genuine missing mechanic is discovered, stop and open a narrow correction
+  slice rather than implementing it inside the gate.
+
+8H is the explicit broad-system test stage.
+
+---
+
+## 8I — Performance and deterministic soak gate
+
+Status: pending after 8H.
+
+**No new gameplay behaviour.**
+
+Required:
+
+- full `npm run perf`;
+- representative legal 2,000-entity Milestone 8 measurement;
+- one-hour deterministic collision soak/replay;
+- collision-stage timing;
+- local query/candidate/pass counts;
+- retained typed storage;
+- allocation/GC evidence where practical;
+- debug-off production measurement;
+- deliberately illegal dense diagnostic fixture reported separately.
+
+Do not treat the illegal dense fixture as representative acceptance performance.
+
+Do not raise timeout limits to pass.
+
+Optimise only measured bottlenecks.
+
+If optimisation changes production simulation code:
+
+```text
+run focused affected regressions
+then repeat 8H before acceptance
+```
+
+---
+
+## 8J — Human visual acceptance gate
+
+Status: pending after 8H and 8I.
+
+No planned simulation feature work.
+
+Inspect:
+
+```text
+/test?scenario=personal-space
+/
+```
+
+Human questions:
+
+- do hostile fronts physically settle without interpenetrating/jitter;
+- do allies cross/overtake/courtesy-yield like awkward people rather than robots;
+- do loose versus formed units have believable lateral freedom;
+- do routers physically disturb allied traffic;
+- do Physicks/responders gain appropriate local passage without parting enemies;
+- do downed people matter without forming corpse walls;
+- do rescue groups remain coherent;
+- do dead egressers get out of the way of the living;
+- does the main battle remain comprehensible and stable over time;
+- does the debug overlay explain the observed behaviour.
+
+If human inspection discovers a defect, create an 8J correction sub-slice with
+a focused regression. Replay 8H/8I only where the correction invalidates those
+gates.
+
+Milestone 8 is accepted only after 8J human approval.
 
 ---
 
 # Performance requirements
 
-Representative target remains roughly 2,000 entities.
+Representative acceptance target remains roughly 2,000 entities with legal
+battlefield placement.
 
-Collision work must:
+Use bounded local spatial queries and reusable typed storage.
 
-- use local spatial candidate queries;
-- reuse storage;
-- avoid allocating result objects in per-entity hot loops;
-- avoid per-tick sorting where stable indexed/bucketed policy can work;
-- avoid dense entity-pair state;
-- bound solver passes explicitly;
-- expose collision-stage timing in performance scenarios;
-- preserve deterministic behaviour under dense stress.
+No:
 
-A deliberately impossible dense pile is a stress fixture, not the optimisation target. Optimise against representative battlefield geometry unless the representative case is unacceptable.
+- dense pair matrix;
+- global pathfinding;
+- connected-component production fallback;
+- hot-loop per-entity object allocation.
+
+The deliberately impossible overlapping pile is diagnostic only.
+
+---
+
+# Visual grammar
+
+Milestone 8 remains debug-oriented.
+
+Expose hideable physical/crowd evidence without turning every entity into text.
+
+Preserve the centre gait/activity pip.
+
+Milestone 9 owns flavour sprites and the dual flavour/debug presentation.
 
 ---
 
 # Explicit deferrals
 
-## Milestone 9
+Milestone 9:
 
-- flavour sprites;
-- layered body/armour/weapon/helmet art;
-- flavour animation/poses;
-- dual flavour/debug mode.
+- flavour sprites and layered art.
 
-## Milestone 10
+Milestone 10:
 
-- captain-led queueing, passage, relief, rotation, and commanded crowd movement;
-- command priority.
+- captain orders;
+- captain right-of-way projection.
 
-## Milestone 11
+Later role/content milestones:
 
-- Sentinel Gate/respawn geometry;
-- scenario-specific entry/exit lanes;
-- citizen terminal Gate egress;
-- reinforcement-wave formation.
+- banner-bearer role/right-of-way;
+- richer Physick role metadata beyond current urgent-response authority.
 
-## Milestone 12
+Milestone 11:
 
-- perception-limited awareness of crowd conditions.
+- citizen Sentinel Gate egress;
+- respawn batching/re-entry.
 
-## Milestone 14
+Milestone 14:
 
-- terrain obstacles/chokepoints;
-- person-terrain collision;
-- rough-ground path cost;
-- long-weapon terrain clearance.
+- terrain/person collision and chokepoints.
 
-## Milestone 15
+Milestone 15:
 
-- REPEL/STRIKEDOWN and other forced-movement collision consequences;
-- controlled shield pushing if approved there/with terrain.
-
-Later:
-
-- exact body polygons;
-- ragdolls;
-- collision damage;
-- tackles/grappling;
-- exact foot placement.
+- forced-movement call consequences such as REPEL/STRIKEDOWN.
 
 ---
 
 # Definition of done
 
-Milestone 8 is complete when:
+Milestone 8 is done after:
 
-- standing active players have deterministic meaningful personal space;
-- hostile groups form stable physical fronts;
-- allies flow/yield without phasing or pathological deadlock;
-- routing and push-through have physical crowd consequences;
-- downed bodies are present and avoidable but not permanent walls;
-- drag groups remain coherent under collision;
-- dead barbarians walking to respawn physically exist but consistently yield to the living battle;
-- waiting/removed presences do not occupy battlefield space;
-- final actual displacement remains the single movement evidence used by energy;
-- collision does not grant movement, gait, targeting, or lifecycle authority;
-- the solver uses bounded local spatial work;
-- representative 2,000-entity performance remains viable;
-- replay/soak remains deterministic;
-- the retained visual route and `/` pass human inspection.
+```text
+8G-1 simulation stabilization
+8G-2 legal placement
+8G-3 debug route
+8H full system integration gate
+8I performance + one-hour soak gate
+8J human visual acceptance
+```
+
+and the core goal/invariants at the top of this plan remain true.
 
 ## Milestone boundary
 
-> Movement decides where somebody is trying to go. Energy decides how hard they can move. Milestone 8 decides whether another actual human body is already in the way.
+> Movement decides where somebody is trying to go. Energy decides how hard they
+> can move. Milestone 8 decides whether another actual human body is already in
+> the way, and who should locally yield when allied bodies compete for space.

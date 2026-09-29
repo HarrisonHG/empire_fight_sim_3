@@ -153,7 +153,7 @@ Milestone 7 is closed.
 
 ## Milestone 8 — Personal Space, Collision, and Crowd Flow
 
-Status: next.
+Status: in progress. 8A–8F accepted; 8G partially implemented and re-sliced. 8H is the explicit system-integration gate, 8I the performance/soak gate, and 8J human acceptance.
 
 Detailed plan:
 
