@@ -240,7 +240,7 @@ boundaries neat.
 
 ## 8G-1 — Simulation contract stabilization
 
-Status: complete; focused right-of-way and specialist collision regressions pass.
+Status: complete; generic class-based right-of-way and focused specialist regressions pass.
 
 Purpose:
 

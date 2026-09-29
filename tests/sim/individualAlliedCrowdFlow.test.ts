@@ -366,6 +366,105 @@ describe("Milestone 8D production allied crowd flow", () => {
     expectNoOverlap(fixture.world);
   });
 
+  it("uses higher generic allied priority without inspecting its source", () => {
+    const fixture = createFixture([
+      { unitId: 10, factionId: 1, x: 30, y: 50, headingX: 1, headingY: 0 },
+      { unitId: 20, factionId: 1, x: 40, y: 50, headingX: -1, headingY: 0 },
+    ]);
+    const rightOfWay = genericRightOfWay(2);
+    rightOfWay.classCodes[0] = INDIVIDUAL_LOCAL_RIGHT_OF_WAY_CLASS.high;
+
+    runTick(fixture, 0, [[2, 0], [-1, 0]], rightOfWay);
+
+    expect(rightOfWay.sourceCodes[0]).toBe(
+      INDIVIDUAL_LOCAL_RIGHT_OF_WAY_SOURCE.ordinaryMovement,
+    );
+    expect(getIndividualCollisionResolutionInspection(fixture.collision, 0)
+      .resolvedDeltaX).toBe(2);
+    expect(getIndividualCollisionResolutionInspection(fixture.collision, 1))
+      .toMatchObject({ localDecisionCode: 1, localDecisionPartnerEntityId: 0 });
+    expectNoOverlap(fixture.world);
+  });
+
+  it("clears stale yielding when its entity gains higher generic priority", () => {
+    const fixture = createFixture([
+      { unitId: 10, factionId: 1, x: 30, y: 50, headingX: 1, headingY: 0,
+        cohesion: 200 },
+      { unitId: 20, factionId: 1, x: 41, y: 50, headingX: -1, headingY: 0,
+        cohesion: 900 },
+    ]);
+    const rightOfWay = genericRightOfWay(2);
+
+    runTick(fixture, 0, [[2, 0], [-2, 0]], rightOfWay);
+    expect(getIndividualCollisionResolutionInspection(fixture.collision, 0)
+      .localDecisionPartnerEntityId).toBe(1);
+
+    setPosition(fixture.world, 0, 30, 50);
+    setPosition(fixture.world, 1, 40, 50);
+    rightOfWay.classCodes[0] = INDIVIDUAL_LOCAL_RIGHT_OF_WAY_CLASS.high;
+    runTick(fixture, 1, [[2, 0], [-1, 0]], rightOfWay);
+
+    expect(getIndividualCollisionResolutionInspection(fixture.collision, 0)
+      .localDecisionCode).toBe(0);
+    expect(getIndividualCollisionResolutionInspection(fixture.collision, 1))
+      .toMatchObject({ localDecisionCode: 1, localDecisionPartnerEntityId: 0 });
+    expectNoOverlap(fixture.world);
+  });
+
+  it("retains ordinary negotiation for equal projected classes", () => {
+    const fixture = createFixture([
+      { unitId: 10, factionId: 1, x: 30, y: 50, headingX: 1, headingY: 0,
+        cohesion: 200 },
+      { unitId: 20, factionId: 1, x: 41, y: 50, headingX: -1, headingY: 0,
+        cohesion: 900 },
+    ]);
+    const rightOfWay = genericRightOfWay(2);
+    rightOfWay.classCodes.fill(INDIVIDUAL_LOCAL_RIGHT_OF_WAY_CLASS.elevated);
+
+    const result = runTick(fixture, 0, [[2, 0], [-2, 0]], rightOfWay);
+
+    expect(result.detourCount).toBe(1);
+    expect(getIndividualCollisionResolutionInspection(fixture.collision, 0)
+      .localDecisionPartnerEntityId).toBe(1);
+    expectNoOverlap(fixture.world);
+  });
+
+  it("keeps pushThrough precedence above urgent medical response", () => {
+    const fixture = createFixture([
+      { unitId: 10, factionId: 1, x: 30, y: 50, headingX: 1, headingY: 0 },
+      { unitId: 20, factionId: 1, x: 40, y: 50, headingX: -1, headingY: 0 },
+    ]);
+    setUnitMovementStyleForTest(fixture, 1, "pushThrough");
+
+    const result = runTick(
+      fixture, 0, [[2, 0], [-1, 0]], urgentMedicalRightOfWay(2, 0),
+    );
+
+    expect(result.pushThroughYieldCount).toBe(1);
+    expect(getIndividualCollisionResolutionInspection(fixture.collision, 1)
+      .resolvedDeltaX).toBe(-1);
+    expect(getIndividualCollisionResolutionInspection(fixture.collision, 0)
+      .localDecisionPartnerEntityId).toBe(1);
+    expectNoOverlap(fixture.world);
+  });
+
+  it("does not apply generic social priority to hostile bodies", () => {
+    const fixture = createFixture([
+      { unitId: 10, factionId: 1, x: 30, y: 50, headingX: 1, headingY: 0 },
+      { unitId: 20, factionId: 2, x: 40, y: 50, headingX: -1, headingY: 0 },
+    ]);
+    const rightOfWay = genericRightOfWay(2);
+    rightOfWay.classCodes[0] = INDIVIDUAL_LOCAL_RIGHT_OF_WAY_CLASS.forced;
+
+    runTick(fixture, 0, [[2, 0], [-1, 0]], rightOfWay);
+
+    expect(getIndividualCollisionResolutionInspection(fixture.collision, 0)
+      .resolvedDeltaX).toBeLessThan(2);
+    expect(getIndividualCollisionResolutionInspection(fixture.collision, 0)
+      .localDecisionCode).toBe(0);
+    expectNoOverlap(fixture.world);
+  });
+
   it("replays crossing flow identically under reversed unit-definition order", () => {
     const run = (reverse: boolean) => {
       const fixture = createFixture([
@@ -634,6 +733,15 @@ function urgentMedicalRightOfWay(
     INDIVIDUAL_LOCAL_RIGHT_OF_WAY_CLASS.urgentSupport;
   store.sourceCodes[urgentEntityId] =
     INDIVIDUAL_LOCAL_RIGHT_OF_WAY_SOURCE.urgentMedicalResponse;
+  return store;
+}
+
+function genericRightOfWay(
+  entityCount: number,
+): IndividualMovementRightOfWayStore {
+  const store = createIndividualMovementRightOfWayStore(entityCount);
+  store.classCodes.fill(INDIVIDUAL_LOCAL_RIGHT_OF_WAY_CLASS.baseline);
+  store.sourceCodes.fill(INDIVIDUAL_LOCAL_RIGHT_OF_WAY_SOURCE.ordinaryMovement);
   return store;
 }
 

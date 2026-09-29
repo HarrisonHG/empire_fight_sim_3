@@ -10,7 +10,6 @@ import {
 } from "./individualCollisionResolution";
 import type { IndividualPhysicalOccupancyStore } from "./individualPhysicalOccupancy";
 import {
-  INDIVIDUAL_LOCAL_RIGHT_OF_WAY_SOURCE,
   selectLocalRightOfWayYielder,
   type IndividualMovementRightOfWayStore,
 } from "./individualMovementRightOfWay";
@@ -109,7 +108,7 @@ export function prepareAlliedCrowdFlow(
         continue;
       }
 
-      const authorityYielder = selectNewAuthorityYielder(
+      const authorityYielder = selectProjectedAuthorityYielder(
         rightOfWay, leftId, rightId,
       );
       if (authorityYielder >= 0) {
@@ -217,7 +216,7 @@ export function selectAlliedPhysicalYielder(
       workspace.pushThroughFlags[rightId]) {
     return workspace.pushThroughFlags[leftId] !== 0 ? rightId : leftId;
   }
-  const authorityYielder = selectNewAuthorityYielder(
+  const authorityYielder = selectProjectedAuthorityYielder(
     rightOfWay, leftId, rightId,
   );
   if (authorityYielder >= 0) return authorityYielder;
@@ -225,23 +224,16 @@ export function selectAlliedPhysicalYielder(
 }
 
 /**
- * Routing, push-through, rescue and egress retain their accepted specialised
- * negotiation paths. 8G adds only the previously absent urgent-medical pair
- * here; all sources still project through the generic contract for inspection
- * and future authorities can be admitted without teaching collision a role.
+ * Routing and push-through retain their accepted specialised precedence.
+ * Every other projected authority is compared only by its generic class, so
+ * collision never needs to know which role or system produced that class.
  */
-function selectNewAuthorityYielder(
+function selectProjectedAuthorityYielder(
   rightOfWay: IndividualMovementRightOfWayStore | undefined,
   leftId: number,
   rightId: number,
 ): number {
   if (rightOfWay === undefined) return -1;
-  if (rightOfWay.sourceCodes[leftId] !==
-        INDIVIDUAL_LOCAL_RIGHT_OF_WAY_SOURCE.urgentMedicalResponse &&
-      rightOfWay.sourceCodes[rightId] !==
-        INDIVIDUAL_LOCAL_RIGHT_OF_WAY_SOURCE.urgentMedicalResponse) {
-    return -1;
-  }
   return selectLocalRightOfWayYielder(rightOfWay, leftId, rightId);
 }
 
@@ -331,20 +323,21 @@ function rememberedYieldConflictsWithCurrentAuthority(
   partner: number,
   rightOfWay?: IndividualMovementRightOfWayStore,
 ): boolean {
+  const entityRoutes = workspace.routingFlags[entityId] !== 0;
+  const partnerRoutes = workspace.routingFlags[partner] !== 0;
+  if (entityRoutes !== partnerRoutes) return entityRoutes;
+
+  const entityPushes = workspace.pushThroughFlags[entityId] !== 0;
+  const partnerPushes = workspace.pushThroughFlags[partner] !== 0;
+  if (entityPushes !== partnerPushes) return entityPushes;
+
   if (rightOfWay !== undefined) {
-    const authorityYielder = selectNewAuthorityYielder(
+    const authorityYielder = selectProjectedAuthorityYielder(
       rightOfWay, entityId, partner,
     );
     if (authorityYielder >= 0) return authorityYielder === partner;
   }
-  const entityRoutes = workspace.routingFlags[entityId] !== 0;
-  const partnerRoutes = workspace.routingFlags[partner] !== 0;
-  if (entityRoutes) return !partnerRoutes;
-  if (partnerRoutes) return false;
-
-  const entityPushes = workspace.pushThroughFlags[entityId] !== 0;
-  const partnerPushes = workspace.pushThroughFlags[partner] !== 0;
-  return entityPushes && !partnerPushes;
+  return false;
 }
 
 function canBegin(
