@@ -85,17 +85,6 @@ export function prepareAlliedCrowdFlow(
         continue;
       }
 
-      const authorityYielder = selectNewAuthorityYielder(
-        rightOfWay, leftId, rightId,
-      );
-      if (authorityYielder >= 0) {
-        const priorityMover = authorityYielder === leftId ? rightId : leftId;
-        beginDetour(workspace, collision, authorityYielder, priorityMover,
-          sideFor(collision, authorityYielder, priorityMover), true);
-        applyDecision(workspace, collision, authorityYielder);
-        continue;
-      }
-
       if (workspace.routingFlags[leftId] !== workspace.routingFlags[rightId]) {
         const yielder = workspace.routingFlags[leftId] !== 0 ? rightId : leftId;
         const router = yielder === leftId ? rightId : leftId;
@@ -117,6 +106,17 @@ export function prepareAlliedCrowdFlow(
         ), true);
         applyDecision(workspace, collision, yielder);
         workspace.pushThroughYieldCount += 1;
+        continue;
+      }
+
+      const authorityYielder = selectNewAuthorityYielder(
+        rightOfWay, leftId, rightId,
+      );
+      if (authorityYielder >= 0) {
+        const priorityMover = authorityYielder === leftId ? rightId : leftId;
+        beginDetour(workspace, collision, authorityYielder, priorityMover,
+          sideFor(collision, authorityYielder, priorityMover), true);
+        applyDecision(workspace, collision, authorityYielder);
         continue;
       }
 

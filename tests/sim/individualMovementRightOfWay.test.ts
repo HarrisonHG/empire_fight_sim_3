@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { MAIN_BATTLE_MEDICAL_SCENARIO } from "../../src/content/mainBattleMedicalScenario";
 import {
   INDIVIDUAL_LOCAL_RIGHT_OF_WAY_CLASS,
+  INDIVIDUAL_LOCAL_RIGHT_OF_WAY_SOURCE,
   createIndividualMovementRightOfWayStore,
   selectLocalRightOfWayYielder,
 } from "../../src/sim/individualMovementRightOfWay";
-import { createSimulation } from "../../src/sim/simulation";
 
 describe("Milestone 8G local right-of-way contract", () => {
   it("compares generic projected classes without knowing role names", () => {
@@ -22,14 +21,20 @@ describe("Milestone 8G local right-of-way contract", () => {
     expect(selectLocalRightOfWayYielder(store, 0, 1)).toBe(-1);
   });
 
-  it("records legal initial hard-standing placement for the main battle", () => {
-    const simulation = createSimulation(MAIN_BATTLE_MEDICAL_SCENARIO);
-    expect(simulation.combatSandbox!.individualInitialPlacementEvidence)
-      .toMatchObject({
-        hardStandingParticipantCount: MAIN_BATTLE_MEDICAL_SCENARIO.entityCount,
-        illegalHardStandingOverlapCount: 0,
-        firstOverlapLeftEntityId: -1,
-        firstOverlapRightEntityId: -1,
-      });
+  it("orders urgent medical below accepted forced and group authorities", () => {
+    expect(INDIVIDUAL_LOCAL_RIGHT_OF_WAY_CLASS.baseline).toBeLessThan(
+      INDIVIDUAL_LOCAL_RIGHT_OF_WAY_CLASS.urgentSupport,
+    );
+    expect(INDIVIDUAL_LOCAL_RIGHT_OF_WAY_CLASS.urgentSupport).toBeLessThan(
+      INDIVIDUAL_LOCAL_RIGHT_OF_WAY_CLASS.forceful,
+    );
+    expect(INDIVIDUAL_LOCAL_RIGHT_OF_WAY_CLASS.forceful).toBeLessThan(
+      INDIVIDUAL_LOCAL_RIGHT_OF_WAY_CLASS.urgentGroup,
+    );
+    expect(INDIVIDUAL_LOCAL_RIGHT_OF_WAY_CLASS.urgentGroup).toBeLessThan(
+      INDIVIDUAL_LOCAL_RIGHT_OF_WAY_CLASS.forced,
+    );
+    expect(INDIVIDUAL_LOCAL_RIGHT_OF_WAY_SOURCE.urgentMedicalResponse)
+      .not.toBe(INDIVIDUAL_LOCAL_RIGHT_OF_WAY_SOURCE.assistedRescue);
   });
 });

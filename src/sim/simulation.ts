@@ -2401,6 +2401,7 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.individualOrdinaryParticipationSnapshot,
       combatSandbox.moraleMovementStates,
       combatSandbox.formationStore,
+      combatSandbox.individualMovementRightOfWayStore,
     );
     observeIndividualEnergyMovementAuthority(
       combatSandbox.individualEnergyActivityStore,

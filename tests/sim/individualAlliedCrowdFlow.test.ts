@@ -26,6 +26,12 @@ import {
   projectIndividualPhysicalOccupancyOneTick,
 } from "../../src/sim/individualPhysicalOccupancy";
 import { createIndividualOrdinaryParticipationSnapshot } from "../../src/sim/individualOrdinaryParticipation";
+import {
+  INDIVIDUAL_LOCAL_RIGHT_OF_WAY_CLASS,
+  INDIVIDUAL_LOCAL_RIGHT_OF_WAY_SOURCE,
+  createIndividualMovementRightOfWayStore,
+  type IndividualMovementRightOfWayStore,
+} from "../../src/sim/individualMovementRightOfWay";
 import { getIndividualEnergyActivityInspection } from "../../src/sim/individualEnergyActivity";
 import {
   MILESTONE_8D_PRODUCTION_CROWD_ORDER,
@@ -325,6 +331,41 @@ describe("Milestone 8D production allied crowd flow", () => {
     expectNoOverlap(fixture.world);
   });
 
+  it("makes an ordinary allied warrior yield to urgent medical response", () => {
+    const fixture = createFixture([
+      { unitId: 10, factionId: 1, x: 30, y: 50, headingX: 1, headingY: 0 },
+      { unitId: 20, factionId: 1, x: 40, y: 50, headingX: -1, headingY: 0 },
+    ]);
+    const rightOfWay = urgentMedicalRightOfWay(2, 0);
+
+    runTick(fixture, 0, [[2, 0], [-1, 0]], rightOfWay);
+
+    expect(getIndividualCollisionResolutionInspection(fixture.collision, 0)
+      .resolvedDeltaX).toBe(2);
+    expect(getIndividualCollisionResolutionInspection(fixture.collision, 1)
+      .localDecisionPartnerEntityId).toBe(0);
+    expectNoOverlap(fixture.world);
+  });
+
+  it("keeps routing above urgent medical response", () => {
+    const fixture = createFixture([
+      { unitId: 10, factionId: 1, x: 30, y: 50, headingX: 1, headingY: 0 },
+      { unitId: 20, factionId: 1, x: 40, y: 50, headingX: -1, headingY: 0,
+        routing: true },
+    ]);
+    const rightOfWay = urgentMedicalRightOfWay(2, 0);
+    rightOfWay.classCodes[1] = INDIVIDUAL_LOCAL_RIGHT_OF_WAY_CLASS.forced;
+    rightOfWay.sourceCodes[1] =
+      INDIVIDUAL_LOCAL_RIGHT_OF_WAY_SOURCE.forcedRouting;
+
+    const result = runTick(fixture, 0, [[2, 0], [-1, 0]], rightOfWay);
+
+    expect(result.routerPriorityCount).toBe(1);
+    expect(getIndividualCollisionResolutionInspection(fixture.collision, 1)
+      .resolvedDeltaX).toBe(-1);
+    expectNoOverlap(fixture.world);
+  });
+
   it("replays crossing flow identically under reversed unit-definition order", () => {
     const run = (reverse: boolean) => {
       const fixture = createFixture([
@@ -548,6 +589,7 @@ function runTick(
   fixture: ReturnType<typeof createFixture>,
   tick: number,
   deltas: readonly (readonly [number, number])[],
+  rightOfWay?: IndividualMovementRightOfWayStore,
 ) {
   projectIndividualPhysicalOccupancyOneTick(
     fixture.occupancy,
@@ -577,7 +619,22 @@ function runTick(
     fixture.ordinary,
     fixture.morale,
     fixture.formation,
+    rightOfWay,
   );
+}
+
+function urgentMedicalRightOfWay(
+  entityCount: number,
+  urgentEntityId: number,
+): IndividualMovementRightOfWayStore {
+  const store = createIndividualMovementRightOfWayStore(entityCount);
+  store.classCodes.fill(INDIVIDUAL_LOCAL_RIGHT_OF_WAY_CLASS.baseline);
+  store.sourceCodes.fill(INDIVIDUAL_LOCAL_RIGHT_OF_WAY_SOURCE.ordinaryMovement);
+  store.classCodes[urgentEntityId] =
+    INDIVIDUAL_LOCAL_RIGHT_OF_WAY_CLASS.urgentSupport;
+  store.sourceCodes[urgentEntityId] =
+    INDIVIDUAL_LOCAL_RIGHT_OF_WAY_SOURCE.urgentMedicalResponse;
+  return store;
 }
 
 function expectNoOverlap(world: WorldState): void {
