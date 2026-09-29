@@ -178,6 +178,7 @@ describe("Spike 6.5 main battle medical integration sandbox", () => {
 
   it("keeps retained routes unchanged and contains no direct outcome fixture", () => {
     expect(VISUAL_TEST_REGISTRY.map((entry) => entry.id)).toEqual([
+      "personal-space",
       "personal-space-spike",
       "energy-exertion",
       "casualty-lifecycle",

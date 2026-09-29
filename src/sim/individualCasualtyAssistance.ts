@@ -8,6 +8,7 @@ import { getIndividualCombatActionState, type IndividualCombatActionStore } from
 import {
   applyIndividualExternalMovementIntent,
   applyIndividualExternalSharedMovementDelta,
+  commitIndividualExternalMovementResolution,
   getIndividualConfiguredMaxStep,
   getIndividualPressure,
   getUnitHeading,
@@ -38,6 +39,7 @@ import {
   requestedPhysicalGaitForMaximumStep,
   type IndividualSpecialistPhysicalGaitAdapter,
 } from "./individualPhysicalGait";
+import type { IndividualSpecialistCollisionResolver } from "./individualSpecialistCollision";
 
 export type IndividualCasualtyAssistanceState =
   | "none"
@@ -701,6 +703,7 @@ export function advanceCasualtyDragGroupsBeforeCombat(
   presenceStore: IndividualPlayerPresenceStore,
   gaitAdapter?: IndividualSpecialistPhysicalGaitAdapter,
   collisionResolver?: CasualtyDragCollisionResolver,
+  specialistCollisionResolver?: IndividualSpecialistCollisionResolver,
 ): CasualtyDragMovementResult {
   validateEntityCounts(world.entityCount, identityStore, formationStore, lifecycleStore,
     traumaStore, assistanceStore, groupStore, handStore);
@@ -708,6 +711,7 @@ export function advanceCasualtyDragGroupsBeforeCombat(
   assertNonNegativeSafeInteger(tick, "tick");
   gaitAdapter?.validateCurrentTick();
   collisionResolver?.prepareForMovement(tick);
+  specialistCollisionResolver?.prepareForMovement(tick);
   buffers.cancellationRecords.length = 0;
   buffers.draggingStartedRecords.length = 0;
   buffers.reachedSafetyRecords.length = 0;
@@ -763,7 +767,9 @@ export function advanceCasualtyDragGroupsBeforeCombat(
           const finalMaximumStep = gaitCoordinateCeiling === null
             ? configuredMaximumStep
             : Math.min(configuredMaximumStep, gaitCoordinateCeiling);
-          const moved = applyIndividualExternalMovementIntent(
+          const startX = world.positionsX[helperId]!;
+          const startY = world.positionsY[helperId]!;
+          let moved = applyIndividualExternalMovementIntent(
             world,
             formationStore,
             helperId,
@@ -772,6 +778,20 @@ export function advanceCasualtyDragGroupsBeforeCombat(
             "gatherForCasualty",
             finalMaximumStep,
           );
+          if (specialistCollisionResolver !== undefined) {
+            specialistCollisionResolver.resolveStep(
+              helperId,
+              world.positionsX[helperId]! - startX,
+              world.positionsY[helperId]! - startY,
+              group.patientEntityId,
+            );
+            moved = commitIndividualExternalMovementResolution(
+              world, formationStore, helperId, startX, startY,
+              specialistCollisionResolver.resolvedDeltaX,
+              specialistCollisionResolver.resolvedDeltaY,
+              "gatherForCasualty",
+            );
+          }
           gaitAdapter?.completeActiveSpecialistMovement(
             helperId,
             "casualtyGathering",

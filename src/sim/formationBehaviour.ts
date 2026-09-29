@@ -883,6 +883,38 @@ export function applyIndividualExternalMovementIntent(
   return nextX !== currentX || nextY !== currentY;
 }
 
+/** Commits a collision-bounded replacement for an external authority's step. */
+export function commitIndividualExternalMovementResolution(
+  world: WorldState,
+  store: FormationBehaviourStore,
+  entityId: number,
+  startX: number,
+  startY: number,
+  resolvedDeltaX: number,
+  resolvedDeltaY: number,
+  mode: MovementMode,
+): boolean {
+  const internal = asInternal(store);
+  if (world.entityCount !== internal.entityCount) {
+    throw new RangeError("Resolved external movement world must match formation.");
+  }
+  assertEntityIdInRange(entityId, internal.entityCount);
+  const nextX = startX + resolvedDeltaX;
+  const nextY = startY + resolvedDeltaY;
+  if (!Number.isSafeInteger(nextX) || !Number.isSafeInteger(nextY) ||
+      nextX < 0 || nextY < 0 || nextX >= world.bounds.width ||
+      nextY >= world.bounds.height) {
+    throw new RangeError("Resolved external movement must remain in bounds.");
+  }
+  world.positionsX[entityId] = nextX;
+  world.positionsY[entityId] = nextY;
+  const moved = resolvedDeltaX !== 0 || resolvedDeltaY !== 0;
+  internal.movementMode[entityId] = moved ? mode : "holdPosition";
+  internal.stuckTicks[entityId] = moved ? 0 : internal.stuckTicks[entityId]!;
+  internal.isStuck[entityId] = 0;
+  return moved;
+}
+
 /**
  * Scenario orchestration variant for a one-member unit: advances the member
  * through the normal bounded movement path and carries its formation anchor by

@@ -39,6 +39,7 @@ import {
   PERSONAL_SPACE_SPIKE_SCENARIO,
   PERSONAL_SPACE_SPIKE_SCENARIO_ID,
 } from "./personalSpaceSpikeScenario";
+import { MAIN_BATTLE_MEDICAL_SCENARIO } from "./mainBattleMedicalScenario";
 
 export interface VisualTestEntry {
   readonly id: string;
@@ -74,6 +75,32 @@ export interface VisualTestFocusArea extends VisualTestWorldLabel {
 }
 
 export const VISUAL_TEST_REGISTRY: readonly VisualTestEntry[] = Object.freeze([
+  Object.freeze({
+    id: "personal-space",
+    title: "Production personal-space acceptance",
+    milestone: "Milestone 8G awaiting human visual acceptance",
+    purpose:
+      "Retains the complete production collision contract in the evolving main battle, including specialist, casualty, crowd-flow, and egress movement.",
+    expectedObservations: Object.freeze([
+      "Hostile active participants form physical fronts without standing overlap.",
+      "Allied movers yield and redirect locally while remaining anchored to their existing movement desires.",
+      "Urgent medical and rescue movement negotiates occupied space; routing remains the stronger local authority.",
+      "Downed people remain soft occupancy and respawn egress yields to living traffic.",
+      "Footprints and requested/resolved vectors can be hidden with the debug panels.",
+    ]),
+    legendLines: Object.freeze([
+      "Thin circle: production physical footprint; colour identifies occupancy class.",
+      "Amber vector: permitted step; green vector: final collision-resolved step.",
+      "Red/amber/purple marks blocked, reduced, or redirected local movement.",
+      "The centre gait/activity pip remains the Milestone 7 movement evidence.",
+    ]),
+    showCasualtyVisuals: true,
+    showEnergyVisuals: true,
+    showPersonalSpaceVisuals: true,
+    recommendedTickRange: Object.freeze({ start: 0, end: 2_000 }),
+    scenario: MAIN_BATTLE_MEDICAL_SCENARIO,
+    scenarioFactory: () => MAIN_BATTLE_MEDICAL_SCENARIO,
+  }),
   Object.freeze({
     id: PERSONAL_SPACE_SPIKE_SCENARIO_ID,
     title: "Personal-space collision feasibility spike",

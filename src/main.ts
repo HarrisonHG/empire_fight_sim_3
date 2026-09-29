@@ -73,7 +73,7 @@ async function startApplication(
     visualTestEntry?.showEnergyVisuals === true;
   renderer.setEnergyVisualsVisible(energyVisualsEnabled);
   const personalSpaceVisualsEnabled =
-    visualTestEntry?.showPersonalSpaceVisuals === true;
+    isMainBattle || visualTestEntry?.showPersonalSpaceVisuals === true;
   renderer.setPersonalSpaceVisualsVisible(personalSpaceVisualsEnabled);
   const workerClient = new SimulationWorkerClient();
   const metricsPanel = new MetricsPanel(energyVisualsEnabled);

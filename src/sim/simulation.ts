@@ -128,6 +128,8 @@ import {
   createIndividualCollisionResolutionStore,
   finalizeIndividualCollisionResolutionTick,
   getIndividualCollisionResolutionInspection,
+  INDIVIDUAL_COLLISION_LOCAL_DECISION,
+  INDIVIDUAL_COLLISION_RESOLUTION_FLAG,
 } from "./individualCollisionResolution";
 import {
   createIndividualActiveStandingCollisionWorkspace,
@@ -136,6 +138,14 @@ import {
 import {
   createIndividualCasualtyGroupCollisionResolver,
 } from "./individualCasualtyGroupCollision";
+import {
+  createIndividualMovementRightOfWayStore,
+  projectIndividualMovementRightOfWayOneTick,
+} from "./individualMovementRightOfWay";
+import {
+  createIndividualSpecialistCollisionResolver,
+} from "./individualSpecialistCollision";
+import { validateIndividualInitialHardStandingPlacement } from "./individualInitialPlacement";
 import {
   advanceIndividualDeathCountsOneTick,
   createIndividualDeathCountStore,
@@ -323,7 +333,9 @@ import type {
   SimulationScenario,
   SimulationState,
   WorldState,
+  PersonalSpaceSpikeDebugSnapshot,
 } from "./types";
+import { PERSONAL_SPACE_RESOLUTION_FLAG } from "./types";
 import { createWorld } from "./world";
 
 export const FIXED_TICKS_PER_SECOND = 20;
@@ -618,8 +630,10 @@ export function createInitialSnapshot(
     simulation.combatSandbox?.debugSnapshot ??
     simulation.legacyCombatFoundationSandbox?.debugSnapshot;
   const formationDebug = simulation.formationSandbox?.debugSnapshot;
-  const personalSpaceDebug =
-    simulation.personalSpaceSpike?.store.debugSnapshot;
+  const personalSpaceDebug = simulation.personalSpaceSpike?.store.debugSnapshot ??
+    (simulation.combatSandbox === undefined
+      ? undefined
+      : createProductionPersonalSpaceDebugSnapshot(simulation.combatSandbox));
 
   return {
     ...baseSnapshot,
@@ -649,8 +663,10 @@ export function createPositionSnapshot(
     simulation.combatSandbox?.debugSnapshot ??
     simulation.legacyCombatFoundationSandbox?.debugSnapshot;
   const formationDebug = simulation.formationSandbox?.debugSnapshot;
-  const personalSpaceDebug =
-    simulation.personalSpaceSpike?.store.debugSnapshot;
+  const personalSpaceDebug = simulation.personalSpaceSpike?.store.debugSnapshot ??
+    (simulation.combatSandbox === undefined
+      ? undefined
+      : createProductionPersonalSpaceDebugSnapshot(simulation.combatSandbox));
 
   return {
     ...baseSnapshot,
@@ -771,14 +787,29 @@ function createCombatSandbox(
       nextEntityId += 1;
       memberEntityIds.push(entityId);
 
-      world.positionsX[entityId] = deploymentRng.nextIntInclusive(
+      const authoredRandomX = deploymentRng.nextIntInclusive(
         unit.deploymentZone.minX,
         unit.deploymentZone.maxX,
       );
-      world.positionsY[entityId] = deploymentRng.nextIntInclusive(
+      const authoredRandomY = deploymentRng.nextIntInclusive(
         unit.deploymentZone.minY,
         unit.deploymentZone.maxY,
       );
+      if (scenario.requireLegalInitialHardStandingPlacement === true) {
+        const legal = findLegalInitialStandingCoordinate(
+          world,
+          entityId,
+          unit.deploymentZone,
+          authoredRandomX,
+          authoredRandomY,
+        );
+        world.positionsX[entityId] = legal.x;
+        world.positionsY[entityId] = legal.y;
+        assertLegalInitialStandingCoordinate(world, entityId);
+      } else {
+        world.positionsX[entityId] = authoredRandomX;
+        world.positionsY[entityId] = authoredRandomY;
+      }
       world.velocitiesX[entityId] = 0;
       world.velocitiesY[entityId] = 0;
       individualDefinitions.push({
@@ -973,8 +1004,15 @@ function createCombatSandbox(
     getActiveCasualtyDragGroups(casualtyDragGroupStore),
     0,
   );
+  const individualInitialPlacementEvidence =
+    validateIndividualInitialHardStandingPlacement(
+      world,
+      individualPhysicalOccupancyStore,
+    );
   const individualCollisionResolutionStore =
     createIndividualCollisionResolutionStore(world.entityCount);
+  const individualMovementRightOfWayStore =
+    createIndividualMovementRightOfWayStore(world.entityCount);
   const individualActiveStandingCollisionWorkspace =
     createIndividualActiveStandingCollisionWorkspace(
       world.entityCount,
@@ -999,12 +1037,33 @@ function createCombatSandbox(
       individualCasualtyLifecycleStore,
       individualPlayerPresenceStore,
     );
+  const individualSpecialistCollisionResolver =
+    createIndividualSpecialistCollisionResolver(
+      world,
+      identityStore,
+      individualPhysicalOccupancyStore,
+      individualMovementRightOfWayStore,
+      individualCollisionResolutionStore,
+    );
   const individualDragHandCommitmentStore =
     createIndividualDragHandCommitmentStore(world.entityCount);
   const individualMedicalClaimStore =
     createIndividualMedicalClaimStore(world.entityCount);
   const individualExecutionActionStore =
     createIndividualExecutionActionStore(world.entityCount);
+  projectIndividualMovementRightOfWayOneTick(
+    individualMovementRightOfWayStore,
+    {
+      occupancy: individualPhysicalOccupancyStore,
+      identity: identityStore,
+      formation: formationStore,
+      morale: moraleMovementStates,
+      medicalClaims: individualMedicalClaimStore,
+      medicalUrgency: individualMedicalUrgencyStore,
+      casualtyGroups: casualtyDragGroupStore,
+      tick: 0,
+    },
+  );
   const individualEnergyActivityStore =
     createIndividualEnergyActivityStore(world.entityCount);
   const individualEnergyCapabilityStore =
@@ -1107,7 +1166,9 @@ function createCombatSandbox(
     individualCasualtyAssistanceStore,
     casualtyDragGroupStore,
     individualPhysicalOccupancyStore,
+    individualInitialPlacementEvidence,
     individualCollisionResolutionStore,
+    individualMovementRightOfWayStore,
     individualActiveStandingCollisionWorkspace,
     individualActiveStandingCollisionResult:
       individualActiveStandingCollisionWorkspace.result,
@@ -1117,6 +1178,10 @@ function createCombatSandbox(
     individualRespawnEgressCollisionStore,
     individualRespawnEgressCollisionResult:
       individualRespawnEgressCollisionStore.result,
+    individualSpecialistCollisionResolver,
+    individualSpecialistCollisionResult:
+      individualSpecialistCollisionResolver.result,
+    productionPersonalSpaceResolutionFlags: new Uint8Array(world.entityCount),
     individualDragHandCommitmentStore,
     individualDefenceHandAvailabilitySource,
     casualtyDragMovementBuffers,
@@ -1296,6 +1361,77 @@ function createCombatSandbox(
   combatSandbox.debugSnapshot = createCombatDebugSnapshot(world, combatSandbox, 0);
 
   return { state: combatSandbox, rngState: deploymentRng.state };
+}
+
+function findLegalInitialStandingCoordinate(
+  world: WorldState,
+  placedEntityCount: number,
+  zone: CombatSandboxUnitScenario["deploymentZone"],
+  preferredX: number,
+  preferredY: number,
+): { readonly x: number; readonly y: number } {
+  const width = zone.maxX - zone.minX + 1;
+  const height = zone.maxY - zone.minY + 1;
+  const area = width * height;
+  for (let offset = 0; offset < area; offset += 1) {
+    const x = zone.minX + ((preferredX - zone.minX + offset) % width);
+    const y = zone.minY + (
+      (preferredY - zone.minY + Math.floor(offset / width)) % height
+    );
+    if (isLegalInitialStandingCoordinate(world, placedEntityCount, x, y)) {
+      return { x, y };
+    }
+  }
+  // A fixed authored point or a tightly packed deployment zone can be
+  // physically impossible. Setup authority may nudge outward deterministically;
+  // runtime collision still receives no depenetration authority.
+  for (let radius = 1; radius <= 128; radius += 1) {
+    for (let yOffset = -radius; yOffset <= radius; yOffset += 1) {
+      for (let xOffset = -radius; xOffset <= radius; xOffset += 1) {
+        if (absolute(xOffset) !== radius && absolute(yOffset) !== radius) continue;
+        const x = preferredX + xOffset;
+        const y = preferredY + yOffset;
+        if (x < 0 || y < 0 || x >= world.bounds.width || y >= world.bounds.height) {
+          continue;
+        }
+        if (isLegalInitialStandingCoordinate(world, placedEntityCount, x, y)) {
+          return { x, y };
+        }
+      }
+    }
+  }
+  throw new Error("Authored deployment zone cannot provide legal standing space.");
+}
+
+function isLegalInitialStandingCoordinate(
+  world: WorldState,
+  placedEntityCount: number,
+  x: number,
+  y: number,
+): boolean {
+  for (let otherId = 0; otherId < placedEntityCount; otherId += 1) {
+    const deltaX = world.positionsX[otherId]! - x;
+    const deltaY = world.positionsY[otherId]! - y;
+    if (deltaX * deltaX + deltaY * deltaY < 64) return false;
+  }
+  return true;
+}
+
+function assertLegalInitialStandingCoordinate(
+  world: WorldState,
+  entityId: number,
+): void {
+  for (let otherId = 0; otherId < entityId; otherId += 1) {
+    const deltaX = world.positionsX[otherId]! - world.positionsX[entityId]!;
+    const deltaY = world.positionsY[otherId]! - world.positionsY[entityId]!;
+    if (deltaX * deltaX + deltaY * deltaY < 64) {
+      throw new Error("Legal setup placement produced a standing overlap.");
+    }
+  }
+}
+
+function absolute(value: number): number {
+  return value < 0 ? -value : value;
 }
 
 function expandScenarioEnergyProfiles(
@@ -2207,6 +2343,19 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.individualCasualtyLifecycleStore,
       combatSandbox.individualOrdinaryParticipationSnapshot,
     );
+    projectIndividualMovementRightOfWayOneTick(
+      combatSandbox.individualMovementRightOfWayStore,
+      {
+        occupancy: combatSandbox.individualPhysicalOccupancyStore,
+        identity: combatSandbox.identityStore,
+        formation: combatSandbox.formationStore,
+        morale: combatSandbox.moraleMovementStates,
+        medicalClaims: combatSandbox.individualMedicalClaimStore,
+        medicalUrgency: combatSandbox.individualMedicalUrgencyStore,
+        casualtyGroups: combatSandbox.casualtyDragGroupStore,
+        tick,
+      },
+    );
     runStage("preMovementRecoveryThreat", () =>
       collectRecoveryThreatSummaries(
         world,
@@ -2289,6 +2438,7 @@ export function advanceCombatSandboxOneTick(
         combatSandbox.individualPlayerPresenceStore,
         combatSandbox.specialistPhysicalGaitAdapter,
         combatSandbox.individualCasualtyGroupCollisionResolver,
+        combatSandbox.individualSpecialistCollisionResolver,
       ),
     );
     checkpointIndividualEnergyMovementObservation(
@@ -2323,6 +2473,7 @@ export function advanceCombatSandboxOneTick(
         isUnavailable: isExecutionCommitted,
       },
       combatSandbox.specialistPhysicalGaitAdapter,
+      combatSandbox.individualSpecialistCollisionResolver,
     );
     checkpointIndividualEnergyMovementObservation(
       combatSandbox.individualEnergyActivityStore,
@@ -2337,6 +2488,7 @@ export function advanceCombatSandboxOneTick(
         entityId,
       ),
       combatSandbox.specialistPhysicalGaitAdapter,
+      combatSandbox.individualSpecialistCollisionResolver,
     );
     checkpointIndividualEnergyMovementObservation(
       combatSandbox.individualEnergyActivityStore,
@@ -2959,6 +3111,19 @@ export function advanceCombatSandboxOneTick(
       getActiveCasualtyDragGroups(combatSandbox.casualtyDragGroupStore),
       tick,
     );
+    projectIndividualMovementRightOfWayOneTick(
+      combatSandbox.individualMovementRightOfWayStore,
+      {
+        occupancy: combatSandbox.individualPhysicalOccupancyStore,
+        identity: combatSandbox.identityStore,
+        formation: combatSandbox.formationStore,
+        morale: combatSandbox.moraleMovementStates,
+        medicalClaims: combatSandbox.individualMedicalClaimStore,
+        medicalUrgency: combatSandbox.individualMedicalUrgencyStore,
+        casualtyGroups: combatSandbox.casualtyDragGroupStore,
+        tick,
+      },
+    );
     combatSandbox.debugSnapshot = createCombatDebugSnapshot(world, combatSandbox, tick);
   });
 }
@@ -2982,6 +3147,96 @@ function casualtySummaryDependencies(
     treatmentResult: combatSandbox.individualTreatmentActionResult,
     executionResult: combatSandbox.individualExecutionActionResult,
     terminalTransitions: combatSandbox.individualTerminalTransitions,
+  };
+}
+
+function createProductionPersonalSpaceDebugSnapshot(
+  combat: CombatSandboxSimulationState,
+): PersonalSpaceSpikeDebugSnapshot {
+  const collision = combat.individualCollisionResolutionStore;
+  const visualFlags = combat.productionPersonalSpaceResolutionFlags;
+  let blockedCount = 0;
+  let reducedCount = 0;
+  let redirectedCount = 0;
+  for (let entityId = 0; entityId < collision.entityCount; entityId += 1) {
+    const sourceFlags = collision.resolutionFlags[entityId]!;
+    let flags = 0;
+    if ((sourceFlags & INDIVIDUAL_COLLISION_RESOLUTION_FLAG.blocked) !== 0) {
+      flags |= PERSONAL_SPACE_RESOLUTION_FLAG.blocked;
+      blockedCount += 1;
+    }
+    if ((sourceFlags & INDIVIDUAL_COLLISION_RESOLUTION_FLAG.reduced) !== 0) {
+      flags |= PERSONAL_SPACE_RESOLUTION_FLAG.reduced;
+      reducedCount += 1;
+    }
+    if ((sourceFlags & INDIVIDUAL_COLLISION_RESOLUTION_FLAG.redirected) !== 0) {
+      flags |= PERSONAL_SPACE_RESOLUTION_FLAG.redirected;
+      redirectedCount += 1;
+    }
+    if ((sourceFlags & INDIVIDUAL_COLLISION_RESOLUTION_FLAG.downedSoftCrossing) !== 0) {
+      flags |= PERSONAL_SPACE_RESOLUTION_FLAG.downedSoftCrossing;
+    }
+    if ((sourceFlags & INDIVIDUAL_COLLISION_RESOLUTION_FLAG.yieldingEgressYield) !== 0) {
+      flags |= PERSONAL_SPACE_RESOLUTION_FLAG.yieldingEgressYield;
+    }
+    const decision = collision.localDecisionCodes[entityId]!;
+    if (decision === INDIVIDUAL_COLLISION_LOCAL_DECISION.detour) {
+      flags |= PERSONAL_SPACE_RESOLUTION_FLAG.detourActive;
+    } else if (decision === INDIVIDUAL_COLLISION_LOCAL_DECISION.courtesyYield) {
+      flags |= PERSONAL_SPACE_RESOLUTION_FLAG.courtesyYieldActive;
+    } else if (decision === INDIVIDUAL_COLLISION_LOCAL_DECISION.overtake) {
+      flags |= PERSONAL_SPACE_RESOLUTION_FLAG.overtakingActive;
+    }
+    visualFlags[entityId] = flags;
+  }
+  const ordinary = combat.individualActiveStandingCollisionResult;
+  const specialist = combat.individualSpecialistCollisionResult;
+  const egress = combat.individualRespawnEgressCollisionResult;
+  return {
+    algorithm: "productionBoundedLocalResolution",
+    standingRadius:
+      combat.individualPhysicalOccupancyStore.geometry.activeStandingRadius,
+    downedSoftRadius:
+      combat.individualPhysicalOccupancyStore.geometry.downedSoftRadius,
+    maximumResolutionPasses: 8,
+    resolutionPassCount: ordinary.passCount,
+    localQueryCount: ordinary.localQueryCount + specialist.localQueryCount +
+      combat.individualCasualtyGroupCollisionResult.localQueryCount +
+      egress.localQueryCount,
+    localCandidateCount: ordinary.localCandidateCount +
+      specialist.localCandidateCount +
+      combat.individualCasualtyGroupCollisionResult.localCandidateCount +
+      egress.localCandidateCount,
+    unresolvedStandingOverlapCount: ordinary.unresolvedOverlapCount,
+    fallbackResetCount: 0,
+    blockedCount,
+    reducedCount,
+    redirectedCount,
+    downedSoftCrossingCount: ordinary.downedSoftCrossingCount +
+      specialist.downedSoftCrossingCount + egress.downedSoftCrossingCount,
+    yieldingEgressYieldCount: egress.yieldedCount,
+    detourStrategyChangeCount: egress.strategyChangeCount,
+    courtesyYieldCount: ordinary.courtesyYieldCount,
+    overtakingCount: ordinary.overtakeCount,
+    occupancyClassCodes:
+      combat.individualPhysicalOccupancyStore.occupancyClassCodes,
+    rightOfWayClassCodes:
+      combat.individualMovementRightOfWayStore.classCodes,
+    radii: combat.individualPhysicalOccupancyStore.effectiveRadii,
+    intendedDeltas: collision.permittedDeltas,
+    resolvedDeltas: collision.resolvedDeltas,
+    localNeighbourCounts: collision.localNeighbourCounts,
+    principalRelationshipCodes:
+      collision.principalOccupancyRelationshipCodes,
+    resolutionFlags: visualFlags,
+    detourPhaseCodes: collision.localDecisionPhaseByEntity,
+    detourSideByEntity: collision.localDecisionSideByEntity,
+    detourTicksRemaining: collision.localDecisionTicksRemaining,
+    courtesyBlockerByEntity: collision.localDecisionPartnerByEntity,
+    courtesyTicksRemaining: collision.localDecisionTicksRemaining,
+    overtakeLeaderByEntity: collision.localDecisionPartnerByEntity,
+    overtakeSideByEntity: collision.localDecisionSideByEntity,
+    overtakeClearanceByEntity: collision.overtakeClearanceByEntity,
   };
 }
 
@@ -3165,6 +3420,8 @@ function syncMoraleMovementStatesForStores(
 
 function createEmptyCombatDebugSnapshot(): LiveCombatDebugSnapshot {
   return {
+    initialIllegalHardStandingOverlapCount: 0,
+    initialPlacementLocalCandidateCount: 0,
     activeStandingCollisionMoverCount: 0,
     activeStandingCollisionBlockedCount: 0,
     activeStandingCollisionReducedCount: 0,
@@ -3201,6 +3458,12 @@ function createEmptyCombatDebugSnapshot(): LiveCombatDebugSnapshot {
     egressCollisionLocalQueryCount: 0,
     egressCollisionLocalCandidateCount: 0,
     egressCollisionSameTickOccupancyRefreshCount: 0,
+    specialistCollisionRequestedCount: 0,
+    specialistCollisionMovedCount: 0,
+    specialistCollisionBlockedCount: 0,
+    specialistCollisionRedirectedCount: 0,
+    specialistCollisionLocalQueryCount: 0,
+    specialistCollisionLocalCandidateCount: 0,
     attackAttemptCount: 0,
     preventedAttackCount: 0,
     landedOutcomeCount: 0,
@@ -3354,6 +3617,11 @@ function createCombatDebugSnapshot(
   }
 
   return {
+    initialIllegalHardStandingOverlapCount:
+      combatSandbox.individualInitialPlacementEvidence
+        .illegalHardStandingOverlapCount,
+    initialPlacementLocalCandidateCount:
+      combatSandbox.individualInitialPlacementEvidence.localCandidateCount,
     activeStandingCollisionMoverCount:
       combatSandbox.individualActiveStandingCollisionResult.moverCount,
     activeStandingCollisionBlockedCount:
@@ -3435,6 +3703,18 @@ function createCombatDebugSnapshot(
     egressCollisionSameTickOccupancyRefreshCount:
       combatSandbox.individualRespawnEgressCollisionResult
         .sameTickOccupancyRefreshCount,
+    specialistCollisionRequestedCount:
+      combatSandbox.individualSpecialistCollisionResult.requestedCount,
+    specialistCollisionMovedCount:
+      combatSandbox.individualSpecialistCollisionResult.movedCount,
+    specialistCollisionBlockedCount:
+      combatSandbox.individualSpecialistCollisionResult.blockedCount,
+    specialistCollisionRedirectedCount:
+      combatSandbox.individualSpecialistCollisionResult.redirectedCount,
+    specialistCollisionLocalQueryCount:
+      combatSandbox.individualSpecialistCollisionResult.localQueryCount,
+    specialistCollisionLocalCandidateCount:
+      combatSandbox.individualSpecialistCollisionResult.localCandidateCount,
     attackAttemptCount: combatSandbox.individualAttackAttemptCount,
     preventedAttackCount:
       combatSandbox.individualParryCount +
@@ -3691,8 +3971,12 @@ function collectInspectedIndividualSnapshots(
       collisionPrincipalOccupancyRelationshipCode:
         collisionResolution.principalOccupancyRelationshipCode,
       collisionPrincipalBlockerEntityId:
-        combatSandbox.individualActiveStandingCollisionWorkspace
-          .principalBlockerEntityIds[entityId]!,
+        combatSandbox.individualSpecialistCollisionResolver
+          .principalBlockerByEntity[entityId]! >= 0
+          ? combatSandbox.individualSpecialistCollisionResolver
+              .principalBlockerByEntity[entityId]!
+          : combatSandbox.individualActiveStandingCollisionWorkspace
+              .principalBlockerEntityIds[entityId]!,
       collisionLocalDecisionCode: collisionResolution.localDecisionCode,
       collisionLocalDecisionPartnerEntityId:
         collisionResolution.localDecisionPartnerEntityId,
@@ -3701,6 +3985,10 @@ function collectInspectedIndividualSnapshots(
         collisionResolution.localDecisionTicksRemaining,
       collisionLocalDecisionPhase: collisionResolution.localDecisionPhase,
       collisionOvertakeClearance: collisionResolution.overtakeClearance,
+      localRightOfWayClassCode:
+        combatSandbox.individualMovementRightOfWayStore.classCodes[entityId]!,
+      localRightOfWaySourceCode:
+        combatSandbox.individualMovementRightOfWayStore.sourceCodes[entityId]!,
       egressCollisionPrincipalBlockerEntityId:
         combatSandbox.individualRespawnEgressCollisionStore
           .principalBlockerByEntity[entityId]!,
@@ -4617,6 +4905,8 @@ function createLegacyCombatFoundationDebugSnapshot(
   }
 
   return {
+    initialIllegalHardStandingOverlapCount: 0,
+    initialPlacementLocalCandidateCount: 0,
     activeStandingCollisionMoverCount: 0,
     activeStandingCollisionBlockedCount: 0,
     activeStandingCollisionReducedCount: 0,
@@ -4653,6 +4943,12 @@ function createLegacyCombatFoundationDebugSnapshot(
     egressCollisionLocalQueryCount: 0,
     egressCollisionLocalCandidateCount: 0,
     egressCollisionSameTickOccupancyRefreshCount: 0,
+    specialistCollisionRequestedCount: 0,
+    specialistCollisionMovedCount: 0,
+    specialistCollisionBlockedCount: 0,
+    specialistCollisionRedirectedCount: 0,
+    specialistCollisionLocalQueryCount: 0,
+    specialistCollisionLocalCandidateCount: 0,
     attackAttemptCount: legacySandbox.opportunityCount,
     preventedAttackCount: 0,
     landedOutcomeCount: legacySandbox.strikeCount,

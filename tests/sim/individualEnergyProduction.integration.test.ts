@@ -1057,7 +1057,8 @@ describe("Milestone 7B-1 production activity observation", () => {
       "respawnEgress",
       "waitingAtRespawn",
       "inactiveTerminal",
-    ]) expect(observed.has(context)).toBe(true);
+    ]) expect(observed.has(context), `missing activity context ${context}`)
+      .toBe(true);
     expect(sawWalkingRespawnEgress).toBe(true);
     let totalSpent = 0;
     for (let entityId = 0; entityId < simulation.world.entityCount; entityId += 1) {

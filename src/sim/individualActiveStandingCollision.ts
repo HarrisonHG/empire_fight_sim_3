@@ -35,6 +35,7 @@ import {
   type UnitIdentityStore,
 } from "./unitIdentity";
 import type { SimulationBounds, WorldState } from "./types";
+import type { IndividualMovementRightOfWayStore } from "./individualMovementRightOfWay";
 
 export const ACTIVE_STANDING_COLLISION_CELL_SIZE = 16;
 export const ACTIVE_STANDING_COLLISION_MAX_QUERY_RADIUS = 32;
@@ -206,6 +207,7 @@ export function resolveOrdinaryActiveStandingFormationMovementOneTick(
   ordinaryParticipation: IndividualOrdinaryParticipationSnapshot,
   moraleMovementStates: UnitMoraleMovementStateSource,
   formation?: FormationBehaviourStore,
+  rightOfWay?: IndividualMovementRightOfWayStore,
 ): IndividualActiveStandingCollisionResult {
   validateInputs(workspace, collision, occupancy, world, identity,
     ordinaryParticipation, formation);
@@ -280,6 +282,7 @@ export function resolveOrdinaryActiveStandingFormationMovementOneTick(
       identity,
       formation,
       pairQueryRadius,
+      rightOfWay,
     );
   }
   resolveOrdinaryDownedSoftOccupancy(
@@ -294,6 +297,7 @@ export function resolveOrdinaryActiveStandingFormationMovementOneTick(
     occupancy,
     identity,
     pairQueryRadius,
+    rightOfWay,
   );
 
   let movedCount = 0;
@@ -474,6 +478,7 @@ function relaxMovingPairs(
   occupancy: IndividualPhysicalOccupancyStore,
   identity: UnitIdentityStore,
   queryRadius: number,
+  rightOfWay?: IndividualMovementRightOfWayStore,
 ): void {
   for (let pass = 0; pass < ACTIVE_STANDING_COLLISION_MAX_PASSES; pass += 1) {
     workspace.conflictFlags.fill(0);
@@ -516,6 +521,7 @@ function relaxMovingPairs(
           identity,
           entityId,
           otherId,
+          rightOfWay,
         );
       }
     }
@@ -549,6 +555,7 @@ function relaxMovingPairs(
     occupancy,
     identity,
     queryRadius,
+    rightOfWay,
   );
   if (unresolved > 0) {
     for (let entityId = 0; entityId < workspace.entityCount; entityId += 1) {
@@ -566,6 +573,7 @@ function relaxMovingPairs(
     occupancy,
     identity,
     queryRadius,
+    rightOfWay,
   );
 }
 
@@ -575,6 +583,7 @@ function findMovingPairConflicts(
   occupancy: IndividualPhysicalOccupancyStore,
   identity: UnitIdentityStore,
   queryRadius: number,
+  rightOfWay?: IndividualMovementRightOfWayStore,
 ): number {
   let conflictCount = 0;
   for (let entityId = 0; entityId < workspace.entityCount; entityId += 1) {
@@ -614,6 +623,7 @@ function findMovingPairConflicts(
         identity,
         entityId,
         otherId,
+        rightOfWay,
       );
     }
   }
@@ -627,6 +637,7 @@ function markPairForReduction(
   identity: UnitIdentityStore,
   leftId: number,
   rightId: number,
+  rightOfWay?: IndividualMovementRightOfWayStore,
 ): void {
   const leftOffset = leftId * 2;
   const rightOffset = rightId * 2;
@@ -642,7 +653,9 @@ function markPairForReduction(
     getUnitIdForEntity(identity, rightId),
   );
   const alliedYielder = allied
-    ? selectAlliedPhysicalYielder(workspace, collision, leftId, rightId)
+    ? selectAlliedPhysicalYielder(
+        workspace, collision, leftId, rightId, rightOfWay,
+      )
     : -1;
   if (alliedYielder >= 0) {
     if (alliedYielder === leftId && leftMoves) {

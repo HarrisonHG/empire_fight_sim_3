@@ -96,6 +96,12 @@ import type {
   IndividualRespawnEgressCollisionResult,
   IndividualRespawnEgressCollisionStore,
 } from "./individualRespawnEgressCollision";
+import type { IndividualMovementRightOfWayStore } from "./individualMovementRightOfWay";
+import type {
+  IndividualSpecialistCollisionResolver,
+  IndividualSpecialistCollisionResult,
+} from "./individualSpecialistCollision";
+import type { IndividualInitialPlacementEvidence } from "./individualInitialPlacement";
 import type {
   IndividualDeathCountStore,
   IndividualDeathCountPauseSource,
@@ -281,6 +287,8 @@ export interface CombatSandboxScenario {
   readonly inspectedEntityIds?: readonly number[];
   /** Opt-in bounded energy evidence for retained visual inspection only. */
   readonly includeEnergyDebug?: boolean;
+  /** Setup authority may use a deterministic legal deployment lattice. */
+  readonly requireLegalInitialHardStandingPlacement?: boolean;
   /**
    * Explicit deterministic inputs for the retained Milestone 6 visual fixture.
    * Normal scenarios omit this; production authorities still own every result.
@@ -454,7 +462,9 @@ export const PERSONAL_SPACE_DETOUR_PHASE = Object.freeze({
 } as const);
 
 export interface PersonalSpaceSpikeDebugSnapshot {
-  readonly algorithm: "boundedDiscreteCandidateRelaxation";
+  readonly algorithm:
+    | "boundedDiscreteCandidateRelaxation"
+    | "productionBoundedLocalResolution";
   readonly standingRadius: number;
   readonly downedSoftRadius: number;
   readonly maximumResolutionPasses: number;
@@ -472,6 +482,7 @@ export interface PersonalSpaceSpikeDebugSnapshot {
   readonly courtesyYieldCount: number;
   readonly overtakingCount: number;
   readonly occupancyClassCodes: Uint8Array;
+  readonly rightOfWayClassCodes?: Uint8Array;
   readonly radii: Uint8Array;
   readonly intendedDeltas: Int32Array;
   readonly resolvedDeltas: Int32Array;
@@ -482,7 +493,7 @@ export interface PersonalSpaceSpikeDebugSnapshot {
   readonly detourSideByEntity: Int8Array;
   readonly detourTicksRemaining: Uint16Array;
   readonly courtesyBlockerByEntity: Int32Array;
-  readonly courtesyTicksRemaining: Uint8Array;
+  readonly courtesyTicksRemaining: Uint8Array | Uint16Array;
   readonly overtakeLeaderByEntity: Int32Array;
   readonly overtakeSideByEntity: Int8Array;
   readonly overtakeClearanceByEntity: Uint8Array;
@@ -644,6 +655,8 @@ export interface LiveCombatDebugIndividualSnapshot {
   readonly collisionLocalDecisionTicksRemaining?: number;
   readonly collisionLocalDecisionPhase?: number;
   readonly collisionOvertakeClearance?: number;
+  readonly localRightOfWayClassCode?: number;
+  readonly localRightOfWaySourceCode?: number;
   readonly egressCollisionPrincipalBlockerEntityId?: number;
   readonly egressDetourPhase?: number;
   readonly egressDetourSide?: number;
@@ -910,6 +923,8 @@ export interface InspectedCombatVisualEvent {
 
 /** Compact, render-safe inspection state for the production combat sandbox. */
 export interface LiveCombatDebugSnapshot {
+  readonly initialIllegalHardStandingOverlapCount: number;
+  readonly initialPlacementLocalCandidateCount: number;
   readonly activeStandingCollisionMoverCount: number;
   readonly activeStandingCollisionBlockedCount: number;
   readonly activeStandingCollisionReducedCount: number;
@@ -946,6 +961,12 @@ export interface LiveCombatDebugSnapshot {
   readonly egressCollisionLocalQueryCount: number;
   readonly egressCollisionLocalCandidateCount: number;
   readonly egressCollisionSameTickOccupancyRefreshCount: number;
+  readonly specialistCollisionRequestedCount: number;
+  readonly specialistCollisionMovedCount: number;
+  readonly specialistCollisionBlockedCount: number;
+  readonly specialistCollisionRedirectedCount: number;
+  readonly specialistCollisionLocalQueryCount: number;
+  readonly specialistCollisionLocalCandidateCount: number;
   readonly attackAttemptCount: number;
   readonly preventedAttackCount: number;
   readonly landedOutcomeCount: number;
@@ -1034,7 +1055,9 @@ export interface CombatSandboxSimulationState {
   readonly individualCasualtyAssistanceStore: IndividualCasualtyAssistanceStore;
   readonly casualtyDragGroupStore: CasualtyDragGroupStore;
   readonly individualPhysicalOccupancyStore: IndividualPhysicalOccupancyStore;
+  readonly individualInitialPlacementEvidence: IndividualInitialPlacementEvidence;
   readonly individualCollisionResolutionStore: IndividualCollisionResolutionStore;
+  readonly individualMovementRightOfWayStore: IndividualMovementRightOfWayStore;
   readonly individualActiveStandingCollisionWorkspace:
     IndividualActiveStandingCollisionWorkspace;
   readonly individualActiveStandingCollisionResult:
@@ -1047,6 +1070,11 @@ export interface CombatSandboxSimulationState {
     IndividualRespawnEgressCollisionStore;
   readonly individualRespawnEgressCollisionResult:
     IndividualRespawnEgressCollisionResult;
+  readonly individualSpecialistCollisionResolver:
+    IndividualSpecialistCollisionResolver;
+  readonly individualSpecialistCollisionResult:
+    IndividualSpecialistCollisionResult;
+  readonly productionPersonalSpaceResolutionFlags: Uint8Array;
   readonly individualDragHandCommitmentStore: IndividualDragHandCommitmentStore;
   readonly individualDefenceHandAvailabilitySource: IndividualDefenceHandAvailabilitySource;
   readonly casualtyDragMovementBuffers: CasualtyDragMovementBuffers;

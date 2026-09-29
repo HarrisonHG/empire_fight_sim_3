@@ -9,6 +9,11 @@ import {
   type IndividualCollisionResolutionStore,
 } from "./individualCollisionResolution";
 import type { IndividualPhysicalOccupancyStore } from "./individualPhysicalOccupancy";
+import {
+  INDIVIDUAL_LOCAL_RIGHT_OF_WAY_SOURCE,
+  selectLocalRightOfWayYielder,
+  type IndividualMovementRightOfWayStore,
+} from "./individualMovementRightOfWay";
 import { queryNearbyEntitiesInto } from "./spatialGrid";
 import {
   getFactionIdForUnit,
@@ -44,8 +49,9 @@ export function prepareAlliedCrowdFlow(
   identity: UnitIdentityStore,
   formation: FormationBehaviourStore,
   queryRadius: number,
+  rightOfWay?: IndividualMovementRightOfWayStore,
 ): void {
-  refreshDecisions(workspace, collision, occupancy, identity);
+  refreshDecisions(workspace, collision, occupancy, identity, rightOfWay);
 
   for (let leftId = 0; leftId < workspace.entityCount; leftId += 1) {
     if (!canBegin(workspace, collision, leftId)) continue;
@@ -76,6 +82,17 @@ export function prepareAlliedCrowdFlow(
         : 0;
       if (!requestedPairConflicts(collision, occupancy, leftId, rightId) &&
           leftCourtesyClearance === 0 && rightCourtesyClearance === 0) {
+        continue;
+      }
+
+      const authorityYielder = selectNewAuthorityYielder(
+        rightOfWay, leftId, rightId,
+      );
+      if (authorityYielder >= 0) {
+        const priorityMover = authorityYielder === leftId ? rightId : leftId;
+        beginDetour(workspace, collision, authorityYielder, priorityMover,
+          sideFor(collision, authorityYielder, priorityMover), true);
+        applyDecision(workspace, collision, authorityYielder);
         continue;
       }
 
@@ -189,6 +206,7 @@ export function selectAlliedPhysicalYielder(
   collision: IndividualCollisionResolutionStore,
   leftId: number,
   rightId: number,
+  rightOfWay?: IndividualMovementRightOfWayStore,
 ): number {
   if (decisionYieldsTo(collision, leftId, rightId)) return leftId;
   if (decisionYieldsTo(collision, rightId, leftId)) return rightId;
@@ -199,7 +217,32 @@ export function selectAlliedPhysicalYielder(
       workspace.pushThroughFlags[rightId]) {
     return workspace.pushThroughFlags[leftId] !== 0 ? rightId : leftId;
   }
+  const authorityYielder = selectNewAuthorityYielder(
+    rightOfWay, leftId, rightId,
+  );
+  if (authorityYielder >= 0) return authorityYielder;
   return fasterRearFollower(collision, leftId, rightId);
+}
+
+/**
+ * Routing, push-through, rescue and egress retain their accepted specialised
+ * negotiation paths. 8G adds only the previously absent urgent-medical pair
+ * here; all sources still project through the generic contract for inspection
+ * and future authorities can be admitted without teaching collision a role.
+ */
+function selectNewAuthorityYielder(
+  rightOfWay: IndividualMovementRightOfWayStore | undefined,
+  leftId: number,
+  rightId: number,
+): number {
+  if (rightOfWay === undefined) return -1;
+  if (rightOfWay.sourceCodes[leftId] !==
+        INDIVIDUAL_LOCAL_RIGHT_OF_WAY_SOURCE.urgentMedicalResponse &&
+      rightOfWay.sourceCodes[rightId] !==
+        INDIVIDUAL_LOCAL_RIGHT_OF_WAY_SOURCE.urgentMedicalResponse) {
+    return -1;
+  }
+  return selectLocalRightOfWayYielder(rightOfWay, leftId, rightId);
 }
 
 function refreshDecisions(
@@ -207,6 +250,7 @@ function refreshDecisions(
   collision: IndividualCollisionResolutionStore,
   occupancy: IndividualPhysicalOccupancyStore,
   identity: UnitIdentityStore,
+  rightOfWay?: IndividualMovementRightOfWayStore,
 ): void {
   workspace.courtesyRecipientByEntity.fill(-1);
   for (let entityId = 0; entityId < workspace.entityCount; entityId += 1) {
@@ -219,6 +263,7 @@ function refreshDecisions(
           workspace,
           entityId,
           partner,
+          rightOfWay,
         )) {
       clearDecision(collision, entityId, false);
       continue;
@@ -284,7 +329,14 @@ function rememberedYieldConflictsWithCurrentAuthority(
   workspace: IndividualActiveStandingCollisionWorkspace,
   entityId: number,
   partner: number,
+  rightOfWay?: IndividualMovementRightOfWayStore,
 ): boolean {
+  if (rightOfWay !== undefined) {
+    const authorityYielder = selectNewAuthorityYielder(
+      rightOfWay, entityId, partner,
+    );
+    if (authorityYielder >= 0) return authorityYielder === partner;
+  }
   const entityRoutes = workspace.routingFlags[entityId] !== 0;
   const partnerRoutes = workspace.routingFlags[partner] !== 0;
   if (entityRoutes) return !partnerRoutes;

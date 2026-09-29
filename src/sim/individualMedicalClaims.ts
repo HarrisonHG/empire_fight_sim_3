@@ -1,9 +1,11 @@
 import { getIndividualCombatActionState, type IndividualCombatActionStore } from "./individualCombatAction";
 import {
   applyIndividualExternalMovementIntent,
+  commitIndividualExternalMovementResolution,
   getIndividualConfiguredMaxStep,
   type FormationBehaviourStore,
 } from "./formationBehaviour";
+import type { IndividualSpecialistCollisionResolver } from "./individualSpecialistCollision";
 import {
   physicalGaitCoordinateCeiling,
   requiredPhysicalGaitTicksToContact,
@@ -130,6 +132,14 @@ export function hasIndividualMedicalPatientClaim(store: IndividualMedicalClaimSt
   const internal = store as InternalClaimStore; assertEntity(physickEntityId, internal.entityCount);
   return internal.patientByPhysick[physickEntityId] !== NONE;
 }
+export function isIndividualMedicalClaimApproachCommitted(
+  store: IndividualMedicalClaimStore,
+  physickEntityId: number,
+): boolean {
+  const internal = store as InternalClaimStore;
+  assertEntity(physickEntityId, internal.entityCount);
+  return internal.committedByPhysick[physickEntityId] !== 0;
+}
 export function getIndividualMedicalClaimedPatientEntityId(store: IndividualMedicalClaimStore, healerEntityId: number): number {
   const internal = store as InternalClaimStore; assertEntity(healerEntityId, internal.entityCount);
   return internal.patientByPhysick[healerEntityId]!;
@@ -223,10 +233,12 @@ export function advanceIndividualMedicalClaimApproachMovementOneTick(
   tick: number,
   options: IndividualMedicalClaimCommitmentOptions = {},
   gaitAdapter?: IndividualSpecialistPhysicalGaitAdapter,
+  collisionResolver?: IndividualSpecialistCollisionResolver,
 ): number {
   validateCounts(world.entityCount, formation, identity, lifecycle, presence, hits,
     profiles, herbs, trauma, limbs, actions, assistance, claims);
   gaitAdapter?.validateCurrentTick();
+  collisionResolver?.prepareForMovement(tick);
   const internal = claims as InternalClaimStore;
   let movedCount = 0;
   for (let physickId = 0; physickId < internal.entityCount; physickId += 1) {
@@ -263,7 +275,9 @@ export function advanceIndividualMedicalClaimApproachMovementOneTick(
     const finalMaximumStep = gaitCoordinateCeiling === null
       ? configuredMaximumStep
       : Math.min(configuredMaximumStep, gaitCoordinateCeiling);
-    const moved = applyIndividualExternalMovementIntent(
+    const startX = world.positionsX[physickId]!;
+    const startY = world.positionsY[physickId]!;
+    let moved = applyIndividualExternalMovementIntent(
       world,
       formation,
       physickId,
@@ -272,6 +286,19 @@ export function advanceIndividualMedicalClaimApproachMovementOneTick(
       "approachClaimedPatient",
       finalMaximumStep,
     );
+    if (collisionResolver !== undefined) {
+      const permittedDeltaX = world.positionsX[physickId]! - startX;
+      const permittedDeltaY = world.positionsY[physickId]! - startY;
+      collisionResolver.resolveStep(
+        physickId, permittedDeltaX, permittedDeltaY, patientId,
+      );
+      moved = commitIndividualExternalMovementResolution(
+        world, formation, physickId, startX, startY,
+        collisionResolver.resolvedDeltaX,
+        collisionResolver.resolvedDeltaY,
+        "approachClaimedPatient",
+      );
+    }
     gaitAdapter?.completeActiveSpecialistMovement(
       physickId,
       "medicalApproach",

@@ -257,7 +257,7 @@ describe("Milestone 6 casualty lifecycle retained visual scenario", () => {
     }
     // 8E completes at legal body contact with the occupied safe point rather
     // than overlapping its stationary Chirurgeon destination.
-    expect(phases.get(8)).toMatchObject({ first: 7, ticks: 89 });
+    expect(phases.get(8)).toMatchObject({ first: 9, ticks: 89 });
     expect(phases.get(12)?.ticks).toBeGreaterThanOrEqual(30);
     expect(helperHands).toEqual([1, 1]);
     expect(soloHands).toBe(2);
@@ -495,6 +495,7 @@ describe("Milestone 6 casualty lifecycle retained visual scenario", () => {
     expect(VISUAL_TEST_REGISTRY.filter((entry) =>
       entry.id !== CASUALTY_LIFECYCLE_VISUAL_SCENARIO_ID &&
       entry.id !== "energy-exertion" &&
+      entry.id !== "personal-space" &&
       entry.id !== "personal-space-spike")
       .map((entry) => entry.id)).toEqual([
       "movement-behaviour",

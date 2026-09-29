@@ -45,6 +45,7 @@ export const MAIN_BATTLE_MEDICAL_SCENARIO: SimulationScenario = Object.freeze({
     kind: "liveCombatSandbox" as const,
     appliedDamagePressureScale: 2,
     includeEnergyDebug: true,
+    requireLegalInitialHardStandingPlacement: true,
     inspectedEntityIds: Object.freeze(
       Array.from({ length: MAIN_BATTLE_MEDICAL_ENTITY_COUNT }, (_, id) => id),
     ),

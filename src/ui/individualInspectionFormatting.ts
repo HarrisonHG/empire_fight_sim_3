@@ -8,6 +8,27 @@ export interface IndividualInspectionRow {
   readonly latestEvent: string;
 }
 
+export function formatPhysicalSpaceInspection(
+  individual: LiveCombatDebugIndividualSnapshot,
+): string {
+  if (individual.physicalOccupancyClass === undefined) return "--";
+  return [
+    `${individual.physicalOccupancyClass} r${individual.personalSpaceRadius ?? 0}`,
+    `priority ${individual.localRightOfWayClassCode ?? 0}` +
+      `/${individual.localRightOfWaySourceCode ?? 0}`,
+    `step ${individual.collisionPermittedDeltaX ?? 0},` +
+      `${individual.collisionPermittedDeltaY ?? 0}>` +
+      `${individual.collisionResolvedDeltaX ?? 0},` +
+      `${individual.collisionResolvedDeltaY ?? 0}`,
+    individual.collisionBlocked ? "blocked" :
+      individual.collisionRedirected ? "redirected" :
+        individual.collisionReduced ? "reduced" : "clear",
+    `blocker ${individual.collisionPrincipalBlockerEntityId ?? -1}`,
+    `local ${individual.collisionLocalDecisionCode ?? 0}` +
+      `/${individual.collisionLocalDecisionPhase ?? 0}`,
+  ].join(" · ");
+}
+
 export function formatEnergyInspection(
   individual: LiveCombatDebugIndividualSnapshot,
 ): string {

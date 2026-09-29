@@ -549,6 +549,8 @@ export class PixiEntityRenderer {
     }
     if (
       debug.occupancyClassCodes.length !== entityOrder.length ||
+      (debug.rightOfWayClassCodes !== undefined &&
+        debug.rightOfWayClassCodes.length !== entityOrder.length) ||
       debug.radii.length !== entityOrder.length ||
       debug.intendedDeltas.length !== entityOrder.length * 2 ||
       debug.resolvedDeltas.length !== entityOrder.length * 2 ||

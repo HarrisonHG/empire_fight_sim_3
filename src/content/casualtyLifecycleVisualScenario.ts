@@ -162,7 +162,7 @@ const FIXTURE_EVENTS: readonly RetainedCasualtyVisualFixtureEvent[] = Object.fre
     tick: 80,
     kind: "relocate" as const,
     entityId: 7,
-    x: chamber(4).centreX + 4,
+    x: chamber(4).centreX + 8,
     y: chamber(4).centreY,
   }),
 ]);
@@ -179,6 +179,7 @@ export const CASUALTY_LIFECYCLE_VISUAL_SCENARIO: SimulationScenario = Object.fre
   combatSandbox: Object.freeze({
     kind: "liveCombatSandbox" as const,
     appliedDamagePressureScale: 1,
+    requireLegalInitialHardStandingPlacement: true,
     inspectedEntityIds: Object.freeze(Array.from({ length: 27 }, (_, id) => id)),
     retainedCasualtyVisualFixture: Object.freeze({
       kind: "casualtyLifecycle" as const,
@@ -194,7 +195,7 @@ export const CASUALTY_LIFECYCLE_VISUAL_SCENARIO: SimulationScenario = Object.fre
         medicalProfile: medical(true, true, 0),
       }),
       unit(401, 6, 4, 0, 0, "Living missing-hit patient", { armourClass: "heavy" }),
-      unit(402, 6, 4, 4, 0, "Herb Physick", {
+      unit(402, 6, 4, 8, 0, "Herb Physick", {
         medicalProfile: medical(true, true, 2),
       }),
       unit(501, 7, 5, 0, 0, "Two-fighter drag patient"),
@@ -216,7 +217,7 @@ export const CASUALTY_LIFECYCLE_VISUAL_SCENARIO: SimulationScenario = Object.fre
         medicalProfile: medical(true, true, 1),
       }),
       unit(801, 10, 8, 0, 0, "Execution target"),
-      unit(802, 10, 8, 4, 0, "Explicit executor"),
+      unit(802, 10, 8, 8, 0, "Explicit executor"),
       unit(803, 10, 8, 240, 0, "Terminal-comfort Physick", {
         medicalProfile: medical(true, true, 0),
       }),
@@ -229,11 +230,11 @@ export const CASUALTY_LIFECYCLE_VISUAL_SCENARIO: SimulationScenario = Object.fre
         }),
       }),
       unit(1001, 13, 10, -100, 0, "Leg-priority patient; arm also disabled"),
-      unit(1002, 13, 10, -96, 0, "Herb-backed limb Physick", {
+      unit(1002, 13, 10, -92, 0, "Herb-backed limb Physick", {
         medicalProfile: medical(true, true, 1),
       }),
       unit(1003, 14, 10, 100, 0, "Disabled-arm patient"),
-      unit(1004, 14, 10, 104, 0, "Herb-free limb Physick", {
+      unit(1004, 14, 10, 108, 0, "Herb-free limb Physick", {
         medicalProfile: medical(true, true, 0),
       }),
       unit(505, 15, 5, 80, 0, "Hostile extraction pressure", {
@@ -242,7 +243,7 @@ export const CASUALTY_LIFECYCLE_VISUAL_SCENARIO: SimulationScenario = Object.fre
         weaponReachBand: "medium",
         attackIntervalTicks: 1_000,
       }),
-      unit(703, 17, 7, -56, 0, "Ignored hostile", {
+      unit(703, 17, 7, -68, 0, "Ignored hostile", {
         headingX: -1,
         weaponCategory: "oneHanded",
         weaponReachBand: "medium",

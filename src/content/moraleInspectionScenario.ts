@@ -11,6 +11,7 @@ export const MORALE_INSPECTION_SCENARIO: SimulationScenario = Object.freeze({
   combatSandbox: Object.freeze({
     kind: "liveCombatSandbox",
     appliedDamagePressureScale: 7,
+    requireLegalInitialHardStandingPlacement: true,
     units: Object.freeze([
       blueUnit(11, 10, 160, "veteran", 2_500, 1_000, "advance"),
       blueUnit(12, 10, 360, "regular", 1_000, 1_000, "advance"),

@@ -186,6 +186,7 @@ export function createPersonalSpaceSpikeStore(
     courtesyYieldCount: 0,
     overtakingCount: 0,
     occupancyClassCodes,
+    rightOfWayClassCodes: new Uint8Array(entityCount).fill(1),
     radii,
     intendedDeltas: new Int32Array(entityCount * 2),
     resolvedDeltas: new Int32Array(entityCount * 2),

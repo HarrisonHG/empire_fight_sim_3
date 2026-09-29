@@ -34,12 +34,14 @@ import {
 } from "./individualLimbDisability";
 import {
   applyIndividualExternalMovementIntent,
+  commitIndividualExternalMovementResolution,
   getIndividualConfiguredMaxStep,
   getIndividualPressure,
   getIndividualRole,
   getUnitHeading,
   type FormationBehaviourStore,
 } from "./formationBehaviour";
+import type { IndividualSpecialistCollisionResolver } from "./individualSpecialistCollision";
 import type { UnitMoraleMovementStateSource } from "./moraleMovement";
 import {
   physicalGaitCoordinateCeiling,
@@ -694,9 +696,13 @@ export function advanceIndividualTraumaWithdrawalMovementOneTick(
   urgencyStore: IndividualMedicalUrgencyStore,
   isReceivingTreatment: (entityId: number) => boolean = () => false,
   gaitAdapter?: IndividualSpecialistPhysicalGaitAdapter,
+  collisionResolver?: IndividualSpecialistCollisionResolver,
 ): number {
   const internal = requireUrgencyStore(urgencyStore, world.entityCount);
   gaitAdapter?.validateCurrentTick();
+  collisionResolver?.prepareForMovement(
+    gaitAdapter?.acceptedProjectionTick ?? 0,
+  );
   let movedCount = 0;
   for (let entityId = 0; entityId < world.entityCount; entityId += 1) {
     if (internal.withdrawingByEntity[entityId] === 0) continue;
@@ -736,7 +742,9 @@ export function advanceIndividualTraumaWithdrawalMovementOneTick(
     const finalMaximumStep = gaitCoordinateCeiling === null
       ? configuredMaximumStep
       : Math.min(configuredMaximumStep, gaitCoordinateCeiling);
-    const moved = applyIndividualExternalMovementIntent(
+    const startX = world.positionsX[entityId]!;
+    const startY = world.positionsY[entityId]!;
+    let moved = applyIndividualExternalMovementIntent(
       world,
       formationStore,
       entityId,
@@ -745,6 +753,19 @@ export function advanceIndividualTraumaWithdrawalMovementOneTick(
       "withdrawForTreatment",
       finalMaximumStep,
     );
+    if (collisionResolver !== undefined) {
+      collisionResolver.resolveStep(
+        entityId,
+        world.positionsX[entityId]! - startX,
+        world.positionsY[entityId]! - startY,
+      );
+      moved = commitIndividualExternalMovementResolution(
+        world, formationStore, entityId, startX, startY,
+        collisionResolver.resolvedDeltaX,
+        collisionResolver.resolvedDeltaY,
+        "withdrawForTreatment",
+      );
+    }
     gaitAdapter?.completeActiveSpecialistMovement(
       entityId,
       "traumaWithdrawal",

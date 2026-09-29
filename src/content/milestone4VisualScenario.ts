@@ -45,6 +45,7 @@ export const MILESTONE_4_VISUAL_SCENARIO: SimulationScenario = Object.freeze({
   combatSandbox: Object.freeze({
     kind: "liveCombatSandbox",
     appliedDamagePressureScale: 7,
+    requireLegalInitialHardStandingPlacement: true,
     units: Object.freeze([
       ...comparisonUnits,
       ...regularPursuitUnits,

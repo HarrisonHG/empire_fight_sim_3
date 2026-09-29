@@ -428,6 +428,7 @@ describe("production trauma withdrawal", () => {
     const combat = requireCombat(simulation);
     applyTrauma(combat, 0);
     const beforeX = simulation.world.positionsX[0]!;
+    const beforeY = simulation.world.positionsY[0]!;
 
     advanceSimulationOneTick(simulation);
 
@@ -442,7 +443,16 @@ describe("production trauma withdrawal", () => {
       withdrawalTargetPhysickEntityId: 1,
       localPhysickCandidateCount: 1,
     });
-    expect(simulation.world.positionsX[0]).toBeGreaterThan(beforeX);
+    expect(
+      simulation.world.positionsX[0] !== beforeX ||
+      simulation.world.positionsY[0] !== beforeY,
+    ).toBe(true);
+    const hostileDeltaX = simulation.world.positionsX[2]! -
+      simulation.world.positionsX[0]!;
+    const hostileDeltaY = simulation.world.positionsY[2]! -
+      simulation.world.positionsY[0]!;
+    expect(hostileDeltaX * hostileDeltaX + hostileDeltaY * hostileDeltaY)
+      .toBeGreaterThanOrEqual(64);
     expect(getIndividualMovementMode(combat.formationStore, 0)).toBe(
       "withdrawForTreatment",
     );
