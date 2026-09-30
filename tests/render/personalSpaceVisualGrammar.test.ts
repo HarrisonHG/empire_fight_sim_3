@@ -14,6 +14,8 @@ describe("Milestone 8A personal-space debug grammar", () => {
   it("maps occupancy, vectors, and collision state without inventing authority", () => {
     const debug = fixture();
     expect(createPersonalSpaceVisualGlyphSpec(debug, 0)).toEqual({
+      occupancyClassCode: PERSONAL_SPACE_OCCUPANCY_CLASS_CODE.activeStanding,
+      rightOfWayClassCode: 4,
       radius: 4,
       footprintColor: PERSONAL_SPACE_VISUAL_COLOR.activeStanding,
       footprintAlpha: 0.32,
@@ -25,7 +27,11 @@ describe("Milestone 8A personal-space debug grammar", () => {
       reduced: false,
       redirected: true,
       downedSoftCrossing: false,
+      downedSoftAvoidance: true,
+      assistedGroupInteraction: false,
       yieldingEgressYield: false,
+      principalBlockerId: 1,
+      principalRelationshipCode: 1,
       detourActive: true,
       detourPhase: 1,
       detourTicksRemaining: 32,
@@ -72,11 +78,15 @@ function fixture(): PersonalSpaceSpikeDebugSnapshot {
       PERSONAL_SPACE_OCCUPANCY_CLASS_CODE.activeStanding,
       PERSONAL_SPACE_OCCUPANCY_CLASS_CODE.downedSoft,
     ]),
+    rightOfWayClassCodes: new Uint8Array([4, 1]),
     radii: new Uint8Array([4, 5]),
     intendedDeltas: new Int32Array([2, 0, 0, 0]),
     resolvedDeltas: new Int32Array([1, -1, 0, 0]),
     localNeighbourCounts: new Uint16Array([1, 1]),
+    principalBlockerByEntity: new Int32Array([1, -1]),
     principalRelationshipCodes: new Uint8Array([1, 0]),
+    downedSoftAvoidanceFlags: new Uint8Array([1, 0]),
+    assistedGroupInteractionFlags: new Uint8Array(2),
     resolutionFlags: new Uint8Array([
       PERSONAL_SPACE_RESOLUTION_FLAG.redirected |
         PERSONAL_SPACE_RESOLUTION_FLAG.detourActive,

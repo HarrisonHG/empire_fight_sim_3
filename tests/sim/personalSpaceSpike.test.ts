@@ -54,6 +54,26 @@ describe("Milestone 8A isolated personal-space feasibility spike", () => {
     });
     expect(initial.personalSpaceDebug?.intendedDeltas).toBeInstanceOf(Int32Array);
     expect(initial.personalSpaceDebug?.resolutionFlags).toBeInstanceOf(Uint8Array);
+    expect(initial.personalSpaceDebug?.rightOfWayClassCodes)
+      .toBeInstanceOf(Uint8Array);
+    expect(Array.from(initial.personalSpaceDebug!.rightOfWayClassCodes!))
+      .toEqual(PERSONAL_SPACE_SPIKE_SCENARIO.personalSpaceSpike!.entities.map(
+        (entity) => entity.occupancyClass === "assistedMoving"
+          ? 3
+          : entity.occupancyClass === "activeStanding"
+            ? 2
+            : entity.occupancyClass === "yieldingEgress"
+              ? 1
+              : 0,
+      ));
+    expect(initial.personalSpaceDebug?.principalBlockerByEntity)
+      .toBeInstanceOf(Int32Array);
+    expect(initial.personalSpaceDebug?.principalRelationshipCodes)
+      .toBeInstanceOf(Uint8Array);
+    expect(initial.personalSpaceDebug?.downedSoftAvoidanceFlags)
+      .toBeInstanceOf(Uint8Array);
+    expect(initial.personalSpaceDebug?.assistedGroupInteractionFlags)
+      .toBeInstanceOf(Uint8Array);
     expect(initial.personalSpaceDebug?.detourPhaseCodes).toBeInstanceOf(Uint8Array);
     expect(initial.personalSpaceDebug?.detourSideByEntity).toBeInstanceOf(Int8Array);
     expect(initial.personalSpaceDebug?.detourTicksRemaining).toBeInstanceOf(Uint16Array);

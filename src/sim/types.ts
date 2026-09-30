@@ -487,7 +487,10 @@ export interface PersonalSpaceSpikeDebugSnapshot {
   readonly intendedDeltas: Int32Array;
   readonly resolvedDeltas: Int32Array;
   readonly localNeighbourCounts: Uint16Array;
+  readonly principalBlockerByEntity: Int32Array;
   readonly principalRelationshipCodes: Uint8Array;
+  readonly downedSoftAvoidanceFlags: Uint8Array;
+  readonly assistedGroupInteractionFlags: Uint8Array;
   readonly resolutionFlags: Uint8Array;
   readonly detourPhaseCodes: Uint8Array;
   readonly detourSideByEntity: Int8Array;
@@ -1075,6 +1078,9 @@ export interface CombatSandboxSimulationState {
   readonly individualSpecialistCollisionResult:
     IndividualSpecialistCollisionResult;
   readonly productionPersonalSpaceResolutionFlags: Uint8Array;
+  readonly productionPersonalSpacePrincipalBlockers: Int32Array;
+  readonly productionPersonalSpaceDownedSoftAvoidanceFlags: Uint8Array;
+  readonly productionPersonalSpaceAssistedGroupInteractionFlags: Uint8Array;
   readonly individualDragHandCommitmentStore: IndividualDragHandCommitmentStore;
   readonly individualDefenceHandAvailabilitySource: IndividualDefenceHandAvailabilitySource;
   readonly casualtyDragMovementBuffers: CasualtyDragMovementBuffers;

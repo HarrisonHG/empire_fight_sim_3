@@ -119,6 +119,7 @@ import {
   hasUnreservedDragEligiblePatient,
 } from "./individualCasualtyAssistance";
 import {
+  PRODUCTION_PERSONAL_SPACE_GEOMETRY,
   createIndividualPhysicalOccupancyStore,
   getIndividualPhysicalOccupancyInspection,
   projectIndividualPhysicalOccupancyOneTick,
@@ -145,7 +146,10 @@ import {
 import {
   createIndividualSpecialistCollisionResolver,
 } from "./individualSpecialistCollision";
-import { validateIndividualInitialHardStandingPlacement } from "./individualInitialPlacement";
+import {
+  findLegalInitialStandingCoordinate,
+  validateIndividualInitialHardStandingPlacement,
+} from "./individualInitialPlacement";
 import {
   advanceIndividualDeathCountsOneTick,
   createIndividualDeathCountStore,
@@ -802,6 +806,7 @@ function createCombatSandbox(
           unit.deploymentZone,
           authoredRandomX,
           authoredRandomY,
+          PRODUCTION_PERSONAL_SPACE_GEOMETRY.activeStandingRadius * 2,
         );
         world.positionsX[entityId] = legal.x;
         world.positionsY[entityId] = legal.y;
@@ -1182,6 +1187,13 @@ function createCombatSandbox(
     individualSpecialistCollisionResult:
       individualSpecialistCollisionResolver.result,
     productionPersonalSpaceResolutionFlags: new Uint8Array(world.entityCount),
+    productionPersonalSpacePrincipalBlockers: filledInt32(
+      world.entityCount, -1,
+    ),
+    productionPersonalSpaceDownedSoftAvoidanceFlags:
+      new Uint8Array(world.entityCount),
+    productionPersonalSpaceAssistedGroupInteractionFlags:
+      new Uint8Array(world.entityCount),
     individualDragHandCommitmentStore,
     individualDefenceHandAvailabilitySource,
     casualtyDragMovementBuffers,
@@ -1363,60 +1375,6 @@ function createCombatSandbox(
   return { state: combatSandbox, rngState: deploymentRng.state };
 }
 
-function findLegalInitialStandingCoordinate(
-  world: WorldState,
-  placedEntityCount: number,
-  zone: CombatSandboxUnitScenario["deploymentZone"],
-  preferredX: number,
-  preferredY: number,
-): { readonly x: number; readonly y: number } {
-  const width = zone.maxX - zone.minX + 1;
-  const height = zone.maxY - zone.minY + 1;
-  const area = width * height;
-  for (let offset = 0; offset < area; offset += 1) {
-    const x = zone.minX + ((preferredX - zone.minX + offset) % width);
-    const y = zone.minY + (
-      (preferredY - zone.minY + Math.floor(offset / width)) % height
-    );
-    if (isLegalInitialStandingCoordinate(world, placedEntityCount, x, y)) {
-      return { x, y };
-    }
-  }
-  // A fixed authored point or a tightly packed deployment zone can be
-  // physically impossible. Setup authority may nudge outward deterministically;
-  // runtime collision still receives no depenetration authority.
-  for (let radius = 1; radius <= 128; radius += 1) {
-    for (let yOffset = -radius; yOffset <= radius; yOffset += 1) {
-      for (let xOffset = -radius; xOffset <= radius; xOffset += 1) {
-        if (absolute(xOffset) !== radius && absolute(yOffset) !== radius) continue;
-        const x = preferredX + xOffset;
-        const y = preferredY + yOffset;
-        if (x < 0 || y < 0 || x >= world.bounds.width || y >= world.bounds.height) {
-          continue;
-        }
-        if (isLegalInitialStandingCoordinate(world, placedEntityCount, x, y)) {
-          return { x, y };
-        }
-      }
-    }
-  }
-  throw new Error("Authored deployment zone cannot provide legal standing space.");
-}
-
-function isLegalInitialStandingCoordinate(
-  world: WorldState,
-  placedEntityCount: number,
-  x: number,
-  y: number,
-): boolean {
-  for (let otherId = 0; otherId < placedEntityCount; otherId += 1) {
-    const deltaX = world.positionsX[otherId]! - x;
-    const deltaY = world.positionsY[otherId]! - y;
-    if (deltaX * deltaX + deltaY * deltaY < 64) return false;
-  }
-  return true;
-}
-
 function assertLegalInitialStandingCoordinate(
   world: WorldState,
   entityId: number,
@@ -1428,10 +1386,6 @@ function assertLegalInitialStandingCoordinate(
       throw new Error("Legal setup placement produced a standing overlap.");
     }
   }
-}
-
-function absolute(value: number): number {
-  return value < 0 ? -value : value;
 }
 
 function expandScenarioEnergyProfiles(
@@ -3156,6 +3110,11 @@ function createProductionPersonalSpaceDebugSnapshot(
 ): PersonalSpaceSpikeDebugSnapshot {
   const collision = combat.individualCollisionResolutionStore;
   const visualFlags = combat.productionPersonalSpaceResolutionFlags;
+  const principalBlockers = combat.productionPersonalSpacePrincipalBlockers;
+  const downedSoftAvoidanceFlags =
+    combat.productionPersonalSpaceDownedSoftAvoidanceFlags;
+  const assistedGroupInteractionFlags =
+    combat.productionPersonalSpaceAssistedGroupInteractionFlags;
   let blockedCount = 0;
   let reducedCount = 0;
   let redirectedCount = 0;
@@ -3177,6 +3136,15 @@ function createProductionPersonalSpaceDebugSnapshot(
     if ((sourceFlags & INDIVIDUAL_COLLISION_RESOLUTION_FLAG.downedSoftCrossing) !== 0) {
       flags |= PERSONAL_SPACE_RESOLUTION_FLAG.downedSoftCrossing;
     }
+    downedSoftAvoidanceFlags[entityId] =
+      (sourceFlags & INDIVIDUAL_COLLISION_RESOLUTION_FLAG.downedSoftAvoidance) !== 0
+        ? 1
+        : 0;
+    assistedGroupInteractionFlags[entityId] =
+      (sourceFlags & INDIVIDUAL_COLLISION_RESOLUTION_FLAG.assistedGroupYield) !== 0 ||
+        combat.individualPhysicalOccupancyStore.assistanceGroupIds[entityId]! >= 0
+        ? 1
+        : 0;
     if ((sourceFlags & INDIVIDUAL_COLLISION_RESOLUTION_FLAG.yieldingEgressYield) !== 0) {
       flags |= PERSONAL_SPACE_RESOLUTION_FLAG.yieldingEgressYield;
     }
@@ -3189,6 +3157,16 @@ function createProductionPersonalSpaceDebugSnapshot(
       flags |= PERSONAL_SPACE_RESOLUTION_FLAG.overtakingActive;
     }
     visualFlags[entityId] = flags;
+    const specialistBlocker = combat.individualSpecialistCollisionResolver
+      .principalBlockerByEntity[entityId]!;
+    const egressBlocker = combat.individualRespawnEgressCollisionStore
+      .principalBlockerByEntity[entityId]!;
+    principalBlockers[entityId] = specialistBlocker >= 0
+      ? specialistBlocker
+      : egressBlocker >= 0
+        ? egressBlocker
+        : combat.individualActiveStandingCollisionWorkspace
+            .principalBlockerEntityIds[entityId]!;
   }
   const ordinary = combat.individualActiveStandingCollisionResult;
   const specialist = combat.individualSpecialistCollisionResult;
@@ -3227,8 +3205,11 @@ function createProductionPersonalSpaceDebugSnapshot(
     intendedDeltas: collision.permittedDeltas,
     resolvedDeltas: collision.resolvedDeltas,
     localNeighbourCounts: collision.localNeighbourCounts,
+    principalBlockerByEntity: principalBlockers,
     principalRelationshipCodes:
       collision.principalOccupancyRelationshipCodes,
+    downedSoftAvoidanceFlags,
+    assistedGroupInteractionFlags,
     resolutionFlags: visualFlags,
     detourPhaseCodes: collision.localDecisionPhaseByEntity,
     detourSideByEntity: collision.localDecisionSideByEntity,
@@ -3976,8 +3957,12 @@ function collectInspectedIndividualSnapshots(
           .principalBlockerByEntity[entityId]! >= 0
           ? combatSandbox.individualSpecialistCollisionResolver
               .principalBlockerByEntity[entityId]!
-          : combatSandbox.individualActiveStandingCollisionWorkspace
-              .principalBlockerEntityIds[entityId]!,
+          : combatSandbox.individualRespawnEgressCollisionStore
+                .principalBlockerByEntity[entityId]! >= 0
+            ? combatSandbox.individualRespawnEgressCollisionStore
+                .principalBlockerByEntity[entityId]!
+            : combatSandbox.individualActiveStandingCollisionWorkspace
+                .principalBlockerEntityIds[entityId]!,
       collisionLocalDecisionCode: collisionResolution.localDecisionCode,
       collisionLocalDecisionPartnerEntityId:
         collisionResolution.localDecisionPartnerEntityId,
@@ -5046,6 +5031,12 @@ function getSnapshotBuffers(simulation: SimulationState): SnapshotBuffers {
   };
   snapshotBuffersBySimulation.set(simulation, buffers);
   return buffers;
+}
+
+function filledInt32(length: number, value: number): Int32Array {
+  const array = new Int32Array(length);
+  array.fill(value);
+  return array;
 }
 
 function assertPositiveSafeInteger(value: number, name: string): void {

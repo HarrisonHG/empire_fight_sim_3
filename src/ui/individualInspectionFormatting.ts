@@ -23,9 +23,18 @@ export function formatPhysicalSpaceInspection(
     individual.collisionBlocked ? "blocked" :
       individual.collisionRedirected ? "redirected" :
         individual.collisionReduced ? "reduced" : "clear",
-    `blocker ${individual.collisionPrincipalBlockerEntityId ?? -1}`,
+    `blocker ${individual.collisionPrincipalBlockerEntityId ?? -1}` +
+      `/relationship ${individual.collisionPrincipalOccupancyRelationshipCode ?? 0}`,
     `local ${individual.collisionLocalDecisionCode ?? 0}` +
-      `/${individual.collisionLocalDecisionPhase ?? 0}`,
+      `/${individual.collisionLocalDecisionPhase ?? 0}` +
+      ` partner ${individual.collisionLocalDecisionPartnerEntityId ?? -1}` +
+      ` side ${individual.collisionLocalDecisionSide ?? 0}` +
+      ` ticks ${individual.collisionLocalDecisionTicksRemaining ?? 0}`,
+    `soft avoid ${individual.collisionDownedSoftAvoidance ? "Y" : "N"}` +
+      `/cross ${individual.collisionDownedSoftCrossing ? "Y" : "N"}`,
+    `assisted ${individual.collisionAssistedGroupYield ? "yield" : "clear"}` +
+      ` group ${individual.physicalOccupancyAssistanceGroupId ?? -1}`,
+    `egress ${individual.collisionYieldingEgressYield ? "yield" : "clear"}`,
   ].join(" · ");
 }
 

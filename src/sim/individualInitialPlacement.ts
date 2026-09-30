@@ -9,6 +9,8 @@ import {
 } from "./spatialGrid";
 import type { WorldState } from "./types";
 
+const MAXIMUM_LOCAL_PLACEMENT_ADJUSTMENT = 128;
+
 export interface IndividualInitialPlacementEvidence {
   readonly hardStandingParticipantCount: number;
   readonly illegalHardStandingOverlapCount: number;
@@ -16,6 +18,69 @@ export interface IndividualInitialPlacementEvidence {
   readonly localCandidateCount: number;
   readonly firstOverlapLeftEntityId: number;
   readonly firstOverlapRightEntityId: number;
+}
+
+/**
+ * Setup-only deterministic legal placement. The authored coordinate remains
+ * preferred; adjustment chooses the nearest legal integer coordinate with
+ * stable y-then-x tie-breaking. Runtime collision has no such authority.
+ */
+export function findLegalInitialStandingCoordinate(
+  world: WorldState,
+  placedEntityCount: number,
+  zone: Readonly<{
+    minX: number;
+    maxX: number;
+    minY: number;
+    maxY: number;
+  }>,
+  preferredX: number,
+  preferredY: number,
+  minimumSeparation: number,
+): { readonly x: number; readonly y: number } {
+  let bestX = -1;
+  let bestY = -1;
+  let bestDistanceSquared = Number.POSITIVE_INFINITY;
+  for (let y = zone.minY; y <= zone.maxY; y += 1) {
+    for (let x = zone.minX; x <= zone.maxX; x += 1) {
+      if (!isLegalInitialStandingCoordinate(
+        world, placedEntityCount, x, y, minimumSeparation,
+      )) continue;
+      const distanceSquared = squaredDistance(x, y, preferredX, preferredY);
+      if (distanceSquared < bestDistanceSquared) {
+        bestX = x;
+        bestY = y;
+        bestDistanceSquared = distanceSquared;
+      }
+    }
+  }
+  if (bestX >= 0) return { x: bestX, y: bestY };
+
+  for (let radius = 1;
+    radius <= MAXIMUM_LOCAL_PLACEMENT_ADJUSTMENT;
+    radius += 1) {
+    for (let yOffset = -radius; yOffset <= radius; yOffset += 1) {
+      for (let xOffset = -radius; xOffset <= radius; xOffset += 1) {
+        if (absolute(xOffset) !== radius && absolute(yOffset) !== radius) continue;
+        const distanceSquared = xOffset * xOffset + yOffset * yOffset;
+        if (distanceSquared >= bestDistanceSquared) continue;
+        const x = preferredX + xOffset;
+        const y = preferredY + yOffset;
+        if (x < 0 || y < 0 || x >= world.bounds.width ||
+            y >= world.bounds.height ||
+            !isLegalInitialStandingCoordinate(
+              world, placedEntityCount, x, y, minimumSeparation,
+            )) continue;
+        bestX = x;
+        bestY = y;
+        bestDistanceSquared = distanceSquared;
+      }
+    }
+    if ((radius + 1) * (radius + 1) > bestDistanceSquared) {
+      return { x: bestX, y: bestY };
+    }
+  }
+  throw new Error("Authored deployment zone cannot provide legal standing space.");
 }
 
 /** Setup-only validation; runtime collision never manufactures depenetration. */
@@ -82,4 +147,35 @@ export function validateIndividualInitialHardStandingPlacement(
     firstOverlapLeftEntityId: firstLeft,
     firstOverlapRightEntityId: firstRight,
   });
+}
+
+function isLegalInitialStandingCoordinate(
+  world: WorldState,
+  placedEntityCount: number,
+  x: number,
+  y: number,
+  minimumSeparation: number,
+): boolean {
+  const minimumSquared = minimumSeparation * minimumSeparation;
+  for (let otherId = 0; otherId < placedEntityCount; otherId += 1) {
+    const deltaX = world.positionsX[otherId]! - x;
+    const deltaY = world.positionsY[otherId]! - y;
+    if (deltaX * deltaX + deltaY * deltaY < minimumSquared) return false;
+  }
+  return true;
+}
+
+function squaredDistance(
+  leftX: number,
+  leftY: number,
+  rightX: number,
+  rightY: number,
+): number {
+  const deltaX = leftX - rightX;
+  const deltaY = leftY - rightY;
+  return deltaX * deltaX + deltaY * deltaY;
+}
+
+function absolute(value: number): number {
+  return value < 0 ? -value : value;
 }

@@ -5,6 +5,8 @@ import {
 } from "../sim/types";
 
 export interface PersonalSpaceVisualGlyphSpec {
+  readonly occupancyClassCode: number;
+  readonly rightOfWayClassCode: number;
   readonly radius: number;
   readonly footprintColor: number;
   readonly footprintAlpha: number;
@@ -16,7 +18,11 @@ export interface PersonalSpaceVisualGlyphSpec {
   readonly reduced: boolean;
   readonly redirected: boolean;
   readonly downedSoftCrossing: boolean;
+  readonly downedSoftAvoidance: boolean;
+  readonly assistedGroupInteraction: boolean;
   readonly yieldingEgressYield: boolean;
+  readonly principalBlockerId: number;
+  readonly principalRelationshipCode: number;
   readonly detourActive: boolean;
   readonly detourPhase: number;
   readonly detourTicksRemaining: number;
@@ -41,6 +47,9 @@ export const PERSONAL_SPACE_VISUAL_COLOR = Object.freeze({
   detour: 0x60_a5_fa,
   courtesy: 0xf9_a8_d4,
   overtaking: 0x2d_d4_bf,
+  downedSoftAvoidance: 0xfb_92_3c,
+  assistedGroupInteraction: 0x34_d3_99,
+  rightOfWay: 0xe8_f1_ff,
 } as const);
 
 export function createPersonalSpaceVisualGlyphSpec(
@@ -56,6 +65,8 @@ export function createPersonalSpaceVisualGlyphSpec(
   const flags = debug.resolutionFlags[entityId]!;
   const offset = entityId * 2;
   return {
+    occupancyClassCode: classCode,
+    rightOfWayClassCode: debug.rightOfWayClassCodes?.[entityId] ?? 0,
     radius: debug.radii[entityId]!,
     footprintColor: footprintColor(classCode),
     footprintAlpha:
@@ -71,8 +82,14 @@ export function createPersonalSpaceVisualGlyphSpec(
     redirected: (flags & PERSONAL_SPACE_RESOLUTION_FLAG.redirected) !== 0,
     downedSoftCrossing:
       (flags & PERSONAL_SPACE_RESOLUTION_FLAG.downedSoftCrossing) !== 0,
+    downedSoftAvoidance: debug.downedSoftAvoidanceFlags[entityId] !== 0,
+    assistedGroupInteraction:
+      debug.assistedGroupInteractionFlags[entityId] !== 0,
     yieldingEgressYield:
       (flags & PERSONAL_SPACE_RESOLUTION_FLAG.yieldingEgressYield) !== 0,
+    principalBlockerId: debug.principalBlockerByEntity[entityId]!,
+    principalRelationshipCode:
+      debug.principalRelationshipCodes[entityId]!,
     detourActive:
       (flags & PERSONAL_SPACE_RESOLUTION_FLAG.detourActive) !== 0,
     detourPhase: debug.detourPhaseCodes[entityId]!,

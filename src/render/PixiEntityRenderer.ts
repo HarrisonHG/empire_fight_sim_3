@@ -554,6 +554,10 @@ export class PixiEntityRenderer {
       debug.radii.length !== entityOrder.length ||
       debug.intendedDeltas.length !== entityOrder.length * 2 ||
       debug.resolvedDeltas.length !== entityOrder.length * 2 ||
+      debug.principalBlockerByEntity.length !== entityOrder.length ||
+      debug.principalRelationshipCodes.length !== entityOrder.length ||
+      debug.downedSoftAvoidanceFlags.length !== entityOrder.length ||
+      debug.assistedGroupInteractionFlags.length !== entityOrder.length ||
       debug.resolutionFlags.length !== entityOrder.length ||
       debug.detourPhaseCodes.length !== entityOrder.length ||
       debug.detourSideByEntity.length !== entityOrder.length ||
@@ -978,6 +982,13 @@ function drawPersonalSpaceGlyph(
     .circle(0, 0, spec.radius)
     .fill({ color: spec.footprintColor, alpha: spec.footprintAlpha * 0.25 })
     .stroke({ color: spec.footprintColor, width: 0.75, alpha: 0.8 });
+  if (spec.rightOfWayClassCode > 0) {
+    graphics.circle(0, 0, spec.radius + 1).stroke({
+      color: PERSONAL_SPACE_VISUAL_COLOR.rightOfWay,
+      width: Math.min(1.5, 0.25 + spec.rightOfWayClassCode * 0.15),
+      alpha: 0.2 + Math.min(0.45, spec.rightOfWayClassCode * 0.05),
+    });
+  }
   if (spec.intendedDeltaX !== 0 || spec.intendedDeltaY !== 0) {
     graphics
       .moveTo(0, 0)
@@ -1008,7 +1019,11 @@ function drawPersonalSpaceGlyph(
     ? PERSONAL_SPACE_VISUAL_COLOR.courtesy
     : spec.overtakingActive
       ? PERSONAL_SPACE_VISUAL_COLOR.overtaking
-      : spec.blocked
+        : spec.assistedGroupInteraction
+          ? PERSONAL_SPACE_VISUAL_COLOR.assistedGroupInteraction
+          : spec.downedSoftAvoidance
+            ? PERSONAL_SPACE_VISUAL_COLOR.downedSoftAvoidance
+            : spec.blocked
         ? PERSONAL_SPACE_VISUAL_COLOR.blocked
         : spec.downedSoftCrossing || spec.reduced
           ? PERSONAL_SPACE_VISUAL_COLOR.reduced
@@ -1016,7 +1031,9 @@ function drawPersonalSpaceGlyph(
             ? PERSONAL_SPACE_VISUAL_COLOR.redirected
             : spec.detourActive
               ? PERSONAL_SPACE_VISUAL_COLOR.detour
-              : undefined;
+              : spec.principalBlockerId >= 0
+                ? spec.footprintColor
+                : undefined;
   if (stateColor !== undefined) {
     graphics.circle(0, 0, 1.25).fill({ color: stateColor, alpha: 0.95 });
   }

@@ -186,12 +186,18 @@ export function createPersonalSpaceSpikeStore(
     courtesyYieldCount: 0,
     overtakingCount: 0,
     occupancyClassCodes,
-    rightOfWayClassCodes: new Uint8Array(entityCount).fill(1),
+    rightOfWayClassCodes: Uint8Array.from(
+      occupancyClassCodes,
+      (classCode) => movementPriority(classCode),
+    ),
     radii,
     intendedDeltas: new Int32Array(entityCount * 2),
     resolvedDeltas: new Int32Array(entityCount * 2),
     localNeighbourCounts: new Uint16Array(entityCount),
+    principalBlockerByEntity: filledInt32(entityCount, -1),
     principalRelationshipCodes: new Uint8Array(entityCount),
+    downedSoftAvoidanceFlags: new Uint8Array(entityCount),
+    assistedGroupInteractionFlags: new Uint8Array(entityCount),
     resolutionFlags: new Uint8Array(entityCount),
     detourPhaseCodes: new Uint8Array(entityCount),
     detourSideByEntity: new Int8Array(entityCount),
@@ -1056,6 +1062,9 @@ function evaluateCandidate(
     }
     if (neighbourClass === PERSONAL_SPACE_OCCUPANCY_CLASS_CODE.downedSoft) {
       if (allowsSoftCrossing) continue;
+      if (captureNeighbourCount) {
+        store.debug.principalBlockerByEntity[entityId] = neighbourId;
+      }
       return PERSONAL_SPACE_RELATIONSHIP_CODE.downedSoft;
     }
     if (moverClass === PERSONAL_SPACE_OCCUPANCY_CLASS_CODE.downedSoft) continue;
@@ -1067,6 +1076,9 @@ function evaluateCandidate(
       (store.debug.overtakeLeaderByEntity[neighbourId] === entityId ||
         sameDirectionLeaderHasRightOfWay(store, entityId, neighbourId))
     ) continue;
+    if (captureNeighbourCount) {
+      store.debug.principalBlockerByEntity[entityId] = neighbourId;
+    }
     return relationshipCodeFor(store, entityId, neighbourId);
   }
   return NO_RELATIONSHIP;
@@ -1298,6 +1310,22 @@ function finalizeResolvedMovement(
     if (debug.overtakeLeaderByEntity[entityId]! >= 0) {
       flags |= PERSONAL_SPACE_RESOLUTION_FLAG.overtakingActive;
     }
+    debug.downedSoftAvoidanceFlags[entityId] =
+      debug.principalRelationshipCodes[entityId] ===
+          PERSONAL_SPACE_RELATIONSHIP_CODE.downedSoft &&
+        (flags & PERSONAL_SPACE_RESOLUTION_FLAG.downedSoftCrossing) === 0 &&
+        (resolvedDeltaX !== intendedDeltaX || resolvedDeltaY !== intendedDeltaY)
+        ? 1
+        : 0;
+    const principalBlocker = debug.principalBlockerByEntity[entityId]!;
+    debug.assistedGroupInteractionFlags[entityId] =
+      store.occupancyClassByEntity[entityId] ===
+          PERSONAL_SPACE_OCCUPANCY_CLASS_CODE.assistedMoving ||
+        (principalBlocker >= 0 &&
+          store.occupancyClassByEntity[principalBlocker] ===
+            PERSONAL_SPACE_OCCUPANCY_CLASS_CODE.assistedMoving)
+        ? 1
+        : 0;
     debug.resolutionFlags[entityId] = flags;
     world.positionsX[entityId] = store.proposedXByEntity[entityId]!;
     world.positionsY[entityId] = store.proposedYByEntity[entityId]!;
@@ -1357,7 +1385,10 @@ function resetTickDiagnostics(store: InternalPersonalSpaceSpikeStore): void {
   debug.intendedDeltas.fill(0);
   debug.resolvedDeltas.fill(0);
   debug.localNeighbourCounts.fill(0);
+  debug.principalBlockerByEntity.fill(-1);
   debug.principalRelationshipCodes.fill(NO_RELATIONSHIP);
+  debug.downedSoftAvoidanceFlags.fill(0);
+  debug.assistedGroupInteractionFlags.fill(0);
   debug.resolutionFlags.fill(0);
 }
 

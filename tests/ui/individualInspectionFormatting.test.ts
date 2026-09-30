@@ -4,6 +4,7 @@ import type { LiveCombatDebugIndividualSnapshot } from "../../src/sim/types";
 import {
   buildIndividualInspectionRows,
   combatRecordTickForSnapshot,
+  formatPhysicalSpaceInspection,
   formatRetainedInspectionEvent,
   shouldClearRetainedInspectionEvents,
 } from "../../src/ui/individualInspectionFormatting";
@@ -70,6 +71,42 @@ describe("individual inspection formatting", () => {
     expect(shouldClearRetainedInspectionEvents(0, 20)).toBe(true);
     expect(shouldClearRetainedInspectionEvents(5, 0)).toBe(true);
     expect(shouldClearRetainedInspectionEvents(5, 20)).toBe(false);
+  });
+
+  it("exposes the complete physical-space inspection contract", () => {
+    const formatted = formatPhysicalSpaceInspection(individualSnapshot({
+      physicalOccupancyClass: "assistedMoving",
+      personalSpaceRadius: 4,
+      physicalOccupancyAssistanceGroupId: 7,
+      localRightOfWayClassCode: 6,
+      localRightOfWaySourceCode: 4,
+      collisionPermittedDeltaX: 2,
+      collisionPermittedDeltaY: 0,
+      collisionResolvedDeltaX: 1,
+      collisionResolvedDeltaY: 1,
+      collisionRedirected: true,
+      collisionPrincipalBlockerEntityId: 9,
+      collisionPrincipalOccupancyRelationshipCode: 3,
+      collisionLocalDecisionCode: 2,
+      collisionLocalDecisionPartnerEntityId: 9,
+      collisionLocalDecisionSide: -1,
+      collisionLocalDecisionTicksRemaining: 12,
+      collisionLocalDecisionPhase: 1,
+      collisionDownedSoftAvoidance: true,
+      collisionDownedSoftCrossing: false,
+      collisionAssistedGroupYield: true,
+      collisionYieldingEgressYield: true,
+    }));
+
+    expect(formatted).toContain("assistedMoving r4");
+    expect(formatted).toContain("priority 6/4");
+    expect(formatted).toContain("step 2,0>1,1");
+    expect(formatted).toContain("redirected");
+    expect(formatted).toContain("blocker 9/relationship 3");
+    expect(formatted).toContain("local 2/1 partner 9 side -1 ticks 12");
+    expect(formatted).toContain("soft avoid Y/cross N");
+    expect(formatted).toContain("assisted yield group 7");
+    expect(formatted).toContain("egress yield");
   });
 });
 

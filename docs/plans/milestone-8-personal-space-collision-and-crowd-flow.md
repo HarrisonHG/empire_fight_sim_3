@@ -288,6 +288,8 @@ Do not run full `npm test`, `npm run perf`, or broad retained scenarios.
 
 ## 8G-2 — Initial placement legality
 
+Status: complete; deterministic minimum-adjustment placement and retained-route legality pass.
+
 Purpose:
 
 Stabilize setup-time hard-overlap validation and deterministic legal-placement
@@ -322,6 +324,8 @@ git diff --check
 Build only if content/startup wiring requires it.
 
 ## 8G-3 — Debug evidence and retained route
+
+Status: complete; focused snapshot/render/UI checks and retained-route HTTP smoke pass.
 
 Purpose:
 
