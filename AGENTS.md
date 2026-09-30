@@ -291,6 +291,10 @@ Do not silently rebaseline unrelated tests.
 
 Do not append long implementation diaries, full test logs, or historical evidence to active plans. Put detailed history in `docs/progress/` when it is worth retaining.
 
+## Automated Reviewer / Implementer Loop
+
+When `docs/agent-loop/CURRENT_TASK.md` is being used, follow `docs/agent-loop/WORKFLOW.md`. The loop may automate implementation, review, correction, and selection of the next already-authorised slice, but it must stop whenever the reviewer requests human review or reports a blocker.
+
 ## Scope Control
 
 When implementing a plan:

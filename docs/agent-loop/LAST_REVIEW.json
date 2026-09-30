@@ -1,0 +1,8 @@
+{
+  "decision": "not_run",
+  "task_id": "BOOTSTRAP",
+  "summary": "No automated review has run yet.",
+  "findings": [],
+  "next_task": null,
+  "human_review": null
+}
