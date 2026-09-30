@@ -18,7 +18,7 @@ export const MORALE_INSPECTION_SCENARIO: SimulationScenario = Object.freeze({
       blueUnit(13, 10, 560, "recruit", 0, 700, "advance", 520, 12, 8),
       blueUnit(14, 10, 560, "regular", 2_000, 600, "hold", 380),
       hostileUnit(21, 160, "Red veteran opposition"),
-      hostileUnit(22, 360, "Red regular opposition"),
+      hostileUnit(22, 360, "Red regular opposition", 540),
       hostileUnit(23, 560, "Red recruit opposition"),
     ]),
   }),
@@ -80,8 +80,8 @@ function hostileUnit(
   unitId: number,
   anchorY: number,
   label: string,
+  anchorX = 560,
 ): CombatSandboxUnitScenario {
-  const anchorX = 560;
   return {
     unitId,
     label,

@@ -16,13 +16,19 @@ const comparisonUnits = requireUnits(MORALE_INSPECTION_SCENARIO).map((unit) =>
   translateUnit(
     unit,
     unit.unitId,
-    unit.unitId === 13 ? -20 : 0,
+    unit.unitId === 13 ? -20 : unit.unitId === 22 ? 20 : 0,
     0,
     "Comparison area",
   ),
 );
 const regularPursuitUnits = requireUnits(PURSUIT_REGULAR_SCENARIO).map((unit) =>
-  translateUnit(unit, unit.unitId, 0, 740, "Regular pursuit area"),
+  translateUnit(
+    unit,
+    unit.unitId,
+    unit.unitId === 41 ? 3 : 0,
+    740,
+    "Regular pursuit area",
+  ),
 );
 const veteranPursuitUnits = requireUnits(PURSUIT_VETERAN_SCENARIO).map((unit) =>
   translateUnit(
