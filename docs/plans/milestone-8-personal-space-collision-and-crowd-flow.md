@@ -374,7 +374,16 @@ Do not run full headless or full performance suite.
 
 ## 8H — System integration gate
 
-Status: pending after 8G-1 through 8G-3.
+Status: in progress. 8H-3 is accepted. 8H-4, the diagnosis-only casualty/contact causality audit, has been run by Codex, but its report is not embedded in this repository snapshot and has not yet been reviewed here. Do not infer an 8H-4 conclusion, apply a correction, or advance to 8I until that audit result is reviewed.
+
+Current handoff evidence retained from the review conversation:
+
+- 8H-2 found casualty drag beginning on tick 8 rather than the stale expected tick 9;
+- entity 14 had no selected target at tick 1 in the affected contact fixture;
+- the retained 7E energy integration fixture produced zero attacks;
+- disabling legal initial placement did not restore those outcomes, so legal placement alone was not a sufficient explanation;
+- 8H-3 then made fixture/test-only corrections, with no production runtime change, and its focused checks/typecheck/diff-check passed;
+- 8H-4 was explicitly limited to causality diagnosis: tick-zero separation, reach/query radii, eligibility, requested versus collision-resolved movement, first contact/attack timing, and whether the remaining failures are stale/interpenetration-dependent fixtures or a production contact/query defect.
 
 **No new features.**
 

@@ -1,3 +1,3 @@
 # No implementation report yet
 
-This file is replaced by `scripts/agent-loop.ps1` after the first implementer run.
+This file is replaced by `scripts/agent-loop.mjs` after the first implementer run.

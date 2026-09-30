@@ -6,6 +6,8 @@ human_review_required: true
 
 # Bootstrap the automated reviewer / implementer loop
 
+> This bootstrap task is workflow-only. It does not supersede the Milestone 8 handoff recorded in the active plan. Replace it with a reviewed implementation task only after the outstanding 8H-4 audit result has been reviewed.
+
 ## Goal
 
 Validate the newly-added agent-loop workflow itself before allowing it to select or implement simulation work automatically.

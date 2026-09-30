@@ -29,6 +29,8 @@ When instructions overlap, follow this priority:
 
 Design doctrine explains intent and boundaries. It is not permission to implement every described feature.
 
+Documentation ownership and anti-duplication rules are recorded in `docs/README.md`.
+
 If scope is ambiguous, do not broaden the implementation. For a small Codex slice, prefer the narrow interpretation recorded by the active plan. Ask only when the missing decision prevents safe progress.
 
 If a referenced file in `docs/plans/` is missing, check `docs/completed-plans/`.
