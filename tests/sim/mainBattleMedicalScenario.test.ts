@@ -176,7 +176,7 @@ describe("Spike 6.5 main battle medical integration sandbox", () => {
       .toBeLessThanOrEqual(MAIN_BATTLE_MEDICAL_ENTITY_COUNT * 10);
   }, 60_000);
 
-  it("keeps retained routes unchanged and contains no direct outcome fixture", () => {
+  it("retains the personal-space main battle route without a direct outcome fixture", () => {
     expect(VISUAL_TEST_REGISTRY.map((entry) => entry.id)).toEqual([
       "personal-space",
       "personal-space-spike",
@@ -188,8 +188,9 @@ describe("Spike 6.5 main battle medical integration sandbox", () => {
       "individual-combat",
       "defence-overwhelm",
     ]);
-    expect(VISUAL_TEST_REGISTRY.every((entry) =>
-      entry.scenario !== MAIN_BATTLE_MEDICAL_SCENARIO)).toBe(true);
+    expect(VISUAL_TEST_REGISTRY.filter((entry) =>
+      entry.scenario === MAIN_BATTLE_MEDICAL_SCENARIO).map((entry) => entry.id))
+      .toEqual(["personal-space"]);
     expect(MAIN_BATTLE_MEDICAL_SCENARIO.legacyCombatFoundationSandbox)
       .toBeUndefined();
     expect(MAIN_BATTLE_MEDICAL_SCENARIO.personalSpaceSpike).toBeUndefined();
