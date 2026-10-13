@@ -1471,8 +1471,8 @@ missing spatial candidate or a need to weaken hostile collision.
 
 Two-helper extraction also distinguishes phase from actual movement. Patient 8
 stays at (2800,300). Helpers 9/10 start at (2820,288)/(2820,312). They gather
-in bounded steps; from snapshot tick 6 onwards collision resolves requested
-vertical closing to zero while retaining horizontal progress and legal
+in bounded steps; snapshot tick 6 is the first to resolve requested
+vertical closing to zero, retaining horizontal progress thereafter and legal
 8-unit helper separation. At snapshot tick 8 helpers are (2806,296)/(2806,304),
 within pickup range; the group promotes to dragging. Patient displacement is
 still zero then. The gathering branch continues after promotion; the dragging
