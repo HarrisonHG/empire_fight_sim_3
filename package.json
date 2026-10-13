@@ -7,6 +7,10 @@
     "node": "^20.19.0 || >=22.12.0"
   },
   "scripts": {
+    "agent-loop": "node scripts/agent-loop.mjs",
+    "agent-loop:check": "node scripts/agent-loop.mjs --check",
+    "agent-loop:usage": "node scripts/agent-loop-usage.mjs",
+    "agent-loop:test": "node --test scripts/agent-loop.test.mjs",
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc -p tsconfig.app.json && tsc -p tsconfig.worker.json && tsc -p tsconfig.test.json && tsc -p tsconfig.node.json",

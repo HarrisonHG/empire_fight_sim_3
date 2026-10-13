@@ -5,8 +5,8 @@ Read and obey, in priority order:
 1. root `AGENTS.md`
 2. nearest relevant directory `AGENTS.md`
 3. required `docs/codex/` doctrine named by root instructions
-4. `docs/agent-loop/CURRENT_TASK.md`
-5. the active accepted plan and relevant design documents
+4. the active accepted plan and relevant design documents
+5. `docs/agent-loop/CURRENT_TASK.md` (a narrow handoff subordinate to that plan)
 
 Implement **only** `docs/agent-loop/CURRENT_TASK.md`.
 
@@ -21,7 +21,17 @@ Rules:
 - Do not ask the user for routine confirmation; carry the implementation through to completion when the task is clear.
 - Human review is handled by the orchestration layer after you finish. Do not continue into another slice.
 
-Your final response is the implementation report. Include:
+Do not edit CURRENT_TASK.md, CONFIG.json, loop prompts, WORKFLOW.md, or the loop
+script. Do not commit, stage, reset, stash, publish, message other chats, or
+start another loop. Preserve pre-existing user changes. Update only the named
+active-plan status when the task requests it. Save verbose verification logs
+under .agent-loop/; report concise results and failure diagnostics.
+Reviewer acceptance triggers a local slice commit by the runner. The implementer
+must never commit its own unreviewed changes or include pre-existing user work.
+
+Your final response must match the supplied JSON schema: task_id (the current
+task id), result (`complete` or `blocked`), and report (Markdown string).
+The report must include:
 
 - task id
 - result: `complete` or `blocked`

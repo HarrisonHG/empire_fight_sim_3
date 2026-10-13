@@ -5,3 +5,4 @@ coverage/
 *.local
 *.log
 **/*.zip
+.agent-loop/
