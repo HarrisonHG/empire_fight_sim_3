@@ -1434,3 +1434,73 @@ Status: **partially implemented, not complete, not acceptance-ready**. All 8G wo
 
 Recommended continuation point: stabilize the remaining broad regressions before adding soak/performance evidence or updating the milestone plan.
 
+
+## 8H-4 reconstructed casualty/contact causality audit — 2026-10-13
+
+The earlier external report was unavailable. This is a fresh diagnosis against
+HEAD `abd1af1`, not an inferred acceptance of that report. No production rule,
+content fixture, test expectation or timeout was changed.
+
+Evidence is retained locally in `.agent-loop/manual-8H-4/`: the diagnosis harness,
+`causality-trace.json`, `audit-results.json`, `focused-results.json` and logs.
+The four bounded diagnosis cases pass, including a repeated 60-tick trace.
+Three 210-tick variants isolate initial placement and facing:
+
+| Variant | Attacks | Defences | Hit applications | First attack tick |
+|---|---:|---:|---:|---|
+| Original, legal placement on | 0 | 0 | 17 | none |
+| Original, legal placement off | 0 | 0 | 17 | none |
+| Only units 701/703 headings reversed toward each other | 1 | 1 | 18 | simulation rule tick 3 |
+
+The 17 original hit applications include explicit retained fixture inputs;
+they do not prove a natural attack exchange. The heading control adds one
+attack and defence. It is a diagnostic clone, not a shipped content change.
+
+At tick zero, entity 14 is at (880,920) and entity 25 at (872,920): separation
+8, squared distance 64, exactly the combined standing radii (4+4). Their melee
+query/threat radii are 16 and 12. Both fresh spatial queries contain the other
+entity, and both are initially source/target eligible. Their facing dot
+products are both -8: the citizen faces +x, the hostile -x, while they are
+positioned in the opposite order. `individualMeleeTargetSelection.ts` correctly
+rejects non-positive facing dot products. Snapshot tick 1 retains no selected
+target; both permitted and resolved movement are zero. Reversing only the
+headings makes both dot products +8 and snapshot tick 1 selects 25/14.
+Legal placement does not change those original coordinates or the zero-attack
+outcome. This evidence identifies a retained fixture-facing defect, not a
+missing spatial candidate or a need to weaken hostile collision.
+
+Two-helper extraction also distinguishes phase from actual movement. Patient 8
+stays at (2800,300). Helpers 9/10 start at (2820,288)/(2820,312). They gather
+in bounded steps; from snapshot tick 6 onwards collision resolves requested
+vertical closing to zero while retaining horizontal progress and legal
+8-unit helper separation. At snapshot tick 8 helpers are (2806,296)/(2806,304),
+within pickup range; the group promotes to dragging. Patient displacement is
+still zero then. The gathering branch continues after promotion; the dragging
+branch excludes its phase-entry rule tick. Snapshot tick 9 first moves patient
+8 to x=2799 with permitted/resolved x displacement -1. Thus a snapshot-phase
+assertion of first=9 is stale; first actual movement remains tick 9. The existing
+800-tick assertion observes phase snapshots first=8, last=96, count=89.
+This does not authorise changing gathering/collision rules to restore old timing.
+
+Focused baseline command: Vitest on casualtyLifecycleProduction.integration,
+casualtyLifecycleVisualScenario and individualEnergyMilestone7E.integration.
+Result: 24 tests, 19 passed, 5 failed. Three semantic failures reproduce the
+phase-start expectation, entity-14 initial target expectation and 7E zero
+attack count. Two other retained checks fail their existing timing budgets:
+full retained replay (~188.5s against 180s) and barbarian clock/egress (~14.6s
+against 10s). Preserve these failures for 8H; no timeout was raised or test
+silently rebaselined. The first sandboxed attempt failed in Vitest cache setup;
+the reported baseline and four-case diagnosis were rerun with that restriction
+removed.
+
+Review recommendation: accept this diagnosis only; open 8H-5 for the retained
+fixture's intended facing/contact setup and explicit phase-versus-movement
+regressions. Keep runtime rules unchanged. Run focused affected checks, then
+return to the full 8H integration gate. Diagnose remaining timing failures
+without raising timeouts. 8H is not accepted; 8I and 8J remain pending.
+
+To reproduce the temporary diagnostic, copy the retained
+`.agent-loop/manual-8H-4/causalityAudit.test.ts` to
+`tests/sim/milestone8H4.causalityAudit.test.ts`, run Vitest on that file, then
+remove only that temporary copy. The harness is intentionally not a permanent
+regression against the broken content fixture. 8H-5 owns permanent regressions.

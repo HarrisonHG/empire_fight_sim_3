@@ -374,7 +374,11 @@ Do not run full headless or full performance suite.
 
 ## 8H — System integration gate
 
-Status: in progress. 8H-3 is accepted. 8H-4, the diagnosis-only casualty/contact causality audit, has been run by Codex, but its report is not embedded in this repository snapshot and has not yet been reviewed here. Do not infer an 8H-4 conclusion, apply a correction, or advance to 8I until that audit result is reviewed.
+Status: in progress. 8H-3 is accepted. The missing 8H-4 report was replaced by a fresh diagnosis, 8H-4-R1, independently reviewed on 2026-10-13. Only that diagnosis is accepted; 8H remains incomplete. See the exact section “8H-4 reconstructed casualty/contact causality audit — 2026-10-13” in `docs/progress/milestone-8-implementation-history.md`; local traces, harness and review are retained in `.agent-loop/manual-8H-4/`.
+
+Next: 8H-5, a narrow content/test correction. Reverse only units 701/703 headings in the retained casualty fixture so entities 14/25 face each other at their existing legal contact coordinates. Add permanent deterministic regressions for contact legality, query membership, eligibility, mutual tick-1 selection, an away-facing negative control and a natural attack/defence from this pair. Distinguish extraction phase entry (snapshot tick 8, patient stationary) from first common collision-resolved movement (snapshot tick 9); retain helper clearance, offsets, duration, safety, treatment and hand-commitment assertions. Correct only the causally stale phase-start expectation. No runtime changes, collision relaxation, unrelated rebaselines or timeout increases are authorised by this audit.
+
+8H-5 checks: the affected casualty lifecycle production integration, casualty lifecycle visual scenario and Milestone 7E energy integration tests, plus new focused regressions; `npm run typecheck`; `git diff --check`. Corrected semantic assertions must pass; report existing timing failures separately with unchanged budgets. After review, return to the full 8H gate below, including resolution of remaining timing failures. Do not advance to 8I until 8H passes.
 
 Current handoff evidence retained from the review conversation:
 
