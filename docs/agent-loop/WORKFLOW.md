@@ -37,11 +37,16 @@ See [OpenAI's repair-loop example](https://developers.openai.com/cookbook/exampl
 npm run agent-loop:check                  # CLI/auth/files/Git preflight; no model call
 npm run agent-loop:test                   # isolated fake-agent regression tests
 npm run agent-loop:usage                  # read current account limits; no model call
-npm run agent-loop -- --max-iterations 4  # limit implementation/review cycles
-npm run agent-loop -- --no-auto-advance   # correct then stop at slice acceptance
-npm run agent-loop -- --resume            # interrupted/failed/budget-limited run
-npm run agent-loop -- --restart           # explicit fresh planning after human resolution
+npm run agent-loop:resume                 # interrupted/failed/budget-limited run
+npm run agent-loop:restart                # explicit fresh planning after human resolution
+node scripts/agent-loop.mjs --max-iterations 4 # limit implementation/review cycles
+node scripts/agent-loop.mjs --no-auto-advance  # correct then stop at slice acceptance
 ```
+
+Use the dedicated npm commands for recovery. The installed Windows PowerShell
+`npm.ps1` wrapper can drop flags passed through `npm run ... -- ...`. For custom
+options, call Node directly as shown above. Restart/resume flags are embedded in
+the dedicated package scripts and do not depend on argument forwarding.
 
 Default budget: 12 cycles per invocation, maximum 50. Planning is separate.
 Efforts remain independently configurable with --reviewer-effort (default high)

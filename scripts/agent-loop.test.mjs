@@ -65,6 +65,31 @@ test('CLI arguments and strict task/review validation', () => {
   assert.throws(() => validateReview(decision('correct', human.task_id, task('8G-1-C1', 'correction', false)), scope, human));
 });
 
+test('npm recovery shortcuts deliver flags through the installed shell and restart a blocked run', t => {
+  const repo = fixture(t), calls = [];
+  const scripts = JSON.parse(readFileSync(resolve('package.json'), 'utf8')).scripts;
+  writeFileSync(join(repo, 'package.json'), JSON.stringify({ private: true, scripts }));
+  mkdirSync(join(repo, 'scripts'));
+  // Probe the actual shipped package commands without launching Codex or the loop.
+  writeFileSync(join(repo, 'scripts/agent-loop.mjs'), 'console.log(JSON.stringify(process.argv.slice(2)));\n');
+  const invokeShortcut = name => {
+    const result = process.platform === 'win32'
+      ? spawnSync('powershell.exe', ['-NoProfile', '-Command', `npm run ${name}`], { cwd: repo, encoding: 'utf8', timeout: 30000 })
+      : spawnSync('npm', ['run', name], { cwd: repo, encoding: 'utf8', timeout: 30000 });
+    assert.equal(result.status, 0, result.stderr || result.error?.message);
+    return JSON.parse(result.stdout.trim().split(/\r?\n/u).at(-1));
+  };
+  const restartArgs = invokeShortcut('agent-loop:restart');
+  assert.deepEqual(restartArgs, ['--restart']);
+  assert.deepEqual(invokeShortcut('agent-loop:resume'), ['--resume']);
+  assert.equal(runLoop(repo, config(), sequence([['planner', decision('blocked', 'PLANNING')]], calls)), 3);
+  const originalSession = state(repo).session;
+  assert.equal(runLoop(repo, parseArgs(restartArgs), sequence([['planner', decision('human_review', 'PLANNING')]], calls)), 2);
+  assert.deepEqual(calls, ['planner', 'planner']);
+  assert.notEqual(state(repo).session, originalSession);
+  assert.equal(state(repo).status, 'human_review');
+});
+
 test('planning, cumulative corrections, advancement and final human stop', t => {
   const repo = fixture(t), calls = [];
   const invoke = sequence([

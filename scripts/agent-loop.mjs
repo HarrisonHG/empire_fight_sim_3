@@ -268,9 +268,9 @@ export function runLoop(repo, config, invokeOverride, usageOverride = invokeOver
     state = existsSync(statePath) ? JSON.parse(read(statePath)) : null;
     if (config.restart) state = null;
     if (state) {
-      assert(state.plan === scope.plan && state.milestone === scope.milestone, 'Configuration changed; --restart after human assessment.');
-      assert(!['human_review', 'blocked', 'accepted'].includes(state.status), `Persisted stop: ${state.status}. Resolve handoff, then explicitly --restart to replan.`);
-      assert(config.resume, 'Run exists. Use --resume for interrupted/budget-limited work.');
+      assert(state.plan === scope.plan && state.milestone === scope.milestone, 'Configuration changed; run npm run agent-loop:restart after human assessment.');
+      assert(!['human_review', 'blocked', 'accepted'].includes(state.status), `Persisted stop: ${state.status}. Resolve handoff, then run npm run agent-loop:restart to replan.`);
+      assert(config.resume, 'Run exists. Use npm run agent-loop:resume for interrupted/budget-limited work.');
     } else {
       assert(!config.resume, 'No saved run to resume.');
       state = { ...scope, status: 'running', phase: 'planning', cycle: 0, session: `${Date.now()}-${process.pid}` };
@@ -301,11 +301,11 @@ export function runLoop(repo, config, invokeOverride, usageOverride = invokeOver
     };
     let iterations = 0;
     while (true) {
-      if (iterations >= config.maxIterations && state.phase !== 'planning') { state.status = 'paused'; save(); console.log('Iteration budget reached. Use --resume.'); return 4; }
+      if (iterations >= config.maxIterations && state.phase !== 'planning') { state.status = 'paused'; save(); console.log('Iteration budget reached. Use npm run agent-loop:resume.'); return 4; }
       const planning = state.phase === 'planning';
       const taskText = planning ? null : read(join(dir, 'CURRENT_TASK.md'));
       const task = planning ? null : parseTask(taskText, scope);
-      if (task) assert(hash(taskText) === state.taskHash, 'CURRENT_TASK changed since handoff; --restart to replan.');
+      if (task) assert(hash(taskText) === state.taskHash, 'CURRENT_TASK changed since handoff; run npm run agent-loop:restart to replan.');
       const runDir = join(runtime, 'runs', state.session, String(state.cycle)); mkdirSync(runDir, { recursive: true });
       if (!planning && state.phase === 'implementing') {
         if (task.kind === 'human') return stop('human_review', taskText);
@@ -372,7 +372,7 @@ export function runLoop(repo, config, invokeOverride, usageOverride = invokeOver
 if (resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {
   try {
     const config = parseArgs(process.argv.slice(2));
-    if (config.help) console.log('Usage: npm run agent-loop -- [--check | --resume | --restart] [--max-iterations 1..50] [--no-auto-advance] [--reviewer-effort high] [--implementer-effort medium]\nDefault: plan, implement/review/correct, run named gates, stop for human assessment.');
+    if (config.help) console.log('Usage: node scripts/agent-loop.mjs [--check | --resume | --restart] [--max-iterations 1..50] [--no-auto-advance] [--reviewer-effort high] [--implementer-effort medium]\nShortcuts: npm run agent-loop, npm run agent-loop:restart, npm run agent-loop:resume.\nDefault: plan, implement/review/correct, run named gates, stop for human assessment.');
     else process.exitCode = runLoop(root, config);
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

@@ -8,6 +8,8 @@
   },
   "scripts": {
     "agent-loop": "node scripts/agent-loop.mjs",
+    "agent-loop:restart": "node scripts/agent-loop.mjs --restart",
+    "agent-loop:resume": "node scripts/agent-loop.mjs --resume",
     "agent-loop:check": "node scripts/agent-loop.mjs --check",
     "agent-loop:usage": "node scripts/agent-loop-usage.mjs",
     "agent-loop:test": "node --test scripts/agent-loop.test.mjs",
