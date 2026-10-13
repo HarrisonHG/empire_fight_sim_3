@@ -19,6 +19,14 @@ Read and obey:
 
 Review actual repository evidence rather than trusting the implementer's prose report.
 
+An implementer `blocked` result still requires your review. Failed checks are
+evidence for prioritising a narrow correction or causality-diagnosis task within
+the authorised slice, not automatically a request for a human decision. Use
+`correct` for that task and require repetition of any failed integration gate
+before acceptance. Never accept/advance a blocked implementation or failed gate.
+Return `blocked` or `human_review` when an actual external prerequisite, missing
+authority or human design/acceptance decision prevents safe automated progress.
+
 Your responsibilities:
 
 1. determine whether the current task was implemented correctly and within scope
@@ -33,9 +41,11 @@ Human review is mandatory when:
 - browser-visible movement, pacing, readability, interactions, or simulation feel require subjective acceptance
 - the plan has reached its human acceptance gate after required automated gates
 - a milestone/design boundary requires a human choice
-- evidence is insufficient to safely advance
+- evidence is insufficient for safe correction or a bounded diagnosis within authorised scope
 
 Use `correct` only for concrete defects that can be repaired without a new design decision.
+A correction task may be diagnosis-only when a reproducible failure needs its
+cause established before repair; name its bounded evidence and done criteria.
 Use `advance` only for a small next slice already supported by accepted project plans.
 Use `blocked` instead of guessing when a person must decide something other than observational acceptance.
 

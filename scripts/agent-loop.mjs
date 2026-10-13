@@ -54,10 +54,11 @@ export function parseTask(markdown, scope) {
   return fields;
 }
 
-export function validateReview(review, scope, current, planning = false, autoAdvance = true) {
+export function validateReview(review, scope, current, planning = false, autoAdvance = true, implementationResult = null) {
   assert(review && ['accept', 'correct', 'advance', 'human_review', 'blocked'].includes(review.decision), 'Invalid review decision.');
   assert(typeof review.summary === 'string' && review.summary.trim() && Array.isArray(review.findings) && review.findings.every(item => typeof item === 'string'), 'Invalid review summary/findings.');
   assert(review.task_id === (planning ? 'PLANNING' : current.task_id), 'Stale or mismatched review task id.');
+  if (!planning && implementationResult === 'blocked') assert(['correct', 'blocked', 'human_review'].includes(review.decision), 'Blocked implementation requires correction or reviewer stop; acceptance refused.');
   const next = ['correct', 'advance'].includes(review.decision);
   assert(next ? typeof review.next_task === 'string' && review.next_task.trim() : review.next_task === null, 'Invalid next_task for decision.');
   assert(review.decision === 'human_review' ? typeof review.human_review === 'string' && review.human_review.trim() : review.human_review === null, 'Invalid human_review for decision.');
@@ -322,15 +323,11 @@ export function runLoop(repo, config, invokeOverride, usageOverride = invokeOver
         json(join(runDir, 'report.json'), report);
         atomic(join(dir, 'LAST_REPORT.md'), `Task: ${report.task_id}\nResult: ${report.result}\n\n${report.report}`);
         state.phase = 'reviewing'; save();
-        if (report.result === 'blocked') {
-          dumpUsage(repo, runDir, task.task_id, command, usageOverride);
-          return stop('blocked', report.report);
-        }
       }
       let review;
       if (state.phase === 'committing') {
         review = JSON.parse(read(join(runDir, 'review.json')));
-        validateReview(review, scope, task, false, config.autoAdvance);
+        validateReview(review, scope, task, false, config.autoAdvance, JSON.parse(read(join(runDir, 'report.json'))).result);
       } else {
         if (!planning) evidence(repo, runDir, JSON.parse(read(join(runDir, 'baseline.json'))));
         console.log(planning ? 'Planning first authorised slice...' : `Reviewing ${task.task_id}...`);
@@ -341,7 +338,7 @@ export function runLoop(repo, config, invokeOverride, usageOverride = invokeOver
         const beforeReview = snapshot(repo);
         review = invoke(planning ? 'planner' : 'reviewer', prompt, runDir, reviewSchema);
         assert(changedFiles(beforeReview, snapshot(repo)).length === 0, 'Read-only agent mutated repository.');
-        validateReview(review, scope, task, planning, config.autoAdvance);
+        validateReview(review, scope, task, planning, config.autoAdvance, planning ? null : JSON.parse(read(join(runDir, 'report.json'))).result);
         json(join(runDir, 'review.json'), review); json(join(dir, 'LAST_REVIEW.json'), review);
         if (!planning && ['accept', 'advance'].includes(review.decision)) {
           json(join(runDir, 'reviewed.json'), beforeReview);

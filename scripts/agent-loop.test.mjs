@@ -168,13 +168,49 @@ test('malformed output, scope escape, task mutation and read-only mutations stop
   }
 });
 
-test('human task never launches implementer; blocked implementation stops', t => {
+test('human task never launches implementer; blocked implementation goes to reviewer before stop', t => {
   for (const human of [true, false]) {
     const repo = fixture(t), calls = [];
     const items = [['planner', decision('advance', 'PLANNING', task('8J', human ? 'human' : 'implementation', human))]];
-    if (!human) items.push(['implementer', { task_id: '8J', result: 'blocked', report: 'Required evidence missing.' }]);
+    if (!human) items.push(['implementer', { task_id: '8J', result: 'blocked', report: 'Required evidence missing.' }], ['reviewer', decision('blocked', '8J')]);
     assert.equal(runLoop(repo, config(), sequence(items, calls)), human ? 2 : 3);
-    assert.deepEqual(calls, human ? ['planner'] : ['planner', 'implementer']);
+    assert.deepEqual(calls, human ? ['planner'] : ['planner', 'implementer', 'reviewer']);
+  }
+});
+
+test('blocked checks receive correction, retain the baseline, then commit only after passing review', t => {
+  const repo = fixture(t), calls = [];
+  assert.equal(runLoop(repo, config({ autoAdvance: false }), sequence([
+    ['planner', decision('advance', 'PLANNING', task())],
+    ['implementer', () => { writeFileSync(join(repo, 'file.txt'), 'failing change\n'); return { task_id: '8G-1', result: 'blocked', report: 'Focused regression failed; saved evidence.' }; }],
+    ['reviewer', request => {
+      assert.equal(gitRun(repo, ['rev-list', '--count', 'HEAD']), '1');
+      assert.match(readFileSync(join(request.runDir, 'slice.diff'), 'utf8'), /failing change/);
+      return decision('correct', '8G-1', task('8G-1-C1', 'correction'));
+    }],
+    ['implementer', () => { writeFileSync(join(repo, 'file.txt'), 'corrected change\n'); return report('8G-1-C1'); }],
+    ['reviewer', request => {
+      assert.match(readFileSync(join(request.runDir, 'slice.diff'), 'utf8'), /pre-existing user WIP/);
+      return decision('accept', '8G-1-C1');
+    }],
+  ], calls)), 0);
+  assert.deepEqual(calls, ['planner', 'implementer', 'reviewer', 'implementer', 'reviewer']);
+  assert.equal(gitRun(repo, ['rev-list', '--count', 'HEAD']), '2');
+  assert.equal(gitRun(repo, ['log', '-1', '--format=%s']), 'Accept slice 8G-1-C1');
+});
+
+test('blocked implementation cannot be accepted or advanced; failed review resumes without implementation', t => {
+  for (const value of ['accept', 'advance', 'failure']) {
+    const repo = fixture(t), calls = [];
+    assert.throws(() => runLoop(repo, config(), sequence([
+      ['planner', decision('advance', 'PLANNING', task())],
+      ['implementer', { task_id: '8G-1', result: 'blocked', report: 'Required checks failed.' }],
+      ['reviewer', () => { if (value === 'failure') throw Error('Reviewer unavailable'); return decision(value, '8G-1', value === 'advance' ? task('8G-2') : null); }],
+    ], calls)), /acceptance refused|Reviewer unavailable/);
+    assert.equal(state(repo).phase, 'reviewing');
+    assert.equal(gitRun(repo, ['rev-list', '--count', 'HEAD']), '1');
+    assert.equal(runLoop(repo, config({ resume: true }), sequence([['reviewer', decision('blocked', '8G-1')]], calls)), 3);
+    assert.deepEqual(calls, ['planner', 'implementer', 'reviewer', 'reviewer']);
   }
 });
 

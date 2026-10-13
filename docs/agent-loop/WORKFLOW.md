@@ -105,8 +105,9 @@ reviewable. Git author identity must be configured for accepted commits.
 
 After each implementation/review cycle (including correction requests and stops),
 the runner prints remaining percentages and reset times for each returned quota
-window. Accepted slices are queried after their commit. Implementation blockers
-also get a usage dump; planning-only stops do not. JSON is saved per cycle as
+window. Accepted slices are queried after their commit. Blocked implementation
+reports pass through review and get a usage dump after that decision;
+planning-only stops do not. JSON is saved per cycle as
 `usage.json` and as `.agent-loop/usage-latest.json`. Reset times in the terminal
 use Europe/London; saved timestamps are Unix seconds and the query time is UTC.
 These are current account-wide limits shared with other chats, not a per-slice
@@ -170,6 +171,12 @@ Review decisions: correct (same slice and current task id plus -C1), advance
 advancement disabled), human_review (checklist), blocked (precise prerequisite).
 All JSON fields are required; unused next_task/human_review fields are null.
 Planning returns task_id PLANNING and advance/blocked/human_review only.
+An implementer `blocked` report always passes to the independent reviewer.
+Failed tests can lead to a narrow correction/diagnosis task within the same
+authorised slice. Only reviewer `blocked`/`human_review` decisions stop for
+external prerequisites or human decisions; blocked implementations cannot be
+accepted or advanced. Failed gates must be repeated after corrections.
+
 Malformed/stale output, mutation by read-only roles, changed task contracts,
 CLI failure or scope mismatch stop immediately. Stop decisions are persisted.
 Human assessment belongs after the plan's automated gates; genuine unresolved
