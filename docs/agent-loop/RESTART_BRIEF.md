@@ -47,12 +47,12 @@ has not established that all gathering reservations can complete.
 - `.agent-loop/reconciliation/checkpoint.json`: code hashes, check results and
   exact starting task; verify hashes before reusing check evidence.
 - `gathering.patch` in that directory: complete candidate production/test diff.
-- `before-source.json` and `before-state.json`: pre-reconciliation recovery images.
-- `retired-manifest.json`: original paths and hashes for 21 exploratory script,
-  harness and documentation files, moved to `retired-source/`. Restore only a
-  specifically needed file to its original path for a historical reproduction.
-- Original `.agent-loop/runs/` and `manual-*` evidence remains untouched. It is
-  historical, not startup reading. Prior handoffs are under `legacy-handoff/`.
+- `.agent-loop/history.zip`: selected historical reviews, inputs, diagnostic
+  source and its path/hash manifest. Superseded run/manual-C1 folders and duplicate
+  snapshots are removed. Restore only a specifically needed historical file.
+- `.agent-loop/logs/`: raw logs, compressed historical traces and new role/check
+  logs. Search only for a specific investigation, failure or audit. Never preload
+  logs/history at startup; the checkpoint and verification summary are sufficient.
 
 The local reconciliation commit is an **unaccepted checkpoint**, so subsequent
 fixes have a clean baseline. The prepared runner starts fresh planning with this

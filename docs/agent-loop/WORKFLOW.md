@@ -101,9 +101,15 @@ Do not edit the repository concurrently with a loop.
 - `.agent-loop/state.json`: persisted phase, stop and task hash.
 - `state.context`: current letter, independent role UUIDs, correction count,
   latest checkpoint and last reviewed snapshot paths.
-- `.agent-loop/runs/<run>/<cycle>/`: prompts, schema, raw outputs, role logs,
+- `.agent-loop/runs/<run>/<cycle>/`: prompts, schema, structured outputs,
   report/review, baseline, changed-file list, cumulative slice diff and commit
   request/receipt (including commit hash).
+- `.agent-loop/logs/runs/<run>/<cycle>/`: role attempt logs and Git commit logs.
+  Save raw check logs here too. Logs are investigation-only: consult them for a
+  specific failure/audit, never as routine startup reading. Invocation metadata
+  links to each role log; old in-cycle log paths remain readable for recovery.
+- `.agent-loop/history.zip`: selected historical decisions, inputs and diagnostic
+  source retained after user-authorised cleanup. It is not startup context.
 
 Each cycle also retains checkpoint.json: concise facts, rejected hypotheses,
 open questions, checks and evidence paths supplied by the implementer, plus
@@ -150,7 +156,9 @@ untracked user work at slice start, or repository/HEAD evidence changes after
 review, the runner refuses to commit and does not advance. Checkpoint/reconcile
 that mixed work separately, then explicitly restart/replan. No automatic hunk
 surgery, user-work staging, stash, reset of working files or rollback occurs.
-Keep runtime evidence until human assessment. Normal source/plan changes remain
+Keep runtime evidence until human assessment unless the user explicitly requests
+cleanup. Extract useful decisions/reproductions, preserve investigation logs in
+the dedicated log folder, and remove superseded runtime scaffolding. Normal source/plan changes remain
 reviewable. Git author identity must be configured for accepted commits.
 
 A user-authorised manual reconciliation may create an explicitly unaccepted WIP

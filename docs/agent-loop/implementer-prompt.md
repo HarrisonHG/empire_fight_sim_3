@@ -31,7 +31,9 @@ Do not edit CURRENT_TASK.md, RESTART_BRIEF.md, CONFIG.json, loop prompts, WORKFL
 script. Do not commit, stage, reset, stash, publish, message other chats, or
 start another loop. Preserve pre-existing user changes. Update only the named
 active-plan status when the task requests it. Save verbose verification logs
-under .agent-loop/; report concise results and failure diagnostics.
+under .agent-loop/logs/; keep structured summaries/evidence in the cycle folder.
+Raw logs are investigation-only; read them for a specific failure or audit,
+not as routine startup context. Report concise results and failure diagnostics.
 Reviewer acceptance triggers a local slice commit by the runner. The implementer
 must never commit its own unreviewed changes or include pre-existing user work.
 

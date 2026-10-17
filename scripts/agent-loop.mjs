@@ -158,6 +158,12 @@ export function changedFiles(before, after) {
 const handoffFiles = new Set(['CURRENT_TASK.md', 'LAST_REPORT.md', 'LAST_REVIEW.json', 'HUMAN_REVIEW.md'].map(name => `docs/agent-loop/${name}`));
 const sourceChanges = (before, after) => changedFiles(before, after).filter(file => !handoffFiles.has(file));
 
+function logDirectory(repo, runDir) {
+  const path = relative(join(repo, '.agent-loop'), runDir);
+  assert(path && !path.startsWith('..') && !isAbsolute(path), 'Logs must belong to the loop runtime.');
+  return join(repo, '.agent-loop', 'logs', path);
+}
+
 // The reviewer authorises this transaction. A private index preserves unrelated
 // staged work; only accepted paths are refreshed in the user's index afterwards.
 export function commitAccepted(repo, runDir, task) {
@@ -202,7 +208,7 @@ export function commitAccepted(repo, runDir, task) {
     // Normal commit hooks/signing apply. A failure leaves the pending transaction
     // available for --resume, without rerunning implementation or review.
     const output = git(repo, ['commit', '--file', join(runDir, 'commit-message.txt')], { env });
-    atomic(join(runDir, 'commit.log'), output);
+    atomic(join(logDirectory(repo, runDir), 'commit.log'), output);
     commit = git(repo, ['rev-parse', 'HEAD']).trim();
   }
   assert(git(repo, ['rev-parse', `${commit}^`]).trim() === request.parent &&
@@ -369,10 +375,14 @@ export function runLoop(repo, config, invokeOverride, usageOverride = invokeOver
       atomic(join(runDir, `${role}-prompt.txt`), prompt); json(join(runDir, `${role}-schema.json`), schema);
       if (invokeOverride) return invokeOverride({ role, prompt, runDir, schema, sessionId, recordSession });
       const output = join(runDir, `${role}-output.json`); rmSync(output, { force: true });
+      const logDir = logDirectory(repo, runDir);
+      mkdirSync(logDir, { recursive: true });
       let logName = `${role}.log`, attempt = 1;
-      while (existsSync(join(runDir, logName))) logName = `${role}-attempt-${++attempt}.log`;
-      json(metadataPath, { sessionId: sessionId ?? null, log: logName });
-      const log = openSync(join(runDir, logName), 'wx');
+      while (existsSync(join(logDir, logName))) logName = `${role}-attempt-${++attempt}.log`;
+      const logFile = join(logDir, logName);
+      const logPath = relative(runDir, logFile).replaceAll('\\', '/');
+      json(metadataPath, { sessionId: sessionId ?? null, log: logPath });
+      const log = openSync(logFile, 'wx');
       let result;
       try {
         result = launch(command, codexArgs(role, role === 'implementer' ? config.implementerEffort : config.reviewerEffort,
@@ -380,11 +390,11 @@ export function runLoop(repo, config, invokeOverride, usageOverride = invokeOver
         { cwd: repo, input: prompt, encoding: 'utf8', stdio: ['pipe', log, log] });
       } finally {
         closeSync(log);
-        const id = sessionFromLog(read(join(runDir, logName)));
+        const id = sessionFromLog(read(logFile));
         if (id) recordSession(id);
-        json(metadataPath, { sessionId: sessionId ?? null, log: logName });
+        json(metadataPath, { sessionId: sessionId ?? null, log: logPath });
       }
-      assert(!result.error && result.status === 0, `Codex ${role} failed (${result.status ?? result.error?.message}). See ${runDir}.`);
+      assert(!result.error && result.status === 0, `Codex ${role} failed (${result.status ?? result.error?.message}). Log: ${logFile}.`);
       assert(sessionId, 'CLI returned no session id; cannot safely retain context.');
       assert(existsSync(output), `Missing ${role} output.`);
       return JSON.parse(read(output));

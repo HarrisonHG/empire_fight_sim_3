@@ -523,9 +523,13 @@ exit 0
   }
   assert.ok(!calls.at(-1).arguments.includes('resume'));
   const run = join(runtime, 'runs', state(repo).session, '1');
-  assert.ok(existsSync(join(run, 'implementer.log')));
-  assert.ok(existsSync(join(run, 'implementer-attempt-2.log')));
-  assert.equal(JSON.parse(readFileSync(join(run, 'implementer-invocation.json'))).sessionId, roleIds.implementer);
+  const logs = join(runtime, 'logs', 'runs', state(repo).session, '1');
+  assert.ok(existsSync(join(logs, 'implementer.log')));
+  assert.ok(existsSync(join(logs, 'implementer-attempt-2.log')));
+  assert.equal(existsSync(join(run, 'implementer.log')), false);
+  const invocation = JSON.parse(readFileSync(join(run, 'implementer-invocation.json')));
+  assert.equal(invocation.sessionId, roleIds.implementer);
+  assert.equal(resolve(run, invocation.log), join(logs, 'implementer-attempt-2.log'));
 });
 
 function acceptedFixture(repo) {
@@ -629,6 +633,8 @@ test('accepted commit preserves unrelated staged/unstaged work and handles addit
   rmSync(join(repo, 'file.txt'));
   writeFileSync(join(repo, 'added.txt'), 'accepted addition');
   const commit = checkpoint.accept();
+  assert.ok(existsSync(join(repo, '.agent-loop/logs/accepted/commit.log')));
+  assert.equal(existsSync(join(checkpoint.runDir, 'commit.log')), false);
   assert.equal(gitRun(repo, ['show', '--format=', '--name-only', commit]), 'added.txt\nfile.txt');
   assert.equal(gitRun(repo, ['diff', '--cached', '--name-only']), 'unrelated.txt');
   assert.equal(gitRun(repo, ['diff', '--name-only']), scope.plan);
