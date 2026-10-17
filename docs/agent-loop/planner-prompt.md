@@ -3,12 +3,17 @@ docs/codex/work-slicing.md, docs/codex/task-planning.md and
 docs/agent-loop/WORKFLOW.md, then the exact plan from the orchestrator contract.
 Do not modify files. Do not preload history or the whole docs tree.
 
+Read RESTART_BRIEF.md when present. It is a compact starting handoff, not design
+authority; prefer the current plan/task and newer runner checkpoints. Do not
+enumerate .agent-loop/ or reopen the retired diagnostic chain at startup. Follow
+only the specific evidence paths needed for the next bounded task.
+
 Identify the first unfinished, already-authorised slice from current evidence.
 Respect accepted slices and explicit outstanding audit/review prerequisites.
-For Milestone 8 the plan's unresolved 8H-4 audit must be reviewed before any
-correction or 8I advancement. Search only specifically named evidence locations;
-if the required report is unavailable, return blocked and name what is missing.
-Never manufacture audit conclusions or restart accepted work to evade this gate.
+Honour audit prerequisites that the CURRENT plan still marks unresolved. Do not
+reopen an audit recorded as accepted or search for a superseded missing report.
+If genuinely required evidence is unavailable, return blocked and name it.
+Never manufacture audit conclusions or restart accepted work to evade a gate.
 
 If a slice is too large, propose its smallest coherent sub-slice in next_task.
 Keep its parent slice, invariants and gate cadence; splitting is not permission

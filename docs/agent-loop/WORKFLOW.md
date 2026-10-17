@@ -1,6 +1,6 @@
 # Automated Reviewer / Implementer Loop
 
-This loop executes one already-authorised milestone with fresh Codex contexts:
+This loop executes one already-authorised milestone with separate Codex role sessions:
 read-only planning → one narrow implementation → independent broader review →
 correction or accepted-slice commit → next slice → named integration/performance
 gates → human assessment.
@@ -13,18 +13,25 @@ npm run agent-loop
 ```
 
 Configuration is `docs/agent-loop/CONFIG.json`: the exact accepted plan and
-milestone. Currently this is Milestone 8. Its plan explicitly requires review
-of the outstanding 8H-4 audit before correction/8I. If that evidence is absent,
-the first planning pass stops with a precise blocker. Supply the actual report
-and resolve the plan's handoff before restarting; do not infer its conclusion.
-Preparing this runner does not accept the audit or Milestone 8.
+milestone. Currently this is Milestone 8. Start from RESTART_BRIEF.md when present,
+then the current task/plan and newer checkpoints. Accepted audits stay accepted;
+missing genuinely required evidence blocks. The brief and runtime history do not
+authorise milestone acceptance or advancement past failed gates.
 
 The installed Codex CLI and its configured model/authentication are used. No
 model is forced. `codex login` is required if not already signed in. Node and
 Git must be on PATH. `CODEX_BIN` may name an alternative CLI executable/shim.
 The runner handles Windows executable, PowerShell and npm command shims without
 interpolating prompts into shell commands. Prompts travel through stdin.
-Each role uses a fresh `codex exec`; no conversation is carried across slices.
+The implementer and reviewer each retain their own conversation within a letter
+(for example 8H, including 8H-5, 8H-6 and their corrections). The runner saves
+explicit session UUIDs from `--json` thread.started events and calls
+`codex exec ... resume <UUID> -` for follow-up work; it never uses `--last` or
+shares the implementer's session with a reviewer. Sandbox/approval/schema/effort
+options are reapplied on every invocation. Planning is a separate fresh session.
+The context boundary is the letter prefix of task.slice (8G-1 maps to 8G);
+non-letter slice names use the exact slice. A new letter starts new role sessions,
+carrying only the concise checkpoint. Explicit restart also starts fresh contexts.
 Reviewer/planner use explicit read-only sandbox; implementer workspace-write.
 Approval policy is never: denied operations become blockers, with no sandbox
 bypass. Managed policy still applies. The unsupported --full-auto flag is absent.
@@ -40,6 +47,7 @@ npm run agent-loop:usage                  # read current account limits; no mode
 npm run agent-loop:resume                 # interrupted/failed/budget-limited run
 npm run agent-loop:restart                # explicit fresh planning after human resolution
 node scripts/agent-loop.mjs --max-iterations 4 # limit implementation/review cycles
+node scripts/agent-loop.mjs --max-corrections 4 # per-letter correction requests
 node scripts/agent-loop.mjs --no-auto-advance  # correct then stop at slice acceptance
 ```
 
@@ -49,6 +57,11 @@ options, call Node directly as shown above. Restart/resume flags are embedded in
 the dedicated package scripts and do not depend on argument forwarding.
 
 Default budget: 12 cycles per invocation, maximum 50. Planning is separate.
+After six correction requests within a letter, the default correction limit
+stops for human review with the proposed next task retained in review.json.
+The counter survives resume/invocation budgets and resets at a new letter or
+explicit restart after human assessment. --max-corrections accepts 1–50.
+This is a correction-count guard, not a token or account-quota budget.
 Efforts remain independently configurable with --reviewer-effort (default high)
 and --implementer-effort (default medium). A budget stop preserves the pending
 task. A review failure resumes at review, without rerunning successful implementation.
@@ -56,7 +69,14 @@ Commit failures resume at the accepted commit transaction without rerunning the
 implementer or reviewer. An interrupted post-commit handoff recognises the saved
 commit tree/parent/message and does not create a duplicate commit.
 An interrupted implementation may have partial edits: resume retries that same
-slice against its saved original baseline. No automatic retries or rollback.
+slice against its saved original baseline, using its recorded CLI session.
+Failed/interrupted CLI turns retain their session id even without a final report.
+Invocation metadata and preserved attempt logs recover the id after a hard kill.
+Older in-flight runs can recover the current role's UUID from its existing CLI
+log; roles without a recorded id start fresh. No historic sessions are guessed.
+A missing/unavailable saved CLI session fails visibly; there is no silent fresh
+fallback. After assessment, explicit restart replans with the checkpoint/evidence
+available on disk. No automatic retries or rollback.
 A restart replans from current evidence; it does not erase edits/history or waive
 plan prerequisites. Human/blocked/accepted stops refuse ordinary runs and resume.
 Do not restart past an unresolved human decision. After final human acceptance,
@@ -72,13 +92,43 @@ Do not edit the repository concurrently with a loop.
 
 - CONFIG.json: authorised milestone/plan; never rewritten by an agent.
 - CURRENT_TASK.md: runner-selected exact task, never selected by implementer.
-- LAST_REPORT.md / LAST_REVIEW.json: latest concise handoff, not design authority.
+- RESTART_BRIEF.md: concise user-authorised reconciliation handoff; read once on
+  fresh contexts. Current tasks/plans and newer checkpoints take precedence.
+- LAST_REPORT.md / LAST_REVIEW.json: latest concise role outputs, not design
+  authority. Absent after a manual reconciliation until a new role completes.
 - HUMAN_REVIEW.md: stop reason/checklist; never silently removed on startup.
 - planner/implementer/reviewer-prompt.md: stable role contracts.
 - `.agent-loop/state.json`: persisted phase, stop and task hash.
+- `state.context`: current letter, independent role UUIDs, correction count,
+  latest checkpoint and last reviewed snapshot paths.
 - `.agent-loop/runs/<run>/<cycle>/`: prompts, schema, raw outputs, role logs,
   report/review, baseline, changed-file list, cumulative slice diff and commit
   request/receipt (including commit hash).
+
+Each cycle also retains checkpoint.json: concise facts, rejected hypotheses,
+open questions, checks and evidence paths supplied by the implementer, plus
+review findings, HEAD and a source snapshot hash. These are recovery notes, not
+design authority or proof that checks remain valid after edits. The runner writes
+the checkpoint; agents must not create a competing project-status document.
+Resumed roles read the current task/new evidence and revisit changed/relevant
+contracts, rather than reconstructing all earlier investigations. Raw traces stay
+in files. Reviewers receive delta.diff since their previous review alongside the
+complete slice.diff. Whole-slice acceptance still requires the cumulative evidence.
+
+Before advancing to another letter, or returning accept for an explicit slice
+stop, a fresh read-only acceptance reviewer must independently confirm the exact
+proposed transition. It may instead request correction or stop for human review/a
+blocker. candidate-review.json and acceptance-review.json retain both decisions.
+The acceptance phase is persisted: resume retries that review without rerunning
+implementation or the ongoing reviewer. It may resume its own interrupted session,
+but never an ongoing review/implementation session. Source changes while acceptance
+is interrupted refuse acceptance and require restart/replanning. Technical acceptance
+and human acceptance remain separate. This extra pass is reserved for these
+boundaries; it is not run for every correction or same-letter advancement.
+
+Each CLI retry preserves the previous role log and writes an attempt log plus
+role-invocation.json identifying the selected UUID. --json logs contain CLI events;
+the final structured result is still read only from --output-last-message.
 
 Snapshots capture tracked and non-ignored untracked files, including pre-existing
 WIP. Review diffs compare to the start of this slice, not all changes since HEAD.
@@ -102,6 +152,13 @@ that mixed work separately, then explicitly restart/replan. No automatic hunk
 surgery, user-work staging, stash, reset of working files or rollback occurs.
 Keep runtime evidence until human assessment. Normal source/plan changes remain
 reviewable. Git author identity must be configured for accepted commits.
+
+A user-authorised manual reconciliation may create an explicitly unaccepted WIP
+checkpoint, archive obsolete handoffs/probes and prepare a fresh planning state.
+This preserves failed checks and never substitutes for independent review or a
+gate. Old state/source images and path/hash manifests must be retained. The next
+runner baseline starts at that checkpoint; never reuse its superseded cumulative
+diff or silently label the checkpoint as an accepted slice.
 
 After each implementation/review cycle (including correction requests and stops),
 the runner prints remaining percentages and reset times for each returned quota
@@ -166,7 +223,7 @@ gates. Missing required files/design decisions block rather than invite guessing
 A human task is presented without launching an implementer. A human flag on an
 automated task permits concrete corrections, then mandates human_review.
 
-Review decisions: correct (same slice and current task id plus -C1), advance
+Review decisions: correct (same slice, numbered correction of the base task), advance
 (new task in the same authorised milestone), accept (current slice only when
 advancement disabled), human_review (checklist), blocked (precise prerequisite).
 All JSON fields are required; unused next_task/human_review fields are null.
@@ -176,6 +233,11 @@ Failed tests can lead to a narrow correction/diagnosis task within the same
 authorised slice. Only reviewer `blocked`/`human_review` decisions stop for
 external prerequisites or human decisions; blocked implementations cannot be
 accepted or advanced. Failed gates must be repeated after corrections.
+
+Correction ids use one increasing suffix: 8H-6 → 8H-6-C1 → 8H-6-C2 →
+8H-6-C3. The runner supplies and validates the exact next id. Existing task ids
+and evidence folders are preserved. When resuming a legacy repeated suffix chain,
+the next task flattens its correction numbers: 8H-6-C1-C1 → 8H-6-C3.
 
 Malformed/stale output, mutation by read-only roles, changed task contracts,
 CLI failure or scope mismatch stop immediately. Stop decisions are persisted.

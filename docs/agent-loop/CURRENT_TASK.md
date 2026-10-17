@@ -1,37 +1,59 @@
 ---
-task_id: 8H-6
+task_id: 8H-7
 milestone: 8
 plan: docs/plans/milestone-8-personal-space-collision-and-crowd-flow.md
 slice: 8H
-kind: integration
+kind: correction
 human_review_required: false
 ---
 
-# Run the Milestone 8 system integration gate
+# Reconcile the gathering correction's combined recruit regression
 
 ## Goal
-Prove accepted 8A–8G work and the reviewed 8H corrections coexist across production. Follow plan section 8H and docs/codex/work-slicing.md.
+Resolve the demonstrated before/after regression from the unaccepted gathering
+patch. The original combined recruit routes at tick 411; the candidate does not
+route within 800 ticks. Preserve bounded gathering progress and the accepted
+movement policy. This task cannot accept 8H.
 
 ## Allowed scope
-Integration verification, measured failure diagnosis, narrowly justified test/fixture reconciliation and concise documentation. Preserve runtime authorities and accepted contracts.
+Sim: src/sim/individualSpecialistCollision.ts. Test: individualSpecialistCollision,
+individualCasualtyAssistance and milestone4VisualScenario regressions. Read the
+restart brief, the plan's downed-soft contract and docs/design/unit-movement.md.
+Use .agent-loop/reconciliation/gathering.patch and combined-comparison.json;
+compare-combined.mjs provides the isolated paired source loader. Save new evidence
+under the current cycle. Historical diagnostic documents are not startup reading.
 
 ## Non-goals
-No new mechanics, unrelated rebaselines, timeout increases, speculative optimisation, 8I work or milestone acceptance.
+No pursuit/main fixture tuning, seed search, expectation or timeout changes,
+morale/participation rewrite, new cancellation policy, global pathing, general
+optimisation, 8I work or repeat of the retired exploratory probe chain.
 
 ## Required work
-1. Read AGENTS.md, work-slicing.md, testing.md and plan section 8H. Use retained 8H-5 evidence in .agent-loop/manual-8H-5/.
-2. Run the complete integration checks below and retain actual logs, exit codes and test results.
-3. Confirm full-suite coverage of physical occupancy, main battle summary/timeline, pursuit, Milestone 4 morale/routing, casualty/treatment, respawn egress, energy movement evidence, deterministic replay and reversed-order expectations. Map each contract to passing tests; run an additional focused check only if coverage is absent.
-4. Investigate remaining timing failures with unchanged budgets, including the barbarian clock/egress case and retained replay margin. Record reproducible failures and measured causes. If a runtime repair, performance optimisation or missing mechanic is needed, provide evidence for a separate narrow correction; do not implement it ad hoc inside this gate.
-5. Update plan status concisely. Keep 8H incomplete while any required check fails; retain detailed evidence outside the active plan.
+1. Verify the checkpoint's source hashes and check results; reuse unchanged
+   evidence. Inspect the 13-line patch and the permanent gathering regressions.
+2. Find the first relevant causal divergence in the paired combined scenario,
+   using at most one bounded 800-tick phase audit. Distinguish a defective local
+   avoidance rule from a retained scenario relying on incorrect movement.
+3. If the patch violates the accepted contract, add a focused reproduction and
+   make the smallest local correction. Retain useful avoidance, eight symmetry
+   cases, hard-body legality, budgets, lifecycle/position preservation and normal
+   pickup/release ordering. Do not silently rebaseline the combined scenario.
+4. If reconciling the contracts requires a design/fixture choice, report that
+   exact choice with the paired evidence and stop for review rather than doing
+   another broad investigation. Independent review is required before accepting
+   the candidate correction. Report older pursuit/main/timing failures separately.
 
 ## Checks
-- npm run typecheck
-- Full npm test
-- npm run build
-- git diff --check
-- Named retained/replay/system coverage from section 8H, including the new contact/extraction regressions and unchanged 7E assertions.
-- Any bounded integration fix requires its focused regression and a fresh complete integration gate. Production optimisation requires focused affected regressions and repeat 8H before acceptance.
+- After changes: node node_modules/vitest/vitest.mjs run tests/sim/individualSpecialistCollision.test.ts tests/sim/individualCasualtyAssistance.test.ts tests/sim/individualMovementRightOfWay.test.ts tests/sim/individualSpecialistPhysicalGaitAdapter.test.ts tests/sim/milestone4VisualScenario.test.ts --maxWorkers=1 --reporter=json
+- npm run typecheck when TypeScript changes; git diff --check; validate added files.
+- Rerun pursuitScenario.test.ts only when production changes; its two baseline
+  routing assertions remain red and cannot be claimed fixed without evidence.
+- Retain exact commands, exits, source hashes and the changed-file archive/hash.
+  No full suite/build/perf during this correction. Before eventual 8H acceptance,
+  rerun the complete integration gate and all its named contracts, with unchanged
+  timing budgets. No advancement to 8I while required gates remain red.
 
 ## Done criteria
-All required checks and named contracts pass within existing budgets, with retained evidence and no weakened assertions. Otherwise report exact failures and correction evidence without claiming gate completion. Do not advance to 8I until independent review accepts 8H. Package intended changed files with scripts/zip-working-changes.ps1 if files change.
+The narrow regression is causally resolved with passing affected checks and
+independent review, or a precise evidence-backed external/design blocker is
+reported. Do not equate a WIP checkpoint or local passing tests with 8H acceptance.

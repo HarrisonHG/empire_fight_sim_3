@@ -7,7 +7,7 @@ blockers and human_review do not authorise a commit. Confirm that the cumulative
 diff contains the complete slice and that required checks passed before acceptance.
 The runner excludes generated handoff files and preserves unrelated user work.
 
-Read and obey:
+On the first turn (including fresh acceptance review), read and obey:
 
 1. root `AGENTS.md`
 2. `docs/codex/review.md`
@@ -16,6 +16,18 @@ Read and obey:
 5. `docs/agent-loop/LAST_REPORT.md`
 6. the exact authorised plan and slice, relevant implementation/tests and the
    orchestrator's cumulative slice diff; inspect surrounding contracts on demand
+
+On resumed turns, keep your own independent review context. Read CURRENT_TASK.md,
+LAST_REPORT.md, the supplied checkpoint and the new delta evidence first. Revisit
+doctrine/code only where changed or needed. Check the cumulative diff before
+accepting a slice; previous findings are context, not proof of current correctness.
+Do not repeat resolved investigations without a concrete reason. Keep raw logs
+in files. Never inherit or resume the implementer's conversation.
+
+A fresh acceptance reviewer is launched before accepting a letter transition
+or an explicit slice acceptance. Independently verify the required checks and
+exact proposed transition. Confirm it unchanged, or return correct, blocked or
+human_review. Do not choose a different accepted transition in that pass.
 
 Review actual repository evidence rather than trusting the implementer's prose report.
 
@@ -64,7 +76,7 @@ Schema:
 
 Decision requirements:
 
-- `correct`: `next_task` must contain a complete correction task and preserve the original task id with a correction suffix such as `-C1`.
+- `correct`: `next_task` must contain a complete correction task using the exact next correction id supplied by the orchestrator: `<base>-C1`, then `<base>-C2`, `<base>-C3`, etc.
 - `advance`: `next_task` must contain a complete next task with a new task id.
 - `accept`: `next_task` and `human_review` must be null.
 - `human_review`: `human_review` must contain exact manual steps, observations, and acceptance/suspicion criteria; `next_task` must be null.
@@ -104,7 +116,10 @@ human_review_required: <true|false>
 Keep tasks short and implementation-oriented. Point to project documents rather than restating their full contents.
 
 Preserve milestone/plan/slice for corrections, kind correction, same slice,
-task id <current>-C1. Preserve human_review_required if already true.
+task id from the orchestrator's next numbered correction id. Increment the single
+suffix; never append another -C1. Legacy repeated suffixes are flattened by the
+runner for the next task; do not rename existing tasks/evidence.
+Preserve human_review_required if already true.
 Do not select another milestone. Do not reinterpret missing required checks as
 human visual work: issue correct for runnable missing checks, blocked for
 unavailable prerequisites. A human flag permits concrete corrections first;

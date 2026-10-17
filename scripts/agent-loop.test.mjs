@@ -1,21 +1,22 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, copyFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
-import { parseArgs, parseTask, validateReview, runLoop, launch, snapshot, commitAccepted, dumpUsage } from './agent-loop.mjs';
+import { parseArgs, parseTask, validateReview, runLoop, launch, snapshot, commitAccepted, dumpUsage, contextKey, codexArgs, sessionFromLog, nextCorrectionId } from './agent-loop.mjs';
 import { summarizeUsage, readAccountUsage } from './agent-loop-usage.mjs';
 
 const scope = { milestone: '8', plan: 'docs/plans/active.md' };
 const config = extra => ({ ...parseArgs([]), ...extra });
-const task = (id = '8G-1', kind = 'implementation', human = false) => `---\ntask_id: ${id}\nmilestone: 8\nplan: ${scope.plan}\nslice: 8G\nkind: ${kind}\nhuman_review_required: ${human}\n---\n# Task\n## Allowed scope\nfile.txt\n## Checks\nFocused checks\n`;
+const task = (id = '8G-1', kind = 'implementation', human = false) => `---\ntask_id: ${id}\nmilestone: 8\nplan: ${scope.plan}\nslice: ${id.match(/^8[A-Z]+/u)?.[0] ?? '8G'}\nkind: ${kind}\nhuman_review_required: ${human}\n---\n# Task\n## Allowed scope\nfile.txt\n## Checks\nFocused checks\n`;
 const decision = (value, id, next = null) => ({ decision: value, task_id: id, summary: 'Evidence checked', findings: [], next_task: next, human_review: value === 'human_review' ? 'Inspect named routes after automated gates.' : null });
 const report = id => ({ task_id: id, result: 'complete', report: 'Focused checks passed.' });
 function fixture(t) {
-  const repo = mkdtempSync(join(tmpdir(), 'agent-loop-test-'));
+  const testRoot = resolve('.agent-loop/test-tmp');
+  mkdirSync(testRoot, { recursive: true });
+  const repo = mkdtempSync(join(testRoot, 'agent-loop-test-'));
   t.after(() => rmSync(repo, { recursive: true, force: true }));
   mkdirSync(join(repo, 'docs/agent-loop'), { recursive: true });
   mkdirSync(join(repo, 'docs/plans'), { recursive: true });
@@ -48,6 +49,218 @@ function sequence(items, calls) {
     return typeof item[1] === 'function' ? item[1](request) : item[1];
   };
 }
+
+const roleIds = {
+  implementer: '11111111-1111-1111-1111-111111111111',
+  reviewer: '22222222-2222-2222-2222-222222222222',
+  acceptance: '33333333-3333-3333-3333-333333333333',
+};
+
+test('correction IDs increment one suffix and migrate legacy repeated suffixes', () => {
+  for (const [currentId, expected] of [
+    ['8H-6', '8H-6-C1'], ['8H-6-C1', '8H-6-C2'], ['8H-6-C2', '8H-6-C3'],
+    ['8H-6-C9', '8H-6-C10'], ['8H-6-C1-C1-C1', '8H-6-C4'],
+    ['8H-6-C2-C1', '8H-6-C4'],
+    ['8H-6-C99999999999999999999', '8H-6-C100000000000000000000'],
+  ]) {
+    assert.equal(nextCorrectionId(currentId), expected);
+    const current = parseTask(task(currentId, 'correction'), scope);
+    validateReview(decision('correct', currentId, task(expected, 'correction')), scope, current);
+  }
+  const current = parseTask(task('8H-6-C1', 'correction'), scope);
+  for (const invalid of ['8H-6-C1', '8H-6-C3', '8H-6-C1-C1', '8H-7-C2']) {
+    assert.throws(() => validateReview(decision('correct', current.task_id, task(invalid, 'correction')), scope, current), /next numbered/);
+  }
+});
+
+test('a reconciled planning state supplies the brief once per fresh role and resumes with compact evidence', t => {
+  const repo = fixture(t), calls = [];
+  writeFileSync(join(repo, 'docs/agent-loop/RESTART_BRIEF.md'), 'Current handoff; history is on demand.');
+  mkdirSync(join(repo, '.agent-loop'));
+  writeFileSync(join(repo, '.agent-loop/checkpoint.json'), '{}');
+  writeFileSync(join(repo, '.agent-loop/state.json'), JSON.stringify({ ...scope,
+    status: 'paused', phase: 'planning', cycle: 0, session: 'reconciliation-test',
+    handoffCheckpoint: '.agent-loop/checkpoint.json',
+  }));
+  const fresh = request => {
+    assert.match(request.prompt, /Read docs\/agent-loop\/RESTART_BRIEF.md for/);
+    assert.match(request.prompt, /Do not crawl historical evidence/);
+    assert.match(request.prompt, /Concise recovery\/handoff checkpoint/);
+    assert.equal(request.sessionId, null);
+  };
+  assert.equal(runLoop(repo, config({ resume: true, maxIterations: 1 }), sequence([
+    ['planner', request => { fresh(request); return decision('advance', 'PLANNING', task()); }],
+    ['implementer', request => { fresh(request); request.recordSession(roleIds.implementer); return report('8G-1'); }],
+    ['reviewer', request => { fresh(request); request.recordSession(roleIds.reviewer); return decision('correct', '8G-1', task('8G-1-C1', 'correction')); }],
+  ], calls)), 4);
+  assert.equal(runLoop(repo, config({ resume: true }), sequence([
+    ['implementer', request => {
+      assert.equal(request.sessionId, roleIds.implementer);
+      assert.doesNotMatch(request.prompt, /Read docs\/agent-loop\/RESTART_BRIEF.md for/);
+      assert.match(request.prompt, /Concise recovery\/handoff checkpoint/);
+      return report('8G-1-C1');
+    }],
+    ['reviewer', request => {
+      assert.equal(request.sessionId, roleIds.reviewer);
+      assert.doesNotMatch(request.prompt, /Read docs\/agent-loop\/RESTART_BRIEF.md for/);
+      return decision('blocked', '8G-1-C1');
+    }],
+  ], calls)), 3);
+});
+
+test('implementer cannot rewrite the reconciled restart brief', t => {
+  const repo = fixture(t);
+  writeFileSync(join(repo, 'docs/agent-loop/RESTART_BRIEF.md'), 'Protected handoff.');
+  assert.throws(() => runLoop(repo, config(), sequence([
+    ['planner', decision('advance', 'PLANNING', task())],
+    ['implementer', () => {
+      writeFileSync(join(repo, 'docs/agent-loop/RESTART_BRIEF.md'), 'False acceptance.');
+      return report('8G-1');
+    }],
+  ], [])), /modified loop controls/);
+});
+
+test('session events and resume arguments require explicit ids and preserve role permissions', () => {
+  const id = roleIds.implementer;
+  assert.equal(sessionFromLog(`diagnostic\n${JSON.stringify({ type: 'thread.started', thread_id: id })}\n`), id);
+  assert.equal(sessionFromLog(`session id: ${id}\n`), id);
+  assert.equal(sessionFromLog('unrelated output'), null);
+  assert.throws(() => sessionFromLog('{"type":"thread.started","thread_id":"--last"}'), /Invalid/);
+  assert.throws(() => sessionFromLog(`session id: ${id}\nsession id: ${roleIds.reviewer}`), /Conflicting/);
+  for (const role of ['implementer', 'reviewer', 'acceptance']) {
+    const args = codexArgs(role, 'medium', 'schema.json', 'out.json', id);
+    assert.deepEqual(args.slice(-3), ['resume', id, '-']);
+    assert.equal(args[args.indexOf('--sandbox') + 1], role === 'implementer' ? 'workspace-write' : 'read-only');
+    assert.ok(args.indexOf('--sandbox') < args.indexOf('resume'));
+    assert.ok(args.includes('--json')); assert.ok(!args.includes('--last'));
+  }
+  assert.throws(() => codexArgs('reviewer', 'high', 's', 'o', '--last'), /Invalid/);
+  assert.equal(contextKey(parseTask(task('8G-2'), scope)), '8:8G');
+  assert.equal(contextKey(parseTask(task('8G-2').replace('slice: 8G', 'slice: 8G-2'), scope)), '8:8G');
+});
+
+test('role sessions survive corrections and invocation budgets, then reset at a letter boundary', t => {
+  const repo = fixture(t), requests = [];
+  const invoke = request => {
+    requests.push({ role: request.role, sessionId: request.sessionId });
+    if (request.role === 'planner') return decision('advance', 'PLANNING', task());
+    const id = readFileSync(join(repo, 'docs/agent-loop/CURRENT_TASK.md'), 'utf8').match(/task_id: (.+)/u)[1];
+    if (request.role === 'implementer' || request.role === 'reviewer') {
+      const expected = id === '8H' ? null : (id === '8G-1' ? null : roleIds[request.role]);
+      assert.equal(request.sessionId ?? null, expected);
+      request.recordSession(id === '8H' ? roleIds[request.role].replaceAll('1', '4').replaceAll('2', '5') : roleIds[request.role]);
+    }
+    if (request.role === 'implementer') return { ...report(id), checkpoint: { facts: ['Known fact'], rejected_hypotheses: ['Ruled out'], open_questions: ['Next question'], checks: ['focused: passed'], evidence_paths: ['saved.log'] } };
+    if (request.role === 'acceptance') {
+      assert.equal(request.sessionId, null);
+      assert.match(request.prompt, /FRESH ACCEPTANCE REVIEW/);
+      return decision('advance', id, task('8H', 'integration'));
+    }
+    if (id === '8G-1') return decision('correct', id, task('8G-1-C1', 'correction'));
+    if (id === '8G-1-C1') {
+      assert.match(request.prompt, /delta.diff/);
+      assert.ok(existsSync(join(request.runDir, 'delta.diff')));
+      return decision('advance', id, task('8G-2'));
+    }
+    if (id === '8G-2') return decision('advance', id, task('8H', 'integration'));
+    assert.match(request.prompt, /Concise recovery\/handoff checkpoint/);
+    return decision('human_review', id);
+  };
+  assert.equal(runLoop(repo, config({ maxIterations: 1 }), invoke), 4);
+  const saved = state(repo);
+  assert.deepEqual(saved.context.sessions, { implementer: roleIds.implementer, reviewer: roleIds.reviewer });
+  const cp = JSON.parse(readFileSync(join(repo, saved.context.checkpoint)));
+  assert.deepEqual(cp.knowledge.rejected_hypotheses, ['Ruled out']);
+  assert.match(cp.source_hash, /^[0-9a-f]{64}$/u);
+  assert.equal(runLoop(repo, config({ resume: true }), invoke), 2);
+  assert.equal(requests.filter(item => item.role === 'acceptance').length, 1);
+  assert.equal(state(repo).context.key, '8:8H');
+  assert.equal(state(repo).context.corrections, 0);
+});
+
+test('fresh acceptance may veto a transition and interrupted acceptance resumes without repeating prior roles', t => {
+  const repo = fixture(t), calls = [];
+  assert.throws(() => runLoop(repo, config({ autoAdvance: false }), sequence([
+    ['planner', decision('advance', 'PLANNING', task())],
+    ['implementer', report('8G-1')], ['reviewer', decision('accept', '8G-1')],
+    ['acceptance', () => { throw Error('Acceptance interrupted'); }],
+  ], calls)), /Acceptance interrupted/);
+  assert.equal(state(repo).phase, 'acceptance');
+  assert.equal(gitRun(repo, ['rev-list', '--count', 'HEAD']), '1');
+  assert.equal(runLoop(repo, config({ resume: true, autoAdvance: false, maxIterations: 1 }), sequence([
+    ['acceptance', decision('correct', '8G-1', task('8G-1-C1', 'correction'))],
+  ], calls)), 4);
+  assert.deepEqual(calls, ['planner', 'implementer', 'reviewer', 'acceptance', 'acceptance']);
+  assert.equal(gitRun(repo, ['rev-list', '--count', 'HEAD']), '1');
+});
+
+test('fresh acceptance rejects mutation and changed or stale transitions', t => {
+  for (const variant of ['mutation', 'transition', 'stale']) {
+    const repo = fixture(t);
+    assert.throws(() => runLoop(repo, config({ autoAdvance: false }), sequence([
+      ['planner', decision('advance', 'PLANNING', task())], ['implementer', report('8G-1')],
+      ['reviewer', decision('accept', '8G-1')],
+      ['acceptance', () => {
+        if (variant === 'mutation') writeFileSync(join(repo, 'file.txt'), 'illegal edit');
+        if (variant === 'transition') return decision('advance', '8G-1', task('8H'));
+        return decision('accept', variant === 'stale' ? 'old-task' : '8G-1');
+      }],
+    ], [])), /mutated|transition|Stale/);
+    assert.equal(gitRun(repo, ['rev-list', '--count', 'HEAD']), '1');
+  }
+});
+
+test('correction cap survives resume and stops with the proposed correction retained', t => {
+  const repo = fixture(t);
+  assert.equal(runLoop(repo, config({ maxIterations: 1, maxCorrections: 2 }), sequence([
+    ['planner', decision('advance', 'PLANNING', task())], ['implementer', report('8G-1')],
+    ['reviewer', decision('correct', '8G-1', task('8G-1-C1', 'correction'))],
+  ], [])), 4);
+  assert.equal(state(repo).context.corrections, 1);
+  assert.equal(runLoop(repo, config({ resume: true, maxCorrections: 2 }), sequence([
+    ['implementer', report('8G-1-C1')],
+    ['reviewer', request => {
+      assert.match(request.prompt, /Next correction task_id \(if needed\): 8G-1-C2/);
+      return decision('correct', '8G-1-C1', task('8G-1-C2', 'correction'));
+    }],
+  ], [])), 2);
+  assert.equal(state(repo).context.corrections, 2);
+  assert.match(readFileSync(join(repo, 'docs/agent-loop/HUMAN_REVIEW.md'), 'utf8'), /Correction limit/);
+  assert.match(readFileSync(join(repo, 'docs/agent-loop/LAST_REVIEW.json'), 'utf8'), /8G-1-C2/);
+  assert.throws(() => runLoop(repo, config({ resume: true }), () => assert.fail()), /Persisted stop/);
+});
+
+test('hard-interruption recovery reads the current role log without guessing historical sessions', t => {
+  for (const legacy of [false, true]) {
+    const repo = fixture(t);
+    assert.throws(() => runLoop(repo, config(), sequence([
+      ['planner', decision('advance', 'PLANNING', task())],
+      ['implementer', request => {
+        writeFileSync(join(request.runDir, 'implementer.log'), legacy ? `session id: ${roleIds.implementer}\n` : JSON.stringify({ type: 'thread.started', thread_id: roleIds.implementer }) + '\n');
+        throw Error('Hard interruption before recording session');
+      }],
+    ], [])), /Hard interruption/);
+    assert.equal(state(repo).context.sessions.implementer, undefined);
+    assert.equal(runLoop(repo, config({ resume: true }), sequence([
+      ['implementer', request => { assert.equal(request.sessionId, roleIds.implementer); return report('8G-1'); }],
+      ['reviewer', request => { assert.equal(request.sessionId, null); return decision('human_review', '8G-1'); }],
+    ], [])), 2);
+  }
+});
+
+test('role separation refuses shared implementer, reviewer and acceptance session ids', t => {
+  for (const role of ['reviewer', 'acceptance']) {
+    const repo = fixture(t);
+    const items = [
+      ['planner', decision('advance', 'PLANNING', task())],
+      ['implementer', request => { request.recordSession(roleIds.implementer); return report('8G-1'); }],
+    ];
+    if (role === 'acceptance') items.push(['reviewer', decision('accept', '8G-1')]);
+    items.push([role, request => { request.recordSession(roleIds.implementer); return decision('accept', '8G-1'); }]);
+    assert.throws(() => runLoop(repo, config({ autoAdvance: false }), sequence(items, [])), /share a session|cannot reuse/);
+    assert.equal(gitRun(repo, ['rev-list', '--count', 'HEAD']), '1');
+  }
+});
 
 test('CLI arguments and strict task/review validation', () => {
   assert.equal(parseArgs(['--reviewer-effort', 'xhigh', '--implementer-effort', 'low']).reviewerEffort, 'xhigh');
@@ -102,12 +315,13 @@ test('planning, cumulative corrections, advancement and final human stop', t => 
       assert.match(diff, /pre-existing user WIP/); assert.match(diff, /corrected change/);
       return decision('advance', '8G-1-C1', task('8H', 'integration'));
     }],
+    ['acceptance', decision('advance', '8G-1-C1', task('8H', 'integration'))],
     ['implementer', report('8H')],
     ['reviewer', decision('human_review', '8H')],
   ], calls);
   assert.equal(runLoop(repo, config(), invoke), 2);
   assert.equal(state(repo).status, 'human_review');
-  assert.equal(calls.length, 7);
+  assert.equal(calls.length, 8);
   assert.throws(() => runLoop(repo, config({ resume: true }), invoke), /Persisted stop/);
   assert.equal(state(repo).status, 'human_review');
   assert.ok(existsSync(join(repo, 'docs/agent-loop/HUMAN_REVIEW.md')));
@@ -145,6 +359,7 @@ test('iteration limit persists pending task and resume continues it', t => {
   assert.equal(state(repo).status, 'paused');
   assert.equal(runLoop(repo, config({ resume: true, autoAdvance: false }), sequence([
     ['implementer', report('8G-2')], ['reviewer', decision('accept', '8G-2')],
+    ['acceptance', decision('accept', '8G-2')],
   ], calls)), 0);
   assert.equal(state(repo).status, 'accepted');
 });
@@ -193,8 +408,9 @@ test('blocked checks receive correction, retain the baseline, then commit only a
       assert.match(readFileSync(join(request.runDir, 'slice.diff'), 'utf8'), /pre-existing user WIP/);
       return decision('accept', '8G-1-C1');
     }],
+    ['acceptance', decision('accept', '8G-1-C1')],
   ], calls)), 0);
-  assert.deepEqual(calls, ['planner', 'implementer', 'reviewer', 'implementer', 'reviewer']);
+  assert.deepEqual(calls, ['planner', 'implementer', 'reviewer', 'implementer', 'reviewer', 'acceptance']);
   assert.equal(gitRun(repo, ['rev-list', '--count', 'HEAD']), '2');
   assert.equal(gitRun(repo, ['log', '-1', '--format=%s']), 'Accept slice 8G-1-C1');
 });
@@ -238,7 +454,7 @@ test('real subprocess adapter uses output file and stops on malformed JSON or CL
     const repo = fixture(t), shim = join(repo, 'fake codex.ps1');
     const output = mode === 'malformed' ? '{invalid' : JSON.stringify(decision('blocked', 'PLANNING'));
     writeFileSync(shim, `
-if ($args -contains '--help') { Write-Output '--sandbox --output-schema --output-last-message'; exit 0 }
+if ($args -contains '--help') { Write-Output '--sandbox --output-schema --output-last-message --json resume SESSION_ID'; exit 0 }
 if ($args -notcontains 'exec') { Write-Output 'fake CLI preflight'; exit 0 }
 if ('${mode}' -eq 'failure') { exit 7 }
 if (($args -join ' ') -notmatch 'read-only') { exit 8 }
@@ -248,6 +464,7 @@ $prompt = [Console]::In.ReadToEnd()
 if (!$prompt.Contains('PLANNING')) { exit 10 }
 [IO.File]::WriteAllText($args[$outputIndex + 1], '${output}')
 Write-Output 'stdout chatter must not be parsed as final JSON'
+Write-Output '{"type":"thread.started","thread_id":"11111111-1111-1111-1111-111111111111"}'
 exit 0
 `);
     process.env.CODEX_BIN = shim;
@@ -255,6 +472,60 @@ exit 0
     else assert.throws(() => runLoop(repo, config()), mode === 'failure' ? /failed \(7\)/ : /JSON/);
     assert.equal(state(repo).status, mode === 'blocked' ? 'blocked' : 'failed');
   }
+});
+
+test('CLI subprocess resumes explicit role UUIDs after failure and corrections, preserving attempt evidence', { skip: process.platform !== 'win32' }, t => {
+  const repo = fixture(t), runtime = join(repo, '.agent-loop'), oldBin = process.env.CODEX_BIN;
+  mkdirSync(runtime);
+  const shim = join(runtime, 'fake context cli.ps1');
+  t.after(() => { if (oldBin === undefined) delete process.env.CODEX_BIN; else process.env.CODEX_BIN = oldBin; });
+  writeFileSync(shim, `
+if ($args -contains '--help') { Write-Output '--sandbox --output-schema --output-last-message --json resume SESSION_ID'; exit 0 }
+if ($args -notcontains 'exec') { Write-Output 'fake preflight'; exit 0 }
+$outputIndex = [Array]::IndexOf($args, '--output-last-message')
+$output = $args[$outputIndex + 1]
+$role = (Split-Path -Leaf $output) -replace '-output.json$', ''
+$ids = ConvertFrom-Json '${JSON.stringify({ ...roleIds, planner: '44444444-4444-4444-4444-444444444444' })}'
+$id = $ids.$role
+$resumeIndex = [Array]::IndexOf($args, 'resume')
+if ($resumeIndex -ge 0 -and $args[$resumeIndex + 1] -ne $id) { exit 11 }
+if ($role -eq 'acceptance' -and $resumeIndex -ge 0) { exit 12 }
+$sandboxIndex = [Array]::IndexOf($args, '--sandbox')
+$expectedSandbox = if ($role -eq 'implementer') { 'workspace-write' } else { 'read-only' }
+if ($args[$sandboxIndex + 1] -ne $expectedSandbox -or $args -contains '--last') { exit 13 }
+$prompt = [Console]::In.ReadToEnd()
+[IO.File]::AppendAllText((Join-Path (Get-Location) '.agent-loop/cli-calls.jsonl'), (ConvertTo-Json -InputObject @{role=$role; arguments=@($args); prompt=$prompt} -Compress) + [Environment]::NewLine)
+Write-Output (ConvertTo-Json -InputObject @{type='thread.started'; thread_id=$id} -Compress)
+if ($role -eq 'implementer' -and !(Test-Path '.agent-loop/failed-once')) {
+  [IO.File]::WriteAllText((Join-Path (Get-Location) '.agent-loop/failed-once'), 'yes')
+  exit 7
+}
+$task = if (Test-Path 'docs/agent-loop/CURRENT_TASK.md') { [IO.File]::ReadAllText((Join-Path (Get-Location) 'docs/agent-loop/CURRENT_TASK.md')) } else { '' }
+$taskId = if ($task -match 'task_id: ([^\\r\\n]+)') { $Matches[1] } else { '' }
+if ($role -eq 'planner') { $result = '${JSON.stringify(decision('advance', 'PLANNING', task()))}' }
+elseif ($role -eq 'implementer') { $result = ConvertTo-Json -InputObject @{task_id=$taskId; result='complete'; report='Focused checks passed.'; checkpoint=@{facts=@(); rejected_hypotheses=@(); open_questions=@(); checks=@('focused: passed'); evidence_paths=@()}} -Depth 4 -Compress }
+elseif ($role -eq 'reviewer' -and $taskId -eq '8G-1') { $result = '${JSON.stringify(decision('correct', '8G-1', task('8G-1-C1', 'correction')))}' }
+else { $result = '${JSON.stringify(decision('accept', '8G-1-C1'))}' }
+[IO.File]::WriteAllText($output, $result)
+exit 0
+`);
+  process.env.CODEX_BIN = shim;
+  const usage = () => ({ status: 'unavailable', reason: 'Test; no account query.' });
+  assert.throws(() => runLoop(repo, config({ autoAdvance: false }), undefined, usage), /implementer failed \(7\)/);
+  assert.equal(state(repo).context.sessions.implementer, roleIds.implementer);
+  assert.equal(runLoop(repo, config({ resume: true, autoAdvance: false }), undefined, usage), 0);
+  const calls = readFileSync(join(runtime, 'cli-calls.jsonl'), 'utf8').trim().split(/\r?\n/u).map(line => JSON.parse(line));
+  assert.deepEqual(calls.map(item => item.role), ['planner', 'implementer', 'implementer', 'reviewer', 'implementer', 'reviewer', 'acceptance']);
+  for (const index of [2, 4, 5]) {
+    const { role, arguments: args } = calls[index];
+    assert.equal(args[args.indexOf('resume') + 1], roleIds[role]);
+    assert.match(calls[index].prompt, /Continue your existing/);
+  }
+  assert.ok(!calls.at(-1).arguments.includes('resume'));
+  const run = join(runtime, 'runs', state(repo).session, '1');
+  assert.ok(existsSync(join(run, 'implementer.log')));
+  assert.ok(existsSync(join(run, 'implementer-attempt-2.log')));
+  assert.equal(JSON.parse(readFileSync(join(run, 'implementer-invocation.json'))).sessionId, roleIds.implementer);
 });
 
 function acceptedFixture(repo) {
@@ -344,6 +615,7 @@ test('completed slice review triggers one usage dump before stopping', t => {
   assert.equal(runLoop(repo, config({ autoAdvance: false }), sequence([
     ['planner', decision('advance', 'PLANNING', task())],
     ['implementer', report('8G-1')], ['reviewer', decision('accept', '8G-1')],
+    ['acceptance', decision('accept', '8G-1')],
   ], calls), () => { reads++; return summarizeUsage({ rateLimits: { limitId: 'codex', primary: { usedPercent: 11 } } }); }), 0);
   assert.equal(reads, 1);
   assert.equal(JSON.parse(readFileSync(join(repo, '.agent-loop/usage-latest.json'))).task_id, '8G-1');
@@ -392,6 +664,7 @@ test('commit hook failure stops advancement and resumes commit without rerunning
     ['planner', decision('advance', 'PLANNING', task())],
     ['implementer', () => { writeFileSync(join(repo, 'file.txt'), 'accepted change'); return report('8G-1'); }],
     ['reviewer', decision('accept', '8G-1')],
+    ['acceptance', decision('accept', '8G-1')],
   ], calls);
   assert.throws(() => runLoop(repo, config({ autoAdvance: false }), invoke), /Git failed/);
   assert.equal(state(repo).phase, 'committing');
@@ -399,7 +672,7 @@ test('commit hook failure stops advancement and resumes commit without rerunning
   writeFileSync(hook, '#!/bin/sh\nexit 0\n');
   assert.equal(runLoop(repo, config({ resume: true, autoAdvance: false }), () => assert.fail('Agent must not rerun')), 0);
   assert.equal(gitRun(repo, ['rev-list', '--count', 'HEAD']), '2');
-  assert.deepEqual(calls, ['planner', 'implementer', 'reviewer']);
+  assert.deepEqual(calls, ['planner', 'implementer', 'reviewer', 'acceptance']);
 });
 
 test('correction, blocked and human review decisions never commit', t => {

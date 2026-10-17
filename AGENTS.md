@@ -52,7 +52,9 @@ Accepted slices:
 8A through 8F
 ```
 
-Milestone 8G is partially implemented and has been re-sliced. Follow:
+Milestone 8G-1, 8G-2 and 8G-3 are locally complete. Milestone 8H is in progress
+and remains red. Follow the current task and active plan for the next bounded
+correction:
 
 ```txt
 docs/plans/milestone-8-personal-space-collision-and-crowd-flow.md
@@ -61,15 +63,15 @@ docs/plans/milestone-8-personal-space-collision-and-crowd-flow.md
 The remaining cadence is:
 
 ```txt
-8G-1  simulation contract stabilization
-8G-2  initial placement legality
-8G-3  debug evidence / retained route
-8H    system integration gate
+8H    bounded corrections, then repeat the system integration gate
 8I    performance + deterministic soak gate
 8J    human visual acceptance
 ```
 
 Do not implement later slices early.
+
+For agent-loop startup, read `docs/agent-loop/RESTART_BRIEF.md` and the current
+task before consulting historical evidence. Do not preload retired diagnostics.
 
 ## Required Reading and Context Budget
 

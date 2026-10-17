@@ -374,24 +374,22 @@ Do not run full headless or full performance suite.
 
 ## 8H — System integration gate
 
-Status: in progress. 8H-3 is accepted. The missing 8H-4 report was replaced by a fresh diagnosis, 8H-4-R1, independently reviewed on 2026-10-13. Only that diagnosis is accepted; 8H remains incomplete. See the exact section “8H-4 reconstructed casualty/contact causality audit — 2026-10-13” in `docs/progress/milestone-8-implementation-history.md`; local traces, harness and review are retained in `.agent-loop/manual-8H-4/`.
+Status: in progress. 8H-3, the reconstructed 8H-4-R1 audit and 8H-5 fixture
+correction are accepted. Do not reopen the superseded missing-audit question.
+8H is not accepted; 8I and 8J remain pending.
 
-8H-5 accepted by independent review on 2026-10-13: only units 701/703 headings changed in the retained casualty fixture. Permanent deterministic regressions cover legal contact, facing, query membership, eligibility, mutual tick-1 selection, an away-facing control and a natural attack/defence from this pair. Bounded extraction coverage distinguishes snapshot 7 gathering, snapshot 8 stationary phase entry and snapshot 9 common resolved movement, with helper clearance and preserved offsets. Only the stale phase-start expectation changed; duration, safety, treatment, hand-commitment and 7E energy assertions remain intact. No runtime changes, collision relaxation or timeout increases.
+The 2026-10-17 reconciliation is an unaccepted WIP checkpoint. Its gathering
+candidate passes 99/99 local tests, but the six-file correction check has
+101 passed / 3 failed: two pre-existing pursuit routing assertions plus a combined
+recruit-routing regression introduced by the candidate. A paired source run
+confirms the original recruit routes at tick 411 and the candidate does not.
+Next bounded task: **8H-7**, reconcile that regression before pursuit tuning.
 
-8H-5 evidence: focused tests 26/27 passed, including all corrected semantics and three new regressions; typecheck and diff-check passed. The existing barbarian clock/egress timing case remains red (13.25s against 10s); full retained replay passed narrowly (178.33s against 180s). Logs/results are retained in `.agent-loop/manual-8H-5/`. 8H remains incomplete.
-
-8H-5 checks: the affected casualty lifecycle production integration, casualty lifecycle visual scenario and Milestone 7E energy integration tests, plus new focused regressions; `npm run typecheck`; `git diff --check`. Corrected semantic assertions must pass; report existing timing failures separately with unchanged budgets. After review, return to the full 8H gate below, including resolution of remaining timing failures. Do not advance to 8I until 8H passes.
-
-8H-6 gate remains incomplete: typecheck, build and diff-check passed; full headless suite reported 1,234 passed and 18 failed (15 timeouts and three routing assertions in pursuit/main battle). Contact/extraction regressions and unchanged 7E assertions passed. Unchanged-budget isolation, CPU profiling, contract coverage and exact failures are retained in `.agent-loop/manual-8H-6/`; no runtime changes or rebaselines. Inspection projection and GC dominate the measured clock/egress cost. Do not advance to 8I while required checks remain red.
-
-Current handoff evidence retained from the review conversation:
-
-- 8H-2 found casualty drag beginning on tick 8 rather than the stale expected tick 9;
-- entity 14 had no selected target at tick 1 in the affected contact fixture;
-- the retained 7E energy integration fixture produced zero attacks;
-- disabling legal initial placement did not restore those outcomes, so legal placement alone was not a sufficient explanation;
-- 8H-3 then made fixture/test-only corrections, with no production runtime change, and its focused checks/typecheck/diff-check passed;
-- 8H-4 was explicitly limited to causality diagnosis: tick-zero separation, reach/query radii, eligibility, requested versus collision-resolved movement, first contact/attack timing, and whether the remaining failures are stale/interpenetration-dependent fixtures or a production contact/query defect.
+Read docs/agent-loop/RESTART_BRIEF.md and CURRENT_TASK for the exact handoff,
+source hashes and focused evidence. Historical probes are archived and are not
+startup reading. No fixture, expectation, timeout or gate was rebaselined.
+The last full gate (8H-6) was 1,234 passed / 18 failed; it must be repeated after
+corrections. This historical count is not fresh integration evidence.
 
 **No new features.**
 

@@ -153,7 +153,7 @@ Milestone 7 is closed.
 
 ## Milestone 8 — Personal Space, Collision, and Crowd Flow
 
-Status: in progress. 8A–8F accepted; 8G partially implemented and re-sliced. 8H is the explicit system-integration gate, 8I the performance/soak gate, and 8J human acceptance.
+Status: in progress. 8A–8F accepted; 8G-1/2/3 locally complete. 8H remains red with bounded corrections pending. 8I performance/soak and 8J human acceptance remain pending. See the active plan and `docs/agent-loop/RESTART_BRIEF.md` for the reconciled handoff.
 
 Detailed plan:
 

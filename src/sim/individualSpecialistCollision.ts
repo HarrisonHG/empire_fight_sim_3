@@ -250,6 +250,19 @@ function resolveSpecialistStep(
         deltaY = forwardY;
         break;
     }
+    // Gathering soft avoidance must approach the actual patient, not merely
+    // project positively onto a coordinate-clipped request. Equal-distance
+    // lateral steps can alternate forever and suppress legal careful crossing.
+    // Hard-body detours keep their existing authority to backtrack locally.
+    if (blockerIsSoft && softContactEntityId >= 0 &&
+        occupancy.occupancyClassCodes[softContactEntityId] ===
+          INDIVIDUAL_PHYSICAL_OCCUPANCY_CLASS.downedSoft) {
+      const contactX = world.positionsX[softContactEntityId]! - startX;
+      const contactY = world.positionsY[softContactEntityId]! - startY;
+      if ((contactX - deltaX) * (contactX - deltaX) +
+          (contactY - deltaY) * (contactY - deltaY) >=
+          contactX * contactX + contactY * contactY) continue;
+    }
     if (!candidateLegal(resolver, world, identity, occupancy, entityId,
       deltaX, deltaY, budgetSquared, nearby, false, softContactEntityId,
       startX, startY)) continue;

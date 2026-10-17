@@ -570,6 +570,67 @@ describe("individual casualty assistance and sparse drag groups", () => {
     const claims = createIndividualMedicalClaimStore(simulation.world.entityCount);
     expect(decideClaims(simulation, claims, 2).claimRecords).toHaveLength(0);
   });
+  it("picks up through a soft obstruction with final gathering evidence and normal phase ordering", () => {
+    const replay = () => {
+      const input = scenario([
+        unit(1, 1, 100),
+        { ...unit(2, 1, 120), memberMaxStep: 4, medicalProfile: physick(0) },
+        unit(3, 2, 230),
+      ], [0, 1, 2]);
+      const simulation = createSimulation({ ...input, bounds: { width: 800, height: 800 } });
+      const combat = requireCombat(simulation);
+      simulation.world.positionsX.set([560, 547, 556]);
+      simulation.world.positionsY.set([348, 347, 348]);
+      down(simulation, 0, 0);
+      down(simulation, 2, 0);
+      expect(decide(simulation, 0).groupStartedRecords[0]).toMatchObject({
+        patientEntityId: 0, helperEntityIds: [1],
+      });
+      const trace: unknown[] = [];
+      let pickedUp = false, crossed = false;
+      for (let tick = 0; tick < 24; tick += 1) {
+        const beforeX = simulation.world.positionsX[1]!;
+        const beforeY = simulation.world.positionsY[1]!;
+        const beforePhase = getActiveCasualtyDragGroups(combat.casualtyDragGroupStore)[0]?.phase;
+        advanceSimulationOneTick(simulation);
+        const group = getActiveCasualtyDragGroups(combat.casualtyDragGroupStore)[0];
+        const collision = getIndividualCollisionResolutionInspection(combat.individualCollisionResolutionStore, 1);
+        if (beforePhase === "gathering" && tick > 0) {
+          expect(collision.resolvedDeltaX).toBe(simulation.world.positionsX[1]! - beforeX);
+          expect(collision.resolvedDeltaY).toBe(simulation.world.positionsY[1]! - beforeY);
+          expect(collision.resolvedDeltaX ** 2 + collision.resolvedDeltaY ** 2)
+            .toBeLessThanOrEqual(collision.permittedDeltaX ** 2 + collision.permittedDeltaY ** 2);
+          expect(combat.individualSpecialistCollisionResolver.result.localQueryCount).toBeLessThanOrEqual(1);
+          expect(combat.individualSpecialistCollisionResolver.result.localCandidateCount).toBeLessThanOrEqual(14);
+          crossed ||= combat.individualSpecialistCollisionResolver.result.downedSoftCrossingCount > 0;
+        }
+        expect([simulation.world.positionsX[2], simulation.world.positionsY[2]]).toEqual([556, 348]);
+        expect(getIndividualCharacterLifecycleState(combat.individualCasualtyLifecycleStore, 2)).toBe("dying");
+        expect(getIndividualCharacterLifecycleState(combat.individualCasualtyLifecycleStore, 0)).toBe("dying");
+        if (!pickedUp) {
+          expect([simulation.world.positionsX[0], simulation.world.positionsY[0]]).toEqual([560, 348]);
+          if (group?.phase === "dragging") {
+            pickedUp = true;
+            expect((simulation.world.positionsX[1]! - 560) ** 2 +
+              (simulation.world.positionsY[1]! - 348) ** 2).toBeLessThanOrEqual(64);
+            expect(combat.individualDragHandCommitmentStore.getFreeHands(1)).toBe(0);
+          } else {
+            expect(group?.phase).toBe("gathering");
+          }
+        }
+        trace.push({ tick, phase: group?.phase, x: simulation.world.positionsX[1], y: simulation.world.positionsY[1], collision });
+        if (pickedUp && beforePhase === "dragging" && group === undefined) {
+          expect(getIndividualCasualtyAssistanceInspection(combat.individualCasualtyAssistanceStore, 1).state).toBe("none");
+          expect(combat.individualDragHandCommitmentStore.getFreeHands(1)).toBeUndefined();
+          expect(crossed).toBe(true);
+          return trace;
+        }
+      }
+      throw new Error("Expected bounded pickup followed by normal safe release.");
+    };
+    expect(replay()).toEqual(replay());
+  });
+
   it("gathers before pickup and gives neither creation nor phase-transition ticks free drag movement", () => {
     const simulation = createSimulation(scenario([
       unit(1, 1, 100), { ...unit(2, 1, 120), medicalProfile: physick() }, unit(3, 2, 230),

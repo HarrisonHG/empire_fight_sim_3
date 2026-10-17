@@ -16,13 +16,13 @@ function atomic(path, content) {
 const json = (path, value) => atomic(path, JSON.stringify(value, null, 2));
 
 export function parseArgs(args) {
-  const config = { maxIterations: 12, reviewerEffort: 'high', implementerEffort: 'medium', autoAdvance: true };
+  const config = { maxIterations: 12, maxCorrections: 6, reviewerEffort: 'high', implementerEffort: 'medium', autoAdvance: true };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (arg === '--max-iterations') {
+    if (arg === '--max-iterations' || arg === '--max-corrections') {
       const value = Number(args[++i]);
       assert(Number.isInteger(value) && value >= 1 && value <= 50, 'Iterations must be 1–50.');
-      config.maxIterations = value;
+      config[arg === '--max-iterations' ? 'maxIterations' : 'maxCorrections'] = value;
     } else if (arg === '--reviewer-effort' || arg === '--implementer-effort') {
       const value = args[++i];
       assert(['low', 'medium', 'high', 'xhigh'].includes(value), 'Unsupported reasoning effort.');
@@ -54,6 +54,12 @@ export function parseTask(markdown, scope) {
   return fields;
 }
 
+export function nextCorrectionId(taskId) {
+  const suffix = taskId.match(/(?:-C[1-9]\d*)+$/u)?.[0] ?? '';
+  const number = [...suffix.matchAll(/-C(\d+)/gu)].reduce((sum, match) => sum + BigInt(match[1]), 0n);
+  return `${suffix ? taskId.slice(0, -suffix.length) : taskId}-C${number + 1n}`;
+}
+
 export function validateReview(review, scope, current, planning = false, autoAdvance = true, implementationResult = null) {
   assert(review && ['accept', 'correct', 'advance', 'human_review', 'blocked'].includes(review.decision), 'Invalid review decision.');
   assert(typeof review.summary === 'string' && review.summary.trim() && Array.isArray(review.findings) && review.findings.every(item => typeof item === 'string'), 'Invalid review summary/findings.');
@@ -66,7 +72,7 @@ export function validateReview(review, scope, current, planning = false, autoAdv
   if (next) {
     const task = parseTask(review.next_task, scope);
     if (!planning) {
-      if (review.decision === 'correct') assert(task.kind === 'correction' && task.slice === current.slice && task.task_id.startsWith(`${current.task_id}-C`), 'Correction must retain slice and task lineage.');
+      if (review.decision === 'correct') assert(task.kind === 'correction' && task.slice === current.slice && task.task_id === nextCorrectionId(current.task_id), 'Correction must retain slice and use the next numbered correction id.');
       else assert(autoAdvance && task.task_id !== current.task_id, 'Advancement disabled or repeated task id.');
       if (current.human_review_required === 'true') assert(task.human_review_required === 'true', 'Correction cannot clear human review flag.');
     }
@@ -86,9 +92,49 @@ export const reviewSchema = {
   },
 };
 const reportSchema = {
-  type: 'object', additionalProperties: false, required: ['task_id', 'result', 'report'],
-  properties: { task_id: { type: 'string' }, result: { type: 'string', enum: ['complete', 'blocked'] }, report: { type: 'string' } },
+  type: 'object', additionalProperties: false, required: ['task_id', 'result', 'report', 'checkpoint'],
+  properties: { task_id: { type: 'string' }, result: { type: 'string', enum: ['complete', 'blocked'] }, report: { type: 'string' },
+    checkpoint: { type: 'object', additionalProperties: false,
+      required: ['facts', 'rejected_hypotheses', 'open_questions', 'checks', 'evidence_paths'],
+      properties: Object.fromEntries(['facts', 'rejected_hypotheses', 'open_questions', 'checks', 'evidence_paths']
+        .map(key => [key, { type: 'array', maxItems: 6, items: { type: 'string', maxLength: 300 } }])),
+    },
+  },
 };
+
+export function contextKey(task) {
+  return `${task.milestone}:${task.slice.match(/^(\d+[A-Za-z]+)(?=$|[-\s])/u)?.[1] ?? task.slice}`;
+}
+
+const sessionPattern = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu;
+export function sessionFromLog(log) {
+  let session = null;
+  for (const line of log.split(/\r?\n/u)) {
+    let id;
+    try { const event = JSON.parse(line); if (event.type === 'thread.started') id = event.thread_id; } catch { /* CLI diagnostics are not JSON. */ }
+    // Upgrade recovery for an interrupted run made by the previous runner.
+    id ??= line.match(/^session id: ([0-9a-f-]+)$/iu)?.[1];
+    if (id) {
+      assert(sessionPattern.test(id), 'Invalid CLI session id.');
+      assert(!session || session === id, 'Conflicting CLI session ids.');
+      session = id;
+    }
+  }
+  return session;
+}
+
+export function codexArgs(role, effort, schemaPath, output, sessionId = null) {
+  assert(!sessionId || sessionPattern.test(sessionId), 'Invalid saved CLI session id.');
+  return ['-a', 'never', 'exec', '--sandbox', role === 'implementer' ? 'workspace-write' : 'read-only',
+    '-c', `model_reasoning_effort="${effort}"`, '--color', 'never',
+    '--output-schema', schemaPath, '--output-last-message', output, '--json',
+    ...(sessionId ? ['resume', sessionId] : []), '-'];
+}
+
+export function needsAcceptance(review, task, scope) {
+  return review.decision === 'accept' ||
+    (review.decision === 'advance' && contextKey(parseTask(review.next_task, scope)) !== contextKey(task));
+}
 
 function git(repo, args, options = {}) {
   const result = spawnSync('git', args, { cwd: repo, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, ...options,
@@ -172,11 +218,11 @@ export function commitAccepted(repo, runDir, task) {
   console.log(`Reviewer accepted ${task.task_id}; committed ${commit.slice(0, 12)}.`);
   return commit;
 }
-function evidence(repo, runDir, before) {
+function evidence(repo, runDir, before, label = 'slice') {
   const after = snapshot(repo), files = changedFiles(before, after);
   let diff = '';
   for (let i = 0; i < files.length; i++) {
-    const file = files[i], left = join(runDir, 'diff-files', `${i}.before`), right = join(runDir, 'diff-files', `${i}.after`);
+    const file = files[i], left = join(runDir, `${label}-diff-files`, `${i}.before`), right = join(runDir, `${label}-diff-files`, `${i}.after`);
     mkdirSync(dirname(left), { recursive: true });
     writeFileSync(left, Buffer.from(before[file] ?? '', 'base64'));
     writeFileSync(right, Buffer.from(after[file] ?? '', 'base64'));
@@ -184,8 +230,8 @@ function evidence(repo, runDir, before) {
     assert(!result.error && [0, 1].includes(result.status), 'Could not generate slice diff.');
     diff += `\nFILE: ${file} (${file in before ? file in after ? 'modified' : 'deleted' : 'added'})\n${result.stdout}`;
   }
-  atomic(join(runDir, 'slice.diff'), diff || 'No file changes.');
-  json(join(runDir, 'changed-files.json'), files);
+  atomic(join(runDir, `${label}.diff`), diff || 'No file changes.');
+  json(join(runDir, label === 'slice' ? 'changed-files.json' : `${label}-changed-files.json`), files);
 }
 
 export function cliCommand() {
@@ -253,7 +299,9 @@ export function runLoop(repo, config, invokeOverride, usageOverride = invokeOver
   }
   if (!invokeOverride) {
     const help = launch(command, ['exec', '--help'], { cwd: repo, encoding: 'utf8' });
-    assert(!help.error && help.status === 0 && ['--sandbox', '--output-schema', '--output-last-message'].every(flag => help.stdout.includes(flag)), 'Installed Codex lacks required exec flags. Update CLI before running.');
+    assert(!help.error && help.status === 0 && ['--sandbox', '--output-schema', '--output-last-message', '--json', 'resume'].every(flag => help.stdout.includes(flag)), 'Installed Codex lacks required exec/resume flags. Update CLI before running.');
+    const resumeHelp = launch(command, ['exec', 'resume', '--help'], { cwd: repo, encoding: 'utf8' });
+    assert(!resumeHelp.error && resumeHelp.status === 0 && resumeHelp.stdout.includes('SESSION_ID'), 'Installed Codex lacks session resume. Update CLI before running.');
   }
   if (config.check) { console.log(`Preflight passed. Milestone ${scope.milestone}: ${scope.plan}`); return 0; }
   mkdirSync(runtime, { recursive: true });
@@ -267,6 +315,7 @@ export function runLoop(repo, config, invokeOverride, usageOverride = invokeOver
   const save = () => json(statePath, state);
   try {
     state = existsSync(statePath) ? JSON.parse(read(statePath)) : null;
+    const handoffCheckpoint = state?.context?.checkpoint ?? state?.handoffCheckpoint ?? null;
     if (config.restart) state = null;
     if (state) {
       assert(state.plan === scope.plan && state.milestone === scope.milestone, 'Configuration changed; run npm run agent-loop:restart after human assessment.');
@@ -274,23 +323,69 @@ export function runLoop(repo, config, invokeOverride, usageOverride = invokeOver
       assert(config.resume, 'Run exists. Use npm run agent-loop:resume for interrupted/budget-limited work.');
     } else {
       assert(!config.resume, 'No saved run to resume.');
-      state = { ...scope, status: 'running', phase: 'planning', cycle: 0, session: `${Date.now()}-${process.pid}` };
+      state = { ...scope, status: 'running', phase: 'planning', cycle: 0, session: `${Date.now()}-${process.pid}`, handoffCheckpoint };
     }
-    state.status = 'running'; started = true; save();
+    state.status = 'running'; delete state.error; started = true; save();
+    const checkpoint = (runDir, task, report, review) => {
+      const path = join(runDir, 'checkpoint.json');
+      const previous = existsSync(path) ? JSON.parse(read(path)) : {};
+      const current = snapshot(repo);
+      json(path, { ...previous, context: state.context.key, task_id: task.task_id,
+        head: git(repo, ['rev-parse', 'HEAD']).trim(),
+        source_hash: hash(JSON.stringify(Object.entries(current).filter(([file]) => !handoffFiles.has(file)).sort(([a], [b]) => a.localeCompare(b)))),
+        ...(report ? { result: report.result, report: report.report.slice(0, 1800), knowledge: report.checkpoint ?? null } : {}),
+        ...(review ? { decision: review.decision, summary: review.summary, findings: review.findings.slice(0, 6).map(item => item.slice(0, 300)) } : {}),
+        evidence: relative(repo, runDir).replaceAll('\\', '/'),
+        caution: 'Check results apply to the recorded source hash, not subsequent edits. Task/plan remain authoritative.',
+      });
+      state.context.checkpoint = relative(repo, path).replaceAll('\\', '/'); save();
+    };
     const invoke = (role, prompt, runDir, schema) => {
       mkdirSync(runDir, { recursive: true });
+      const metadataPath = join(runDir, `${role}-invocation.json`);
+      const prior = existsSync(metadataPath) ? JSON.parse(read(metadataPath)) : null;
+      // Recover even after a hard interruption, before overwriting any evidence.
+      const priorLog = prior ? join(runDir, prior.log) : join(runDir, `${role}.log`);
+      const recovered = existsSync(priorLog) ? sessionFromLog(read(priorLog)) : null;
+      let sessionId = (role === 'acceptance' ? null : state.context?.sessions[role]) ?? prior?.sessionId ?? recovered;
+      const recordSession = id => {
+        assert(sessionPattern.test(id) && (!sessionId || sessionId === id), 'CLI resumed a different session.');
+        sessionId = id;
+        if (role === 'acceptance') assert(!Object.values(state.context.sessions).includes(id), 'Fresh acceptance cannot reuse an ongoing role session.');
+        if (state.context && ['implementer', 'reviewer'].includes(role)) {
+          const other = role === 'implementer' ? 'reviewer' : 'implementer';
+          assert(state.context.sessions[other] !== id, 'Implementer and reviewer cannot share a session.');
+          state.context.sessions[role] = id; save();
+        }
+      };
+      if (sessionId) recordSession(sessionId);
+      if (recovered) recordSession(recovered);
+      if (sessionId) prompt = `Continue your existing ${role} role for the current letter.\nRead CURRENT_TASK.md and the new evidence below. Prior findings are context, not authority.\nReuse established context; reread doctrine/code only where changed or needed to verify this task.\nDo not repeat completed diagnosis without a concrete reason. Recheck results invalidated by edits.\n` + prompt;
+      const checkpointPath = state.context?.checkpoint ?? state.handoffCheckpoint;
+      if (!sessionId && existsSync(join(dir, 'RESTART_BRIEF.md'))) prompt =
+        'Read docs/agent-loop/RESTART_BRIEF.md for the reconciled starting evidence and bounded next task.\n' +
+        'Use the current task/plan and newer checkpoints if they supersede that brief. Do not crawl historical evidence.\n' + prompt;
+      if (checkpointPath) prompt += `\nConcise recovery/handoff checkpoint: ${checkpointPath}.\n`;
       atomic(join(runDir, `${role}-prompt.txt`), prompt); json(join(runDir, `${role}-schema.json`), schema);
-      if (invokeOverride) return invokeOverride({ role, prompt, runDir, schema });
+      if (invokeOverride) return invokeOverride({ role, prompt, runDir, schema, sessionId, recordSession });
       const output = join(runDir, `${role}-output.json`); rmSync(output, { force: true });
-      const log = openSync(join(runDir, `${role}.log`), 'w');
+      let logName = `${role}.log`, attempt = 1;
+      while (existsSync(join(runDir, logName))) logName = `${role}-attempt-${++attempt}.log`;
+      json(metadataPath, { sessionId: sessionId ?? null, log: logName });
+      const log = openSync(join(runDir, logName), 'wx');
       let result;
       try {
-        result = launch(command, ['-a', 'never', 'exec', '--sandbox', role === 'implementer' ? 'workspace-write' : 'read-only',
-          '-c', `model_reasoning_effort="${role === 'implementer' ? config.implementerEffort : config.reviewerEffort}"`,
-          '--color', 'never', '--output-schema', join(runDir, `${role}-schema.json`), '--output-last-message', output, '-'],
+        result = launch(command, codexArgs(role, role === 'implementer' ? config.implementerEffort : config.reviewerEffort,
+          join(runDir, `${role}-schema.json`), output, sessionId),
         { cwd: repo, input: prompt, encoding: 'utf8', stdio: ['pipe', log, log] });
-      } finally { closeSync(log); }
+      } finally {
+        closeSync(log);
+        const id = sessionFromLog(read(join(runDir, logName)));
+        if (id) recordSession(id);
+        json(metadataPath, { sessionId: sessionId ?? null, log: logName });
+      }
       assert(!result.error && result.status === 0, `Codex ${role} failed (${result.status ?? result.error?.message}). See ${runDir}.`);
+      assert(sessionId, 'CLI returned no session id; cannot safely retain context.');
       assert(existsSync(output), `Missing ${role} output.`);
       return JSON.parse(read(output));
     };
@@ -307,13 +402,16 @@ export function runLoop(repo, config, invokeOverride, usageOverride = invokeOver
       const taskText = planning ? null : read(join(dir, 'CURRENT_TASK.md'));
       const task = planning ? null : parseTask(taskText, scope);
       if (task) assert(hash(taskText) === state.taskHash, 'CURRENT_TASK changed since handoff; run npm run agent-loop:restart to replan.');
+      if (task && state.context?.key !== contextKey(task)) {
+        state.context = { key: contextKey(task), sessions: {}, corrections: 0, checkpoint: state.context?.checkpoint ?? state.handoffCheckpoint ?? null }; save();
+      }
       const runDir = join(runtime, 'runs', state.session, String(state.cycle)); mkdirSync(runDir, { recursive: true });
       if (!planning && state.phase === 'implementing') {
         if (task.kind === 'human') return stop('human_review', taskText);
         const baselinePath = join(runDir, 'baseline.json');
         if (!existsSync(baselinePath)) json(baselinePath, snapshot(repo));
         if (!existsSync(join(runDir, 'base-head.txt'))) atomic(join(runDir, 'base-head.txt'), git(repo, ['rev-parse', 'HEAD']));
-        const controls = ['scripts/agent-loop.mjs', 'scripts/agent-loop-usage.mjs', ...['CONFIG.json', 'CURRENT_TASK.md', 'WORKFLOW.md', 'planner-prompt.md', 'implementer-prompt.md', 'reviewer-prompt.md'].map(name => `docs/agent-loop/${name}`)];
+        const controls = ['scripts/agent-loop.mjs', 'scripts/agent-loop-usage.mjs', ...['CONFIG.json', 'CURRENT_TASK.md', 'RESTART_BRIEF.md', 'WORKFLOW.md', 'planner-prompt.md', 'implementer-prompt.md', 'reviewer-prompt.md'].map(name => `docs/agent-loop/${name}`)];
         const controlHashes = controls.map(file => existsSync(join(repo, file)) ? hash(readFileSync(join(repo, file))) : null);
         console.log(`Implementing ${task.task_id}. Logs: ${runDir}`);
         const report = invoke('implementer', read(join(dir, 'implementer-prompt.md')), runDir, reportSchema);
@@ -322,6 +420,7 @@ export function runLoop(repo, config, invokeOverride, usageOverride = invokeOver
         assert(controls.every((file, index) => (existsSync(join(repo, file)) ? hash(readFileSync(join(repo, file))) : null) === controlHashes[index]), 'Implementer modified loop controls.');
         json(join(runDir, 'report.json'), report);
         atomic(join(dir, 'LAST_REPORT.md'), `Task: ${report.task_id}\nResult: ${report.result}\n\n${report.report}`);
+        checkpoint(runDir, task, report);
         state.phase = 'reviewing'; save();
       }
       let review;
@@ -329,17 +428,45 @@ export function runLoop(repo, config, invokeOverride, usageOverride = invokeOver
         review = JSON.parse(read(join(runDir, 'review.json')));
         validateReview(review, scope, task, false, config.autoAdvance, JSON.parse(read(join(runDir, 'report.json'))).result);
       } else {
-        if (!planning) evidence(repo, runDir, JSON.parse(read(join(runDir, 'baseline.json'))));
+        if (!planning && state.phase !== 'acceptance') {
+          evidence(repo, runDir, JSON.parse(read(join(runDir, 'baseline.json'))));
+          if (state.context.lastReviewed) evidence(repo, runDir, JSON.parse(read(join(repo, state.context.lastReviewed))), 'delta');
+        }
         console.log(planning ? 'Planning first authorised slice...' : `Reviewing ${task.task_id}...`);
         const prompt = read(join(dir, planning ? 'planner-prompt.md' : 'reviewer-prompt.md')) +
           `\n\nORCHESTRATOR CONTRACT:\nAuthorised scope: ${JSON.stringify(scope)}\nAutomatic advancement: ${config.autoAdvance}.\n` +
-          (planning ? 'Return task_id PLANNING. Ignore old CURRENT_TASK/report/review; select from current plan evidence.\n' :
-            `Review cumulative slice evidence in ${relative(repo, runDir).replaceAll('\\', '/')}/slice.diff and changed-files.json. Baseline includes pre-existing WIP; inspect surrounding code on demand.\n`);
+          (planning ? 'Return task_id PLANNING. Ignore superseded reports/reviews; select from the current plan and reconciled brief. Validate CURRENT_TASK as a proposed handoff, not proof of acceptance.\n' :
+            `Next correction task_id (if needed): ${nextCorrectionId(task.task_id)}.\nEvidence directory: ${relative(repo, runDir).replaceAll('\\', '/')}/.\nReview slice.diff and changed-files.json against the slice baseline, which includes pre-existing WIP.\n${state.context.lastReviewed ? 'Start with delta.diff and delta-changed-files.json since your previous review; use the cumulative diff to verify the complete slice.\n' : ''}`);
         const beforeReview = snapshot(repo);
-        review = invoke(planning ? 'planner' : 'reviewer', prompt, runDir, reviewSchema);
+        if (state.phase !== 'acceptance') {
+          review = invoke(planning ? 'planner' : 'reviewer', prompt, runDir, reviewSchema);
+          assert(changedFiles(beforeReview, snapshot(repo)).length === 0, 'Read-only agent mutated repository.');
+          validateReview(review, scope, task, planning, config.autoAdvance, planning ? null : JSON.parse(read(join(runDir, 'report.json'))).result);
+          if (!planning && needsAcceptance(review, task, scope)) {
+            json(join(runDir, 'candidate-review.json'), review);
+            json(join(runDir, 'candidate-snapshot.json'), beforeReview);
+            state.phase = 'acceptance'; save();
+          }
+        }
+        if (state.phase === 'acceptance') {
+          const candidate = JSON.parse(read(join(runDir, 'candidate-review.json')));
+          assert(sourceChanges(JSON.parse(read(join(runDir, 'candidate-snapshot.json'))), beforeReview).length === 0, 'Repository changed before fresh acceptance review; restart/replan.');
+          review = invoke('acceptance', prompt +
+            '\nFRESH ACCEPTANCE REVIEW: independently verify the current letter/task and required gate evidence.\n' +
+            'Do not trust previous conclusions as proof. Do not reread raw history unless needed.\n' +
+            'Confirm the exact candidate decision and next_task, or return correct/blocked/human_review.\n' +
+            `Candidate transition: ${JSON.stringify(candidate)}\n`, runDir, reviewSchema);
+          if (['accept', 'advance'].includes(review.decision)) assert(review.decision === candidate.decision && review.next_task === candidate.next_task, 'Fresh acceptance changed the proposed transition.');
+          json(join(runDir, 'acceptance-review.json'), review);
+        }
         assert(changedFiles(beforeReview, snapshot(repo)).length === 0, 'Read-only agent mutated repository.');
         validateReview(review, scope, task, planning, config.autoAdvance, planning ? null : JSON.parse(read(join(runDir, 'report.json'))).result);
         json(join(runDir, 'review.json'), review); json(join(dir, 'LAST_REVIEW.json'), review);
+        if (!planning) {
+          json(join(runDir, 'last-reviewed.json'), beforeReview);
+          state.context.lastReviewed = relative(repo, join(runDir, 'last-reviewed.json')).replaceAll('\\', '/');
+          checkpoint(runDir, task, null, review);
+        }
         if (!planning && ['accept', 'advance'].includes(review.decision)) {
           json(join(runDir, 'reviewed.json'), beforeReview);
           state.phase = 'committing'; save();
@@ -351,6 +478,13 @@ export function runLoop(repo, config, invokeOverride, usageOverride = invokeOver
       if (review.decision === 'accept') {
         if (config.autoAdvance) return stop('human_review', `Human milestone assessment required.\n\n${review.summary}\n\nReview ${scope.plan}, integration/performance evidence and named visual routes before accepting the milestone.`);
         return stop('accepted', review.summary);
+      }
+      if (!planning && review.decision === 'correct') {
+        state.context.corrections++;
+        if (state.context.corrections >= config.maxCorrections) return stop('human_review',
+          `Correction limit (${config.maxCorrections}) reached for ${state.context.key}.\n` +
+          'No acceptance or advancement. Review the checkpoint and candidate correction before explicitly restarting/replanning.\n' +
+          `Checkpoint: ${state.context.checkpoint}\nProposed correction: ${relative(repo, runDir).replaceAll('\\', '/')}/review.json\n`);
       }
       atomic(join(dir, 'CURRENT_TASK.md'), review.next_task);
       // Corrections retain the original baseline for cumulative review.
@@ -369,7 +503,7 @@ export function runLoop(repo, config, invokeOverride, usageOverride = invokeOver
 if (resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {
   try {
     const config = parseArgs(process.argv.slice(2));
-    if (config.help) console.log('Usage: node scripts/agent-loop.mjs [--check | --resume | --restart] [--max-iterations 1..50] [--no-auto-advance] [--reviewer-effort high] [--implementer-effort medium]\nShortcuts: npm run agent-loop, npm run agent-loop:restart, npm run agent-loop:resume.\nDefault: plan, implement/review/correct, run named gates, stop for human assessment.');
+    if (config.help) console.log('Usage: node scripts/agent-loop.mjs [--check | --resume | --restart] [--max-iterations 1..50] [--max-corrections 1..50] [--no-auto-advance] [--reviewer-effort high] [--implementer-effort medium]\nShortcuts: npm run agent-loop, npm run agent-loop:restart, npm run agent-loop:resume.\nDefault: retain separate role sessions within each letter; fresh acceptance at letter transitions; stop for human assessment.');
     else process.exitCode = runLoop(root, config);
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }
