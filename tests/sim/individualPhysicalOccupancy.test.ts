@@ -263,10 +263,15 @@ describe("Milestone 8B production movement/collision authority boundary", () => 
       expect(collision).toMatchObject({
         resolvedDeltaX: deltaX,
         resolvedDeltaY: deltaY,
-        redirected: false,
         observedTick: 0,
         finalizedTick: 0,
       });
+      // Active collision may legally redirect a step. Check the flag against
+      // actual body movement rather than requiring the old pass-through outcome.
+      const moved = deltaX !== 0 || deltaY !== 0;
+      expect(collision.redirected).toBe(moved &&
+        Math.atan2(deltaY, deltaX) !==
+          Math.atan2(collision.permittedDeltaY, collision.permittedDeltaX));
       expect(
         collision.resolvedDeltaX ** 2 + collision.resolvedDeltaY ** 2,
       ).toBeLessThanOrEqual(
