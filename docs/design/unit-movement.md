@@ -120,6 +120,14 @@ Allowed modes should remain small and explicit:
 
 Local avoidance may adjust movement, but it must not replace the selected mode’s goal.
 
+For casualty-helper gathering, each resolved step must leave the helper no
+farther from the current patient: squared Euclidean distance after the step must
+be less than or equal to the distance before it, using the same patient position.
+Sideways steps at equal distance are allowed. Temporary away detours are not,
+including around hard obstructions; hold if no legal step satisfies the rule.
+Preserve hard collision constraints and movement budgets, and prevent endless
+equal-distance oscillation. This decision does not redefine other movement modes.
+
 ## Collision and Spacing
 
 Collision and spacing resolution must be separate from intent selection.

@@ -29,6 +29,8 @@ import type { WorldState } from "./types";
 const CELL_SIZE = 16;
 const MAX_QUERY_RADIUS = 32;
 const MAX_UINT16 = 0xffff;
+// A stationary patient permits a finite sideways plateau, then crossing/hold.
+const MAX_GATHERING_EQUAL_STEPS = 8;
 
 export interface IndividualSpecialistCollisionResult {
   readonly requestedCount: number;
@@ -60,6 +62,10 @@ interface InternalResolver extends IndividualSpecialistCollisionResolver {
   resolvedDeltaX: number;
   resolvedDeltaY: number;
   preparedTick: number;
+  readonly gatheringPatient: Int32Array;
+  readonly gatheringPatientX: Int32Array;
+  readonly gatheringPatientY: Int32Array;
+  readonly gatheringEqualSteps: Uint8Array;
   readonly grid: SpatialGrid;
   readonly nearby: number[];
   readonly result: MutableResult;
@@ -103,6 +109,10 @@ export function createIndividualSpecialistCollisionResolver(
     principalBlockerByEntity,
     result,
     preparedTick: -1,
+    gatheringPatient: new Int32Array(world.entityCount).fill(-1),
+    gatheringPatientX: new Int32Array(world.entityCount),
+    gatheringPatientY: new Int32Array(world.entityCount),
+    gatheringEqualSteps: new Uint8Array(world.entityCount),
     grid: createSpatialGrid({
       bounds: world.bounds,
       cellSize: CELL_SIZE,
@@ -127,10 +137,37 @@ export function createIndividualSpecialistCollisionResolver(
     },
     resolveStep(entityId, permittedDeltaX, permittedDeltaY,
       softContactEntityId = -1): void {
+      assertEntity(entityId, resolver.entityCount);
+      const gathering = softContactEntityId >= 0 &&
+        occupancy.occupancyClassCodes[softContactEntityId] ===
+          INDIVIDUAL_PHYSICAL_OCCUPANCY_CLASS.downedSoft;
+      const patient = gathering ? softContactEntityId : -1;
+      const patientX = gathering ? world.positionsX[patient]! : 0;
+      const patientY = gathering ? world.positionsY[patient]! : 0;
+      if (resolver.gatheringPatient[entityId] !== patient ||
+          resolver.gatheringPatientX[entityId] !== patientX ||
+          resolver.gatheringPatientY[entityId] !== patientY) {
+        resolver.gatheringEqualSteps[entityId] = 0;
+      }
+      resolver.gatheringPatient[entityId] = patient;
+      resolver.gatheringPatientX[entityId] = patientX;
+      resolver.gatheringPatientY[entityId] = patientY;
+      const contactX = patientX - world.positionsX[entityId]! + permittedDeltaX;
+      const contactY = patientY - world.positionsY[entityId]! + permittedDeltaY;
       resolveSpecialistStep(
         resolver, world, identity, occupancy, rightOfWay, collision,
         entityId, permittedDeltaX, permittedDeltaY, softContactEntityId,
       );
+      const dx = resolver.resolvedDeltaX, dy = resolver.resolvedDeltaY;
+      if (gathering && (dx !== 0 || dy !== 0)) {
+        if ((contactX - dx) ** 2 + (contactY - dy) ** 2 <
+            contactX ** 2 + contactY ** 2) {
+          resolver.gatheringEqualSteps[entityId] = 0;
+        } else {
+          resolver.gatheringEqualSteps[entityId] =
+            resolver.gatheringEqualSteps[entityId]! + 1;
+        }
+      }
     },
   };
   return resolver;
@@ -250,19 +287,6 @@ function resolveSpecialistStep(
         deltaY = forwardY;
         break;
     }
-    // Gathering soft avoidance must approach the actual patient, not merely
-    // project positively onto a coordinate-clipped request. Equal-distance
-    // lateral steps can alternate forever and suppress legal careful crossing.
-    // Hard-body detours keep their existing authority to backtrack locally.
-    if (blockerIsSoft && softContactEntityId >= 0 &&
-        occupancy.occupancyClassCodes[softContactEntityId] ===
-          INDIVIDUAL_PHYSICAL_OCCUPANCY_CLASS.downedSoft) {
-      const contactX = world.positionsX[softContactEntityId]! - startX;
-      const contactY = world.positionsY[softContactEntityId]! - startY;
-      if ((contactX - deltaX) * (contactX - deltaX) +
-          (contactY - deltaY) * (contactY - deltaY) >=
-          contactX * contactX + contactY * contactY) continue;
-    }
     if (!candidateLegal(resolver, world, identity, occupancy, entityId,
       deltaX, deltaY, budgetSquared, nearby, false, softContactEntityId,
       startX, startY)) continue;
@@ -300,6 +324,18 @@ function candidateLegal(
 ): boolean {
   if (deltaX === 0 && deltaY === 0 ||
       deltaX * deltaX + deltaY * deltaY > budgetSquared) return false;
+  // Apply gathering authority to every candidate, including the original intent
+  // and careful crossing, regardless of the obstruction's occupancy class.
+  if (resolver.gatheringPatient[entityId]! >= 0) {
+    const contactX = resolver.gatheringPatientX[entityId]! - startX;
+    const contactY = resolver.gatheringPatientY[entityId]! - startY;
+    const before = contactX ** 2 + contactY ** 2;
+    const after = (contactX - deltaX) ** 2 + (contactY - deltaY) ** 2;
+    if (after > before || (after === before &&
+        resolver.gatheringEqualSteps[entityId]! >= MAX_GATHERING_EQUAL_STEPS)) {
+      return false;
+    }
+  }
   const finalX = startX + deltaX;
   const finalY = startY + deltaY;
   if (finalX < 0 || finalY < 0 || finalX >= world.bounds.width ||

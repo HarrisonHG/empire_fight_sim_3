@@ -13,8 +13,8 @@ Accepted slices:
 8F  yielding player-presence egress
 ```
 
-8G is partially implemented in the current working tree and has been re-sliced
-to reduce Codex context/test cost.
+8G-1/2/3 are locally complete. Integration, performance/soak and human assessment
+remain separate requirements; use the current task/checkpoint for execution state.
 
 Detailed historical implementation evidence is in:
 
@@ -114,6 +114,14 @@ Lifecycle/player-presence/assistance remain their source authorities.
 
 Prefer local avoidance.
 
+For casualty-helper gathering, the human decision on 2026-10-18 is: never
+increase distance to the current patient. Compare squared Euclidean distance
+before and after each resolved step against the same patient position. Equal
+distance (sideways movement) is allowed; temporary movement farther away is not.
+This applies to gathering avoidance around both soft and hard obstructions;
+hard-body legality and movement budgets still apply. Hold when no legal step
+satisfies the rule. Equal-distance movement must not reintroduce endless cycles.
+
 If useful bounded avoidance cannot provide progress, permit reduced careful
 crossing rather than creating a permanent body wall.
 
@@ -200,39 +208,11 @@ Carry forward:
 
 ---
 
-# Current 8G working-tree checkpoint
+# Implemented 8G contracts
 
-The current working tree contains partial 8G implementation on top of accepted
-8F.
-
-Already present according to the progress checkpoint:
-
-- generic typed right-of-way projection;
-- specialist collision adapter;
-- medical approach, trauma withdrawal, and casualty-helper gathering connected
-  to collision-resolved displacement;
-- setup hard-overlap validation/legal-placement support;
-- main/retained scenarios opting into legal placement;
-- debug snapshot/right-of-way evidence;
-- UI inspection text;
-- retained `/test?scenario=personal-space`;
-- personal-space debug display on `/`;
-- initial focused right-of-way and legal-placement tests;
-- typecheck and diff-check passing.
-
-Not yet acceptance-ready:
-
-- right-of-way/crowd-flow reconciliation;
-- full specialist focused regression set;
-- debug/browser inspection;
-- broad integration stabilization;
-- one-hour soak;
-- representative performance report;
-- full suite/build/perf;
-- human visual acceptance.
-
-Do not throw away the partial working tree merely to make the new slice
-boundaries neat.
+The three sections below retain the implemented authority, legality and debug
+contracts. Detailed implementation history is read on demand from docs/progress/.
+Preserve existing work; local completion does not accept later system gates.
 
 ---
 
@@ -374,22 +354,37 @@ Do not run full headless or full performance suite.
 
 ## 8H — System integration gate
 
+Work packages include diagnosis, repair, regression and focused verification.
+Checkpoint each independently reviewed repair even while this gate remains red;
+select the next distinct issue with a new task ID/context. Do not create routine
+diagnosis-only handoffs or demand renewed permission for authorised fixes.
+
 Status: in progress. 8H-3, the reconstructed 8H-4-R1 audit and 8H-5 fixture
 correction are accepted. Do not reopen the superseded missing-audit question.
 8H is not accepted; 8I and 8J remain pending.
 
-The 2026-10-17 reconciliation is an unaccepted WIP checkpoint. Its gathering
-candidate passes 99/99 local tests, but the six-file correction check has
-101 passed / 3 failed: two pre-existing pursuit routing assertions plus a combined
-recruit-routing regression introduced by the candidate. A paired source run
-confirms the original recruit routes at tick 411 and the candidate does not.
-Next bounded task: **8H-7**, reconcile that regression before pursuit tuning.
+The 8H-7 correction chain is unaccepted WIP. Human decisions on 2026-10-18
+require non-increasing patient distance in gathering, a fragile recruit fixture
+that physically flees, and a reserve isolated as the steady control. The root
+AGENTS.md bug-fix authority now authorises bounded production/test/fixture repairs
+without repeated permission requests; keep named behaviour and gates intact.
+
+Current bounded correction **8H-7-C6** repairs pursuit fixtures with legal spacing,
+heavier armour and two-to-one numerical pressure so both troop profiles can
+demonstrate physical retreat, pursuit and recovery. Assertions check behavioural
+ordering and experience comparison within the existing 1,200/800-tick windows,
+not obsolete exact ticks. No morale, casualty or assistance rule is changed by
+this fixture repair. Require independent review, then repeat the complete 8H gate.
 
 Read docs/agent-loop/RESTART_BRIEF.md and CURRENT_TASK for the exact handoff,
 source hashes and focused evidence. Historical probes are archived and are not
-startup reading. No fixture, expectation, timeout or gate was rebaselined.
-The last full gate (8H-6) was 1,234 passed / 18 failed; it must be repeated after
-corrections. This historical count is not fresh integration evidence.
+startup reading. No timeout or acceptance gate was relaxed.
+C6 focused independent review is complete. The 8H-8 repeat gate remains red:
+1,280 tests passed / 3 failed across 90 files, with no skipped tests. Typecheck
+and build passed. Failures concern retained death-clock test runtime, the main
+battle routing observation, and the standalone morale recruit expectation.
+Evidence: `.agent-loop/runs/1792337367202-32832/2/`. Independent review remains
+required; 8I and 8J have not started.
 
 **No new features.**
 
@@ -431,6 +426,11 @@ Guardrails:
 ---
 
 ## 8I — Performance and deterministic soak gate
+
+Retain the full-scene 400-tick/10-second inspected-record construction requirement
+in tests/performance/inspectedSnapshotConstruction.test.ts. The individual
+death-clock display regression requests only its relevant inspected entity;
+this does not waive representative snapshot throughput or lifecycle coverage.
 
 Status: pending after 8H.
 

@@ -87,7 +87,7 @@ function createFixture(blockerFactionId: number) {
   // the resolver reconstructs tick start from this current position.
   world.positionsX[0] = 32;
   resolver.prepareForMovement(0);
-  return { collision, resolver, rightOfWay };
+  return { collision, resolver, rightOfWay, world, occupancy };
 }
 
 
@@ -97,6 +97,55 @@ describe("gathering around soft occupancy", () => {
     expect(first.trace.at(-1)![2]).toBeLessThanOrEqual(64);
     expect(first.crossings).toBeGreaterThan(0);
     expect(runGatheringApproach(symmetry)).toEqual(first);
+  });
+
+  it.each([false, true])("permits equal-distance avoidance and ends a stationary plateau (hard=%s)", (hard) => {
+    const first = runGatheringApproach(0, hard);
+    expect(first.trace[0]!.slice(0, 2)).toEqual([547, 349]);
+    expect(first.trace[0]![2]).toBe(170);
+    expect(first.trace[1]![2]).toBe(170);
+    if (hard) {
+      expect(first.trace[8]![2]).toBeLessThan(170);
+      // Once all non-increasing candidates are obstructed, hold legally.
+      expect(new Set(first.trace.slice(10).map(point => point.join(","))).size).toBe(1);
+      expect(first.minimumHardClearance).toBeGreaterThanOrEqual(64);
+    } else {
+      expect(first.trace.at(-1)![2]).toBeLessThanOrEqual(64);
+      expect(first.crossings).toBeGreaterThan(0);
+    }
+    expect(runGatheringApproach(0, hard)).toEqual(first);
+  });
+
+  it("bounds even unobstructed equal-distance intents and resets for a moved patient", () => {
+    const fixture = createFixture(1);
+    fixture.occupancy.occupancyClassCodes[1] = 2;
+    for (let tick = 0; tick < 9; tick += 1) {
+      const startY = tick % 2 === 0 ? 49 : 51;
+      const py = tick % 2 === 0 ? 2 : -2;
+      fixture.world.positionsX[0] = 30;
+      fixture.world.positionsY[0] = startY + py;
+      fixture.resolver.resolveStep(0, 0, py, 1);
+      if (tick < 8) {
+        expect([fixture.resolver.resolvedDeltaX, fixture.resolver.resolvedDeltaY]).toEqual([0, py]);
+      } else {
+        expect((9 - fixture.resolver.resolvedDeltaX) ** 2 +
+          (50 - startY - fixture.resolver.resolvedDeltaY) ** 2).toBeLessThan(82);
+      }
+    }
+    fixture.world.positionsX[1] = 40;
+    fixture.world.positionsY[0] = 51;
+    fixture.resolver.resolveStep(0, 0, 2, 1);
+    expect(fixture.resolver.resolvedDeltaY).toBe(2);
+  });
+
+  it("rejects an away intent while leaving other specialist authorities unchanged", () => {
+    const fixture = createFixture(1);
+    fixture.occupancy.occupancyClassCodes[1] = 2;
+    fixture.world.positionsX[0] = 28;
+    fixture.resolver.resolveStep(0, -2, 0, 1);
+    expect([fixture.resolver.resolvedDeltaX, fixture.resolver.resolvedDeltaY]).toEqual([0, 0]);
+    fixture.resolver.resolveStep(0, -2, 0);
+    expect([fixture.resolver.resolvedDeltaX, fixture.resolver.resolvedDeltaY]).toEqual([-2, 0]);
   });
 
   it("retains useful avoidance before crossing", () => {
@@ -162,6 +211,7 @@ function runGatheringApproach(symmetry: number, hard = false, startY = 347) {
     const dx = resolver.resolvedDeltaX, dy = resolver.resolvedDeltaY;
     world.positionsX[0] = sx + dx; world.positionsY[0] = sy + dy;
     const distance = (tx - sx - dx) ** 2 + (ty - sy - dy) ** 2;
+    expect(distance).toBeLessThanOrEqual((tx - sx) ** 2 + (ty - sy) ** 2);
     trace.push([world.positionsX[0]!, world.positionsY[0]!, distance]);
     expect(dx ** 2 + dy ** 2).toBeLessThanOrEqual(px ** 2 + py ** 2);
     expect(getIndividualCollisionResolutionInspection(collision, 0)).toMatchObject({

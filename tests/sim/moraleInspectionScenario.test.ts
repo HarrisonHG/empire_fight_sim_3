@@ -6,6 +6,9 @@ import {
   getUnitAnchor,
   getUnitMovementStyle,
 } from "../../src/sim/formationBehaviour";
+import { getIndividualCasualtyAssistanceInspection } from "../../src/sim/individualCasualtyAssistance";
+import { isIndividualCharacterActive } from "../../src/sim/individualCasualtyLifecycle";
+import { isIndividualOrdinaryParticipationEligible } from "../../src/sim/individualOrdinaryParticipation";
 import { getPersistentUnitMorale } from "../../src/sim/persistentMorale";
 import {
   advanceSimulationOneTick,
@@ -51,18 +54,27 @@ describe("Milestone 4 morale inspection scenario", () => {
     expect(first.veteranRouted).toBe(false);
     expect(first.regularSeverelyDegraded).toBe(true);
     expect(first.regularOutperformedVeteran).toBe(true);
-    // 8E rescue occupancy changes the late casualty-front congestion: the
-    // recruit remains shaken, so no router reaches or disrupts the reserve.
-    expect(first.recruitRouted).toBe(false);
+    // Resolved collision/gathering permits the retained fleeing/recovery
+    // lifecycle again; the former shaken-only expectations hid that contract.
+    expect(first.initialRecruitState).toBe("steady");
+    expect(first.recruitRouted).toBe(true);
+    expect(first.firstRouteTick).toBeGreaterThan(0);
+    expect(first.physicalFleeTick).toBeGreaterThan(first.firstRouteTick!);
+    expect(first.physicalFleeTick).toBeLessThan(first.recoveryStartedTick!);
+    expect(first.recoveryStartedTick).toBeGreaterThan(first.firstRouteTick!);
+    expect(first.steadyReturnTick).toBeGreaterThan(first.recoveryStartedTick!);
+    expect(first.steadyReturnTick).toBeLessThanOrEqual(RUN_TICKS);
+    expect(first.finalRecruitState).toBe("steady");
     expect(first.reservePassThroughContagion).toBe(false);
     expect(first.reserveDisrupted).toBe(false);
     expect(first.reserveRouted).toBe(false);
-    expect(first.recruitRecovered).toBe(false);
-    expect(first.recruitCompletedRecovery).toBe(false);
-    expect(first.recruitRecoveryTicks).toBe(0);
-    expect(first.recoveringAnchorHeld).toBe(false);
-    expect(first.recoveringMovementSuspended).toBe(false);
-    expect(first.recoveringMembersReformed).toBe(false);
+    expect(first.recruitRecovered).toBe(true);
+    expect(first.recruitCompletedRecovery).toBe(true);
+    expect(first.recruitRecoveryTicks).toBeGreaterThan(0);
+    expect(first.continuingRecoveryTicks).toBeGreaterThan(0);
+    expect(first.recoveringAnchorHeld).toBe(true);
+    expect(first.recoveringMovementSuspended).toBe(true);
+    expect(first.recoveringMembersReformed).toBe(true);
     expect(first.finalEntityCount).toBe(70);
     expect(first.finalMemberCount).toBe(70);
   }, 10_000);
@@ -77,38 +89,55 @@ function runInspectionScenario() {
   const memberCount = initialUnitIds.flatMap((unitId) =>
     getUnitMembers(combat.identityStore, unitId),
   ).length;
+  const initialRecruitState = getPersistentUnitMorale(combat.persistentMoraleStore, RECRUIT).state;
+  const recruitMembers = getUnitMembers(combat.identityStore, RECRUIT);
+  const isUnassistedActive = (entityId: number) =>
+    isIndividualCharacterActive(combat.individualCasualtyLifecycleStore, entityId) &&
+    getIndividualCasualtyAssistanceInspection(
+      combat.individualCasualtyAssistanceStore, entityId,
+    ).state === "none";
   let veteranRouted = false;
   let regularSeverelyDegraded = false;
   let regularOutperformedVeteran = false;
   let recruitRouted = false;
   let recruitRecovered = false;
-  let recoveringAnchorHeld = false;
-  let recoveringMovementSuspended = false;
+  let recoveringAnchorHeld = true;
+  let recoveringMovementSuspended = true;
   let recoveringMembersReformed = false;
   let reservePassThroughContagion = false;
   let reserveDisrupted = false;
   let reserveRouted = false;
   let recruitCompletedRecovery = false;
   let recruitRecoveryTicks = 0;
-  let hasSeenRecruitRecovery = false;
-  let recoveryAnchor: { readonly x: number; readonly y: number } | undefined;
+  let continuingRecoveryTicks = 0;
+  let firstRouteTick: number | undefined;
+  let physicalFleeTick: number | undefined;
+  let recoveryStartedTick: number | undefined;
+  let steadyReturnTick: number | undefined;
 
-  for (let tick = 0; tick < RUN_TICKS; tick += 1) {
-    const movingFromRecovery =
-      getPersistentUnitMorale(combat.persistentMoraleStore, RECRUIT).state ===
-      "recovering";
-    const recruitMembers = getUnitMembers(combat.identityStore, RECRUIT);
-    const preTickRecruitPositions = movingFromRecovery
-      ? recruitMembers.map((entityId) => ({
-        x: simulation.world.positionsX[entityId]!,
-        y: simulation.world.positionsY[entityId]!,
-      }))
-      : [];
+  for (let tick = 1; tick <= RUN_TICKS; tick += 1) {
+    const previousRecruitState = getPersistentUnitMorale(
+      combat.persistentMoraleStore, RECRUIT,
+    ).state;
+    const previousAnchor = getUnitAnchor(combat.formationStore, RECRUIT);
+    const preTickRecruitPositions = recruitMembers.map((entityId) => ({
+      x: simulation.world.positionsX[entityId]!,
+      y: simulation.world.positionsY[entityId]!,
+      unassistedActive: isUnassistedActive(entityId),
+    }));
     advanceSimulationOneTick(simulation);
     const veteran = getPersistentUnitMorale(combat.persistentMoraleStore, VETERAN);
     const regular = getPersistentUnitMorale(combat.persistentMoraleStore, REGULAR);
     const recruit = getPersistentUnitMorale(combat.persistentMoraleStore, RECRUIT);
     const reserve = getPersistentUnitMorale(combat.persistentMoraleStore, RESERVE);
+    // The tick-start participation projection identifies actual ordinary movers;
+    // also exclude anyone entering/leaving rescue or casualty roles this tick.
+    const isOrdinaryMover = (entityId: number, index: number) =>
+      preTickRecruitPositions[index]!.unassistedActive &&
+      isUnassistedActive(entityId) &&
+      isIndividualOrdinaryParticipationEligible(
+        combat.individualOrdinaryParticipationSnapshot, entityId,
+      );
     veteranRouted ||= veteran.state === "routing";
     regularSeverelyDegraded ||=
       regular.state === "shaken" || regular.state === "wavering";
@@ -116,18 +145,38 @@ function runInspectionScenario() {
       moraleRank(regular.state) > moraleRank(veteran.state);
     recruitRouted ||= recruit.state === "routing";
     recruitRecovered ||= recruit.state === "recovering";
+    if (recruit.state === "routing" && firstRouteTick === undefined) firstRouteTick = tick;
+    if (
+      previousRecruitState === "routing" && recruit.state === "routing" &&
+      getUnitMovementStyle(combat.formationStore, RECRUIT) === "routeAway" &&
+      recruitMembers.some((entityId, index) =>
+        isOrdinaryMover(entityId, index) &&
+        // Opposition is east: westward body displacement proves fleeing.
+        simulation.world.positionsX[entityId]! < preTickRecruitPositions[index]!.x,
+      ) && physicalFleeTick === undefined
+    ) {
+      physicalFleeTick = tick;
+    }
     reserveDisrupted ||= reserve.state !== "steady";
     reserveRouted ||= reserve.state === "routing";
     if (recruit.state === "recovering") {
-      hasSeenRecruitRecovery = true;
+      recoveryStartedTick ??= tick;
       recruitRecoveryTicks += 1;
-    } else if (hasSeenRecruitRecovery && recruit.state === "steady") {
+    } else if (recoveryStartedTick !== undefined && recruit.state === "steady") {
       recruitCompletedRecovery = true;
+      steadyReturnTick ??= tick;
     }
-    if (movingFromRecovery) {
-      recoveringMovementSuspended ||=
+    // Observe only movement that both starts and ends in recovery. Entry still
+    // uses routing movement; steady return may resume the stored advance order.
+    if (previousRecruitState === "recovering" && recruit.state === "recovering") {
+      continuingRecoveryTicks += 1;
+      const anchor = getUnitAnchor(combat.formationStore, RECRUIT);
+      recoveringAnchorHeld &&=
+        anchor.x === previousAnchor.x && anchor.y === previousAnchor.y;
+      recoveringMovementSuspended &&=
         getUnitMovementStyle(combat.formationStore, RECRUIT) === "orderedHalt";
       recoveringMembersReformed ||= recruitMembers.some((entityId, index) =>
+        isOrdinaryMover(entityId, index) &&
         getIndividualMovementMode(combat.formationStore, entityId) ===
           "moveToFormationSlot" &&
         (simulation.world.positionsX[entityId] !== preTickRecruitPositions[index]!.x ||
@@ -138,19 +187,7 @@ function runInspectionScenario() {
       (summary) => summary.unitId === RESERVE,
     );
     reservePassThroughContagion ||=
-      reserveContagion !== undefined &&
-      reserveContagion.passThroughRouterUnitIds.includes(RECRUIT) &&
-      reserveContagion.pressureAppliedPerMember > 0 &&
-      reserveContagion.cohesionLossApplied > 0;
-
-    if (recruit.state === "recovering") {
-      const anchor = getUnitAnchor(combat.formationStore, RECRUIT);
-      if (recoveryAnchor !== undefined) {
-        recoveringAnchorHeld ||=
-          recoveryAnchor.x === anchor.x && recoveryAnchor.y === anchor.y;
-      }
-      recoveryAnchor = anchor;
-    }
+      reserveContagion !== undefined && reserveContagion.passThroughRouterUnitIds.length > 0;
   }
 
   const snapshot = createPositionSnapshot(simulation);
@@ -158,6 +195,12 @@ function runInspectionScenario() {
     initialUnitIds,
     initialEntityCount: initial.entityCount,
     memberCount,
+    initialRecruitState,
+    firstRouteTick,
+    physicalFleeTick,
+    recoveryStartedTick,
+    steadyReturnTick,
+    finalRecruitState: getPersistentUnitMorale(combat.persistentMoraleStore, RECRUIT).state,
     veteranRouted,
     regularSeverelyDegraded,
     regularOutperformedVeteran,
@@ -165,6 +208,7 @@ function runInspectionScenario() {
     recruitRecovered,
     recruitCompletedRecovery,
     recruitRecoveryTicks,
+    continuingRecoveryTicks,
     recoveringAnchorHeld,
     recoveringMovementSuspended,
     recoveringMembersReformed,

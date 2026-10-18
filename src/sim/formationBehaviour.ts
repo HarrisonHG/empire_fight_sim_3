@@ -297,6 +297,7 @@ interface InternalFormationBehaviourStore extends FormationBehaviourStore {
   readonly routingPassThroughRouterUnitIds: Int32Array;
   readonly routingPassThroughTargetUnitIds: Int32Array;
   routingPassThroughCount: number;
+  routingPassThroughDeferred: boolean;
 
   readonly rng: SeededRng;
 }
@@ -457,6 +458,7 @@ export function createFormationBehaviourStore(
       MAX_ROUTING_PASS_THROUGH_INTERACTIONS_PER_TICK,
     ),
     routingPassThroughCount: 0,
+    routingPassThroughDeferred: false,
     rng: new SeededRng(config.rngSeed),
   };
   store.activeBlockerUnitId.fill(NO_ACTIVE_BLOCKER_UNIT_ID);
@@ -1062,6 +1064,7 @@ export function advanceFormationOneTick(
   ordinaryParticipation?: IndividualOrdinaryParticipationSnapshot,
   energyGaitContext?: FormationEnergyGaitTickContext,
   energyRestContext?: FormationEnergyRestTickContext,
+  deferRoutingPassThroughUntilCollision = false,
 ): FormationTickResult {
   const internal = asInternal(store);
   validateWorldForBehaviour(world, internal, identityStore);
@@ -1100,6 +1103,7 @@ export function advanceFormationOneTick(
   resetEnergyMovementDiagnostics(internal);
   internal.energyGaitProjectionTickUsed = energyGaitContext?.tick ?? null;
   internal.routingPassThroughCount = 0;
+  internal.routingPassThroughDeferred = deferRoutingPassThroughUntilCollision;
   const unitIds = getUnitIds(identityStore);
   const blockerGrid =
     unitIds.length > 1
@@ -1159,6 +1163,51 @@ export function advanceFormationOneTick(
       internal,
     ),
   };
+}
+
+/** Focused optional counters; the caller owns and resets this reusable record. */
+export interface ResolvedRoutingPassThroughDiagnostics {
+  queryCount: number;
+  candidateCount: number;
+  maximumQueryRadius: number;
+}
+
+/**
+ * Replace proposed interaction evidence with resolved ordinary movement. Call
+ * immediately after collision, before specialist authorities change positions.
+ * The formation blocker grid and contact snapshots retain tick-start geometry.
+ */
+export function collectResolvedRoutingPassThroughInteractions(
+  world: WorldState,
+  identityStore: UnitIdentityStore,
+  store: FormationBehaviourStore,
+  tickStartMoraleStates: UnitMoraleMovementStateSource,
+  lifecycleStore?: IndividualCasualtyLifecycleStore,
+  ordinaryParticipation?: IndividualOrdinaryParticipationSnapshot,
+  diagnostics?: ResolvedRoutingPassThroughDiagnostics,
+): readonly RoutingPassThroughInteraction[] {
+  const internal = asInternal(store);
+  internal.routingPassThroughCount = 0;
+  internal.routingPassThroughDeferred = false;
+  const unitIds = getUnitIds(identityStore);
+  for (let index = 0; index < unitIds.length; index += 1) {
+    const unitId = unitIds[index]!;
+    if (tickStartMoraleStates.get(unitId) !== "routing") continue;
+    const members = getUnitMembers(identityStore, unitId);
+    for (let member = 0; member < members.length; member += 1) {
+      const entityId = members[member]!;
+      if (!isFormationParticipant(lifecycleStore, entityId, ordinaryParticipation)) continue;
+      if (world.positionsX[entityId] === internal.contactSnapshotPositionsX[entityId] &&
+          world.positionsY[entityId] === internal.contactSnapshotPositionsY[entityId]) continue;
+      recordRoutingMemberPassThroughInteractions(
+        identityStore, internal, internal.blockerGrid, unitId,
+        getFactionIdForUnit(identityStore, unitId), entityId,
+        world.positionsX[entityId]!, world.positionsY[entityId]!,
+        lifecycleStore, ordinaryParticipation, diagnostics,
+      );
+    }
+  }
+  return collectRoutingPassThroughInteractions(internal);
 }
 
 function runFormationDiagnosticStage<T>(
@@ -2384,8 +2433,11 @@ function recordRoutingMemberPassThroughInteractions(
   routerEntityId: number,
   endX: number,
   endY: number,
+  lifecycleStore?: IndividualCasualtyLifecycleStore,
+  ordinaryParticipation?: IndividualOrdinaryParticipationSnapshot,
+  diagnostics?: ResolvedRoutingPassThroughDiagnostics,
 ): void {
-  if (blockerGrid === undefined) {
+  if (store.routingPassThroughDeferred || blockerGrid === undefined) {
     return;
   }
   const startX = store.contactSnapshotPositionsX[routerEntityId]!;
@@ -2402,9 +2454,16 @@ function recordRoutingMemberPassThroughInteractions(
     store.scratchNearbyEntityIds,
   );
 
+  if (diagnostics !== undefined) {
+    diagnostics.queryCount += 1;
+    diagnostics.candidateCount += nearbyEntityIds.length;
+    diagnostics.maximumQueryRadius = Math.max(diagnostics.maximumQueryRadius, queryRadius);
+  }
+
   for (let index = 0; index < nearbyEntityIds.length; index += 1) {
     const targetEntityId = nearbyEntityIds[index]!;
-    if (targetEntityId === routerEntityId) continue;
+    if (targetEntityId === routerEntityId ||
+        !isFormationParticipant(lifecycleStore, targetEntityId, ordinaryParticipation)) continue;
     const targetUnitId = getUnitIdForEntity(identityStore, targetEntityId);
     if (
       targetUnitId === routerUnitId ||

@@ -340,7 +340,16 @@ describe("Milestone 6 casualty lifecycle retained visual scenario", () => {
   });
 
   it("removes the barbarian death clock on expiry, throughout egress and at waiting", () => {
-    const simulation = createSimulation(CASUALTY_LIFECYCLE_VISUAL_SCENARIO);
+    // Preserve the full world's lifecycle interactions and 400-tick window,
+    // but this display contract only needs the barbarian's inspection record.
+    // Full-scene snapshot cost is measured separately in the performance suite.
+    const simulation = createSimulation({
+      ...CASUALTY_LIFECYCLE_VISUAL_SCENARIO,
+      combatSandbox: {
+        ...CASUALTY_LIFECYCLE_VISUAL_SCENARIO.combatSandbox!,
+        inspectedEntityIds: [19],
+      },
+    });
     let sawEgress = false;
     let sawWaiting = false;
     for (let index = 0; index < 400; index += 1) {

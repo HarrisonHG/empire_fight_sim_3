@@ -8,18 +8,35 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const read = path => readFileSync(path, 'utf8');
 const hash = data => createHash('sha256').update(data).digest('hex');
 function assert(condition, message) { if (!condition) throw new Error(message); }
-function atomic(path, content) {
+export function atomic(path, content, replace = renameSync, pause = milliseconds => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds)) {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(`${path}.tmp`, `${content.trimEnd()}\n`);
-  renameSync(`${path}.tmp`, path);
+  // Windows file watchers/OneDrive can briefly hold a replace target. Retain
+  // atomic replacement and the previous valid state rather than truncating it.
+  for (let attempt = 0; ; attempt++) {
+    try { replace(`${path}.tmp`, path); return; }
+    catch (error) {
+      if (!['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || attempt >= 5) throw error;
+      pause(10 * 2 ** attempt);
+    }
+  }
 }
 const json = (path, value) => atomic(path, JSON.stringify(value, null, 2));
 
 export function parseArgs(args) {
-  const config = { maxIterations: 12, maxCorrections: 6, reviewerEffort: 'high', implementerEffort: 'medium', autoAdvance: true };
+  const config = { maxIterations: 50, maxCorrections: 3, tokenBudget: null, accountQuota: true, quotaReservePercent: 5, reviewerEffort: 'high', implementerEffort: 'medium', autoAdvance: true };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (arg === '--max-iterations' || arg === '--max-corrections') {
+    if (arg === '--quota-reserve-percent') {
+      const value = Number(args[++i]);
+      assert(Number.isFinite(value) && value >= 0 && value < 100, 'Quota reserve must be between 0 and less than 100 percent.');
+      config.quotaReservePercent = value;
+    } else if (arg === '--no-account-quota') config.accountQuota = false;
+    else if (arg === '--token-budget') {
+      const value = Number(args[++i]);
+      assert(Number.isSafeInteger(value) && value > 0, 'Token budget must be a positive integer.');
+      config.tokenBudget = value;
+    } else if (arg === '--max-iterations' || arg === '--max-corrections' || arg === '--max-no-progress') {
       const value = Number(args[++i]);
       assert(Number.isInteger(value) && value >= 1 && value <= 50, 'Iterations must be 1–50.');
       config[arg === '--max-iterations' ? 'maxIterations' : 'maxCorrections'] = value;
@@ -63,8 +80,10 @@ export function nextCorrectionId(taskId) {
 export function validateReview(review, scope, current, planning = false, autoAdvance = true, implementationResult = null) {
   assert(review && ['accept', 'correct', 'advance', 'human_review', 'blocked'].includes(review.decision), 'Invalid review decision.');
   assert(typeof review.summary === 'string' && review.summary.trim() && Array.isArray(review.findings) && review.findings.every(item => typeof item === 'string'), 'Invalid review summary/findings.');
+  if (review.remaining_failures !== undefined) assert(Array.isArray(review.remaining_failures) && review.remaining_failures.every(item => typeof item === 'string'), 'Invalid remaining failure inventory.');
   assert(review.task_id === (planning ? 'PLANNING' : current.task_id), 'Stale or mismatched review task id.');
   if (!planning && implementationResult === 'blocked') assert(['correct', 'blocked', 'human_review'].includes(review.decision), 'Blocked implementation requires correction or reviewer stop; acceptance refused.');
+  if (!planning && autoAdvance && review.decision === 'accept') assert(!review.remaining_failures?.length, 'Milestone acceptance retains failures; select the next repair.');
   const next = ['correct', 'advance'].includes(review.decision);
   assert(next ? typeof review.next_task === 'string' && review.next_task.trim() : review.next_task === null, 'Invalid next_task for decision.');
   assert(review.decision === 'human_review' ? typeof review.human_review === 'string' && review.human_review.trim() : review.human_review === null, 'Invalid human_review for decision.');
@@ -83,11 +102,12 @@ export function validateReview(review, scope, current, planning = false, autoAdv
 
 export const reviewSchema = {
   type: 'object', additionalProperties: false,
-  required: ['decision', 'task_id', 'summary', 'findings', 'next_task', 'human_review'],
+  required: ['decision', 'task_id', 'summary', 'findings', 'next_task', 'human_review', 'remaining_failures'],
   properties: {
     decision: { type: 'string', enum: ['accept', 'correct', 'advance', 'human_review', 'blocked'] },
     task_id: { type: 'string' }, summary: { type: 'string' },
     findings: { type: 'array', items: { type: 'string' } },
+    remaining_failures: { type: 'array', items: { type: 'string' } },
     next_task: { type: ['string', 'null'] }, human_review: { type: ['string', 'null'] },
   },
 };
@@ -103,7 +123,29 @@ const reportSchema = {
 };
 
 export function contextKey(task) {
-  return `${task.milestone}:${task.slice.match(/^(\d+[A-Za-z]+)(?=$|[-\s])/u)?.[1] ?? task.slice}`;
+  return `${task.milestone}:${task.issue ?? task.task_id.replace(/(?:-C[1-9]\d*)+$/u, '')}`;
+}
+
+function stageKey(task) { return task.slice.match(/^(\d+[A-Za-z]+)(?=$|[-\s])/u)?.[1] ?? task.slice; }
+
+export function usageFromLog(log) {
+  let usage = null;
+  for (const line of log.split(/\r?\n/u)) {
+    try { const event = JSON.parse(line); if (event.type === 'turn.completed' && event.usage) usage = event.usage; } catch { /* Partial/diagnostic line. */ }
+  }
+  return usage;
+}
+
+export function accountTokens(meter, sessionId, usage) {
+  if (!sessionId || !usage) return 0;
+  const next = { input: usage.input_tokens ?? 0, cached: usage.cached_input_tokens ?? 0, output: usage.output_tokens ?? 0 };
+  const previous = meter.sessions[sessionId] ?? { input: 0, cached: 0, output: 0 };
+  assert(Object.values(next).every(value => Number.isSafeInteger(value) && value >= 0), 'Invalid CLI token usage.');
+  // CLI usage is cumulative across resumed turns. Charge only the new delta.
+  const delta = Math.max(0, next.input - next.cached - (previous.input - previous.cached)) + Math.max(0, next.output - previous.output);
+  meter.sessions[sessionId] = next;
+  meter.total += delta;
+  return delta;
 }
 
 const sessionPattern = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu;
@@ -123,9 +165,25 @@ export function sessionFromLog(log) {
   return session;
 }
 
-export function codexArgs(role, effort, schemaPath, output, sessionId = null) {
+export function windowsSandboxArgs(platform = process.platform) {
+  // Prefer the supported native sandbox; retain managed policy and legacy
+  // selection on hosts where MXC is unavailable. Never disable confinement.
+  return platform === 'win32' ? ['-c', 'features.prefer_mxc=true'] : [];
+}
+
+export function checkSandboxReadAccess(command, repo, files, invoke = launch, platform = process.platform) {
+  if (platform !== 'win32') return;
+  const script = `for (const file of ${JSON.stringify(files)}) require('node:fs').readFileSync(file); process.stdout.write('AGENT_LOOP_READ_OK');`;
+  const result = invoke(command, [...windowsSandboxArgs(platform), 'sandbox', '--include-managed-config',
+    '--permission-profile', ':read-only', '--', process.execPath, '-e', script],
+  { cwd: repo, encoding: 'utf8', timeout: 30000 });
+  assert(!result.error && result.status === 0 && result.stdout?.includes('AGENT_LOOP_READ_OK'),
+    `Codex sandbox cannot read required repository evidence; no model turn started. ${result.stderr || result.stdout || result.error?.message || 'Read probe failed.'}`);
+}
+
+export function codexArgs(role, effort, schemaPath, output, sessionId = null, platform = process.platform) {
   assert(!sessionId || sessionPattern.test(sessionId), 'Invalid saved CLI session id.');
-  return ['-a', 'never', 'exec', '--sandbox', role === 'implementer' ? 'workspace-write' : 'read-only',
+  return [...windowsSandboxArgs(platform), '-a', 'never', 'exec', '--sandbox', role === 'implementer' ? 'workspace-write' : 'read-only',
     '-c', `model_reasoning_effort="${effort}"`, '--color', 'never',
     '--output-schema', schemaPath, '--output-last-message', output, '--json',
     ...(sessionId ? ['resume', sessionId] : []), '-'];
@@ -133,7 +191,7 @@ export function codexArgs(role, effort, schemaPath, output, sessionId = null) {
 
 export function needsAcceptance(review, task, scope) {
   return review.decision === 'accept' ||
-    (review.decision === 'advance' && contextKey(parseTask(review.next_task, scope)) !== contextKey(task));
+    (review.decision === 'advance' && stageKey(parseTask(review.next_task, scope)) !== stageKey(task));
 }
 
 function git(repo, args, options = {}) {
@@ -162,6 +220,69 @@ function logDirectory(repo, runDir) {
   const path = relative(join(repo, '.agent-loop'), runDir);
   assert(path && !path.startsWith('..') && !isAbsolute(path), 'Logs must belong to the loop runtime.');
   return join(repo, '.agent-loop', 'logs', path);
+}
+
+export function recoverHandoff(repo) {
+  const runtime = join(repo, '.agent-loop'), path = join(runtime, 'pending-handoff.json');
+  if (!existsSync(path)) return false;
+  const pending = JSON.parse(read(path));
+  const current = JSON.parse(read(join(runtime, 'state.json')));
+  const next = pending.nextState;
+  assert(current.session === next.session && [pending.from.cycle, next.cycle].includes(current.cycle), 'Pending handoff conflicts with saved run.');
+  const taskPath = join(repo, 'docs/agent-loop/CURRENT_TASK.md');
+  assert([pending.from.taskHash, hash(pending.nextTask)].includes(hash(read(taskPath))), 'Task changed during interrupted handoff.');
+  const target = resolve(runtime, 'runs', next.session, String(next.cycle));
+  assert(relative(runtime, target) && !relative(runtime, target).startsWith('..'), 'Invalid handoff evidence path.');
+  if (pending.baseline !== null) {
+    for (const [name, value] of [['baseline.json', pending.baseline], ['base-head.txt', pending.baseHead]]) {
+      const file = join(target, name);
+      if (existsSync(file)) assert(read(file).trimEnd() === value.trimEnd(), 'Pending handoff baseline changed.');
+      else atomic(file, value);
+    }
+  }
+  atomic(taskPath, pending.nextTask);
+  json(join(runtime, 'state.json'), next);
+  rmSync(path);
+  return true;
+}
+
+export function acquireLock(path) {
+  if (existsSync(path)) {
+    const owner = read(path).trim();
+    assert(/^\d+$/u.test(owner) && Number(owner) > 0, 'Loop lock exists with an invalid owner; inspect it manually.');
+    let alive = true;
+    try { process.kill(Number(owner), 0); } catch (error) { if (error.code === 'ESRCH') alive = false; }
+    assert(!alive, 'Loop lock exists. Another loop may be running.');
+    assert(read(path).trim() === owner, 'Loop lock owner changed.');
+    rmSync(path);
+  }
+  const descriptor = openSync(path, 'wx');
+  writeFileSync(descriptor, `${process.pid}\n`); closeSync(descriptor);
+}
+
+function finishReviewed(repo, runDir, task) {
+  let commit;
+  try { commit = commitAccepted(repo, runDir, task); }
+  catch (error) {
+    // Never stage somebody's mixed baseline. A verified snapshot is still a
+    // durable checkpoint; this does not prevent the next independent repair.
+    if (!/Pre-existing changes|Pre-existing untracked|pre-existing staged/iu.test(error.message)) throw error;
+    const reviewed = JSON.parse(read(join(runDir, 'reviewed.json')));
+    json(join(runDir, 'commit.json'), { task_id: task.task_id, commit: null, checkpoint: 'reviewed.json',
+      source_hash: hash(JSON.stringify(reviewed)), reason: error.message });
+    console.log(`Checkpointed ${task.task_id}; mixed pre-existing work preserved without staging.`);
+    commit = null;
+  }
+  const receipt = JSON.parse(read(join(runDir, 'commit.json')));
+  const before = JSON.parse(read(join(runDir, 'baseline.json')));
+  const reviewed = JSON.parse(read(join(runDir, 'reviewed.json')));
+  const bundle = Object.fromEntries(sourceChanges(before, reviewed).map(file => [file,
+    { before: before[file] ?? null, after: reviewed[file] ?? null }]));
+  json(join(runDir, 'changes.json'), { encoding: 'base64', files: bundle });
+  json(join(runDir, 'verification.json'), { task_id: task.task_id, commit, checkpoint: receipt.checkpoint ?? null,
+    files: Object.fromEntries(sourceChanges(before, reviewed).map(file => [file, file in reviewed ? hash(Buffer.from(reviewed[file], 'base64')) : null])),
+    archive: 'changes.json', archive_sha256: hash(readFileSync(join(runDir, 'changes.json'))),
+    review: 'review.json', snapshot: 'reviewed.json', caution: 'Local task accepted; parent milestone gates retain their own status.' });
 }
 
 // The reviewer authorises this transaction. A private index preserves unrelated
@@ -260,7 +381,35 @@ export function launch(command, args, options) {
   return spawnSync(spec.command, spec.args, { ...options, env: spec.env });
 }
 
-export function dumpUsage(repo, runDir, taskId, command, usageOverride) {
+// Subscription windows expose percentages, not a fixed token entitlement. Never
+// infer a token budget or treat a missing/reset-expired window as free capacity.
+export function quotaAllowance(usage, reservePercent = 5, now = Date.now() / 1000) {
+  const unavailable = reason => ({ allowed: false, stopReason: 'account_quota_unavailable', reason, reservePercent });
+  if (usage?.status !== 'available') return unavailable(usage?.reason ?? 'Account quota unavailable.');
+  const buckets = usage.buckets ?? [];
+  const bucket = buckets.find(item => item.limitId === 'codex') ?? (buckets.length === 1 ? buckets[0] : null);
+  if (!bucket) return unavailable('Cannot identify the applicable Codex quota bucket.');
+  const windows = [bucket.primary, bucket.secondary].filter(Boolean);
+  const required = [300, 10080].map(minutes => windows.find(window => window.windowDurationMins === minutes));
+  if (required.some(window => !window || !Number.isFinite(window.remainingPercent) || window.remainingPercent < 0 || window.remainingPercent > 100))
+    return unavailable('Both five-hour and weekly quota windows must be readable.');
+  if (required.some(window => !Number.isFinite(window.resetsAt) || window.resetsAt <= now))
+    return unavailable('Quota reset data is missing or stale; refresh before spending.');
+  const limitingWindow = required.reduce((least, window) => window.remainingPercent < least.remainingPercent ? window : least);
+  const raw = usage.raw?.rateLimitsByLimitId?.[bucket.limitId] ?? usage.raw?.rateLimits;
+  const reached = Boolean(raw?.rateLimitReachedType || raw?.spendControlReached);
+  const allowed = !reached && limitingWindow.remainingPercent > reservePercent;
+  return { allowed, stopReason: allowed ? null : 'account_quota', reservePercent,
+    limitId: bucket.limitId, windows: required, limitingWindow,
+    reason: reached ? 'The account reports a reached usage/spending limit.' :
+      `${limitingWindow.windowDurationMins === 300 ? 'Five-hour' : 'Weekly'} quota has ${limitingWindow.remainingPercent}% remaining; reserve is ${reservePercent}%.` };
+}
+
+class QuotaPause extends Error {
+  constructor(allowance) { super(allowance.reason); this.allowance = allowance; }
+}
+
+export function dumpUsage(repo, runDir, taskId, command, usageOverride, recordName = 'usage') {
   let usage;
   try {
     if (usageOverride) usage = usageOverride();
@@ -274,7 +423,7 @@ export function dumpUsage(repo, runDir, taskId, command, usageOverride) {
     assert(usage && ['available', 'unavailable'].includes(usage.status), 'Invalid usage response.');
   } catch (error) { usage = { status: 'unavailable', reason: error.message }; }
   const record = { task_id: taskId, checkedAt: new Date().toISOString(), ...usage };
-  json(join(runDir, 'usage.json'), record);
+  json(join(runDir, `${recordName}.json`), record);
   json(join(repo, '.agent-loop', 'usage-latest.json'), record);
   if (usage.status === 'available') {
     for (const bucket of usage.buckets) for (const name of ['primary', 'secondary']) {
@@ -308,30 +457,55 @@ export function runLoop(repo, config, invokeOverride, usageOverride = invokeOver
     assert(!help.error && help.status === 0 && ['--sandbox', '--output-schema', '--output-last-message', '--json', 'resume'].every(flag => help.stdout.includes(flag)), 'Installed Codex lacks required exec/resume flags. Update CLI before running.');
     const resumeHelp = launch(command, ['exec', 'resume', '--help'], { cwd: repo, encoding: 'utf8' });
     assert(!resumeHelp.error && resumeHelp.status === 0 && resumeHelp.stdout.includes('SESSION_ID'), 'Installed Codex lacks session resume. Update CLI before running.');
+    const requiredReads = ['AGENTS.md', 'docs/codex/work-slicing.md', 'docs/codex/task-planning.md',
+      scope.plan, ...['WORKFLOW.md', 'CURRENT_TASK.md', 'RESTART_BRIEF.md'].map(name => `docs/agent-loop/${name}`)];
+    const priorStatePath = join(runtime, 'state.json');
+    const priorState = existsSync(priorStatePath) ? JSON.parse(read(priorStatePath)) : null;
+    const priorCheckpoint = priorState?.context?.checkpoint ?? priorState?.handoffCheckpoint;
+    if (priorCheckpoint) requiredReads.push(priorCheckpoint);
+    // Optional startup handoffs may not exist on a new repository. Required
+    // doctrine/plan files must still be readable; the model validates contracts.
+    checkSandboxReadAccess(command, repo, requiredReads.filter(file =>
+      !['docs/agent-loop/CURRENT_TASK.md', 'docs/agent-loop/RESTART_BRIEF.md'].includes(file) || existsSync(join(repo, file))));
   }
   if (config.check) { console.log(`Preflight passed. Milestone ${scope.milestone}: ${scope.plan}`); return 0; }
   mkdirSync(runtime, { recursive: true });
   const lock = join(runtime, 'lock');
-  let descriptor;
-  try { descriptor = openSync(lock, 'wx'); }
-  catch { throw new Error('Loop lock exists. Check for a running loop; remove .agent-loop/lock only if its process has stopped.'); }
-  writeFileSync(descriptor, `${process.pid}\n`); closeSync(descriptor);
+  acquireLock(lock);
   const statePath = join(runtime, 'state.json');
   let state, started = false;
   const save = () => json(statePath, state);
   try {
+    recoverHandoff(repo);
     state = existsSync(statePath) ? JSON.parse(read(statePath)) : null;
     const handoffCheckpoint = state?.context?.checkpoint ?? state?.handoffCheckpoint ?? null;
     if (config.restart) state = null;
     if (state) {
       assert(state.plan === scope.plan && state.milestone === scope.milestone, 'Configuration changed; run npm run agent-loop:restart after human assessment.');
       assert(!['human_review', 'blocked', 'accepted'].includes(state.status), `Persisted stop: ${state.status}. Resolve handoff, then run npm run agent-loop:restart to replan.`);
-      assert(config.resume, 'Run exists. Use npm run agent-loop:resume for interrupted/budget-limited work.');
+      // Ordinary launch also resumes an interrupted/budget-limited run.
     } else {
       assert(!config.resume, 'No saved run to resume.');
       state = { ...scope, status: 'running', phase: 'planning', cycle: 0, session: `${Date.now()}-${process.pid}`, handoffCheckpoint };
     }
-    state.status = 'running'; delete state.error; started = true; save();
+    state.status = 'running'; delete state.error; delete state.stopReason; started = true;
+    state.tokens ??= { total: 0, sessions: {} };
+    if (state.context && state.context.version !== 2 && state.context.checkpoint) {
+      const previousDir = dirname(join(repo, state.context.checkpoint));
+      for (const role of ['implementer', 'reviewer']) {
+        const metadata = join(previousDir, `${role}-invocation.json`);
+        if (!existsSync(metadata)) continue;
+        const prior = JSON.parse(read(metadata));
+        const priorLog = join(previousDir, prior.log);
+        if (!prior.sessionId || !existsSync(priorLog) || state.tokens.sessions[prior.sessionId]) continue;
+        const usage = usageFromLog(read(priorLog));
+        if (usage) state.tokens.sessions[prior.sessionId] = {
+          input: usage.input_tokens ?? 0, cached: usage.cached_input_tokens ?? 0, output: usage.output_tokens ?? 0,
+        };
+      }
+    }
+    const allocationStart = state.tokens.total;
+    save();
     const checkpoint = (runDir, task, report, review) => {
       const path = join(runDir, 'checkpoint.json');
       const previous = existsSync(path) ? JSON.parse(read(path)) : {};
@@ -340,7 +514,9 @@ export function runLoop(repo, config, invokeOverride, usageOverride = invokeOver
         head: git(repo, ['rev-parse', 'HEAD']).trim(),
         source_hash: hash(JSON.stringify(Object.entries(current).filter(([file]) => !handoffFiles.has(file)).sort(([a], [b]) => a.localeCompare(b)))),
         ...(report ? { result: report.result, report: report.report.slice(0, 1800), knowledge: report.checkpoint ?? null } : {}),
-        ...(review ? { decision: review.decision, summary: review.summary, findings: review.findings.slice(0, 6).map(item => item.slice(0, 300)) } : {}),
+        ...(review ? { decision: review.decision, summary: review.summary,
+          remaining_failures: review.remaining_failures ?? previous.remaining_failures ?? [],
+          findings: review.findings.slice(0, 6).map(item => item.slice(0, 300)) } : {}),
         evidence: relative(repo, runDir).replaceAll('\\', '/'),
         caution: 'Check results apply to the recorded source hash, not subsequent edits. Task/plan remain authoritative.',
       });
@@ -348,6 +524,13 @@ export function runLoop(repo, config, invokeOverride, usageOverride = invokeOver
     };
     const invoke = (role, prompt, runDir, schema) => {
       mkdirSync(runDir, { recursive: true });
+      if (config.accountQuota) {
+        const usage = dumpUsage(repo, runDir, role === 'planner' ? 'PLANNING' : parseTask(read(join(dir, 'CURRENT_TASK.md')), scope).task_id,
+          command, usageOverride, `${role}-quota`);
+        const allowance = quotaAllowance(usage, config.quotaReservePercent);
+        state.quota = { ...allowance, checkedAt: usage.checkedAt, nextRole: role }; save();
+        if (!allowance.allowed) throw new QuotaPause(allowance);
+      }
       const metadataPath = join(runDir, `${role}-invocation.json`);
       const prior = existsSync(metadataPath) ? JSON.parse(read(metadataPath)) : null;
       // Recover even after a hard interruption, before overwriting any evidence.
@@ -361,19 +544,20 @@ export function runLoop(repo, config, invokeOverride, usageOverride = invokeOver
         if (state.context && ['implementer', 'reviewer'].includes(role)) {
           const other = role === 'implementer' ? 'reviewer' : 'implementer';
           assert(state.context.sessions[other] !== id, 'Implementer and reviewer cannot share a session.');
-          state.context.sessions[role] = id; save();
+          if (state.context.sessions[role] !== id) { state.context.sessions[role] = id; save(); }
         }
       };
+      const recordUsage = usage => { if (usage) { accountTokens(state.tokens, sessionId, usage); save(); } };
       if (sessionId) recordSession(sessionId);
       if (recovered) recordSession(recovered);
-      if (sessionId) prompt = `Continue your existing ${role} role for the current letter.\nRead CURRENT_TASK.md and the new evidence below. Prior findings are context, not authority.\nReuse established context; reread doctrine/code only where changed or needed to verify this task.\nDo not repeat completed diagnosis without a concrete reason. Recheck results invalidated by edits.\n` + prompt;
+      if (sessionId) prompt = `Continue your existing ${role} role for the current issue.\nRead CURRENT_TASK.md and the new evidence below. Prior findings are context, not authority.\nReuse established context; reread doctrine/code only where changed or needed to verify this task.\nDo not repeat completed diagnosis without a concrete reason. Recheck results invalidated by edits.\n` + prompt;
       const checkpointPath = state.context?.checkpoint ?? state.handoffCheckpoint;
       if (!sessionId && existsSync(join(dir, 'RESTART_BRIEF.md'))) prompt =
         'Read docs/agent-loop/RESTART_BRIEF.md for the reconciled starting evidence and bounded next task.\n' +
         'Use the current task/plan and newer checkpoints if they supersede that brief. Do not crawl historical evidence.\n' + prompt;
       if (checkpointPath) prompt += `\nConcise recovery/handoff checkpoint: ${checkpointPath}.\n`;
       atomic(join(runDir, `${role}-prompt.txt`), prompt); json(join(runDir, `${role}-schema.json`), schema);
-      if (invokeOverride) return invokeOverride({ role, prompt, runDir, schema, sessionId, recordSession });
+      if (invokeOverride) return invokeOverride({ role, prompt, runDir, schema, sessionId, recordSession, recordUsage });
       const output = join(runDir, `${role}-output.json`); rmSync(output, { force: true });
       const logDir = logDirectory(repo, runDir);
       mkdirSync(logDir, { recursive: true });
@@ -392,6 +576,7 @@ export function runLoop(repo, config, invokeOverride, usageOverride = invokeOver
         closeSync(log);
         const id = sessionFromLog(read(logFile));
         if (id) recordSession(id);
+        recordUsage(usageFromLog(read(logFile)));
         json(metadataPath, { sessionId: sessionId ?? null, log: logPath });
       }
       assert(!result.error && result.status === 0, `Codex ${role} failed (${result.status ?? result.error?.message}). Log: ${logFile}.`);
@@ -407,21 +592,33 @@ export function runLoop(repo, config, invokeOverride, usageOverride = invokeOver
     };
     let iterations = 0;
     while (true) {
-      if (iterations >= config.maxIterations && state.phase !== 'planning') { state.status = 'paused'; save(); console.log('Iteration budget reached. Use npm run agent-loop:resume.'); return 4; }
+      if (config.tokenBudget && state.tokens.total - allocationStart >= config.tokenBudget) {
+        state.status = 'paused'; state.stopReason = 'token_budget'; save();
+        console.log('Token allocation reached; next action saved. Run agent-loop again to resume.'); return 4;
+      }
+      if (iterations >= config.maxIterations && state.phase !== 'planning') { state.status = 'paused'; state.stopReason = 'iteration_budget'; save(); console.log('Iteration budget reached. Use npm run agent-loop:resume.'); return 4; }
       const planning = state.phase === 'planning';
       const taskText = planning ? null : read(join(dir, 'CURRENT_TASK.md'));
       const task = planning ? null : parseTask(taskText, scope);
       if (task) assert(hash(taskText) === state.taskHash, 'CURRENT_TASK changed since handoff; run npm run agent-loop:restart to replan.');
+      // Adopt legacy per-letter sessions for their interrupted issue once. Do
+      // not throw away the exact UUID needed to resume existing partial work.
+      if (task && state.context && state.context.version !== 2 && state.context.key === `${task.milestone}:${stageKey(task)}`) {
+        state.context.version = 2; state.context.key = contextKey(task); state.context.stalls = 0; save();
+      }
       if (task && state.context?.key !== contextKey(task)) {
         state.context = { key: contextKey(task), sessions: {}, corrections: 0, checkpoint: state.context?.checkpoint ?? state.handoffCheckpoint ?? null }; save();
       }
+      if (task) state.context.version = 2;
       const runDir = join(runtime, 'runs', state.session, String(state.cycle)); mkdirSync(runDir, { recursive: true });
       if (!planning && state.phase === 'implementing') {
         if (task.kind === 'human') return stop('human_review', taskText);
         const baselinePath = join(runDir, 'baseline.json');
         if (!existsSync(baselinePath)) json(baselinePath, snapshot(repo));
         if (!existsSync(join(runDir, 'base-head.txt'))) atomic(join(runDir, 'base-head.txt'), git(repo, ['rev-parse', 'HEAD']));
-        const controls = ['scripts/agent-loop.mjs', 'scripts/agent-loop-usage.mjs', ...['CONFIG.json', 'CURRENT_TASK.md', 'RESTART_BRIEF.md', 'WORKFLOW.md', 'planner-prompt.md', 'implementer-prompt.md', 'reviewer-prompt.md'].map(name => `docs/agent-loop/${name}`)];
+        const controls = ['AGENTS.md', 'scripts/agent-loop.mjs', 'scripts/agent-loop-usage.mjs',
+          ...['work-slicing.md', 'review.md', 'task-planning.md'].map(name => `docs/codex/${name}`),
+          ...['CONFIG.json', 'CURRENT_TASK.md', 'RESTART_BRIEF.md', 'WORKFLOW.md', 'planner-prompt.md', 'implementer-prompt.md', 'reviewer-prompt.md'].map(name => `docs/agent-loop/${name}`)];
         const controlHashes = controls.map(file => existsSync(join(repo, file)) ? hash(readFileSync(join(repo, file))) : null);
         console.log(`Implementing ${task.task_id}. Logs: ${runDir}`);
         const report = invoke('implementer', read(join(dir, 'implementer-prompt.md')), runDir, reportSchema);
@@ -432,6 +629,7 @@ export function runLoop(repo, config, invokeOverride, usageOverride = invokeOver
         atomic(join(dir, 'LAST_REPORT.md'), `Task: ${report.task_id}\nResult: ${report.result}\n\n${report.report}`);
         checkpoint(runDir, task, report);
         state.phase = 'reviewing'; save();
+        if (config.tokenBudget && state.tokens.total - allocationStart >= config.tokenBudget) continue;
       }
       let review;
       if (state.phase === 'committing') {
@@ -458,6 +656,7 @@ export function runLoop(repo, config, invokeOverride, usageOverride = invokeOver
             state.phase = 'acceptance'; save();
           }
         }
+        if (state.phase === 'acceptance' && config.tokenBudget && state.tokens.total - allocationStart >= config.tokenBudget) continue;
         if (state.phase === 'acceptance') {
           const candidate = JSON.parse(read(join(runDir, 'candidate-review.json')));
           assert(sourceChanges(JSON.parse(read(join(runDir, 'candidate-snapshot.json'))), beforeReview).length === 0, 'Repository changed before fresh acceptance review; restart/replan.');
@@ -482,29 +681,44 @@ export function runLoop(repo, config, invokeOverride, usageOverride = invokeOver
           state.phase = 'committing'; save();
         }
       }
-      if (!planning && ['accept', 'advance'].includes(review.decision)) commitAccepted(repo, runDir, task);
+      if (!planning && ['accept', 'advance'].includes(review.decision)) finishReviewed(repo, runDir, task);
       if (!planning) dumpUsage(repo, runDir, task.task_id, command, usageOverride);
       if (['blocked', 'human_review'].includes(review.decision)) return stop(review.decision, review.human_review ?? review.summary);
       if (review.decision === 'accept') {
         if (config.autoAdvance) return stop('human_review', `Human milestone assessment required.\n\n${review.summary}\n\nReview ${scope.plan}, integration/performance evidence and named visual routes before accepting the milestone.`);
         return stop('accepted', review.summary);
       }
+      let stalled = false;
       if (!planning && review.decision === 'correct') {
         state.context.corrections++;
-        if (state.context.corrections >= config.maxCorrections) return stop('human_review',
-          `Correction limit (${config.maxCorrections}) reached for ${state.context.key}.\n` +
-          'No acceptance or advancement. Review the checkpoint and candidate correction before explicitly restarting/replanning.\n' +
-          `Checkpoint: ${state.context.checkpoint}\nProposed correction: ${relative(repo, runDir).replaceAll('\\', '/')}/review.json\n`);
+        const fingerprint = review.remaining_failures?.length
+          ? hash(JSON.stringify([...new Set(review.remaining_failures)].sort()))
+          : hash(JSON.stringify(Object.entries(snapshot(repo)).filter(([file]) => !handoffFiles.has(file))));
+        state.context.stalls = state.context.failureFingerprint === fingerprint ? (state.context.stalls ?? 0) + 1 : 0;
+        state.context.failureFingerprint = fingerprint;
+        stalled = state.context.stalls >= config.maxCorrections;
       }
-      atomic(join(dir, 'CURRENT_TASK.md'), review.next_task);
       // Corrections retain the original baseline for cumulative review.
       const baseline = !planning && review.decision === 'correct' ? read(join(runDir, 'baseline.json')) : null;
-      state.cycle++; state.phase = 'implementing'; state.taskHash = hash(read(join(dir, 'CURRENT_TASK.md'))); save();
-      if (baseline) atomic(join(runtime, 'runs', state.session, String(state.cycle), 'baseline.json'), baseline);
-      if (baseline) atomic(join(runtime, 'runs', state.session, String(state.cycle), 'base-head.txt'), read(join(runDir, 'base-head.txt')));
+      const nextTaskText = stalled ? `${review.next_task.trimEnd()}\n\n## Approach reassessment\nThe same failure inventory has persisted across reviews. Use the checkpoint to choose a different repair strategy, not repeat completed discovery. Diagnose, fix and verify the issue within the existing scope.\n` : review.next_task;
+      const nextState = { ...state, cycle: state.cycle + 1, phase: 'implementing', taskHash: hash(nextTaskText),
+        ...(stalled ? { context: { ...state.context, sessions: {}, stalls: 0,
+          reassessments: (state.context.reassessments ?? 0) + 1 } } : {}) };
+      json(join(runtime, 'pending-handoff.json'), { from: { cycle: state.cycle,
+        taskHash: existsSync(join(dir, 'CURRENT_TASK.md')) ? hash(read(join(dir, 'CURRENT_TASK.md'))) : hash(nextTaskText) },
+        nextState, nextTask: nextTaskText, baseline, baseHead: baseline ? read(join(runDir, 'base-head.txt')) : null });
+      // Planning may be starting with no previous task at all.
+      if (!existsSync(join(dir, 'CURRENT_TASK.md'))) atomic(join(dir, 'CURRENT_TASK.md'), nextTaskText);
+      recoverHandoff(repo); state = JSON.parse(read(statePath));
+      if (stalled) console.log('Same issue is not improving; reassessing the repair strategy with a concise checkpoint.');
       if (!planning) iterations++;
     }
   } catch (error) {
+    if (error instanceof QuotaPause) {
+      state.status = 'paused'; state.stopReason = error.allowance.stopReason; save();
+      console.log(`Quota pause: ${error.message} Next action saved; run agent-loop again after capacity returns.`);
+      return 4;
+    }
     if (started) { state.status = 'failed'; state.error = error.message; save(); }
     throw error;
   } finally { rmSync(lock, { force: true }); }
@@ -513,7 +727,7 @@ export function runLoop(repo, config, invokeOverride, usageOverride = invokeOver
 if (resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {
   try {
     const config = parseArgs(process.argv.slice(2));
-    if (config.help) console.log('Usage: node scripts/agent-loop.mjs [--check | --resume | --restart] [--max-iterations 1..50] [--max-corrections 1..50] [--no-auto-advance] [--reviewer-effort high] [--implementer-effort medium]\nShortcuts: npm run agent-loop, npm run agent-loop:restart, npm run agent-loop:resume.\nDefault: retain separate role sessions within each letter; fresh acceptance at letter transitions; stop for human assessment.');
+    if (config.help) console.log('Usage: node scripts/agent-loop.mjs [--check | --resume | --restart] [--token-budget N] [--quota-reserve-percent 5] [--no-account-quota] [--max-iterations 1..50] [--max-no-progress 1..50] [--no-auto-advance] [--reviewer-effort high] [--implementer-effort medium]\nOrdinary launch resumes interrupted work. By default both account windows are refreshed before every model turn; either window at/below the 5% reserve, or unavailable limits, pauses safely. No fixed token conversion is inferred. API-key users may explicitly disable account quota checks. An optional token budget counts uncached input plus output. Stops occur between turns; a turn may consume more than the reserve/budget. Context resumes within an issue; completed issues start fresh. Milestone completion stops for human assessment.');
     else process.exitCode = runLoop(root, config);
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

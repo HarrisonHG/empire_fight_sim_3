@@ -47,6 +47,38 @@ import type {
 } from "../../src/sim/types";
 
 describe("Milestone 8C ordinary active-standing production collision", () => {
+  it("keeps nearby contagion without pass-through when production collision repeatedly holds a router", () => {
+    const source = MAIN_BATTLE_MEDICAL_SCENARIO.combatSandbox!.units[0]!;
+    const points = [[100, 60], [108, 60], [92, 60], [100, 68], [100, 52]] as const;
+    const units = points.map(([x, y], index) => ({
+      ...productionUnit(source, index + 1, 1, x, -1),
+      deploymentZone: { minX: x, maxX: x, minY: y, maxY: y },
+      anchorY: y, order: "hold" as const,
+      unitSpeed: index === 0 ? 2 : 0, memberMaxStep: 2,
+    }));
+    const simulation = createSimulation({
+      ...createProductionScenario(100, 108), entityCount: 6,
+      combatSandbox: { kind: "liveCombatSandbox", appliedDamagePressureScale: 2,
+        units: [...units, { ...productionUnit(source, 6, 2, 230, -1), order: "hold", unitSpeed: 0 }] },
+    });
+    const combat = simulation.combatSandbox!;
+    for (let tick = 0; tick < 3; tick += 1) {
+      combat.moraleMovementStates.set(1, "routing");
+      advanceSimulationOneTick(simulation);
+      const collision = getIndividualCollisionResolutionInspection(combat.individualCollisionResolutionStore, 0);
+      expect(collision.permittedDeltaX ** 2 + collision.permittedDeltaY ** 2).toBeGreaterThan(0);
+      expect([collision.resolvedDeltaX, collision.resolvedDeltaY]).toEqual([0, 0]);
+      expect([simulation.world.positionsX[0], simulation.world.positionsY[0]]).toEqual([100, 60]);
+      for (const summary of combat.routingContagionSummaries.filter(s => s.unitId > 1 && s.unitId < 6)) {
+        expect(summary.passThroughRouterUnitIds).toEqual([]);
+        expect(summary.nearbyRouterUnitIds).toEqual([1]);
+        expect(summary.cohesionLossApplied).toBe(0);
+        expect(summary.pressureAppliedPerMember).toBeGreaterThan(0);
+        expect(summary.pressureAppliedPerMember).toBeLessThanOrEqual(6);
+      }
+    }
+  });
+
   it("prevents two hostile groups from interpenetrating and settles a stable front", () => {
     const fixture = createResolverFixture(4, false);
     setPosition(fixture.world, 0, 20, 20);

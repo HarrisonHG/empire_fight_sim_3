@@ -596,6 +596,9 @@ describe("individual casualty assistance and sparse drag groups", () => {
         const group = getActiveCasualtyDragGroups(combat.casualtyDragGroupStore)[0];
         const collision = getIndividualCollisionResolutionInspection(combat.individualCollisionResolutionStore, 1);
         if (beforePhase === "gathering" && tick > 0) {
+          expect((simulation.world.positionsX[1]! - 560) ** 2 +
+            (simulation.world.positionsY[1]! - 348) ** 2)
+            .toBeLessThanOrEqual((beforeX - 560) ** 2 + (beforeY - 348) ** 2);
           expect(collision.resolvedDeltaX).toBe(simulation.world.positionsX[1]! - beforeX);
           expect(collision.resolvedDeltaY).toBe(simulation.world.positionsY[1]! - beforeY);
           expect(collision.resolvedDeltaX ** 2 + collision.resolvedDeltaY ** 2)

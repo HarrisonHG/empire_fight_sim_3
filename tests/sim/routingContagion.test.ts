@@ -3,10 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
   advanceFormationOneTick,
   createFormationBehaviourStore,
+  collectResolvedRoutingPassThroughInteractions,
   getIndividualPressure,
   getUnitCohesion,
   type FormationBehaviourConfig,
 } from "../../src/sim/formationBehaviour";
+import { createIndividualOrdinaryParticipationSnapshot, setIndividualOrdinaryParticipationEligible } from "../../src/sim/individualOrdinaryParticipation";
+import { createIndividualCasualtyLifecycleStore, createIndividualPlayerPresenceStore, applyIndividualZeroHitLifecycleTransitions } from "../../src/sim/individualCasualtyLifecycle";
+import { createIndividualCasualtyProcedureProfileStore } from "../../src/sim/individualCasualtyProcedureProfile";
 import type { MoraleMovementState } from "../../src/sim/moraleMovement";
 import {
   ROUTING_CONTAGION_CONSTANTS,
@@ -457,3 +461,108 @@ function summaryFor(
   if (summary === undefined) throw new Error(`Missing summary for unit ${unitId}.`);
   return summary;
 }
+
+describe("collision-resolved routing pass-through evidence", () => {
+  const routing = new Map<UnitId, MoraleMovementState>([[1, "routing"]]);
+  const snapshot = (h: ReturnType<typeof createHarness>, states = routing) =>
+    advanceFormationOneTick(h.world, h.identity, h.formation, states,
+      undefined, undefined, undefined, undefined, undefined, true);
+  const collect = (h: ReturnType<typeof createHarness>, states = routing) =>
+    collectResolvedRoutingPassThroughInteractions(h.world, h.identity, h.formation, states);
+
+  it.each([false, true])("uses each redirected segment and tick-start target geometry (into=%s)", (into) => {
+    const h = createHarness([router(1, 0, 100, 100),
+      ally(2, 1, into ? 100 : 115, into ? 115 : 100)]);
+    expect(snapshot(h).routingPassThroughInteractions).toEqual([]);
+    // Proposed horizontal segment qualifies only in the away case.
+    h.world.positionsX[0] = 108;
+    expect(collect(h)).toEqual(into ? [] : [{ routerUnitId: 1, targetUnitId: 2 }]);
+    // Collision redirects vertically. Target movement must not replace its snapshot.
+    h.world.positionsX[0] = 100; h.world.positionsY[0] = 108;
+    h.world.positionsX[1] = into ? 400 : 100;
+    h.world.positionsY[1] = into ? 400 : 102;
+    expect(collect(h)).toEqual(into ? [{ routerUnitId: 1, targetUnitId: 2 }] : []);
+  });
+
+  it("does not retain a pair merely because a distant member of the router unit moved", () => {
+    const h = createHarness([router(1, 0, 100, 100, [0, 1]), ally(2, 2, 110, 100)]);
+    h.world.positionsX[1] = 300;
+    snapshot(h);
+    h.world.positionsX[1] = 301;
+    expect(collect(h)).toEqual([]);
+  });
+
+  it("requires actual movement even for stationary overlap and preserves nearby contagion", () => {
+    const h = createHarness([router(1, 0, 100, 100), ally(2, 1, 106, 100)]);
+    snapshot(h);
+    const interactions = collect(h);
+    expect(interactions).toEqual([]);
+    expect(summaryFor(advance(h, [1], interactions), 2)).toMatchObject({
+      nearbyRouterUnitIds: [1], passThroughRouterUnitIds: [], cohesionLossApplied: 0,
+    });
+  });
+
+  it.each(["routerParticipation", "targetParticipation", "routerLifecycle", "targetLifecycle", "notRouting"] as const)("excludes %s", (exclusion) => {
+    const h = createHarness([router(1, 0, 100, 100), ally(2, 1, 110, 100)]);
+    const life = createIndividualCasualtyLifecycleStore(2);
+    const presence = createIndividualPlayerPresenceStore(2);
+    const ordinary = createIndividualOrdinaryParticipationSnapshot(2);
+    const entityId = exclusion.startsWith("router") ? 0 : 1;
+    if (exclusion.endsWith("Participation")) setIndividualOrdinaryParticipationEligible(ordinary, entityId, false);
+    if (exclusion.endsWith("Lifecycle")) {
+      const procedures = createIndividualCasualtyProcedureProfileStore({ entityCount: 2,
+        profiles: [0, 1].map(entityId => ({ entityId, procedureKind: "citizen" as const,
+          deathCountPolicy: { kind: "normalFortitude" as const } })) });
+      applyIndividualZeroHitLifecycleTransitions(life, presence, procedures, h.world,
+        [{ entityId, attackerEntityId: 1 - entityId, previousHits: 1 }], 0);
+    }
+    const states = exclusion === "notRouting" ? new Map<UnitId, MoraleMovementState>() : routing;
+    advanceFormationOneTick(h.world, h.identity, h.formation, states, undefined, life, ordinary, undefined, undefined, true);
+    h.world.positionsX[0] = 102;
+    expect(collectResolvedRoutingPassThroughInteractions(h.world, h.identity, h.formation, states, life, ordinary)).toEqual([]);
+  });
+
+  it("deduplicates genuine resolved passes and replays with reversed unit definitions", () => {
+    const run = (reverse: boolean) => {
+      const definitions = [router(1, 0, 100, 100, [0, 1]), ally(2, 2, 110, 100, [2, 3])];
+      const h = createHarness(reverse ? definitions.slice().reverse() : definitions);
+      const trace = [];
+      for (let tick = 0; tick < 4; tick += 1) {
+        snapshot(h);
+        h.world.positionsX[0] = h.world.positionsX[0]! + 1;
+        h.world.positionsX[1] = h.world.positionsX[1]! + 1;
+        const pairs = collect(h);
+        expect(pairs).toEqual([{ routerUnitId: 1, targetUnitId: 2 }]);
+        trace.push({ pairs, summaries: advance(h, [1], pairs) });
+      }
+      return trace;
+    };
+    expect(run(false)).toEqual(run(false));
+    expect(run(true)).toEqual(run(false));
+  });
+
+  it("bounds resolved collection to local queries with reusable formation storage at 2,000 entities", () => {
+    const definitions = Array.from({ length: 2_000 }, (_, id) =>
+      ally(id + 1, id, 5 + (id % 50) * 10, 5 + Math.floor(id / 50) * 10));
+    const h = createHarness(definitions);
+    const states = new Map<UnitId, MoraleMovementState>(definitions.filter((_, id) => id % 2 === 0).map(d => [d.unitId, "routing"]));
+    const diagnostics = { queryCount: 0, candidateCount: 0, maximumQueryRadius: 0 };
+    const internal = h.formation as unknown as { contactSnapshotPositionsX: Int32Array; contactSnapshotPositionsY: Int32Array;
+      routingPassThroughRouterUnitIds: Int32Array; routingPassThroughTargetUnitIds: Int32Array; scratchNearbyEntityIds: number[] };
+    const retained = [internal.contactSnapshotPositionsX, internal.contactSnapshotPositionsY,
+      internal.routingPassThroughRouterUnitIds, internal.routingPassThroughTargetUnitIds, internal.scratchNearbyEntityIds];
+    for (let tick = 0; tick < 2; tick += 1) {
+      snapshot(h, states);
+      for (let id = 0; id < 2_000; id += 2) h.world.positionsX[id] = h.world.positionsX[id]! + 1;
+      const pairs = collectResolvedRoutingPassThroughInteractions(h.world, h.identity, h.formation, states, undefined, undefined, diagnostics);
+      expect(pairs.length).toBeLessThanOrEqual(256);
+    }
+    expect(diagnostics.queryCount).toBe(2_000);
+    expect(diagnostics.maximumQueryRadius).toBe(13);
+    expect(diagnostics.candidateCount).toBeLessThan(12_000);
+    for (let index = 0; index < retained.length; index += 1) {
+      expect([internal.contactSnapshotPositionsX, internal.contactSnapshotPositionsY,
+        internal.routingPassThroughRouterUnitIds, internal.routingPassThroughTargetUnitIds, internal.scratchNearbyEntityIds][index]).toBe(retained[index]);
+    }
+  });
+});

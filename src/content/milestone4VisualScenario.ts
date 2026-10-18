@@ -14,9 +14,13 @@ export const MILESTONE_4_VISUAL_AREAS = Object.freeze([
 
 const comparisonUnits = requireUnits(MORALE_INSPECTION_SCENARIO).map((unit) =>
   translateUnit(
-    unit,
+    // Keep the recruit group fragile enough to demonstrate fleeing under the
+    // current collision/gathering rules, without changing morale authority.
+    unit.unitId === 13 ? { ...unit, initialCohesion: 600 } : unit,
     unit.unitId,
-    unit.unitId === 13 ? -20 : unit.unitId === 22 ? 20 : 0,
+    // Reserve 14 is an unexposed control, outside the local rescue radius of
+    // the casualty front; it must not acquire stress by volunteering there.
+    unit.unitId === 14 ? -260 : unit.unitId === 13 ? -20 : unit.unitId === 22 ? 20 : 0,
     0,
     "Comparison area",
   ),
@@ -25,7 +29,7 @@ const regularPursuitUnits = requireUnits(PURSUIT_REGULAR_SCENARIO).map((unit) =>
   translateUnit(
     unit,
     unit.unitId,
-    unit.unitId === 41 ? 3 : 0,
+    0,
     740,
     "Regular pursuit area",
   ),
@@ -43,7 +47,7 @@ const veteranPursuitUnits = requireUnits(PURSUIT_VETERAN_SCENARIO).map((unit) =>
 /** Persistent Milestone 4 regression asset; do not retune as a showcase. */
 export const MILESTONE_4_VISUAL_SCENARIO: SimulationScenario = Object.freeze({
   seed: 0x4a_4f,
-  entityCount: 110,
+  entityCount: 130,
   bounds: Object.freeze({ width: 1_280, height: 1_900 }),
   minSpeedUnitsPerTick: 1,
   maxSpeedUnitsPerTick: 1,

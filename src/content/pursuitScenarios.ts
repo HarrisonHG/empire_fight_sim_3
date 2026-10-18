@@ -4,7 +4,9 @@ import { RETAINED_SCENARIO_ISOLATION_ENERGY_PROFILE } from "./retainedScenarioEn
 /**
  * Small deterministic inspection cases for the 4H-4 routing lifecycle. The
  * red pursuit is intentionally identical in both cases; only the blue unit's
- * troop profile differs.
+ * troop profile differs. The defenders are outnumbered two to one; heavy armour
+ * keeps the encounter alive long enough to exercise routing and recovery instead
+ * of exhausting ordinary participants into casualty/rescue assignments first.
  */
 export const PURSUIT_REGULAR_SCENARIO = createPursuitScenario("regular");
 export const PURSUIT_VETERAN_SCENARIO = createPursuitScenario("veteran");
@@ -14,7 +16,7 @@ function createPursuitScenario(
 ): SimulationScenario {
   return Object.freeze({
     seed: 0x4a_4,
-    entityCount: 20,
+    entityCount: 30,
     bounds: Object.freeze({ width: 1_280, height: 720 }),
     minSpeedUnitsPerTick: 1,
     maxSpeedUnitsPerTick: 1,
@@ -22,6 +24,7 @@ function createPursuitScenario(
     combatSandbox: Object.freeze({
       kind: "liveCombatSandbox",
       appliedDamagePressureScale: 7,
+      requireLegalInitialHardStandingPlacement: true,
       units: Object.freeze([
         bluePursuitUnit(blueRole),
         redPursuitUnit(),
@@ -45,7 +48,7 @@ function bluePursuitUnit(
     anchorY,
     headingX: 1,
     headingY: 0,
-    spacing: 6,
+    spacing: 10,
     rows: 2,
     cols: 5,
     unitSpeed: 3,
@@ -55,7 +58,7 @@ function bluePursuitUnit(
     memberMaxStep: 4,
     weaponCategory: "pike",
     weaponReachBand: "veryLong",
-    armourClass: "light",
+    armourClass: "heavy",
     shieldClass: "none",
     attackIntervalTicks: 1,
     maxDamageCapacity: 1_000_000,
@@ -75,14 +78,14 @@ function redPursuitUnit(): CombatSandboxUnitScenario {
     unitId: 41,
     label: "Red advancing pursuit line",
     factionId: 2,
-    memberCount: 10,
+    memberCount: 20,
     deploymentZone: zone(anchorX, anchorY),
     anchorX,
     anchorY,
     headingX: -1,
     headingY: 0,
-    spacing: 6,
-    rows: 2,
+    spacing: 10,
+    rows: 4,
     cols: 5,
     unitSpeed: 2,
     ordinaryPhysicalGait: "sprinting",
@@ -91,7 +94,7 @@ function redPursuitUnit(): CombatSandboxUnitScenario {
     memberMaxStep: 3,
     weaponCategory: "pike",
     weaponReachBand: "veryLong",
-    armourClass: "light",
+    armourClass: "heavy",
     shieldClass: "none",
     attackIntervalTicks: 1,
     maxDamageCapacity: 1_000_000,

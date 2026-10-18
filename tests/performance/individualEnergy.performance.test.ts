@@ -773,7 +773,9 @@ describe("Milestone 7E production structural performance", () => {
     (entityCount) => {
       const { scenario, expectedMinimumBurdenCounts } =
         createMilestone7EPerformanceScenario(entityCount);
+      const setupStarted = performance.now();
       const simulation = createSimulation(scenario);
+      const setupMilliseconds = performance.now() - setupStarted;
       const combat = simulation.combatSandbox!;
       const activityStoreIdentity = combat.individualEnergyActivityStore;
       const modifierStoreIdentity =
@@ -861,6 +863,7 @@ describe("Milestone 7E production structural performance", () => {
         representativeBurdenMultiplierCounts:
           Object.fromEntries(actualBurdenCounts),
         sparseCasualtyCount,
+        setupMilliseconds,
         inspectedEntityCount: combat.inspectedIndividuals.length,
         elapsedMilliseconds,
         projectionShape: "opaque entity-indexed typed arrays",
@@ -899,29 +902,37 @@ function createMilestone7EPerformanceScenario(entityCount: number): {
   ] as const;
   const expectedFillerMultipliers = [100, 150, 160, 130] as const;
   const template = sourceCombat.units[24]!;
-  const fillerUnits: CombatSandboxUnitScenario[] = counts.map(
-    (memberCount, index) => ({
+  // Author room for each filler body instead of making hundreds compete for
+  // one coordinate during setup. Keep the four loadout populations and order.
+  const fillerUnits: CombatSandboxUnitScenario[] = counts.flatMap(
+    (population, index) => Array.from({ length: Math.ceil(population / 20) }, (_, chunk) => {
+      const memberCount = Math.min(20, population - chunk * 20);
+      const x = 3_800 + (chunk % 5) * 40;
+      const y = 1_500 + index * 800 + Math.floor(chunk / 5) * 160;
+      return {
       ...template,
-      unitId: 2_000 + index,
+      unitId: 2_000 + index * 100 + chunk,
       factionId: 99,
       memberCount,
       deploymentZone: {
-        minX: 3_800,
-        maxX: 3_800,
-        minY: 1_500 + index * 800,
-        maxY: 1_500 + index * 800,
+        minX: x,
+        maxX: x,
+        minY: y,
+        maxY: y + (memberCount - 1) * 8,
       },
-      anchorX: 3_800,
-      anchorY: 1_500 + index * 800,
+      anchorX: x,
+      anchorY: y + (memberCount - 1) * 4,
       headingX: -1,
-      rows: Math.ceil(memberCount / 20),
-      cols: Math.min(memberCount, 20),
+      rows: 1,
+      cols: memberCount,
+      spacing: 8,
       unitSpeed: 0,
-      order: "hold",
+      order: "hold" as const,
       weaponCategory: loadouts[index]!.weaponCategory,
       armourClass: loadouts[index]!.armourClass,
       shieldClass: loadouts[index]!.shieldClass,
       label: `7E structural burden ${expectedFillerMultipliers[index]}`,
+      };
     }),
   );
   const scenario: SimulationScenario = {

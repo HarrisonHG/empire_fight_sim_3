@@ -10,6 +10,7 @@ import {
 } from "./combatPipeline";
 import {
   advanceFormationOneTick,
+  collectResolvedRoutingPassThroughInteractions,
   applyIndividualExternalMovementIntentWithAnchor,
   createFormationBehaviourStore,
   getIndividualRequestedPhysicalGait,
@@ -2345,6 +2346,7 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.individualOrdinaryParticipationSnapshot,
       { tick, capabilities: combatSandbox.formationEnergyGaitCapabilities },
       { tick, rest: getUnitEnergyRestSource(combatSandbox.unitEnergyBehaviourStore) },
+      true, // Collect routing interactions only after collision resolution.
     );
     resolveOrdinaryActiveStandingFormationMovementOneTick(
       combatSandbox.individualActiveStandingCollisionWorkspace,
@@ -2357,6 +2359,16 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.formationStore,
       combatSandbox.individualMovementRightOfWayStore,
     );
+    const routingPassThroughInteractions = collectResolvedRoutingPassThroughInteractions(
+      world, combatSandbox.identityStore, combatSandbox.formationStore,
+      combatSandbox.moraleMovementStates,
+      combatSandbox.individualCasualtyLifecycleStore,
+      combatSandbox.individualOrdinaryParticipationSnapshot,
+    );
+    if (instrumentation?.formationDiagnostics !== undefined) {
+      instrumentation.formationDiagnostics.routingPassThroughInteractions =
+        routingPassThroughInteractions.length;
+    }
     observeIndividualEnergyMovementAuthority(
       combatSandbox.individualEnergyActivityStore,
       world,
@@ -2449,7 +2461,7 @@ export function advanceCombatSandboxOneTick(
       combatSandbox.individualEnergyActivityStore,
       world,
     );
-    return result;
+    return { events: result.events, routingPassThroughInteractions };
   });
   const individualCombatResult = runStage("individualPipeline", () => {
     let individualCombatExchange = advanceIndividualCombatExchangeOneTick(
@@ -3916,7 +3928,9 @@ function collectInspectedIndividualSnapshots(
         (record) => record.entityId === entityId,
       );
 
-    out.push({
+    // Ordered chunks avoid the measured large-literal spread cost. The target
+    // is fresh each tick; optional keys retain their original insertion order.
+    out.push(Object.assign({
       entityId,
       unitId,
       casualtyProcedureKind: getIndividualCasualtyProcedureProfile(
@@ -3990,9 +4004,9 @@ function collectInspectedIndividualSnapshots(
       deathCountDurationTicks: deathCount.durationTicks,
       deathCountRemainingTicks: deathCount.remainingTicks,
       deathCountPaused: deathCount.paused,
-      ...(deathCount.pauseSource === undefined
+    }, deathCount.pauseSource === undefined
         ? {}
-        : { deathCountPauseSource: deathCount.pauseSource }),
+        : { deathCountPauseSource: deathCount.pauseSource }, {
       firstZeroHitTick: casualtyHistory.firstZeroHitTick,
       latestZeroHitTick: casualtyHistory.latestZeroHitTick,
       dyingTransitionCount: casualtyHistory.dyingTransitionCount,
@@ -4134,14 +4148,14 @@ function collectInspectedIndividualSnapshots(
         energyCapability.canInitiateOrdinarySprintOrCharge,
       energyMinimumSafeWalkAvailable:
         energyCapability.minimumSafeWalkAvailable,
-      ...(combatSandbox.includeEnergyDebug ? {
+    }, combatSandbox.includeEnergyDebug ? {
         energyAttackRecoveryDurationMultiplierPercent:
           energyCapability.attackRecoveryDurationPercent,
         energyGuardReadinessRecoveryMultiplierPercent:
           energyCapability.guardReadinessRecoveryPercent,
         energyPressureRecoveryMultiplierPercent:
           energyCapability.pressureRecoveryPercent,
-      } : {}),
+      } : {}, {
       energyAttackImpulsesThisTick:
         energyActivity.validAttackAttemptCount,
       energyDefenceImpulsesThisTick:
@@ -4209,17 +4223,16 @@ function collectInspectedIndividualSnapshots(
       casualtyDragGroupId: casualtyAssistance.dragGroupId,
       casualtyAssistanceDestinationX: casualtyAssistance.destinationX,
       casualtyAssistanceDestinationY: casualtyAssistance.destinationY,
-      ...(casualtyDragFreeHands === undefined
+    }, casualtyDragFreeHands === undefined
         ? {}
-        : { casualtyDragFreeHands }),
-      ...(dragGroup === undefined ? {} : {
+        : { casualtyDragFreeHands }, dragGroup === undefined ? {} : {
         casualtyDragGroupPhase: dragGroup.phase,
         casualtyDragPatientEntityId: dragGroup.patientEntityId,
         casualtyDragHelperEntityIds: dragGroup.helperEntityIds,
-      }),
+      }, {
       claimedMedicalPatientEntityId: medicalClaim.patientEntityId,
       claimedMedicalPhysickEntityId: medicalClaim.physickEntityId,
-      ...(treatmentAction === undefined ? {} : {
+    }, treatmentAction === undefined ? {} : {
         treatmentActionId: treatmentAction.actionId,
         treatmentKind: treatmentAction.kind,
         treatmentHealerEntityId: treatmentAction.healerEntityId,
@@ -4229,19 +4242,19 @@ function collectInspectedIndividualSnapshots(
         treatmentReservedGenericHerbs: treatmentAction.reservedGenericHerbs,
         treatmentSelectedLimbDisability:
           treatmentAction.selectedLimbDisability,
-      }),
+      }, {
       disabledArm: limbDisability.disabledArm,
       disabledLeg: limbDisability.disabledLeg,
       disabledArmEpisodeCount: limbDisability.armEpisodeCount,
       disabledLegEpisodeCount: limbDisability.legEpisodeCount,
       disabledArmClearedCount: limbDisability.armClearedCount,
       disabledLegClearedCount: limbDisability.legClearedCount,
-      ...(executionAction === undefined ? {} : {
+    }, executionAction === undefined ? {} : {
         executionActionId: executionAction.actionId,
         executionExecutorEntityId: executionAction.executorEntityId,
         executionTargetEntityId: executionAction.targetEntityId,
         executionProgressTicks: executionAction.progressTicks,
-      }),
+      }, {
       tickStartCombatEligible: isIndividualCombatEligible(
         combatSandbox.individualCombatEligibilitySnapshot,
         entityId,
@@ -4356,7 +4369,7 @@ function collectInspectedIndividualSnapshots(
         defenceRecord?.deterministicDefenceRollFixedPoint ?? 0,
       chosenDefenceSource: defenceRecord?.availableDefenceType ?? "none",
       defenceResolution: defenceRecord?.defenceResolution ?? "none",
-      ...getThisTickIncomingDefenceCounts(combatSandbox, entityId),
+    }, getThisTickIncomingDefenceCounts(combatSandbox, entityId), {
       thisTickAppliedHitLoss: getThisTickAppliedHitLoss(
         combatSandbox,
         entityId,
@@ -4382,7 +4395,7 @@ function collectInspectedIndividualSnapshots(
       pressureRecoveryCreditApplied:
         pressureInspection.recoveryCreditApplied,
       recoveredPressureAmount: pressureInspection.recoveredPressureAmount,
-    });
+    }));
   }
   return out;
 }
