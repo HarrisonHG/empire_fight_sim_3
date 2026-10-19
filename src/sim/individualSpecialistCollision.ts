@@ -55,6 +55,7 @@ export interface IndividualSpecialistCollisionResolver {
     permittedDeltaX: number,
     permittedDeltaY: number,
     softContactEntityId?: number,
+    constrainGatheringToPatient?: boolean,
   ): void;
 }
 
@@ -136,9 +137,9 @@ export function createIndividualSpecialistCollisionResolver(
       }
     },
     resolveStep(entityId, permittedDeltaX, permittedDeltaY,
-      softContactEntityId = -1): void {
+      softContactEntityId = -1, constrainGatheringToPatient = false): void {
       assertEntity(entityId, resolver.entityCount);
-      const gathering = softContactEntityId >= 0 &&
+      const gathering = constrainGatheringToPatient && softContactEntityId >= 0 &&
         occupancy.occupancyClassCodes[softContactEntityId] ===
           INDIVIDUAL_PHYSICAL_OCCUPANCY_CLASS.downedSoft;
       const patient = gathering ? softContactEntityId : -1;

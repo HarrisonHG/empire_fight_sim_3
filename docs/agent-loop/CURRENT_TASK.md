@@ -1,30 +1,23 @@
 ---
-task_id: 8I-1
-issue: 8I.performance-soak
+task_id: 8J
+issue: 8J.human-acceptance
 milestone: 8
 plan: docs/plans/milestone-8-personal-space-collision-and-crowd-flow.md
-slice: 8I
-kind: performance
-human_review_required: false
+slice: 8J
+kind: human
+human_review_required: true
 ---
 
-# Complete the performance and deterministic soak gate
+# Assess Milestone 8 for acceptance
 
-## Goal
-Verify the complete 8I performance and deterministic soak requirements after fresh acceptance of the 8H transition.
+Automated checks on the final source pass: 8H has 1,292 tests across 91 files,
+typecheck and build; 8I has 137 performance tests across 24 files, one-hour
+replay and retained inspection budget. Details are in the implementation history.
 
-## Allowed scope
-Read the current checkpoint, exact 8I plan section and performance doctrine. Preserve reviewed repairs and unrelated WIP. Run the required measurements, diagnose demonstrated failures, repair production bugs or invalid fixtures, add meaningful regressions and verify the outcome within milestone 8 authority. Optimise only measured bottlenecks. Preserve deterministic simulation, authority boundaries, legal placement, behavioural assertions and existing budgets. Do not add gameplay features or production dependencies, search seeds, inject desired states or increase timeouts. Report deliberately illegal dense diagnostics separately from representative acceptance measurements.
+Human assessment must resolve the 8I throughput concern (73.06 ms/tick for legal
+2,000-entity debug-off geometry, below real-time 20 Hz on this machine) and inspect
+both `/test?scenario=personal-space` and `/`. Use HUMAN_REVIEW.md. No connected
+browser was available for automated visual inspection; HTTP smoke passed.
 
-## Checks
-- Full npm run perf, with complete results and exact worker settings; avoid overlapping expensive jobs.
-- Representative legal 2,000-entity Milestone 8 measurement with debug disabled.
-- One-hour deterministic collision soak/replay, recording duration, ticks, inputs and replay equality evidence.
-- Collision-stage timings and local query/candidate/pass counts.
-- Retained typed-storage evidence and allocation/GC evidence where practical.
-- Preserve and run the full-scene 400-tick/10-second inspected-record construction requirement in tests/performance/inspectedSnapshotConstruction.test.ts.
-- Run the deliberately illegal dense diagnostic fixture and report it separately.
-- For repairs, run affected regressions, typecheck for TypeScript changes and git diff --check. If production simulation code changes, repeat the complete 8H integration gate before acceptance.
-
-## Done criteria
-All named 8I requirements pass on the proposed source without relaxed assertions or budgets. Save concise commands, outcomes, measurements and any practical instrumentation limitations. Return for independent review and fresh boundary acceptance before selecting 8J. Record distinct unresolved failures with stable IDs; do not claim milestone completion or human acceptance.
+Do not infer human acceptance or start Milestone 9. If a defect is found, open
+a narrow correction with a regression and repeat any invalidated gates.

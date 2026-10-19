@@ -10,6 +10,113 @@ The active source of truth is:
 Only read this history when a current slice explicitly needs a previous
 implementation detail, performance number, or regression rationale.
 
+
+## 2026-10-19 — Final automated verification and human-review handoff
+
+Continued from `origin/auto-agent` at `da083f0` on local branch
+`milestone-8-completion`; the original `master` checkout stopped at `abd1af1`
+and had stale missing-audit instructions. Git history and the later handoff
+resolve that audit. No Milestone 9 implementation was added.
+
+### 8H-11 correction and integration
+
+Independent review found that downed contact-patient identity implicitly enabled
+the helper-gathering distance restriction for medical approach too. An explicit
+resolver opt-in now limits that policy to casualty-helper gathering. Regressions
+fail under the original inference and pass after correction, including medical
+hard-obstruction detours, monotonic helper progress, hard-body clearance,
+movement budgets and deterministic replay. Focused checks: 84/84 tests.
+
+Fresh gate on corrected production source:
+
+- `npm run typecheck`: passed.
+- `npm test -- --maxWorkers=1`: 1,292 passed across 91 files, no skips/failures.
+- `npm run build`: passed.
+- `git diff --check`: passed.
+
+### 8I measurements
+
+`npm run perf -- --maxWorkers=1 --silent=false --disableConsoleIntercept`:
+137 passed across 24 files, no skips/failures, 373.87 seconds total. Expensive
+jobs ran sequentially. The unchanged full-scene 400-tick/10-second inspection
+construction requirement passed. Node 20.19.5; hardware-dependent timings.
+
+Legal debug-off 2,000-entity case: seed 8462374, 40 units of 50 participants,
+10 warm-up ticks plus 100 measured ticks, independent zero-hard-overlap checks.
+
+| Evidence | Result |
+| --- | ---: |
+| Mean / p95 / maximum tick, ms | 73.06 / 77.16 / 80.71 |
+| Ordinary collision mean, ms (nested in formation) | 48.00 |
+| Formation mean, ms | 57.33 |
+| Individual pressure/cohesion mean, ms | 11.42 |
+| Other stage means, ms | pre-movement threat 0.49; individual pipeline 0.83; routing contagion 0.11; recovery threat 0.50; morale 0.41; counters/snapshots 0.61 |
+| Maximum local queries / candidates / passes | 25,982 / 176,830 / 8 |
+| Retained typed arrays / bytes | 338 / 2,078,528 |
+| Observed heap / array-buffer deltas, bytes | +23,264,544 / +71,245 |
+| Delivered GC observations | 0 |
+
+These results do **not** prove real-time 20 Hz performance: 73.06 ms/tick is
+about 13.7 ticks/second. The plan has no numeric timing acceptance budget;
+viability remains a human assessment concern. Collision is the measured main
+cost if further optimisation is required. GC was observed, not forced; zero
+observations do not establish zero collections or zero allocations. Memory
+deltas include warm-up and are not cumulative allocation counts. Typed-array
+identity checks do not cover ordinary grid buckets, sparse records or transient
+objects, and byte totals exclude closure/WeakMap-only state.
+
+Storage diagnosis: setup initially exposes 329 arrays. Exactly nine fixed,
+entity-capacity arrays initialize on the first query of formation blocker,
+individual-pressure and routing-contagion grids. The corrected harness checks
+those exact paths and sizes, preserves setup array identities, then requires
+all 338 initialized arrays to retain identities/counts through the run. It does
+not allow arbitrary later growth.
+
+One-hour replay: two independent 72,000-tick production runs at 20 fixed ticks
+per simulated second, 20 entities, seed 8462374. Every 200 ticks all four units
+hold for 20 ticks then advance for 180; no position or authority-state injection.
+Both runs matched per-tick evidence and final enumerable authority hashes.
+22,623 moving ticks; all 18,000 last-quarter ticks exercised constrained contact;
+maximum three solver passes; zero illegal hard overlaps; actual displacement
+and collision evidence agreed within the permitted step budget. Retained typed
+storage: 338 arrays / 23,396 bytes.
+
+- Per-tick SHA-256: `cfd5f34a9ff69f4cbac72fcfbc29664c70bdc2f6504227959206c4e5d3c597f8`.
+- Final authority SHA-256: `cd19042fda2b5d1cb83766759ce2109bdb9ac35b61ca6426b09314235d663825`.
+- Final two-run elapsed time: 59.13 seconds, within the unchanged 120-second budget.
+
+The original 20-entity fixture reused the 1,800×900 arena, taking 184.32 seconds
+and failing that budget. Compacting only its empty arena to 800×300 reduced grid
+clearing work. The original and compact arenas have identical per-tick hashes,
+movement counts, late-contact counts and maximum passes; final authority hashes
+differ because they include world bounds. The 2,000-entity arena is unchanged.
+No timeout, behavioural assertion, seed or simulated duration was relaxed.
+
+Separate adverse diagnostic: `denseCollapseStress`, 2,000 entities, 40% casualties,
+explicitly overlapping geometry; mean 248.16 / p95 454.10 / maximum 862.41 ms/tick.
+This is not legal representative acceptance performance.
+
+### Documentation and review boundary
+
+Indexed the whole docs tree and checked referenced repository paths. Corrected
+the roadmap's Milestone 7 links to its consolidated completed plan; reconciled
+stale 8H failure status with final evidence; updated the visual-route inventory,
+reserve-control description and current review checklist. Historical replay
+paths and the retired 8H audit probe remain historical references, not missing
+implementation prerequisites. No broad design rewrite was made.
+
+HTTP smoke passed for `/`, `/test?scenario=personal-space`, and the transformed
+worker entry. Browser discovery returned no connected browsers, so no visual
+or browser-console acceptance is claimed. The development server is available
+at `http://127.0.0.1:5173/` for human review. Current task/checklist: 8J, with
+explicit assessment of the 8I throughput concern. Milestone 8 is not accepted.
+
+Detailed local logs: `.agent-loop/logs/milestone-8-completion/` (ignored runtime
+evidence). `perf-final.log`, `integration.log`, `typecheck.log`, `build.log`,
+`specialist-before.log`, `specialist-after.log`, `storage-diagnosis.log`,
+`8i-focused.log` (original-arena timeout), and `8i-compact-soak.log` distinguish
+final acceptance checks from diagnostic runs.
+
 ---
 
 # Archived detailed plan/evidence before workflow re-slicing

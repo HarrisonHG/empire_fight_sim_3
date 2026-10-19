@@ -1,15 +1,17 @@
 {
-  "decision": "advance",
-  "task_id": "8H-10",
-  "summary": "Fresh acceptance confirms 8H-10 is complete. Advance to 8I-1; milestone acceptance remains pending.",
+  "decision": "human_review",
+  "task_id": "8I-1",
+  "summary": "Final independent review found no blocking source, regression, instrumentation or documentation findings. Required automated checks pass; human visual and performance viability assessment remain.",
   "findings": [
-    "No blocking defect found in the slice diff. The repaired assertion permits authorised redirection while preserving actual displacement, movement budgets, energy evidence and overlap checks.",
-    "Saved final results independently confirm 1,291 passing tests across 91 files, with no failures or skips. Every named 8H contract is present and passing.",
-    "Final typecheck, build and diff check passed. Reviewed test, nearby collision code and configuration match the candidate snapshot.",
-    "The full suite passed with --maxWorkers=1 and unchanged timeouts. Initial concurrency sensitivity remains documented; contention is an inference.",
-    "The proposed 8I task covers the plan’s required performance and soak gate. 8J human visual acceptance remains mandatory."
+    "Fresh integration: 1,292 tests across 91 files, typecheck, build and diff check passed.",
+    "Full performance: 137 tests across 24 files passed, including two 72,000-tick replays and the unchanged full-scene inspection budget.",
+    "Gathering-only distance policy is now explicitly enabled by casualty-helper authority; medical approach detours remain available.",
+    "Exactly nine bounded first-query spatial-grid arrays are accounted for; initialized typed storage retains identities and counts.",
+    "Compact and original soak arenas have identical per-tick hashes, movement counts and late collision evidence.",
+    "Legal 2,000-entity mean 73.06 ms/tick does not demonstrate real-time 20 Hz. Viability is explicitly unresolved.",
+    "Both review routes and worker passed HTTP smoke; no connected browser was available for visual inspection."
   ],
   "remaining_failures": [],
-  "next_task": "---\ntask_id: 8I-1\nissue: 8I.performance-soak\nmilestone: 8\nplan: docs/plans/milestone-8-personal-space-collision-and-crowd-flow.md\nslice: 8I\nkind: performance\nhuman_review_required: false\n---\n\n# Complete the performance and deterministic soak gate\n\n## Goal\nVerify the complete 8I performance and deterministic soak requirements after fresh acceptance of the 8H transition.\n\n## Allowed scope\nRead the current checkpoint, exact 8I plan section and performance doctrine. Preserve reviewed repairs and unrelated WIP. Run the required measurements, diagnose demonstrated failures, repair production bugs or invalid fixtures, add meaningful regressions and verify the outcome within milestone 8 authority. Optimise only measured bottlenecks. Preserve deterministic simulation, authority boundaries, legal placement, behavioural assertions and existing budgets. Do not add gameplay features or production dependencies, search seeds, inject desired states or increase timeouts. Report deliberately illegal dense diagnostics separately from representative acceptance measurements.\n\n## Checks\n- Full npm run perf, with complete results and exact worker settings; avoid overlapping expensive jobs.\n- Representative legal 2,000-entity Milestone 8 measurement with debug disabled.\n- One-hour deterministic collision soak/replay, recording duration, ticks, inputs and replay equality evidence.\n- Collision-stage timings and local query/candidate/pass counts.\n- Retained typed-storage evidence and allocation/GC evidence where practical.\n- Preserve and run the full-scene 400-tick/10-second inspected-record construction requirement in tests/performance/inspectedSnapshotConstruction.test.ts.\n- Run the deliberately illegal dense diagnostic fixture and report it separately.\n- For repairs, run affected regressions, typecheck for TypeScript changes and git diff --check. If production simulation code changes, repeat the complete 8H integration gate before acceptance.\n\n## Done criteria\nAll named 8I requirements pass on the proposed source without relaxed assertions or budgets. Save concise commands, outcomes, measurements and any practical instrumentation limitations. Return for independent review and fresh boundary acceptance before selecting 8J. Record distinct unresolved failures with stable IDs; do not claim milestone completion or human acceptance.\n",
-  "human_review": null
+  "next_task": null,
+  "human_review": "Use docs/agent-loop/HUMAN_REVIEW.md to inspect /test?scenario=personal-space and /, and assess the 2,000-entity throughput concern. Milestone 8 is not accepted; do not start Milestone 9."
 }

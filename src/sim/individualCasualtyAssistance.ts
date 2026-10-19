@@ -784,6 +784,7 @@ export function advanceCasualtyDragGroupsBeforeCombat(
               world.positionsX[helperId]! - startX,
               world.positionsY[helperId]! - startY,
               group.patientEntityId,
+              true, // Only helper gathering requires non-increasing patient distance.
             );
             moved = commitIndividualExternalMovementResolution(
               world, formationStore, helperId, startX, startY,

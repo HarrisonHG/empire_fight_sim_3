@@ -1,6 +1,6 @@
 # Milestone 8: Personal Space, Collision, and Crowd Flow
 
-Status: in progress.
+Status: automated checks complete; ready for human review, not accepted.
 
 Accepted slices:
 
@@ -359,32 +359,19 @@ Checkpoint each independently reviewed repair even while this gate remains red;
 select the next distinct issue with a new task ID/context. Do not create routine
 diagnosis-only handoffs or demand renewed permission for authorised fixes.
 
-Status: in progress. 8H-3, the reconstructed 8H-4-R1 audit and 8H-5 fixture
-correction are accepted. Do not reopen the superseded missing-audit question.
-8H is not accepted; 8I and 8J remain pending.
+Status: complete on the final source, 2026-10-19: 1,292 tests across 91 files,
+typecheck, production build and diff check passed. The repeat covers production
+changes after the historical 8H-10 acceptance and the 8H-11 correction.
 
-The 8H-7 correction chain is unaccepted WIP. Human decisions on 2026-10-18
-require non-increasing patient distance in gathering, a fragile recruit fixture
-that physically flees, and a reserve isolated as the steady control. The root
-AGENTS.md bug-fix authority now authorises bounded production/test/fixture repairs
-without repeated permission requests; keep named behaviour and gates intact.
+8H-11 is a narrow correction: constrain non-increasing patient distance only
+for casualty-helper gathering, using an explicit caller opt-in. Medical approach
+retains its existing local detour authority with a downed contact patient.
+Regressions reproduce the original authority leak and preserve gathering,
+hard-body legality, movement budgets and deterministic replay. Focused checks
+pass; the complete integration repeat also passes.
 
-Current bounded correction **8H-7-C6** repairs pursuit fixtures with legal spacing,
-heavier armour and two-to-one numerical pressure so both troop profiles can
-demonstrate physical retreat, pursuit and recovery. Assertions check behavioural
-ordering and experience comparison within the existing 1,200/800-tick windows,
-not obsolete exact ticks. No morale, casualty or assistance rule is changed by
-this fixture repair. Require independent review, then repeat the complete 8H gate.
-
-Read docs/agent-loop/RESTART_BRIEF.md and CURRENT_TASK for the exact handoff,
-source hashes and focused evidence. Historical probes are archived and are not
-startup reading. No timeout or acceptance gate was relaxed.
-C6 focused independent review is complete. The 8H-8 repeat gate remains red:
-1,280 tests passed / 3 failed across 90 files, with no skipped tests. Typecheck
-and build passed. Failures concern retained death-clock test runtime, the main
-battle routing observation, and the standalone morale recruit expectation.
-Evidence: `.agent-loop/runs/1792337367202-32832/2/`. Independent review remains
-required; 8I and 8J have not started.
+The reconstructed 8H-4-R1 audit was accepted; the old missing-audit prerequisite
+is resolved. Detailed historical evidence belongs in `docs/progress/`.
 
 **No new features.**
 
@@ -432,7 +419,14 @@ in tests/performance/inspectedSnapshotConstruction.test.ts. The individual
 death-clock display regression requests only its relevant inspected entity;
 this does not waive representative snapshot throughput or lifecycle coverage.
 
-Status: pending after 8H.
+Status: all required automated measurements/checks pass, 2026-10-19: 137 tests
+across 24 files, including the one-hour replay and full-scene inspection budget.
+Performance viability still needs human assessment: the legal 2,000-entity case
+averages 73.06 ms/tick (p95 77.16 ms), about 13.7 ticks/second on this machine,
+below real-time 20 Hz. No numerical acceptance budget was specified; do not
+infer an unconditional performance acceptance from passing structural tests.
+Detailed measurements, storage/GC limits and separate adverse results are in
+the implementation history. No timeout or assertion budget was increased.
 
 **No new gameplay behaviour.**
 
@@ -465,7 +459,10 @@ then repeat 8H before acceptance
 
 ## 8J — Human visual acceptance gate
 
-Status: pending after 8H and 8I.
+Status: ready for human review; visual acceptance and the 8I throughput concern
+remain unresolved. Both routes passed HTTP smoke. No connected browser was
+available for visual inspection; HTTP checks do not establish visual acceptance.
+Use `docs/agent-loop/HUMAN_REVIEW.md` for the current checklist.
 
 No planned simulation feature work.
 

@@ -124,7 +124,7 @@ describe("gathering around soft occupancy", () => {
       const py = tick % 2 === 0 ? 2 : -2;
       fixture.world.positionsX[0] = 30;
       fixture.world.positionsY[0] = startY + py;
-      fixture.resolver.resolveStep(0, 0, py, 1);
+      fixture.resolver.resolveStep(0, 0, py, 1, true);
       if (tick < 8) {
         expect([fixture.resolver.resolvedDeltaX, fixture.resolver.resolvedDeltaY]).toEqual([0, py]);
       } else {
@@ -134,7 +134,7 @@ describe("gathering around soft occupancy", () => {
     }
     fixture.world.positionsX[1] = 40;
     fixture.world.positionsY[0] = 51;
-    fixture.resolver.resolveStep(0, 0, 2, 1);
+    fixture.resolver.resolveStep(0, 0, 2, 1, true);
     expect(fixture.resolver.resolvedDeltaY).toBe(2);
   });
 
@@ -142,10 +142,18 @@ describe("gathering around soft occupancy", () => {
     const fixture = createFixture(1);
     fixture.occupancy.occupancyClassCodes[1] = 2;
     fixture.world.positionsX[0] = 28;
-    fixture.resolver.resolveStep(0, -2, 0, 1);
+    fixture.resolver.resolveStep(0, -2, 0, 1, true);
     expect([fixture.resolver.resolvedDeltaX, fixture.resolver.resolvedDeltaY]).toEqual([0, 0]);
-    fixture.resolver.resolveStep(0, -2, 0);
+    fixture.resolver.resolveStep(0, -2, 0, 1);
     expect([fixture.resolver.resolvedDeltaX, fixture.resolver.resolvedDeltaY]).toEqual([-2, 0]);
+  });
+
+  it("preserves medical approach detours around a hard blocker with a downed contact patient", () => {
+    const first = runGatheringApproach(0, true, 348, false, 555);
+    expect(first.trace.some((point, index) => point[2]! >
+      (index === 0 ? 169 : first.trace[index - 1]![2]!))).toBe(true);
+    expect(first.minimumHardClearance).toBeGreaterThanOrEqual(64);
+    expect(runGatheringApproach(0, true, 348, false, 555)).toEqual(first);
   });
 
   it("retains useful avoidance before crossing", () => {
@@ -164,14 +172,14 @@ describe("gathering around soft occupancy", () => {
   });
 });
 
-function runGatheringApproach(symmetry: number, hard = false, startY = 347) {
+function runGatheringApproach(symmetry: number, hard = false, startY = 347, gathering = true, blockerX = 556) {
   const transform = (x: number, y: number): [number, number] => {
     let dx = x - 560, dy = y - 348;
     if (symmetry >= 4) dx = -dx;
     for (let i = 0; i < symmetry % 4; i += 1) [dx, dy] = [-dy, dx];
     return [560 + dx, 348 + dy];
   };
-  const points = [transform(547, startY), transform(556, 348), transform(560, 348)];
+  const points = [transform(547, startY), transform(blockerX, 348), transform(560, 348)];
   const world: WorldState = {
     entityCount: 3, bounds: { width: 800, height: 800 },
     ids: Uint32Array.from([0, 1, 2]),
@@ -207,11 +215,11 @@ function runGatheringApproach(symmetry: number, hard = false, startY = 347) {
     const px = Math.max(-4, Math.min(4, tx - sx));
     const py = Math.max(-4, Math.min(4, ty - sy));
     world.positionsX[0] = sx + px; world.positionsY[0] = sy + py;
-    resolver.resolveStep(0, px, py, 2);
+    resolver.resolveStep(0, px, py, 2, gathering);
     const dx = resolver.resolvedDeltaX, dy = resolver.resolvedDeltaY;
     world.positionsX[0] = sx + dx; world.positionsY[0] = sy + dy;
     const distance = (tx - sx - dx) ** 2 + (ty - sy - dy) ** 2;
-    expect(distance).toBeLessThanOrEqual((tx - sx) ** 2 + (ty - sy) ** 2);
+    if (gathering) expect(distance).toBeLessThanOrEqual((tx - sx) ** 2 + (ty - sy) ** 2);
     trace.push([world.positionsX[0]!, world.positionsY[0]!, distance]);
     expect(dx ** 2 + dy ** 2).toBeLessThanOrEqual(px ** 2 + py ** 2);
     expect(getIndividualCollisionResolutionInspection(collision, 0)).toMatchObject({

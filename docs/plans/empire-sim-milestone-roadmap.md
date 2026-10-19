@@ -123,11 +123,11 @@ Milestone 6 deliberately made downed/terminal characters non-active blockers and
 
 Status: accepted / implemented following human visual acceptance on 2026-08-24.
 
-Final accepted tuning is recorded in:
+Final accepted tuning is recorded in the consolidated “Accepted human-tuning
+corrections (7K)” section of:
 
 ```text
-docs/plans/milestone-7-energy-exertion-and-rest.md
-docs/plans/milestone-7-human-tuning-corrections.md
+docs/completed-plans/milestone-7-energy-exertion-and-rest.md
 ```
 
 Accepted behaviour includes:
@@ -153,7 +153,7 @@ Milestone 7 is closed.
 
 ## Milestone 8 — Personal Space, Collision, and Crowd Flow
 
-Status: in progress. 8A–8F accepted; 8G-1/2/3 locally complete. 8H remains red with bounded corrections pending. 8I performance/soak and 8J human acceptance remain pending. See the active plan and `docs/agent-loop/RESTART_BRIEF.md` for the reconciled handoff.
+Status: ready for human review, not accepted. 8A–8F accepted; 8G-1/2/3 complete; fresh 8H passes (1,292 tests). All 8I automated checks pass (137 tests), including one-hour deterministic replay. Legal 2,000-entity throughput is 73.06 ms/tick on the measurement machine and needs human assessment; 8J visual acceptance is pending. See the active plan and `docs/agent-loop/HUMAN_REVIEW.md`.
 
 Detailed plan:
 

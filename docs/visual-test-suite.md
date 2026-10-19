@@ -26,10 +26,13 @@ Run `npm run dev`, then open:
 | `/test` | Visual test menu | N/A | Lists every registered visual test and starts no worker or renderer. |
 | `/test?scenario=movement-behaviour` | Milestone 2 accepted | 0-120 | Formed march, ordered halt, formed detour, loose flow, halt-and-wait, disruptive push-through, and veteran stability versus recruit instability under equal pressure. |
 | `/test?scenario=combat-foundation` | Milestone 3 accepted | 0-420 | Both fronts advance and engage at reach without interpenetrating; combat counters, pressure, and morale update; membership remains unchanged. |
-| `/test?scenario=morale-inspection` | Milestone 4 accepted 2026-07-12 | 0-800 | Recruit breaks first, regular degrades faster than veteran, pass-through disrupts the reserve, routers flee before recovery, recovering units halt and reform, and the veteran pursuit subject returns to steady before the regular. |
+| `/test?scenario=morale-inspection` | Milestone 4 accepted 2026-07-12 | 0-800 | Recruit breaks first, regular degrades faster than veteran, the isolated reserve remains a safe, steady comparison control, routers flee before recovery, recovering units halt and reform, and the veteran pursuit subject returns to steady before the regular. |
 | `/test?scenario=individual-combat` | Milestone 5 accepted 2026-07-15 | 0-80 | Seven isolated landscape-grid chambers show frontal parry, held shield block, two-on-one guard overwhelm, polearm reach, armour/global-hit totals, one-second same-pair gate rejection, and independent attackers zeroing a target without removal. |
-| `/test?scenario=defence-overwhelm` | Milestone 5 accepted 2026-07-15 | 0-220 | Six isolated chambers show offensive openings, regular/recruit/veteran readiness recovery under different attack cadences, cumulative overwhelm, and rare rear desperate defence. |
-| `/test?scenario=casualty-lifecycle` | Milestone 6 awaiting human visual acceptance | 0-2650 | Ten isolated chambers show zero-hit lifecycle, death counts, rescue and dragging, medical treatment, trauma withdrawal, execution/comfort, respawn staging, and limb treatment. |
+| `/test?scenario=defence-overwhelm` | Milestone 5 accepted 2026-07-15 | 0-120 | Six isolated chambers show offensive openings, regular/recruit/veteran readiness recovery under different attack cadences, cumulative overwhelm, and rare rear desperate defence. |
+| `/test?scenario=casualty-lifecycle` | Milestone 6 accepted; retained regression | 0-2650 | Ten isolated chambers show zero-hit lifecycle, death counts, rescue and dragging, medical treatment, trauma withdrawal, execution/comfort, respawn staging, and limb treatment. |
+| `/test?scenario=energy-exertion` | Milestone 7 accepted; retained regression | 0-300 | Ten chambers retain gait, combat exertion, burden, drag, recovery, conservation and respawn energy evidence. |
+| `/test?scenario=personal-space-spike` | Milestone 8A isolated feasibility harness | 0-1000 | Local spacing experiments; this is not the complete production collision route. |
+| `/test?scenario=personal-space` | Milestone 8 awaiting human acceptance | 0-2000 | Production main battle with physical fronts, allied flow, urgent responders, soft casualties, coherent rescue and yielding egress; hideable footprints and permitted/resolved vectors. |
 
 Unknown scenario IDs show a clear error followed by the full menu. Scenario
 pages include a **Back to visual test menu** link and start paused at tick 0;
@@ -242,3 +245,18 @@ The debug panel constrains its height to the viewport, scrolls vertically when
 the debug content is long, and wraps the individual table in horizontal
 scrolling so the page itself does not overflow. Richer sprites, icons, and
 specialised presentation remain deferred under DC-017. The retained Milestone 5 renderer does not yet depict a downed posture. Authoritative casualty lifecycle now exists in Milestone 6; its retained visual presentation arrives with `/test?scenario=casualty-lifecycle` in Milestone 6J.
+
+
+## Milestone 8 human review
+
+Review both `/test?scenario=personal-space` and `/`, with debug evidence shown
+and hidden. The retained route starts paused; run through its 0–2,000 tick
+window and inspect physical fronts, allied flow, routing, responders, downed
+people, rescue groups and egress. Footprint circles identify occupancy; amber
+vectors show permitted movement and green vectors show resolved movement.
+Preserve the centre gait/activity pip. Use inspected-entity details to explain
+blocking, right-of-way and detour decisions.
+
+The current acceptance checklist and measured 2,000-entity throughput concern
+are in `docs/agent-loop/HUMAN_REVIEW.md`. Browser visual acceptance has not been
+performed in the 2026-10-19 handoff; HTTP loading is only smoke evidence.

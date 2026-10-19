@@ -16,7 +16,7 @@ it("measures legal debug-off 2,000-entity production collision work", async () =
   const simulation = createSimulation(createCollisionScenario(2_000));
   const combat = simulation.combatSandbox!;
   assertHardBodyLegality(simulation);
-  const storage = captureTypedStorage(simulation);
+  const setupStorage = captureTypedStorage(simulation);
   const before = process.memoryUsage();
   const gc = { count: 0, durationMilliseconds: 0 };
   const observer = new PerformanceObserver((list) => {
@@ -39,6 +39,7 @@ it("measures legal debug-off 2,000-entity production collision work", async () =
     advanceSimulationOneTick(simulation);
     timingSpy.mockClear();
   }
+  const storage = captureInitializedStorage(simulation, setupStorage);
   collisionMilliseconds = 0;
   const samples: number[] = [];
   const stages: Record<string, number> = {};
@@ -111,7 +112,8 @@ it("replays one hour of legal production collision with identical inputs and tic
 function runCollisionSoak() {
   const simulation = createSimulation(createCollisionScenario(20));
   const combat = simulation.combatSandbox!;
-  const storage = captureTypedStorage(simulation);
+  const setupStorage = captureTypedStorage(simulation);
+  let storage: ReturnType<typeof captureTypedStorage> | undefined;
   const hash = createHash("sha256");
   const rngBytes = new Uint32Array(1);
   let movingTicks = 0;
@@ -124,6 +126,7 @@ function runCollisionSoak() {
       }
     }
     advanceSimulationOneTick(simulation);
+    if (tick === 0) storage = captureInitializedStorage(simulation, setupStorage);
     const result = combat.individualActiveStandingCollisionResult;
     if (result.unresolvedOverlapCount !== 0 || result.passCount > 8) {
       throw new Error("Unresolved collision or unbounded solver at tick " + tick);
@@ -153,7 +156,7 @@ function runCollisionSoak() {
     rngBytes[0] = simulation.rngState;
     hash.update(Buffer.from(rngBytes.buffer));
   }
-  assertStorageRetained(storage, simulation);
+  assertStorageRetained(storage!, simulation);
   return {
     finalTick: simulation.tick, movingTicks, lastQuarterConstrainedTicks, maximumPasses,
     tickEvidenceSha256: hash.digest("hex"),
@@ -162,8 +165,8 @@ function runCollisionSoak() {
       if (value instanceof Set) return Array.from(value.values());
       return value;
     })).digest("hex"),
-    retainedTypedArrayCount: storage.length,
-    retainedTypedStorageBytes: storage.reduce((bytes, item) => bytes + item.view.byteLength, 0),
+    retainedTypedArrayCount: storage!.length,
+    retainedTypedStorageBytes: storage!.reduce((bytes, item) => bytes + item.view.byteLength, 0),
   };
 }
 
@@ -174,7 +177,8 @@ function createCollisionScenario(entityCount: 20 | 2_000): SimulationScenario {
   const base = MAIN_BATTLE_MEDICAL_SCENARIO.combatSandbox!.units[0]!;
   const { memberProfiles: _profiles, ...template } = base;
   return {
-    seed: SEED, entityCount, bounds: { width: 1_800, height: 900 },
+    seed: SEED, entityCount,
+    bounds: small ? { width: 800, height: 300 } : { width: 1_800, height: 900 },
     minSpeedUnitsPerTick: 1, maxSpeedUnitsPerTick: 1,
     combatSandbox: {
       kind: "liveCombatSandbox", appliedDamagePressureScale: 2,
@@ -228,22 +232,38 @@ function assertHardBodyLegality(simulation: SimulationState): void {
 
 function captureTypedStorage(simulation: SimulationState) {
   const seen = new Set<object>();
-  const result: { owner: Record<string, unknown>; key: string; view: ArrayBufferView }[] = [];
-  function visit(value: unknown) {
+  const result: { owner: Record<string, unknown>; key: string; path: string; view: ArrayBufferView }[] = [];
+  function visit(value: unknown, path = "simulation") {
     if (value === null || typeof value !== "object" || seen.has(value)) return;
     seen.add(value);
     for (const [key, child] of Object.entries(value)) {
       if (ArrayBuffer.isView(child)) {
         if (!seen.has(child)) {
           seen.add(child);
-          result.push({ owner: value as Record<string, unknown>, key, view: child });
+          result.push({ owner: value as Record<string, unknown>, key, path: path + "." + key, view: child });
         }
       }
-      else visit(child);
+      else visit(child, path + "." + key);
     }
   }
   visit(simulation);
   return result;
+}
+
+// These existing spatial grids initialize on their first production query.
+// Account for exactly that bounded setup, then require full storage identity reuse.
+function captureInitializedStorage(simulation: SimulationState, setup: ReturnType<typeof captureTypedStorage>) {
+  expect(setup.every(({ owner, key, view }) => owner[key] === view)).toBe(true);
+  const initialized = captureTypedStorage(simulation);
+  const original = new Set(setup.map(({ view }) => view));
+  const added = initialized.filter(({ view }) => !original.has(view));
+  const expectedPaths = ["formationStore.blockerGrid", "pressureStore.individualPressureGrid", "routingContagionStore.grid"]
+    .flatMap(grid => ["entityIds", "entityPositionsX", "entityPositionsY"]
+      .map(field => "simulation.combatSandbox." + grid + "." + field));
+  expect(added.map(({ path }) => path).sort()).toEqual(expectedPaths.sort());
+  expect(added.every(({ view }) => view.byteLength === simulation.world.entityCount * 4)).toBe(true);
+  expect(initialized.length).toBe(setup.length + expectedPaths.length);
+  return initialized;
 }
 
 function assertStorageRetained(storage: ReturnType<typeof captureTypedStorage>, simulation: SimulationState) {
